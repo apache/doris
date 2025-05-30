@@ -656,8 +656,9 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                 auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_primitive_type();
                 auto target_primitive_type = target_type->get_primitive_type();
-                if (is_complex_type(storage_type)) {
-                    if (is_array(storage_type) && is_array(target_type)) {
+                if (is_complex_type(storage_type->get_primitive_type())) {
+                    if (storage_type->get_primitive_type() == TYPE_ARRAY &&
+                        target_type->get_primitive_type() == TYPE_ARRAY) {
                         auto nested_storage_type =
                                 (assert_cast<const DataTypeArray*>(storage_type.get()))
                                         ->get_nested_type();
@@ -676,6 +677,8 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                       is_string_type(origin_primitive_type)))) {
                     children_exprs.emplace_back(expr_without_cast(child));
                 }
+            } else {
+                return Status::OK(); // for example: cast("abc") as ipv4 case
             }
         } else {
             children_exprs.emplace_back(child);
@@ -715,10 +718,14 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
             auto* column_literal = assert_cast<VLiteral*>(child.get());
             arguments.emplace_back(column_literal->get_column_ptr(),
                                    column_literal->get_data_type(), column_literal->expr_name());
+        } else {
+            return Status::OK(); // others cases
         }
     }
 
-    if (iterators.empty() || arguments.empty()) {
+    // is null or is not null has no arguments
+    if (iterators.empty() || (arguments.empty() && !(function->get_name() == "is_not_null_pred" ||
+                                                     function->get_name() == "is_null_pred"))) {
         return Status::OK(); // Nothing to evaluate or no literals to compare against
     }
 

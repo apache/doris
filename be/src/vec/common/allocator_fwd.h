@@ -26,6 +26,8 @@
 #include <cstddef>
 namespace doris {
 class DefaultMemoryAllocator;
+class NoTrackingDefaultMemoryAllocator;
+
 template <bool clear_memory_, bool mmap_populate = false, bool use_mmap = false,
           typename MemoryAllocator = DefaultMemoryAllocator>
 class Allocator;

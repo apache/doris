@@ -37,18 +37,13 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
-
 struct AggregateFunctionBitmapUnionOp {
     static constexpr auto name = "bitmap_union";
 

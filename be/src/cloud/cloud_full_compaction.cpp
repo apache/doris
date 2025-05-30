@@ -47,14 +47,24 @@ CloudFullCompaction::CloudFullCompaction(CloudStorageEngine& engine, CloudTablet
 CloudFullCompaction::~CloudFullCompaction() = default;
 
 Status CloudFullCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            cloud_tablet()->set_last_full_compaction_status(st.to_string());
+            cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING) {
-        return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     // always sync latest rowset for full compaction
-    RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+    st = cloud_tablet()->sync_rowsets();
+    RETURN_IF_ERROR(st);
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
 
     for (auto& rs : _input_rowsets) {
         _input_row_num += rs->num_rows();
@@ -151,7 +161,9 @@ Status CloudFullCompaction::execute_compact() {
     using namespace std::chrono;
     auto start = steady_clock::now();
     auto res = CloudCompactionMixin::execute_compact();
+    cloud_tablet()->set_last_full_compaction_status(res.to_string());
     if (!res.ok()) {
+        cloud_tablet()->set_last_full_compaction_failure_time(UnixMillis());
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->tablet_id()
                      << ", output_version=" << _output_version;
@@ -178,6 +190,8 @@ Status CloudFullCompaction::execute_compact() {
     DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_total_size);
     full_output_size << _output_rowset->total_disk_size();
 
+    cloud_tablet()->set_last_full_compaction_success_time(UnixMillis());
+    cloud_tablet()->set_last_full_compaction_status(Status::OK().to_string());
     return Status::OK();
 }
 
@@ -333,7 +347,6 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     RETURN_IF_ERROR(
             _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
-    std::lock_guard rowset_update_lock(cloud_tablet()->get_rowset_update_lock());
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {
         int64_t cur_version = it.first.first;
@@ -378,7 +391,8 @@ Status CloudFullCompaction::_cloud_full_compaction_calc_delete_bitmap(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     for (const auto& [k, v] : tmp_delete_bitmap->delete_bitmap) {
-        if (std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
+        if (std::get<0>(k) == _output_rowset->rowset_id() &&
+            std::get<1>(k) != DeleteBitmap::INVALID_SEGMENT_ID) {
             delete_bitmap->merge({std::get<0>(k), std::get<1>(k), cur_version}, v);
         }
     }

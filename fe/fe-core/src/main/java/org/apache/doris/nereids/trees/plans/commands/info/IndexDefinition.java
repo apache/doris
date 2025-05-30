@@ -100,9 +100,9 @@ public class IndexDefinition {
     /**
      * constructor for build index
      */
-    public IndexDefinition(String name, PartitionNamesInfo partitionNames) {
+    public IndexDefinition(String name, PartitionNamesInfo partitionNames, IndexType indexType) {
         this.name = name;
-        this.indexType = IndexType.INVERTED;
+        this.indexType = indexType;
         this.partitionNames = partitionNames;
         this.isBuildDeferred = true;
         this.cols = null;
@@ -260,13 +260,17 @@ public class IndexDefinition {
                 comment);
     }
 
+    public List<String> getPartitionNames() {
+        return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
+    }
+
     /**
      * translateToLegacyIndexDef
      */
     public IndexDef translateToLegacyIndexDef() {
         if (isBuildDeferred) {
             return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
-                    true);
+                    indexType, true);
         } else {
             return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
         }

@@ -50,7 +50,7 @@ public class FeConstants {
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;
 
-    public static boolean bindWgToComputeGroup = true;
+    public static boolean disableWGCheckerForUT = false;
 
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;

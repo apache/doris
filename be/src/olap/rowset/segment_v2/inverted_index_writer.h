@@ -28,7 +28,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"

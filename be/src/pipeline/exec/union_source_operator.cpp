@@ -55,6 +55,12 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     return Status::OK();
 }
 
+bool UnionSourceLocalState::must_set_shared_state() const {
+    auto& p = _parent->cast<Parent>();
+    // if this operator has no children, there is no shared state.(because no sink )
+    return p.get_child_count() != 0;
+}
+
 Status UnionSourceLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);

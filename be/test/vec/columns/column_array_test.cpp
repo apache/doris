@@ -37,103 +37,122 @@ protected:
         // we need to load data from csv file into column_array list
         // step1. create data type for array nested type (const and nullable)
         // array<bool>
-        InputTypeSet array_uint8 = {TypeIndex::Array, TypeIndex::UInt8};
+        InputTypeSet array_uint8 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_BOOLEAN};
         // array<tinyint>
-        InputTypeSet array_tinyint = {TypeIndex::Array, TypeIndex::Int8};
+        InputTypeSet array_tinyint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_TINYINT};
         // array<smallint>
-        InputTypeSet array_smallint = {TypeIndex::Array, TypeIndex::Int16};
+        InputTypeSet array_smallint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_SMALLINT};
         // array<int>
-        InputTypeSet array_int = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet array_int = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
         // array<bigint>
-        InputTypeSet array_bigint = {TypeIndex::Array, TypeIndex::Int64};
+        InputTypeSet array_bigint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_BIGINT};
         // array<largeint>
-        InputTypeSet array_largeint = {TypeIndex::Array, TypeIndex::Int128};
+        InputTypeSet array_largeint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_LARGEINT};
         // array<float>
-        InputTypeSet array_float = {TypeIndex::Array, TypeIndex::Float32};
+        InputTypeSet array_float = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT};
         // array<double>
-        InputTypeSet array_double = {TypeIndex::Array, TypeIndex::Float64};
+        InputTypeSet array_double = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DOUBLE};
         // array<ipv4>
-        InputTypeSet array_ipv4 = {TypeIndex::Array, TypeIndex::IPv4};
+        InputTypeSet array_ipv4 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_IPV4};
         // array<ipv6>
-        InputTypeSet array_ipv6 = {TypeIndex::Array, TypeIndex::IPv6};
+        InputTypeSet array_ipv6 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_IPV6};
         // array<date>
-        InputTypeSet array_date = {TypeIndex::Array, TypeIndex::Date};
+        InputTypeSet array_date = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE};
         // array<datetime>
-        InputTypeSet array_datetime = {TypeIndex::Array, TypeIndex::DateTime};
+        InputTypeSet array_datetime = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME};
         // array<datev2>
-        InputTypeSet array_datev2 = {TypeIndex::Array, TypeIndex::DateV2};
+        InputTypeSet array_datev2 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATEV2};
         // array<datetimev2>
-        InputTypeSet array_datetimev2 = {TypeIndex::Array, TypeIndex::DateTimeV2};
+        InputTypeSet array_datetimev2 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIMEV2};
         // array<varchar>
-        InputTypeSet array_varchar = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet array_varchar = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
         // array<decimal32(9, 5)> UT
-        InputTypeSet array_decimal = {TypeIndex::Array, TypeIndex::Decimal32};
+        InputTypeSet array_decimal = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL32};
         // array<decimal64(18, 9)> UT
-        InputTypeSet array_decimal64 = {TypeIndex::Array, TypeIndex::Decimal64};
+        InputTypeSet array_decimal64 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL64};
         // array<decimal128(38, 20)> UT
-        InputTypeSet array_decimal128 = {TypeIndex::Array, TypeIndex::Decimal128V3};
+        InputTypeSet array_decimal128 = {PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_DECIMAL128I};
         // array<decimal256(76, 40)> UT
-        InputTypeSet array_decimal256 = {TypeIndex::Array, TypeIndex::Decimal256};
+        InputTypeSet array_decimal256 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL256};
         // array<array<bool>>
-        InputTypeSet array_array_uint8 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::UInt8};
+        InputTypeSet array_array_uint8 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_BOOLEAN};
         // array<array<tinyint>>
-        InputTypeSet array_array_tinyint = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Int8};
+        InputTypeSet array_array_tinyint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                            PrimitiveType::TYPE_TINYINT};
         // array<array<smallint>>
-        InputTypeSet array_array_smallint = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Int16};
+        InputTypeSet array_array_smallint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                             PrimitiveType::TYPE_SMALLINT};
         // array<array<int>>
-        InputTypeSet array_array_int = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet array_array_int = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                        PrimitiveType::TYPE_INT};
         // array<array<bigint>>
-        InputTypeSet array_array_bigint = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Int64};
+        InputTypeSet array_array_bigint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_BIGINT};
         // array<array<largeint>>
-        InputTypeSet array_array_largeint = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Int128};
+        InputTypeSet array_array_largeint = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                             PrimitiveType::TYPE_LARGEINT};
         // array<array<float>>
-        InputTypeSet array_array_float = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Float32};
+        InputTypeSet array_array_float = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_FLOAT};
         // array<array<double>>
-        InputTypeSet array_array_double = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Float64};
+        InputTypeSet array_array_double = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_DOUBLE};
         // array<array<ipv4>>
-        InputTypeSet array_array_ipv4 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::IPv4};
+        InputTypeSet array_array_ipv4 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_IPV4};
         // array<array<ipv6>>
-        InputTypeSet array_array_ipv6 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::IPv6};
+        InputTypeSet array_array_ipv6 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_IPV6};
         // array<array<date>>
-        InputTypeSet array_array_date = {TypeIndex::Array, TypeIndex::Array, TypeIndex::Date};
+        InputTypeSet array_array_date = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_DATE};
         // array<array<datetime>>
-        InputTypeSet array_array_datetime = {TypeIndex::Array, TypeIndex::Array,
-                                             TypeIndex::DateTime};
+        InputTypeSet array_array_datetime = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                             PrimitiveType::TYPE_DATETIME};
         // array<array<datev2>>
-        InputTypeSet array_array_datev2 = {TypeIndex::Array, TypeIndex::Array, TypeIndex::DateV2};
+        InputTypeSet array_array_datev2 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_DATEV2};
         // array<array<datetimev2>>
-        InputTypeSet array_array_datetimev2 = {TypeIndex::Array, TypeIndex::Array,
-                                               TypeIndex::DateTimeV2};
+        InputTypeSet array_array_datetimev2 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                               PrimitiveType::TYPE_DATETIMEV2};
         // array<array<varchar>>
-        InputTypeSet array_array_varchar = {TypeIndex::Array, TypeIndex::Array, TypeIndex::String};
+        InputTypeSet array_array_varchar = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                            PrimitiveType::TYPE_VARCHAR};
         // array<array<decimal32(9, 5)>> UT
-        InputTypeSet array_array_decimal = {TypeIndex::Array, TypeIndex::Array,
-                                            TypeIndex::Decimal32};
+        InputTypeSet array_array_decimal = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                            PrimitiveType::TYPE_DECIMAL32};
         // array<array<decimal64(18, 9)>> UT
-        InputTypeSet array_array_decimal64 = {TypeIndex::Array, TypeIndex::Array,
-                                              TypeIndex::Decimal64};
+        InputTypeSet array_array_decimal64 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                              PrimitiveType::TYPE_DECIMAL64};
         // array<array<decimal128(38, 20)>> UT
-        InputTypeSet array_array_decimal128 = {TypeIndex::Array, TypeIndex::Array,
-                                               TypeIndex::Decimal128V3};
+        InputTypeSet array_array_decimal128 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                               PrimitiveType::TYPE_DECIMAL128I};
         // array<array<decimal256(76, 40)>> UT
-        InputTypeSet array_array_decimal256 = {TypeIndex::Array, TypeIndex::Array,
-                                               TypeIndex::Decimal256};
+        InputTypeSet array_array_decimal256 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_ARRAY,
+                                               PrimitiveType::TYPE_DECIMAL256};
         // array<map<char,double>>
-        InputTypeSet array_map_char_double = {TypeIndex::Array, TypeIndex::Map, TypeIndex::String,
-                                              TypeIndex::Float64};
+        InputTypeSet array_map_char_double = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_MAP,
+                                              PrimitiveType::TYPE_VARCHAR,
+                                              PrimitiveType::TYPE_DOUBLE};
         // test_array_map<datetime,decimal<76,56>>.csv
-        InputTypeSet array_map_datetime_decimal = {TypeIndex::Array, TypeIndex::Map,
-                                                   TypeIndex::DateTime, TypeIndex::Decimal256};
+        InputTypeSet array_map_datetime_decimal = {
+                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DATETIME,
+                PrimitiveType::TYPE_DECIMAL256};
         // test_array_map<ipv4,ipv6>.csv
-        InputTypeSet array_map_ipv4_ipv6 = {TypeIndex::Array, TypeIndex::Map, TypeIndex::IPv4,
-                                            TypeIndex::IPv6};
+        InputTypeSet array_map_ipv4_ipv6 = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_MAP,
+                                            PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV6};
         // test_array_map<largeInt,string>.csv
-        InputTypeSet array_map_largeint_string = {TypeIndex::Array, TypeIndex::Map,
-                                                  TypeIndex::Int128, TypeIndex::String};
+        InputTypeSet array_map_largeint_string = {
+                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_LARGEINT,
+                PrimitiveType::TYPE_VARCHAR};
         // array<struct<f1:int,f2:date,f3:decimal,f4:string,f5:double,f6:ipv4,f7:ipv6>>
-        InputTypeSet array_struct = {TypeIndex::Array,   TypeIndex::Struct,    TypeIndex::Int32,
-                                     TypeIndex::Date,    TypeIndex::Decimal32, TypeIndex::String,
-                                     TypeIndex::Float64, TypeIndex::IPv4,      TypeIndex::IPv6};
+        InputTypeSet array_struct = {PrimitiveType::TYPE_ARRAY,     PrimitiveType::TYPE_STRUCT,
+                                     PrimitiveType::TYPE_INT,       PrimitiveType::TYPE_DATE,
+                                     PrimitiveType::TYPE_DECIMAL32, PrimitiveType::TYPE_VARCHAR,
+                                     PrimitiveType::TYPE_DOUBLE,    PrimitiveType::TYPE_IPV4,
+                                     PrimitiveType::TYPE_IPV6};
 
         std::vector<InputTypeSet> array_typeIndex = {
                 array_uint8,    array_tinyint,   array_smallint,   array_int,        array_bigint,
@@ -153,13 +172,13 @@ protected:
                 array_map_largeint_string};
         std::vector<InputTypeSet> array_struct_typeIndex = {array_struct};
 
-        vector<ut_type::UTDataTypeDescs> descs;
+        std::vector<ut_type::UTDataTypeDescs> descs;
         descs.reserve(array_typeIndex.size());
         for (int i = 0; i < array_typeIndex.size(); i++) {
             descs.emplace_back();
             InputTypeSet input_types {};
             input_types.push_back(array_typeIndex[i][0]);
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(array_typeIndex[i][1])});
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(array_typeIndex[i][1])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(input_types, descs[i]));
         }
@@ -168,8 +187,10 @@ protected:
             descs.emplace_back();
             InputTypeSet input_types {};
             input_types.push_back(array_array_typeIndex[i][0]);
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(array_array_typeIndex[i][1])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(array_array_typeIndex[i][2])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(array_array_typeIndex[i][1])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(array_array_typeIndex[i][2])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(input_types, descs[i + array_typeIndex.size()]));
@@ -180,11 +201,11 @@ protected:
             InputTypeSet input_types {};
             input_types.push_back(array_map_typeIndex[i][0]); // array
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_map_typeIndex[i][1])}); // map
+                    Nullable {any_cast<PrimitiveType>(array_map_typeIndex[i][1])}); // map
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_map_typeIndex[i][2])}); // key
+                    Nullable {any_cast<PrimitiveType>(array_map_typeIndex[i][2])}); // key
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_map_typeIndex[i][3])}); // val
+                    Nullable {any_cast<PrimitiveType>(array_map_typeIndex[i][3])}); // val
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
@@ -196,21 +217,21 @@ protected:
             InputTypeSet input_types {};
             input_types.push_back(array_struct_typeIndex[i][0]); // arr
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][1])}); // struct
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][1])}); // struct
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][2])}); // f1
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][2])}); // f1
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][3])}); // f2
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][3])}); // f2
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][4])}); // f3
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][4])}); // f3
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][5])}); // f4
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][5])}); // f4
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][6])}); // f5
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][6])}); // f5
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][7])}); // f6
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][7])}); // f6
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(array_struct_typeIndex[i][8])}); // f7
+                    Nullable {any_cast<PrimitiveType>(array_struct_typeIndex[i][8])}); // f7
 
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
@@ -219,25 +240,25 @@ protected:
         }
 
         // create column_array for each data type
-        vector<string> data_files = {data_file_dir + "test_array_bool.csv",
-                                     data_file_dir + "test_array_tinyint.csv",
-                                     data_file_dir + "test_array_smallint.csv",
-                                     data_file_dir + "test_array_int.csv",
-                                     data_file_dir + "test_array_bigint.csv",
-                                     data_file_dir + "test_array_largeint.csv",
-                                     data_file_dir + "test_array_float.csv",
-                                     data_file_dir + "test_array_double.csv",
-                                     data_file_dir + "test_array_ipv4.csv",
-                                     data_file_dir + "test_array_ipv6.csv",
-                                     data_file_dir + "test_array_date.csv",
-                                     data_file_dir + "test_array_datetime.csv",
-                                     data_file_dir + "test_array_date.csv",
-                                     data_file_dir + "test_array_datetimev2(6).csv",
-                                     data_file_dir + "test_array_varchar(65535).csv",
-                                     data_file_dir + "test_array_decimalv3(7,4).csv",
-                                     data_file_dir + "test_array_decimalv3(16,10).csv",
-                                     data_file_dir + "test_array_decimalv3(38,30).csv",
-                                     data_file_dir + "test_array_decimalv3(76,56).csv"};
+        std::vector<std::string> data_files = {data_file_dir + "test_array_bool.csv",
+                                               data_file_dir + "test_array_tinyint.csv",
+                                               data_file_dir + "test_array_smallint.csv",
+                                               data_file_dir + "test_array_int.csv",
+                                               data_file_dir + "test_array_bigint.csv",
+                                               data_file_dir + "test_array_largeint.csv",
+                                               data_file_dir + "test_array_float.csv",
+                                               data_file_dir + "test_array_double.csv",
+                                               data_file_dir + "test_array_ipv4.csv",
+                                               data_file_dir + "test_array_ipv6.csv",
+                                               data_file_dir + "test_array_date.csv",
+                                               data_file_dir + "test_array_datetime.csv",
+                                               data_file_dir + "test_array_date.csv",
+                                               data_file_dir + "test_array_datetimev2(6).csv",
+                                               data_file_dir + "test_array_varchar(65535).csv",
+                                               data_file_dir + "test_array_decimalv3(7,4).csv",
+                                               data_file_dir + "test_array_decimalv3(16,10).csv",
+                                               data_file_dir + "test_array_decimalv3(38,30).csv",
+                                               data_file_dir + "test_array_decimalv3(76,56).csv"};
 
         data_files.insert(data_files.end(),
                           {data_file_dir + "test_array_array_bool.csv",
@@ -735,14 +756,15 @@ TEST_F(ColumnArrayTest, GetNumberOfDimensionsTest) {
                 remove_nullable(array_columns[i]->assume_mutable()).get());
         auto check_type = remove_nullable(array_types[i]);
         auto dimension = 0;
-        while (is_array(check_type)) {
-            auto nested_type = reinterpret_cast<const vectorized::DataTypeArray&>(*check_type)
-                                       .get_nested_type();
+        while (check_type->get_primitive_type() == TYPE_ARRAY && !check_type->is_nullable()) {
+            auto nested_type =
+                    assert_cast<const vectorized::DataTypeArray&>(*check_type).get_nested_type();
             dimension++;
             check_type = nested_type;
         }
         EXPECT_EQ(column->get_number_of_dimensions(), dimension)
-                << "column dimension is not equal to check_type dimension";
+                << "column " << column->get_name()
+                << " dimension is not equal to check_type dimension";
     }
 }
 
@@ -788,7 +810,7 @@ TEST_F(ColumnArrayTest, MaxArraySizeAsFieldTest) {
             EXPECT_EQ(af.size(), start_size + max_array_size_as_field)
                     << "array size is not equal to start size + max_array_size_as_field";
             auto cloned = column->clone_resized(0);
-            cloned->insert(af);
+            cloned->insert(Field::create_field<TYPE_ARRAY>(af));
             // get cloned offset size
             auto cloned_offset_size =
                     check_and_get_column<ColumnArray>(cloned.get())->get_offsets().back();

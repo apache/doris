@@ -189,6 +189,16 @@ extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
 extern bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized;
 
+extern bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_put_conflict_counter;
+extern bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter;
+extern bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter;
+extern bvar::Adder<int64_t>
+        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter;
+extern bvar::Adder<int64_t>
+        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter;
+extern bvar::Adder<int64_t>
+        g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter;
+
 extern const int64_t BVAR_FDB_INVALID_VALUE;
 extern bvar::Status<int64_t> g_bvar_fdb_client_count;
 extern bvar::Status<int64_t> g_bvar_fdb_configuration_coordinators_count;
@@ -243,3 +253,4 @@ extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version;

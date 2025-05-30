@@ -47,12 +47,24 @@ suite("test_modify_data_mtmv","mtmv") {
         """
 
     sql """
-        insert into ${tableName} values(1,1),(2,2),(3,3);
+        insert into ${tableName} values(1,1);
         """
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
+
+    order_qt_insert """select * from ${mvName};"""
+
+    sql """
+        insert overwrite table ${tableName} values(2,2);
+        """
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+
+    order_qt_overwrite """select * from ${mvName};"""
 
     // insert into mtmv
     test {

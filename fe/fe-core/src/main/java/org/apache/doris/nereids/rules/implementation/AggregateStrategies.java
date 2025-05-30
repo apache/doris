@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -187,7 +188,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                     }
                                     Expression childExpr = filter.getConjuncts().iterator().next().children().get(0);
                                     if (childExpr instanceof SlotReference) {
-                                        Optional<Column> column = ((SlotReference) childExpr).getColumn();
+                                        Optional<Column> column = ((SlotReference) childExpr).getOriginalColumn();
                                         return column.map(Column::isDeleteSignColumn).orElse(false);
                                     }
                                     return false;
@@ -209,23 +210,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         })
             ),
             RuleType.STORAGE_LAYER_AGGREGATE_MINMAX_ON_UNIQUE.build(
-                    logicalAggregate(
-                            logicalProject(
-                                    logicalFilter(
-                                            logicalOlapScan().when(this::isUniqueKeyTable))
-                                            .when(filter -> {
-                                                if (filter.getConjuncts().size() != 1) {
-                                                    return false;
-                                                }
-                                                Expression childExpr = filter.getConjuncts().iterator().next()
-                                                        .children().get(0);
-                                                if (childExpr instanceof SlotReference) {
-                                                    Optional<Column> column = ((SlotReference) childExpr).getColumn();
-                                                    return column.map(Column::isDeleteSignColumn).orElse(false);
-                                                }
-                                                return false;
-                                            }))
-                        )
+                    logicalAggregate(logicalProject(logicalFilter(logicalOlapScan().when(this::isUniqueKeyTable))
+                            .when(filter -> {
+                                if (filter.getConjuncts().size() != 1) {
+                                    return false;
+                                }
+                                Expression childExpr = filter.getConjuncts().iterator().next()
+                                        .children().get(0);
+                                if (childExpr instanceof SlotReference) {
+                                    Optional<Column> column = ((SlotReference) childExpr).getOriginalColumn();
+                                    return column.map(Column::isDeleteSignColumn).orElse(false);
+                                }
+                                return false;
+                            })))
                         .when(agg -> enablePushDownMinMaxOnUnique())
                         .when(agg -> agg.getGroupByExpressions().isEmpty())
                         .when(agg -> {
@@ -421,6 +418,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                         return couldConvertToMulti(agg);
                     })
                     .when(agg -> agg.supportAggregatePhase(AggregatePhase.FOUR))
+                    .whenNot(Aggregate::mustUseMultiDistinctAgg)
                     .thenApplyMulti(ctx -> {
                         Function<List<Expression>, RequireProperties> secondPhaseRequireGroupByAndDistinctHash =
                                 groupByAndDistinct -> RequireProperties.of(
@@ -685,7 +683,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 SlotReference.class::isInstance);
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots, outPutSlots);
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getColumn().get();
+            Column column = slot.getOriginalColumn().get();
             PrimitiveType colType = column.getType().getPrimitiveType();
             if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                 return false;
@@ -819,7 +817,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
-            Column column = slot.getColumn().get();
+            Column column = slot.getOriginalColumn().get();
             if (column.isAggregated()) {
                 return canNotPush;
             }

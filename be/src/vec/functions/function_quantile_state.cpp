@@ -139,15 +139,11 @@ public:
                 compression = compression_arg_val;
             }
         }
-        WhichDataType which(data_type);
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
         column_result->resize(input_rows_count);
 
         Status status = Status::OK();
-        if (which.is_nullable()) {
-            const DataTypePtr& nested_data_type =
-                    static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
-            WhichDataType nested_which(nested_data_type);
+        if (data_type->is_nullable()) {
             RETURN_IF_ERROR(execute_internal<true>(column, data_type, column_result, compression));
         } else {
             RETURN_IF_ERROR(execute_internal<false>(column, data_type, column_result, compression));

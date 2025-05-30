@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -30,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -62,6 +64,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -108,6 +111,7 @@ public class StatementContext implements Closeable {
     private ConnectContext connectContext;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+    private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -176,7 +180,14 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
-    // tables maybe used by mtmv rewritten in this query
+    // tables maybe used by mtmv rewritten in this query,
+    // this contains mvs which use table in tables and the tables in mvs
+    // such as
+    // mv1 use t1, t2.
+    // mv2 use mv1, t3, t4.
+    // mv3 use t3, t4, t5
+    // if query is: select * from t2 join t5
+    // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
@@ -215,6 +226,16 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    // if greater than 0 means the duration has used
+    private long materializedViewRewriteDuration = 0L;
+
+    // Record used table and it's used partitions
+    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+            HashMultimap.create();
+
+    // Record mtmv and valid partitions map because this is time-consuming behavior
+    private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -359,6 +380,18 @@ public class StatementContext implements Closeable {
 
     public Stopwatch getStopwatch() {
         return stopwatch;
+    }
+
+    public Stopwatch getMaterializedViewStopwatch() {
+        return materializedViewStopwatch;
+    }
+
+    public long getMaterializedViewRewriteDuration() {
+        return materializedViewRewriteDuration;
+    }
+
+    public void addMaterializedViewRewriteDuration(long millisecond) {
+        materializedViewRewriteDuration += millisecond;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
@@ -814,6 +847,14 @@ public class StatementContext implements Closeable {
 
     public void setPartialLoadDictionary(boolean partialLoadDictionary) {
         this.partialLoadDictionary = partialLoadDictionary;
+    }
+
+    public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
+        return tableUsedPartitionNameMap;
+    }
+
+    public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
+        return mvCanRewritePartitionsMap;
     }
 
     public void setPrepareStage(boolean isPrepare) {

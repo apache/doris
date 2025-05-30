@@ -59,6 +59,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_hll.h"
@@ -67,7 +68,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -195,29 +195,29 @@ TEST(BlockSerializeTest, Map) {
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
     Array k1, k2, v1, v2;
-    k1.push_back("null");
-    k1.push_back("doris");
-    k1.push_back("clever amory");
-    v1.push_back("ss");
-    v1.push_back(Null());
-    v1.push_back("NULL");
-    k2.push_back("hello amory");
-    k2.push_back("NULL");
-    k2.push_back("cute amory");
-    k2.push_back("doris");
-    v2.push_back("s");
-    v2.push_back("0");
-    v2.push_back("sf");
-    v2.push_back(Null());
+    k1.push_back(Field::create_field<TYPE_STRING>("null"));
+    k1.push_back(Field::create_field<TYPE_STRING>("doris"));
+    k1.push_back(Field::create_field<TYPE_STRING>("clever amory"));
+    v1.push_back(Field::create_field<TYPE_STRING>("ss"));
+    v1.push_back(Field());
+    v1.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("hello amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    k2.push_back(Field::create_field<TYPE_STRING>("cute amory"));
+    k2.push_back(Field::create_field<TYPE_STRING>("doris"));
+    v2.push_back(Field::create_field<TYPE_STRING>("s"));
+    v2.push_back(Field::create_field<TYPE_STRING>("0"));
+    v2.push_back(Field::create_field<TYPE_STRING>("sf"));
+    v2.push_back(Field());
     Map m1, m2;
-    m1.push_back(k1);
-    m1.push_back(v1);
-    m2.push_back(k2);
-    m2.push_back(v2);
+    m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+    m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+    m2.push_back(Field::create_field<TYPE_ARRAY>(v2));
     MutableColumnPtr map_column = m->create_column();
     map_column->reserve(2);
-    map_column->insert(m1);
-    map_column->insert(m2);
+    map_column->insert(Field::create_field<TYPE_MAP>(m1));
+    map_column->insert(Field::create_field<TYPE_MAP>(m2));
     vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, "test_map");
     vectorized::Block block;
     block.insert(type_and_name);
@@ -294,16 +294,16 @@ TEST(BlockSerializeTest, Struct) {
         DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
         DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
         Tuple t1, t2;
-        t1.push_back(Field(String("amory cute")));
-        t1.push_back(__int128_t(37));
-        t1.push_back(true);
-        t2.push_back("null");
-        t2.push_back(__int128_t(26));
-        t2.push_back(false);
+        t1.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
+        t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        t2.push_back(Field::create_field<TYPE_STRING>("null"));
+        t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
         MutableColumnPtr struct_column = st->create_column();
         struct_column->reserve(2);
-        struct_column->insert(t1);
-        struct_column->insert(t2);
+        struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
+        struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
         vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
                                                         "test_struct");
         block.insert(type_and_name);
@@ -480,7 +480,8 @@ TEST(BlockSerializeTest, JsonbBlock) {
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 1024; i++) {
-            mutable_nullable_vector->insert(vectorized::cast_to_nearest_field_type(i));
+            mutable_nullable_vector->insert(
+                    Field::create_field<TYPE_INT>(vectorized::cast_to_nearest_field_type(i)));
         }
         auto data_type = vectorized::make_nullable(std::make_shared<vectorized::DataTypeInt32>());
         vectorized::ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),

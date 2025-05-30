@@ -196,7 +196,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
             return block.get_by_position(elem).column->only_null();
         })) {
         block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, Null());
+                block.get_by_position(result).type->create_column_const(input_rows_count, Field());
         *executed = true;
         return Status::OK();
     }
@@ -296,45 +296,19 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
 
 bool FunctionBuilderImpl::is_date_or_datetime_or_decimal(
         const DataTypePtr& return_type, const DataTypePtr& func_return_type) const {
-    return (is_date_or_datetime(return_type->is_nullable()
-                                        ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                        : return_type) &&
-            is_date_or_datetime(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           (is_date_v2_or_datetime_v2(
-                    return_type->is_nullable()
-                            ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                            : return_type) &&
-            is_date_v2_or_datetime_v2(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
+    return (is_date_or_datetime(return_type->get_primitive_type()) &&
+            is_date_or_datetime(func_return_type->get_primitive_type())) ||
+           (is_date_v2_or_datetime_v2(return_type->get_primitive_type()) &&
+            is_date_v2_or_datetime_v2(func_return_type->get_primitive_type())) ||
            // For some date functions such as str_to_date(string, string), return_type will
            // be datetimev2 if users enable datev2 but get_return_type(arguments) will still
            // return datetime. We need keep backward compatibility here.
-           (is_date_v2_or_datetime_v2(
-                    return_type->is_nullable()
-                            ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                            : return_type) &&
-            is_date_or_datetime(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           (is_date_or_datetime(return_type->is_nullable()
-                                        ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                                        : return_type) &&
-            is_date_v2_or_datetime_v2(
-                    func_return_type->is_nullable()
-                            ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                            : func_return_type)) ||
-           (is_decimal(return_type->is_nullable()
-                               ? ((DataTypeNullable*)return_type.get())->get_nested_type()
-                               : return_type) &&
-            is_decimal(func_return_type->is_nullable()
-                               ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
-                               : func_return_type));
+           (is_date_v2_or_datetime_v2(return_type->get_primitive_type()) &&
+            is_date_or_datetime(func_return_type->get_primitive_type())) ||
+           (is_date_or_datetime(return_type->get_primitive_type()) &&
+            is_date_v2_or_datetime_v2(func_return_type->get_primitive_type())) ||
+           (is_decimal(return_type->get_primitive_type()) &&
+            is_decimal(func_return_type->get_primitive_type()));
 }
 
 bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
@@ -346,7 +320,8 @@ bool FunctionBuilderImpl::is_array_nested_type_date_or_datetime_or_decimal(
             func_return_type->is_nullable()
                     ? ((DataTypeNullable*)func_return_type.get())->get_nested_type()
                     : func_return_type;
-    if (!(is_array(return_type_ptr) && is_array(func_return_type_ptr))) {
+    if (!(return_type_ptr->get_primitive_type() == TYPE_ARRAY &&
+          func_return_type_ptr->get_primitive_type() == TYPE_ARRAY)) {
         return false;
     }
     auto nested_nullable_return_type_ptr =

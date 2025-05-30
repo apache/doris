@@ -136,7 +136,7 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
                                   ConvertParams* convert_params,
                                   std::unique_ptr<PhysicalToLogicalConverter>& physical_converter) {
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
-    if (is_decimal(remove_nullable(dst_logical_type))) {
+    if (is_decimal(dst_logical_type->get_primitive_type())) {
         src_logical_type = create_decimal(parquet_schema.precision, parquet_schema.scale, false);
     }
 

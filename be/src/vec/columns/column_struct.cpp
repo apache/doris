@@ -22,6 +22,7 @@
 
 #include <functional>
 
+#include "runtime/primitive_type.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 
@@ -114,7 +115,7 @@ Field ColumnStruct::operator[](size_t n) const {
 void ColumnStruct::get(size_t n, Field& res) const {
     const size_t tuple_size = columns.size();
 
-    res = Tuple();
+    res = Field::create_field<TYPE_STRUCT>(Tuple());
     Tuple& res_tuple = res.get<Tuple&>();
     res_tuple.reserve(tuple_size);
 
@@ -124,7 +125,7 @@ void ColumnStruct::get(size_t n, Field& res) const {
 }
 
 void ColumnStruct::insert(const Field& x) {
-    DCHECK_EQ(x.get_type(), Field::Types::Tuple);
+    DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_STRUCT);
     const auto& tuple = x.get<const Tuple&>();
     const size_t tuple_size = columns.size();
     if (tuple.size() != tuple_size) {

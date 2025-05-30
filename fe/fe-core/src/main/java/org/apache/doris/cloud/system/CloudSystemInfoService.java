@@ -539,7 +539,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         try {
-            String cluster = ctx.getCurrentCloudCluster();
+            String cluster = ctx.getCloudCluster();
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }
@@ -1036,7 +1036,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
             // root ? see StatisticsUtil.buildConnectContext
-            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
+            if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
                 LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
                 return null;
             }

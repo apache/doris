@@ -89,6 +89,8 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
         DCHECK(_is_broadcast_join);
     }
 
+    // wrapper may moved to rf merger, release wrapper here to make sure thread safe
+    _wrapper.reset();
     set_state(State::PUBLISHED);
     return Status::OK();
 }

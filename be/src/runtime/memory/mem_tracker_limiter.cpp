@@ -360,9 +360,10 @@ std::string MemTrackerLimiter::tracker_limit_exceeded_str() {
     std::string err_msg = fmt::format(
             "memory tracker limit exceeded, tracker label:{}, type:{}, limit "
             "{}, peak used {}, current used {}. backend {}, {}.",
-            label(), type_string(_type), MemCounter::print_bytes(limit()),
-            MemCounter::print_bytes(peak_consumption()), MemCounter::print_bytes(consumption()),
-            BackendOptions::get_localhost(), GlobalMemoryArbitrator::process_memory_used_str());
+            label(), type_string(_type), PrettyPrinter::print_bytes(limit()),
+            PrettyPrinter::print_bytes(peak_consumption()),
+            PrettyPrinter::print_bytes(consumption()), BackendOptions::get_localhost(),
+            GlobalMemoryArbitrator::process_memory_used_str());
     if (_type == Type::QUERY || _type == Type::LOAD) {
         err_msg += fmt::format(
                 " exec node:<{}>, can `set exec_mem_limit` to change limit, details see be.INFO.",

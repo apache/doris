@@ -20,13 +20,12 @@
 package doris
 
 import (
-	"fmt"
-
 	"github.com/elastic/beats/v7/libbeat/beat"
 	"github.com/elastic/beats/v7/libbeat/common"
 	"github.com/elastic/beats/v7/libbeat/logp"
 	"github.com/elastic/beats/v7/libbeat/outputs"
 	"github.com/elastic/beats/v7/libbeat/outputs/codec"
+	"github.com/elastic/beats/v7/libbeat/outputs/outil"
 )
 
 const logSelector = "doris"
@@ -59,25 +58,42 @@ func makeDoris(
 
 	reporter := NewProgressReporter(config.LogProgressInterval, logger)
 
-	clients := make([]outputs.NetworkClient, len(config.Hosts))
-	for i, host := range config.Hosts {
+	// duplicate entries config.Worker times
+	hosts := make([]string, 0, len(config.Hosts)*config.Worker)
+	for _, entry := range config.Hosts {
+		for i := 0; i < config.Worker; i++ {
+			hosts = append(hosts, entry)
+		}
+	}
+	clients := make([]outputs.NetworkClient, len(hosts))
+	for i, host := range hosts {
 		logger.Info("Making client for host: " + host)
 		url, err := parseURL(host)
 		if err != nil {
 			return outputs.Fail(err)
 		}
 
-		streamLoadPath := fmt.Sprintf("/api/%s/%s/_stream_load", config.Database, config.Table)
-		hostURL, err := common.MakeURL(url.Scheme, streamLoadPath, host, 8030)
+		urlPrefix, err := common.MakeURL(url.Scheme, "/api", host, 8030)
 		if err != nil {
 			logger.Errorf("Invalid host param set: %s, Error: %+v", host, err)
 			return outputs.Fail(err)
 		}
-		logger.Infof("Final http connection endpoint: %s", hostURL)
+		logger.Infof("http connection endpoint: %s/%s/{table}/_stream_load", urlPrefix, config.Database)
+		if len(config.Tables) > 0 {
+			logger.Infof("tables: %+v", config.Tables)
+		}
+		if len(config.Table) > 0 {
+			logger.Infof("table: %s", config.Table)
+		}
+
+		tableSelector, err := buildTableSelector(cfg)
+		if err != nil {
+			return outputs.Fail(err)
+		}
 
 		var client outputs.NetworkClient
 		client, err = NewDorisClient(clientSettings{
-			URL:           hostURL,
+			URLPrefix:     urlPrefix,
 			Timeout:       config.Timeout,
 			Observer:      observer,
 			Headers:       config.createHeaders(),
@@ -85,9 +101,10 @@ func makeDoris(
 			LineDelimiter: config.LineDelimiter,
 			LogRequest:    config.LogRequest,
 
-			LabelPrefix: config.LabelPrefix,
-			Database:    config.Database,
-			Table:       config.Table,
+			LabelPrefix:   config.LabelPrefix,
+			Database:      config.Database,
+			TableSelector: tableSelector,
+			DefaultTable:  config.DefaultTable,
 
 			Reporter: reporter,
 			Logger:   logger,
@@ -124,4 +141,26 @@ func loadCodecConfig(config config) codec.Config {
 		panic(err)
 	}
 	return codecConfig
+}
+
+type fmtSelector struct {
+	Sel outil.Selector
+}
+
+func buildTableSelector(cfg *common.Config) (*fmtSelector, error) {
+	selector, err := outil.BuildSelectorFromConfig(cfg, outil.Settings{
+		Key:              "table",
+		MultiKey:         "tables",
+		EnableSingleOnly: true,
+		FailEmpty:        true,
+		Case:             outil.SelectorKeepCase,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &fmtSelector{
+		Sel: selector,
+	}, nil
 }

@@ -70,7 +70,7 @@ private:
  */
 class ResultCache {
 public:
-    ResultCache(int32 max_size, int32 elasticity_size) {
+    ResultCache(int32_t max_size, int32_t elasticity_size) {
         _max_size = static_cast<size_t>(max_size) * 1024 * 1024;
         _elasticity_size = static_cast<size_t>(elasticity_size) * 1024 * 1024;
         _cache_size = 0;

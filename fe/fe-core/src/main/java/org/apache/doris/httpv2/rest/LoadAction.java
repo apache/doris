@@ -104,10 +104,6 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         if (Config.disable_mini_load) {
             ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been"
                     + " disabled by default, if you need to add disable_mini_load=false in fe.conf.");
@@ -144,9 +140,6 @@ public class LoadAction extends RestBaseController {
                     }
                 }
             }
-        }
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
         }
 
         String authToken = request.getHeader("token");
@@ -263,10 +256,6 @@ public class LoadAction extends RestBaseController {
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db) {
         LOG.info("streamload action 2PC, db: {}, headers: {}", db, getAllHeaders(request));
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -277,10 +266,6 @@ public class LoadAction extends RestBaseController {
             @PathVariable(value = DB_KEY) String db,
             @PathVariable(value = TABLE_KEY) String table) {
         LOG.info("streamload action 2PC, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
     }
@@ -347,8 +332,10 @@ public class LoadAction extends RestBaseController {
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
-            LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
-                    redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
+                        redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+            }
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
@@ -450,7 +437,9 @@ public class LoadAction extends RestBaseController {
         int number = groupCommit ? -1 : 1;
         backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+            throw new LoadException(
+                    SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy + ", compute group is "
+                            + computeGroup.toString());
         }
         if (groupCommit) {
             backend = selectBackendForGroupCommit("", request, tableId);
@@ -727,10 +716,6 @@ public class LoadAction extends RestBaseController {
     public Object createIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                   @PathVariable(value = CATALOG_KEY) String catalog,
                                   @PathVariable(value = DB_KEY) String db) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
 
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
@@ -848,10 +833,6 @@ public class LoadAction extends RestBaseController {
     public Object updateIngestionLoad(HttpServletRequest request, HttpServletResponse response,
                                       @PathVariable(value = CATALOG_KEY) String catalog,
                                       @PathVariable(value = DB_KEY) String db) {
-        if (needRedirect(request.getScheme())) {
-            return redirectToHttps(request);
-        }
-
         executeCheckPassword(request, response);
 
         if (!InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {

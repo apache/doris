@@ -149,7 +149,8 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
     int32_t max_waiting_time = config::memtable_wait_for_memory_sleep_time_s;
     do {
         // only try to reserve process memory
-        st = thread_context->thread_mem_tracker_mgr->try_reserve(size, true);
+        st = thread_context->thread_mem_tracker_mgr->try_reserve(
+                size, ThreadMemTrackerMgr::TryReserveChecker::CHECK_PROCESS);
         if (st.ok()) {
             memtable_flush_executor->inc_flushing_task();
             break;
@@ -189,14 +190,11 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
 
         DEFER_RELEASE_RESERVED();
 
-/// FIXME: support UT
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
         auto reserve_size = memtable->get_flush_reserve_memory_size();
         if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
             reserve_size > 0) {
             RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
         }
-#endif
 
         Defer defer {[&]() {
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();

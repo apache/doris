@@ -52,15 +52,22 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
     @Override
     protected void initCatalog() {
         icebergCatalogType = ICEBERG_HADOOP;
-        HadoopCatalog hadoopCatalog = new HadoopCatalog();
+
         Configuration conf = getConfiguration();
         initS3Param(conf);
         // initialize hadoop catalog
         Map<String, String> catalogProperties = catalogProperty.getProperties();
         String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
+        HadoopCatalog hadoopCatalog = new HadoopCatalog();
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        hadoopCatalog.initialize(getName(), catalogProperties);
-        catalog = hadoopCatalog;
+        try {
+            this.catalog = preExecutionAuthenticator.execute(() -> {
+                hadoopCatalog.initialize(getName(), catalogProperties);
+                return hadoopCatalog;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Hadoop catalog init error!", e);
+        }
     }
 }

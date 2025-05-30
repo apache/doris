@@ -56,7 +56,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "First argument for function: " << PopType::name
                 << " should be DataTypeArray but it has type " << arguments[0]->get_name() << ".";
         return arguments[0];

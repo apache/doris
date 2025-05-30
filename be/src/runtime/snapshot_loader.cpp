@@ -18,6 +18,7 @@
 #include "runtime/snapshot_loader.h"
 
 // IWYU pragma: no_include <bthread/errno.h>
+#include <absl/strings/str_split.h>
 #include <errno.h> // IWYU pragma: keep
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
@@ -38,7 +39,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
@@ -353,7 +353,7 @@ Status SnapshotHttpDownloader::_list_remote_files() {
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(kDownloadFileMaxRetry, 1, list_files_cb));
 
-    _remote_file_list = strings::Split(remote_file_list_str, "\n", strings::SkipWhitespace());
+    _remote_file_list = absl::StrSplit(remote_file_list_str, "\n", absl::SkipWhitespace());
 
     // find hdr file
     auto hdr_file =

@@ -76,11 +76,6 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     @Override
-    public String getInternalName() {
-        return getName();
-    }
-
-    @Override
     public String computeToSql() {
         switch (nameParts.size()) {
             case 1: return Utils.quoteIfNeeded(nameParts.get(0));

@@ -30,7 +30,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Int32>, Int32)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {{{vec, 2}, UInt8(1)},
@@ -43,7 +44,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Int8>, Int8)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int8, TypeIndex::Int8};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
 
         TestArray vec = {Int8(1), Int8(2), Int8(3)};
         DataSet data_set = {{{vec, Int8(2)}, UInt8(1)},
@@ -56,7 +58,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Int64>, Int64)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int64, TypeIndex::Int64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_BIGINT,
+                                    PrimitiveType::TYPE_BIGINT};
 
         TestArray vec = {Int64(1), Int64(2), Int64(3)};
         DataSet data_set = {{{vec, Int64(2)}, UInt8(1)},
@@ -69,7 +72,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Int128>, Int128)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int128, TypeIndex::Int128};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_LARGEINT,
+                                    PrimitiveType::TYPE_LARGEINT};
 
         TestArray vec = {Int128(11111111111LL), Int128(22222LL), Int128(333LL)};
         DataSet data_set = {{{vec, Int128(11111111111LL)}, UInt8(1)},
@@ -82,7 +86,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Float32>, Float32)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float32, TypeIndex::Float32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT,
+                                    PrimitiveType::TYPE_FLOAT};
 
         TestArray vec = {float(1.2345), float(2.222), float(3.0)};
         DataSet data_set = {{{vec, float(2.222)}, UInt8(1)},
@@ -95,7 +100,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Float64>, Float64)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float64, TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DOUBLE,
+                                    PrimitiveType::TYPE_DOUBLE};
 
         TestArray vec = {double(1.2345), double(2.222), double(3.0)};
         DataSet data_set = {{{vec, double(2.222)}, UInt8(1)},
@@ -108,7 +114,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Date>, Date)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Date};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
+                                    PrimitiveType::TYPE_DATE};
 
         TestArray vec = {std::string("2022-01-02"), std::string("2022-07-08")};
         DataSet data_set = {{{vec, std::string("2022-01-02")}, UInt8(1)},
@@ -121,7 +128,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<DateTime>, DateTime)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
+                                    PrimitiveType::TYPE_DATETIME};
 
         TestArray vec = {std::string("2022-01-02 00:00:00"), std::string("2022-07-08 00:00:00")};
         DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, UInt8(1)},
@@ -134,8 +142,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<Decimal128V2>, Decimal128V2)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2,
-                                    TypeIndex::Decimal128V2};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
+                                    PrimitiveType::TYPE_DECIMALV2};
 
         TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
                          ut_type::DECIMALV2(0.0)};
@@ -149,7 +157,8 @@ TEST(function_array_index_test, array_contains) {
 
     // array_contains(Array<String>, String)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
         DataSet data_set = {{{vec, std::string("abc")}, UInt8(1)},
@@ -168,7 +177,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<Int32>, Int32)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {{{vec, 2}, Int64(2)},
@@ -181,7 +191,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<Int32>, Int32)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT,
+                                    PrimitiveType::TYPE_INT};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {{{vec, Int32(2)}, Int64(2)},
@@ -194,7 +205,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<Int8>, Int8)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int8, TypeIndex::Int8};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
 
         TestArray vec = {Int8(1), Int8(2), Int8(3)};
         DataSet data_set = {{{vec, Int8(2)}, Int64(2)},
@@ -207,7 +219,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<Date>, Date)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Date};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATE,
+                                    PrimitiveType::TYPE_DATE};
 
         TestArray vec = {std::string("2022-01-02"), std::string("2022-07-08")};
         DataSet data_set = {{{vec, std::string("2022-01-02")}, Int64(1)},
@@ -220,7 +233,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<DateTime>, DateTime)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIME,
+                                    PrimitiveType::TYPE_DATETIME};
 
         TestArray vec = {std::string("2022-01-02 00:00:00"), std::string("2022-07-08 00:00:00")};
         DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, Int64(1)},
@@ -233,8 +247,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<Decimal128V2>, Decimal128V2)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128V2,
-                                    TypeIndex::Decimal128V2};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMALV2,
+                                    PrimitiveType::TYPE_DECIMALV2};
 
         TestArray vec = {ut_type::DECIMALV2(17014116.67), ut_type::DECIMALV2(-17014116.67),
                          ut_type::DECIMALV2(0)};
@@ -248,7 +262,8 @@ TEST(function_array_index_test, array_position) {
 
     // array_position(Array<String>, String)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec = {std::string("abc"), std::string(""), std::string("def")};
         DataSet data_set = {{{vec, std::string("abc")}, Int64(1)},

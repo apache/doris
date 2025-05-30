@@ -79,24 +79,37 @@ CumulativeCompaction::CumulativeCompaction(StorageEngine& engine, const TabletSh
 CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            tablet()->set_last_cumu_compaction_status(st.to_string());
+            tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        }
+    });
+
     if (!tablet()->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        st = Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        return st;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        st = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        return st;
     }
 
     tablet()->calculate_cumulative_point();
     VLOG_CRITICAL << "after calculate, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
+
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CumulativeCompaction::execute_compact() {
@@ -114,31 +127,43 @@ Status CumulativeCompaction::execute_compact() {
         }
     })
 
+    Status st;
+    Defer defer_set_st([&] {
+        tablet()->set_last_cumu_compaction_status(st.to_string());
+        if (!st.ok()) {
+            tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        } else {
+            // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+            if (!(tablet()->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+                  _output_rowset->num_segments() == 0)) {
+                tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+            }
+        }
+    });
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        st = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        return st;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    RETURN_IF_ERROR(CompactionMixin::execute_compact());
+    st = CompactionMixin::execute_compact();
+    RETURN_IF_ERROR(st);
+
     DCHECK_EQ(_state, CompactionState::SUCCESS);
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
-    // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
-    if (!(tablet()->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
-          _output_rowset->num_segments() == 0)) {
-        tablet()->set_last_cumu_compaction_success_time(UnixMillis());
-    }
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(
             _input_rowsets_total_size);
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CumulativeCompaction::pick_rowsets_to_compact() {
@@ -190,8 +215,8 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                     .tag("tablet id:", tablet()->tablet_id())
                     .tag("after cumulative compaction, cumu point:",
                          tablet()->cumulative_layer_point());
-            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
-                    "_last_delete_version.first not equal to -1");
+            return Status::Error<CUMULATIVE_MEET_DELETE_VERSION>(
+                    "cumulative compaction meet delete version");
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.

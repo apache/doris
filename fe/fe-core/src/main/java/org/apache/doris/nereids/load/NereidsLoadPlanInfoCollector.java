@@ -68,7 +68,6 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TTextSerdeType;
@@ -170,7 +169,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 params.addToRequiredSlots(slotInfo);
             }
 
-            Map<String, String> properties = fileGroupInfo.getBrokerDesc().getProperties();
+            Map<String, String> properties = fileGroupInfo.getBrokerDesc().getBackendConfigProperties();
             if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(properties);
                 params.setHdfsParams(tHdfsParams);
@@ -198,23 +197,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
 
             params.setStrictMode(fileGroupInfo.isStrictMode());
 
-            TFileAttributes fileAttributes = new TFileAttributes();
-            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-            textParams.setColumnSeparator(fileGroup.getColumnSeparator());
-            textParams.setLineDelimiter(fileGroup.getLineDelimiter());
-            textParams.setEnclose(fileGroup.getEnclose());
-            textParams.setEscape(fileGroup.getEscape());
-            fileAttributes.setTextParams(textParams);
-            fileAttributes.setStripOuterArray(fileGroup.isStripOuterArray());
-            fileAttributes.setJsonpaths(fileGroup.getJsonPaths());
-            fileAttributes.setJsonRoot(fileGroup.getJsonRoot());
-            fileAttributes.setNumAsString(fileGroup.isNumAsString());
-            fileAttributes.setFuzzyParse(fileGroup.isFuzzyParse());
-            fileAttributes.setReadJsonByLine(fileGroup.isReadJsonByLine());
+            TFileAttributes fileAttributes = fileGroup.getFileFormatProperties().toTFileAttributes();
             fileAttributes.setReadByColumnDef(true);
-            fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
-            fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
-            fileAttributes.setSkipLines(fileGroup.getSkipLines());
             fileAttributes.setIgnoreCsvRedundantCol(fileGroup.getIgnoreCsvRedundantCol());
             params.setFileAttributes(fileAttributes);
 
@@ -226,7 +210,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
 
             params.setLoadId(loadId);
 
-            if (fileGroup.getFileFormat() != null && fileGroup.getFileFormat().equals("hive_text")) {
+            if (fileGroup.getFileFormatProperties().getFormatName().equals("hive_text")) {
                 params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
             }
 
@@ -304,7 +288,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         for (int i = 0; i < targetTableSlots.size(); ++i) {
             if (targetTableSlots.get(i).isColumnFromTable()) {
                 SlotDescriptor srcSlot = srcSlots
-                        .get(((SlotReference) targetTableSlots.get(i)).getColumn().get().getName());
+                        .get(((SlotReference) targetTableSlots.get(i)).getOriginalColumn().get().getName());
                 if (srcSlot != null) {
                     loadPlanInfo.destSlotIdToSrcSlotIdWithoutTrans.put(destSlots.get(i).getId(), srcSlot.getId());
                 }

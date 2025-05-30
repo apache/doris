@@ -21,18 +21,15 @@
 #pragma once
 
 #include <common/compiler_util.h>
+#include <sanitizer/asan_interface.h>
 #include <string.h>
 
 #include <boost/noncopyable.hpp>
 #include <memory>
 #include <vector>
-#if __has_include(<sanitizer/asan_interface.h>)
-#include <sanitizer/asan_interface.h>
-#endif
-#include "gutil/dynamic_annotations.h"
+
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
-#include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
 

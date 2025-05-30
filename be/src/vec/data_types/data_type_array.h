@@ -58,7 +58,6 @@ public:
 
     DataTypeArray(const DataTypePtr& nested_);
 
-    TypeIndex get_type_id() const override { return TypeIndex::Array; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_ARRAY; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -76,7 +75,6 @@ public:
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for array");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

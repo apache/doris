@@ -53,7 +53,6 @@ public:
             : _len(len), _primitive_type(primitive_type) {
         DCHECK(is_string_type(primitive_type)) << primitive_type;
     }
-    TypeIndex get_type_id() const override { return TypeIndex::String; }
     PrimitiveType get_primitive_type() const override { return _primitive_type; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -72,7 +71,7 @@ public:
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
-        return Field(node.string_literal.value);
+        return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
 
     bool equals(const IDataType& rhs) const override;

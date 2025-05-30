@@ -103,9 +103,9 @@ struct DataValue {
     }
 };
 
-template <TypeIndex TYPE_INDEX, typename NativeType>
+template <PrimitiveType PrimitiveType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<TYPE_INDEX == TypeIndex::DateTimeV2,
+    using DateValueType = std::conditional_t<PrimitiveType == PrimitiveType::TYPE_DATETIMEV2,
                                              DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
     int event_count = 0;
     int64_t window;
@@ -346,19 +346,19 @@ struct WindowFunnelState {
     }
 };
 
-template <TypeIndex TYPE_INDEX, typename NativeType>
+template <PrimitiveType PrimitiveType, typename NativeType>
 class AggregateFunctionWindowFunnel
         : public IAggregateFunctionDataHelper<
-                  WindowFunnelState<TYPE_INDEX, NativeType>,
-                  AggregateFunctionWindowFunnel<TYPE_INDEX, NativeType>> {
+                  WindowFunnelState<PrimitiveType, NativeType>,
+                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>> {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelState<TYPE_INDEX, NativeType>,
-                                           AggregateFunctionWindowFunnel<TYPE_INDEX, NativeType>>(
-                      argument_types_) {}
+            : IAggregateFunctionDataHelper<
+                      WindowFunnelState<PrimitiveType, NativeType>,
+                      AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>(argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        auto data = new (place) WindowFunnelState<TYPE_INDEX, NativeType>(
+        auto data = new (place) WindowFunnelState<PrimitiveType, NativeType>(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = IAggregateFunction::version >= 3;
@@ -397,8 +397,8 @@ public:
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
                 IAggregateFunctionDataHelper<
-                        WindowFunnelState<TYPE_INDEX, NativeType>,
-                        AggregateFunctionWindowFunnel<TYPE_INDEX, NativeType>>::data(place)
+                        WindowFunnelState<PrimitiveType, NativeType>,
+                        AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>::data(place)
                         .get());
     }
 

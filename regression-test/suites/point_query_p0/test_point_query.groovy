@@ -336,7 +336,14 @@ suite("test_point_query", "nonConcurrent") {
     } 
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    // read delete sign
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+
+    // skip delete sign
+    sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
+
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 
@@ -418,4 +425,23 @@ suite("test_point_query", "nonConcurrent") {
             assertNotEquals(result1, result2)
         }
     }
-} 
+    // test shrink char type
+    sql "DROP TABLE IF EXISTS table_with_chars"
+    sql """
+        CREATE TABLE `table_with_chars` (
+            `col1` smallint NOT NULL,
+            `col2` int NOT NULL,
+            `loc3` char(10) NOT NULL,
+            `value` char(10) NOT NULL,
+            INDEX col3 (`loc3`) USING INVERTED,
+            INDEX col2 (`col2`) USING INVERTED )
+        ENGINE=OLAP UNIQUE KEY(`col1`)
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "row_store_columns" = "col1", "enable_mow_light_delete" = "false" );
+    """
+    sql "insert into table_with_chars values (-10, 20, 'aabc', 'value')"
+    sql "insert into table_with_chars values (10, 20, 'aabc', 'value');"
+    sql "insert into table_with_chars values (20, 30, 'aabc', 'value');"
+    sql "set enable_short_circuit_query = true"
+    qt_sql "select length(loc3) from table_with_chars where col1 = 10"
+}

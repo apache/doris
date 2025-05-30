@@ -112,8 +112,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         } else {
             context.setLeadingJoin(true);
         }
-        assert (selectHint != null);
-        assert (context != null);
     }
 
     private void extractRule(SelectHintUseCboRule selectHint, StatementContext statementContext) {

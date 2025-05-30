@@ -217,11 +217,8 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
         targert_recvr->cancel_stream(Status::OK());
         return Status::OK();
     } else {
-        std::stringstream err;
-        err << "unknown row receiver id: fragment_instance_id=" << print_id(fragment_instance_id)
-            << " node_id=" << node_id;
-        LOG(ERROR) << err.str();
-        return Status::InternalError(err.str());
+        return Status::InternalError("unknown row receiver id: fragment_instance_id={}, node_id={}",
+                                     print_id(fragment_instance_id), node_id);
     }
 }
 

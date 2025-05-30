@@ -28,6 +28,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -35,6 +36,7 @@ import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -168,24 +170,10 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int sendBatchParallelism = 1;
     private boolean loadToSingleTablet = false;
-    /**
-     * RoutineLoad support json data.
-     * Require Params:
-     * 1) dataFormat = "json"
-     * 2) jsonPaths = "$.XXX.xxx"
-     */
-    private String format = ""; //default is csv.
-    private String jsonPaths = "";
-    private String jsonRoot = ""; // MUST be a jsonpath string
-    private boolean stripOuterArray = false;
-    private boolean numAsString = false;
-    private boolean fuzzyParse = false;
 
-    private byte enclose;
+    private FileFormatProperties fileFormatProperties;
 
-    private byte escape;
-
-    private long workloadGroupId = -1;
+    private String workloadGroupName = "";
 
     /**
      * support partial columns load(Only Unique Key Columns)
@@ -228,6 +216,8 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         if (comment != null) {
             this.comment = comment;
         }
+        String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
     }
 
     /*
@@ -238,9 +228,9 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
             int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
             long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
-            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
-            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
-            boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
+            String workloadGroupName, boolean loadToSingleTablet, boolean strictMode,
+            boolean isPartialUpdate, AbstractDataSourceProperties dataSourceProperties,
+            FileFormatProperties fileFormatProperties) {
         this.labelName = labelName;
         this.dbName = dbName;
         this.name = name;
@@ -260,19 +250,12 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         this.execMemLimit = execMemLimit;
         this.sendBatchParallelism = sendBatchParallelism;
         this.timezone = timezone;
-        this.format = format;
-        this.jsonPaths = jsonPaths;
-        this.jsonRoot = jsonRoot;
-        this.enclose = enclose;
-        this.escape = escape;
-        this.workloadGroupId = workloadGroupId;
+        this.workloadGroupName = workloadGroupName;
         this.loadToSingleTablet = loadToSingleTablet;
         this.strictMode = strictMode;
         this.isPartialUpdate = isPartialUpdate;
-        this.stripOuterArray = stripOuterArray;
-        this.numAsString = numAsString;
-        this.fuzzyParse = fuzzyParse;
         this.dataSourceProperties = dataSourceProperties;
+        this.fileFormatProperties = fileFormatProperties;
     }
 
     public String getName() {
@@ -339,40 +322,12 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         return timezone;
     }
 
-    public String getFormat() {
-        return format;
-    }
-
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public byte getEscape() {
-        return escape;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
     public LoadTask.MergeType getMergeType() {
         return mergeType;
+    }
+
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     public AbstractDataSourceProperties getDataSourceProperties() {
@@ -383,8 +338,8 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         return comment;
     }
 
-    public long getWorkloadGroupId() {
-        return workloadGroupId;
+    public String getWorkloadGroupName() {
+        return this.workloadGroupName;
     }
 
     @Override
@@ -563,39 +518,21 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
                 RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
                 LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
-        String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
-        if (encloseStr != null) {
-            if (encloseStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                enclose = encloseStr.getBytes()[0];
-            }
-        }
-        String escapeStr = jobProperties.get(LoadStmt.KEY_ESCAPE);
-        if (escapeStr != null) {
-            if (escapeStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                escape = escapeStr.getBytes()[0];
-            }
-        }
-
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
             ConnectContext tmpCtx = new ConnectContext();
-            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-            try {
-                // NOTE(wb): why get 0th wg here;
-                // currently a routineload can only be executed in one workload group;
-                // but the workload group thrift sent from FE to BE is a list, this is for scalability.
-                this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(tmpCtx).get(0)
-                        .getId();
-            } catch (Throwable t) {
-                LOG.info("Get workload group failed when create routine load,", t);
-                throw  t;
+            if (Config.isCloudMode()) {
+                tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
+            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(tmpCtx);
+            if (wgList.size() == 0) {
+                throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
+            }
+            workloadGroupName = inputWorkloadGroupStr;
         }
 
         if (ConnectContext.get() != null) {
@@ -603,23 +540,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
 
-        format = jobProperties.get(FORMAT);
-        if (format != null) {
-            if (format.equalsIgnoreCase("csv")) {
-                format = ""; // if it's not json, then it's mean csv and set empty
-            } else if (format.equalsIgnoreCase("json")) {
-                format = "json";
-                jsonPaths = jobProperties.getOrDefault(JSONPATHS, "");
-                jsonRoot = jobProperties.getOrDefault(JSONROOT, "");
-                stripOuterArray = Boolean.parseBoolean(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
-                numAsString = Boolean.parseBoolean(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
-                fuzzyParse = Boolean.parseBoolean(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
-            } else {
-                throw new UserException("Format type is invalid. format=`" + format + "`");
-            }
-        } else {
-            format = "csv"; // default csv
-        }
+        fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }
 
     private void checkDataSourceProperties() throws UserException {

@@ -37,6 +37,7 @@ import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.DirectoryLister;
@@ -131,14 +132,19 @@ public class HiveMetaStoreCache {
      * we need to be very careful and try to avoid the circular dependency of these tasks
      * which will bring out thread deadlock.
      **/
-    private void init() {
+    public void init() {
+        long partitionCacheTtlSecond = NumberUtils.toLong(
+                (catalog.getProperties().get(HMSExternalCatalog.PARTITION_CACHE_TTL_SECOND)),
+                ExternalCatalog.CACHE_NO_TTL);
+
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
-                OptionalLong.of(28800L),
+                OptionalLong.of(partitionCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                        ? partitionCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_table_cache_num,
                 true,
                 null);
-        partitionValuesCache = partitionValuesCacheFactory.buildCache(key -> loadPartitionValues(key), null,
+        partitionValuesCache = partitionValuesCacheFactory.buildCache(this::loadPartitionValues, null,
                 refreshExecutor);
 
         CacheFactory partitionCacheFactory = new CacheFactory(
@@ -165,16 +171,16 @@ public class HiveMetaStoreCache {
     /***
      * generate a filecache and set to fileCacheRef
      */
-    public void setNewFileCache() {
+    private void setNewFileCache() {
         // init or refresh job conf
         setJobConf();
         // if the file.meta.cache.ttl-second is equal or greater than 0, the cache expired will be set to that value
         int fileMetaCacheTtlSecond = NumberUtils.toInt(
                 (catalog.getProperties().get(HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND)),
-                HMSExternalCatalog.FILE_META_CACHE_NO_TTL);
+                ExternalCatalog.CACHE_NO_TTL);
 
         CacheFactory fileCacheFactory = new CacheFactory(
-                OptionalLong.of(fileMetaCacheTtlSecond >= HMSExternalCatalog.FILE_META_CACHE_TTL_DISABLE_CACHE
+                OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
                         ? fileMetaCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_external_file_cache_num,

@@ -38,16 +38,12 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "vec/io/io_helper.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
-#include "common/cast_set.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -69,6 +65,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/io/io_helper.h"
 #include "vec/utils/stringop_substring.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -238,16 +235,20 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
         return document;
     }
 
+    try {
 #ifdef USE_LIBCPP
-    std::string s(path_string);
-    auto tok = get_json_token(s);
+        std::string s(path_string);
+        auto tok = get_json_token(s);
 #else
-    auto tok = get_json_token(path_string);
+        auto tok = get_json_token(path_string);
 #endif
-
-    std::vector<std::string> paths(tok.begin(), tok.end());
-    get_parsed_paths(paths, &tmp_parsed_paths);
-    if (tmp_parsed_paths.empty()) {
+        std::vector<std::string> paths(tok.begin(), tok.end());
+        get_parsed_paths(paths, &tmp_parsed_paths);
+        if (tmp_parsed_paths.empty()) {
+            return document;
+        }
+    } catch (boost::escaped_list_error&) {
+        // meet unknown escape sequence, example '$.name\k'
         return document;
     }
 

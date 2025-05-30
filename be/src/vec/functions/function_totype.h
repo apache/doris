@@ -70,7 +70,7 @@ private:
     Status execute_impl(Block& block, const ColumnNumbers& arguments, uint32_t result,
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
+        if constexpr (is_int_or_bool(Impl::PrimitiveTypeImpl)) {
             if (auto* col = check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -98,7 +98,7 @@ private:
     Status execute_impl(Block& block, const ColumnNumbers& arguments, uint32_t result,
                         size_t input_rows_count) const {
         const ColumnPtr column = block.get_by_position(arguments[0]).column;
-        if constexpr (Impl::TYPE_INDEX == TypeIndex::String) {
+        if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
             if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(
@@ -106,7 +106,7 @@ private:
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
-        } else if constexpr (typeindex_is_int(Impl::TYPE_INDEX)) {
+        } else if constexpr (is_int_or_bool(Impl::PrimitiveTypeImpl)) {
             if (const auto* col =
                         check_and_get_column<ColumnVector<typename Impl::Type>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();

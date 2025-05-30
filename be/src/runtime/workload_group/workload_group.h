@@ -232,7 +232,7 @@ public:
 
     friend class DummyWorkloadGroupTest;
 
-protected:
+private:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
@@ -302,7 +302,6 @@ struct WorkloadGroupInfo {
     const bool enable_memory_overcommit = false;
     const int64_t version = 0;
     const int cpu_hard_limit = 0;
-    const bool enable_cpu_hard_limit = false;
     const int scan_thread_num = 0;
     const int max_remote_scan_thread_num = 0;
     const int min_remote_scan_thread_num = 0;

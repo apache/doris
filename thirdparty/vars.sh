@@ -253,6 +253,8 @@ GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
 
 # arrow
+# Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet.
+# https://github.com/apache/doris/pull/51217
 ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
 ARROW_NAME="apache-arrow-17.0.0.tar.gz"
 ARROW_SOURCE="arrow-apache-arrow-17.0.0"

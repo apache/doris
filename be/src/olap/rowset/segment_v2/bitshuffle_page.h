@@ -27,7 +27,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/port.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
 #include "olap/rowset/segment_v2/common.h"

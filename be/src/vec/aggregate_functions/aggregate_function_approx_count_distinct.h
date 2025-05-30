@@ -81,17 +81,17 @@ struct AggregateFunctionApproxCountDistinctData {
     void reset() { hll_data.clear(); }
 };
 
-template <typename ColumnDataType>
+template <PrimitiveType type>
 class AggregateFunctionApproxCountDistinct final
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionApproxCountDistinctData,
-                  AggregateFunctionApproxCountDistinct<ColumnDataType>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
+                                              AggregateFunctionApproxCountDistinct<type>> {
 public:
+    using ColumnDataType = typename PrimitiveTypeTraits<type>::ColumnType;
     String get_name() const override { return "approx_count_distinct"; }
 
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
-                                           AggregateFunctionApproxCountDistinct<ColumnDataType>>(
+                                           AggregateFunctionApproxCountDistinct<type>>(
                       argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }

@@ -32,7 +32,7 @@ struct StringRef;
 
 namespace doris::vectorized {
 
-template <template <typename> class Impl>
+template <template <PrimitiveType> class Impl>
 AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& name,
                                                           const DataTypes& argument_types,
 
@@ -42,19 +42,17 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
         LOG(WARNING) << "Incorrect number of arguments for aggregate function " << name;
         return nullptr;
     } else if (argument_types.size() == 1) {
-        return creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<StringRef>>>(
+        return creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<TYPE_STRING>>>(
                 argument_types, result_is_nullable);
     } else {
-        WhichDataType which(*remove_nullable(argument_types[1]));
-
         AggregateFunctionPtr res(
                 creator_with_type_base<true, true, false, 1>::create<AggFunctionOrthBitmapFunc,
                                                                      Impl>(argument_types,
                                                                            result_is_nullable));
         if (res) {
             return res;
-        } else if (which.is_string_or_fixed_string()) {
-            res = creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<std::string_view>>>(
+        } else if (is_string_type(argument_types[1]->get_primitive_type())) {
+            res = creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<TYPE_STRING>>>(
                     argument_types, result_is_nullable);
             return res;
         }

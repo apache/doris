@@ -27,21 +27,21 @@ namespace doris::vectorized {
 
 template <bool nullable>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) {
-    auto type = remove_nullable(argument_types[0]);
-    WhichDataType which(type);
-#define DISPATCH(TYPE)                                                                       \
-    if (which.idx == TypeIndex::TYPE) {                                                      \
-        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE>>(argument_types); \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_TINYINT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_TINYINT>>(argument_types);
+    case PrimitiveType::TYPE_SMALLINT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_SMALLINT>>(
+                argument_types);
+    case PrimitiveType::TYPE_INT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_INT>>(argument_types);
+    case PrimitiveType::TYPE_BIGINT:
+        return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE_BIGINT>>(argument_types);
+    default:
+        LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
+                     << " and type is: " << argument_types[0]->get_name();
+        return nullptr;
     }
-    // Keep consistent with the FE definition; the function does not have an int128 type.
-    DISPATCH(Int8)
-    DISPATCH(Int16)
-    DISPATCH(Int32)
-    DISPATCH(Int64)
-#undef DISPATCH
-    LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
-                 << " and type is: " << argument_types[0]->get_name();
-    return nullptr;
 }
 
 AggregateFunctionPtr create_aggregate_function_bitmap_agg(const std::string& name,

@@ -27,22 +27,24 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct Avg {
-    using FieldType = typename AvgNearestFieldTypeTrait<T>::Type;
-    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+    using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType;
+    using Function = AggregateFunctionAvg<
+            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType>>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFuncAvg = typename Avg<T>::Function;
 
-template <typename T>
+template <PrimitiveType T>
 struct AvgDecimal256 {
-    using FieldType = typename AvgNearestFieldTypeTrait256<T>::Type;
-    using Function = AggregateFunctionAvg<T, AggregateFunctionAvgData<FieldType>>;
+    using FieldType = typename PrimitiveTypeTraits<T>::AvgNearestFieldType256;
+    using Function = AggregateFunctionAvg<
+            T, AggregateFunctionAvgData<PrimitiveTypeTraits<T>::AvgNearestPrimitiveType256>>;
 };
 
-template <typename T>
+template <PrimitiveType T>
 using AggregateFuncAvgDecimal256 = typename AvgDecimal256<T>::Function;
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {

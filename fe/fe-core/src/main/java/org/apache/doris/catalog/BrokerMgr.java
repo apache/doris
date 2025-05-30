@@ -112,6 +112,21 @@ public class BrokerMgr {
         }
     }
 
+    public List<FsBroker> getBrokers(String brokerName) {
+        List<FsBroker> result = null;
+        lock.lock();
+        try {
+            List<FsBroker> brokerList = brokerListMap.get(brokerName);
+            if (brokerList == null || brokerList.isEmpty()) {
+                return null;
+            }
+            result = new ArrayList<>(brokerList);
+        } finally {
+            lock.unlock();
+        }
+        return result;
+    }
+
     public FsBroker getAnyBroker(String brokerName) {
         lock.lock();
         try {

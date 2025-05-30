@@ -24,9 +24,11 @@ import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -50,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -377,6 +380,40 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
         addRequestPropertyToChildren(fileSink.requestProperties(connectContext));
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PlanContext context) {
+        // requiredProperties:
+        //  Distribution: partitionKeys
+        //  Order: requiredOrderKeys
+        WindowFrameGroup windowFrameGroup = window.getWindowFrameGroup();
+        // all keys that need to be sorted, which includes BOTH partitionKeys and orderKeys from this group
+        List<OrderKey> keysNeedToBeSorted = Lists.newArrayList();
+        if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
+            keysNeedToBeSorted.addAll(windowFrameGroup.getPartitionKeys().stream().map(partitionKey -> {
+                // todo: haven't support isNullFirst, and its default value is false(see AnalyticPlanner,
+                //  but in LogicalPlanBuilder, its default value is true)
+                return new OrderKey(partitionKey, true, false);
+            }).collect(Collectors.toList()));
+        }
+        if (!windowFrameGroup.getOrderKeys().isEmpty()) {
+            keysNeedToBeSorted.addAll(windowFrameGroup.getOrderKeys().stream()
+                    .map(OrderExpression::getOrderKey)
+                    .collect(Collectors.toList())
+            );
+        }
+
+        if (windowFrameGroup.getPartitionKeys().isEmpty() && windowFrameGroup.getOrderKeys().isEmpty()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else if (windowFrameGroup.getPartitionKeys().isEmpty() && !windowFrameGroup.getOrderKeys().isEmpty()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
+        } else if (!windowFrameGroup.getPartitionKeys().isEmpty()) {
+            addRequestPropertyToChildren(PhysicalProperties.createHash(
+                    windowFrameGroup.getPartitionKeys(), ShuffleType.REQUIRE)
+                    .withOrderSpec(new OrderSpec(keysNeedToBeSorted)));
+        }
         return null;
     }
 

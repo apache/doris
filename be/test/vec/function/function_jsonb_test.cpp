@@ -36,7 +36,7 @@ using namespace ut_type;
 
 TEST(FunctionJsonbTEST, JsonbParseTest) {
     std::string func_name = "json_parse";
-    InputTypeSet input_types = {Nullable {TypeIndex::String}};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
 
     DataSet data_set_valid = {
             {{Null()}, Null()},
@@ -101,7 +101,7 @@ TEST(FunctionJsonbTEST, JsonbParseTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
     std::string func_name = "json_parse_error_to_null";
-    InputTypeSet input_types = {Nullable {TypeIndex::String}};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -136,7 +136,8 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToNullTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
     std::string func_name = "json_parse_error_to_value";
-    InputTypeSet input_types = {Nullable {TypeIndex::String}, TypeIndex::String};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null(), STRING("{}")}, Null()},
@@ -174,7 +175,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToValueTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
     std::string func_name = "json_parse_error_to_invalid";
-    InputTypeSet input_types = {Nullable {TypeIndex::String}};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR}};
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -209,7 +210,7 @@ TEST(FunctionJsonbTEST, JsonbParseErrorToInvalidTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
     std::string func_name = "json_parse_nullable";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set_valid = {
             {{Null()}, Null()},
@@ -274,7 +275,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
     std::string func_name = "json_parse_nullable_error_to_null";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -309,7 +310,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToNullTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
     std::string func_name = "json_parse_nullable_error_to_value";
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null(), STRING("{}")}, Null()},
@@ -347,7 +348,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToValueTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
     std::string func_name = "json_parse_nullable_error_to_invalid";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{Null()}, Null()},
@@ -382,7 +383,7 @@ TEST(FunctionJsonbTEST, JsonbParseNullableErrorToInvalidTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
     std::string func_name = "json_parse_notnull";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set_valid = {
             {{STRING("null")}, STRING("null")},
@@ -446,7 +447,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
     std::string func_name = "json_parse_notnull_error_to_value";
-    InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{STRING("null"), STRING("{}")}, STRING("null")},
@@ -483,7 +484,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToValueTest) {
 
 TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
     std::string func_name = "json_parse_notnull_error_to_invalid";
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {
             {{STRING("null")}, STRING("null")},
@@ -517,7 +518,7 @@ TEST(FunctionJsonbTEST, JsonbParseNotnullErrorToInvalidTest) {
 
 TEST(FunctionJsonbTEST, JsonbExtractTest) {
     std::string func_name = "jsonb_extract";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // json_extract root
     DataSet data_set = {
@@ -662,7 +663,7 @@ TEST(FunctionJsonbTEST, JsonbExtractTest) {
 
 TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
     std::string func_name = "json_extract_string";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // json_extract root
     DataSet data_set = {
@@ -806,7 +807,7 @@ TEST(FunctionJsonbTEST, JsonbExtractStringTest) {
 
 TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
     std::string func_name = "json_extract_int";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // json_extract root
     DataSet data_set = {
@@ -949,7 +950,7 @@ TEST(FunctionJsonbTEST, JsonbExtractIntTest) {
 
 TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
     std::string func_name = "json_extract_bigint";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // json_extract root
     DataSet data_set = {
@@ -1092,7 +1093,7 @@ TEST(FunctionJsonbTEST, JsonbExtractBigIntTest) {
 
 TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
     std::string func_name = "json_extract_double";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // json_extract root
     DataSet data_set = {
@@ -1232,32 +1233,41 @@ TEST(FunctionJsonbTEST, JsonbExtractDoubleTest) {
 
 TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
     std::string func_name = "CAST";
-    InputTypeSet input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::UInt8}};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_JSONB},
+                                Consted {PrimitiveType::TYPE_BOOLEAN}};
 
     // cast to boolean
     DataSet data_set = {
-            {{STRING("null"), static_cast<uint8_t>(TypeIndex::UInt8)}, Null()},
-            {{STRING("true"), static_cast<uint8_t>(TypeIndex::UInt8)}, BOOLEAN(1)},
-            {{STRING("false"), static_cast<uint8_t>(TypeIndex::UInt8)}, BOOLEAN(0)},
-            {{STRING("100"), static_cast<uint8_t>(TypeIndex::UInt8)}, BOOLEAN(1)},        //int8
-            {{STRING("10000"), static_cast<uint8_t>(TypeIndex::UInt8)}, BOOLEAN(1)},      // int16
-            {{STRING("1000000000"), static_cast<uint8_t>(TypeIndex::UInt8)}, BOOLEAN(1)}, // int32
-            {{STRING("1152921504606846976"), static_cast<uint8_t>(TypeIndex::UInt8)},
-             BOOLEAN(1)},                                                            // int64
-            {{STRING("6.18"), static_cast<uint8_t>(TypeIndex::UInt8)}, BOOLEAN(1)},  // double
-            {{STRING(R"("abcd")"), static_cast<uint8_t>(TypeIndex::UInt8)}, Null()}, // string
-            {{STRING("{}"), static_cast<uint8_t>(TypeIndex::UInt8)}, Null()},        // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), static_cast<uint8_t>(TypeIndex::UInt8)},
-             Null()},                                                                 // object
-            {{STRING("[]"), static_cast<uint8_t>(TypeIndex::UInt8)}, Null()},         // empty array
-            {{STRING("[123, 456]"), static_cast<uint8_t>(TypeIndex::UInt8)}, Null()}, // int array
-            {{STRING(R"(["abc", "def"])"), static_cast<uint8_t>(TypeIndex::UInt8)},
+            {{STRING("null"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, Null()},
+            {{STRING("true"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(1)},
+            {{STRING("false"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(0)},
+            {{STRING("100"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(1)}, //int8
+            {{STRING("10000"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             BOOLEAN(1)}, // int16
+            {{STRING("1000000000"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             BOOLEAN(1)}, // int32
+            {{STRING("1152921504606846976"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             BOOLEAN(1)}, // int64
+            {{STRING("6.18"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             BOOLEAN(1)}, // double
+            {{STRING(R"("abcd")"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             Null()}, // string
+            {{STRING("{}"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             Null()}, // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"),
+              static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             Null()}, // object
+            {{STRING("[]"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             Null()}, // empty array
+            {{STRING("[123, 456]"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
+             Null()}, // int array
+            {{STRING(R"(["abc", "def"])"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
              Null()}, // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"),
-              static_cast<uint8_t>(TypeIndex::UInt8)},
+              static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"),
-              static_cast<uint8_t>(TypeIndex::UInt8)},
+              static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
              Null()}, // complex array
     };
     for (const auto& row : data_set) {
@@ -1265,31 +1275,40 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
         static_cast<void>(
                 check_function<DataTypeUInt8, true>(func_name, input_types, const_dataset));
     }
-    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int8}};
+    input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_TINYINT}};
     // cast to TINYINT
     data_set = {
-            {{STRING("null"), static_cast<int8_t>(TypeIndex::Int8)}, Null()},
-            {{STRING("true"), static_cast<int8_t>(TypeIndex::Int8)}, TINYINT(1)},
-            {{STRING("false"), static_cast<int8_t>(TypeIndex::Int8)}, TINYINT(0)},
-            {{STRING("100"), static_cast<int8_t>(TypeIndex::Int8)}, TINYINT(100)},      //int8
-            {{STRING("10000"), static_cast<int8_t>(TypeIndex::Int8)}, TINYINT(16)},     // int16
-            {{STRING("1000000000"), static_cast<int8_t>(TypeIndex::Int8)}, TINYINT(0)}, // int32
-            {{STRING("1152921504606846976"), static_cast<int8_t>(TypeIndex::Int8)},
-             TINYINT(0)},                                                          // int64
-            {{STRING("6.18"), static_cast<int8_t>(TypeIndex::Int8)}, TINYINT(6)},  // double
-            {{STRING(R"("abcd")"), static_cast<int8_t>(TypeIndex::Int8)}, Null()}, // string
-            {{STRING("{}"), static_cast<int8_t>(TypeIndex::Int8)}, Null()},        // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), static_cast<int8_t>(TypeIndex::Int8)},
-             Null()},                                                               // object
-            {{STRING("[]"), static_cast<int8_t>(TypeIndex::Int8)}, Null()},         // empty array
-            {{STRING("[123, 456]"), static_cast<int8_t>(TypeIndex::Int8)}, Null()}, // int array
-            {{STRING(R"(["abc", "def"])"), static_cast<int8_t>(TypeIndex::Int8)},
+            {{STRING("null"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, Null()},
+            {{STRING("true"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(1)},
+            {{STRING("false"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(0)},
+            {{STRING("100"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             TINYINT(100)}, //int8
+            {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             TINYINT(16)}, // int16
+            {{STRING("1000000000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             TINYINT(0)}, // int32
+            {{STRING("1152921504606846976"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             TINYINT(0)}, // int64
+            {{STRING("6.18"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             TINYINT(6)}, // double
+            {{STRING(R"("abcd")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             Null()}, // string
+            {{STRING("{}"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             Null()}, // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"),
+              static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             Null()}, // object
+            {{STRING("[]"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             Null()}, // empty array
+            {{STRING("[123, 456]"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             Null()}, // int array
+            {{STRING(R"(["abc", "def"])"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              Null()}, // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"),
-              static_cast<int8_t>(TypeIndex::Int8)},
+              static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"),
-              static_cast<int8_t>(TypeIndex::Int8)},
+              static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              Null()}, // complex array
     };
     for (const auto& row : data_set) {
@@ -1298,32 +1317,40 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt8, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int16}};
+    input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_SMALLINT}};
     // cast to SMALLINT
     data_set = {
-            {{STRING("null"), static_cast<int16_t>(TypeIndex::Int16)}, Null()},
-            {{STRING("true"), static_cast<int16_t>(TypeIndex::Int16)}, SMALLINT(1)},
-            {{STRING("false"), static_cast<int16_t>(TypeIndex::Int16)}, SMALLINT(0)},
-            {{STRING("100"), static_cast<int16_t>(TypeIndex::Int16)}, SMALLINT(100)},     //int8
-            {{STRING("10000"), static_cast<int16_t>(TypeIndex::Int16)}, SMALLINT(10000)}, // int16
-            {{STRING("1000000000"), static_cast<int16_t>(TypeIndex::Int16)},
+            {{STRING("null"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, Null()},
+            {{STRING("true"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, SMALLINT(1)},
+            {{STRING("false"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, SMALLINT(0)},
+            {{STRING("100"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             SMALLINT(100)}, //int8
+            {{STRING("10000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             SMALLINT(10000)}, // int16
+            {{STRING("1000000000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(-13824)}, // int32
-            {{STRING("1152921504606846976"), static_cast<int16_t>(TypeIndex::Int16)},
-             SMALLINT(0)},                                                           // int64
-            {{STRING("6.18"), static_cast<int16_t>(TypeIndex::Int16)}, SMALLINT(6)}, // double
-            {{STRING(R"("abcd")"), static_cast<int16_t>(TypeIndex::Int16)}, Null()}, // string
-            {{STRING("{}"), static_cast<int16_t>(TypeIndex::Int16)}, Null()},        // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), static_cast<int16_t>(TypeIndex::Int16)},
-             Null()},                                                                 // object
-            {{STRING("[]"), static_cast<int16_t>(TypeIndex::Int16)}, Null()},         // empty array
-            {{STRING("[123, 456]"), static_cast<int16_t>(TypeIndex::Int16)}, Null()}, // int array
-            {{STRING(R"(["abc", "def"])"), static_cast<int16_t>(TypeIndex::Int16)},
+            {{STRING("1152921504606846976"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             SMALLINT(0)}, // int64
+            {{STRING("6.18"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             SMALLINT(6)}, // double
+            {{STRING(R"("abcd")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             Null()}, // string
+            {{STRING("{}"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             Null()}, // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"),
+              static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             Null()}, // object
+            {{STRING("[]"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             Null()}, // empty array
+            {{STRING("[123, 456]"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             Null()}, // int array
+            {{STRING(R"(["abc", "def"])"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              Null()}, // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"),
-              static_cast<int16_t>(TypeIndex::Int16)},
+              static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"),
-              static_cast<int16_t>(TypeIndex::Int16)},
+              static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              Null()}, // complex array
     };
     for (const auto& row : data_set) {
@@ -1332,32 +1359,34 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt16, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int32}};
+    input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_INT}};
     // cast to INT
     data_set = {
-            {{STRING("null"), static_cast<int32_t>(TypeIndex::Int32)}, Null()},
-            {{STRING("true"), static_cast<int32_t>(TypeIndex::Int32)}, INT(1)},
-            {{STRING("false"), static_cast<int32_t>(TypeIndex::Int32)}, INT(0)},
-            {{STRING("100"), static_cast<int32_t>(TypeIndex::Int32)}, INT(100)},     //int8
-            {{STRING("10000"), static_cast<int32_t>(TypeIndex::Int32)}, INT(10000)}, // int16
-            {{STRING("1000000000"), static_cast<int32_t>(TypeIndex::Int32)},
+            {{STRING("null"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, Null()},
+            {{STRING("true"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(1)},
+            {{STRING("false"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(0)},
+            {{STRING("100"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(100)},     //int8
+            {{STRING("10000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(10000)}, // int16
+            {{STRING("1000000000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              INT(1000000000)}, // int32
-            {{STRING("1152921504606846976"), static_cast<int32_t>(TypeIndex::Int32)},
-             INT(0)},                                                                // int64
-            {{STRING("6.18"), static_cast<int32_t>(TypeIndex::Int32)}, INT(6)},      // double
-            {{STRING(R"("abcd")"), static_cast<int32_t>(TypeIndex::Int32)}, Null()}, // string
-            {{STRING("{}"), static_cast<int32_t>(TypeIndex::Int32)}, Null()},        // empty object
-            {{STRING(R"({"k1":"v31", "k2": 300})"), static_cast<int32_t>(TypeIndex::Int32)},
-             Null()},                                                                 // object
-            {{STRING("[]"), static_cast<int32_t>(TypeIndex::Int32)}, Null()},         // empty array
-            {{STRING("[123, 456]"), static_cast<int32_t>(TypeIndex::Int32)}, Null()}, // int array
-            {{STRING(R"(["abc", "def"])"), static_cast<int32_t>(TypeIndex::Int32)},
+            {{STRING("1152921504606846976"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
+             INT(0)},                                                                  // int64
+            {{STRING("6.18"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(6)}, // double
+            {{STRING(R"("abcd")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
+             Null()},                                                                // string
+            {{STRING("{}"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, Null()}, // empty object
+            {{STRING(R"({"k1":"v31", "k2": 300})"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
+             Null()},                                                                // object
+            {{STRING("[]"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, Null()}, // empty array
+            {{STRING("[123, 456]"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
+             Null()}, // int array
+            {{STRING(R"(["abc", "def"])"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              Null()}, // string array
             {{STRING(R"([null, true, false, 100, 6.18, "abc"])"),
-              static_cast<int32_t>(TypeIndex::Int32)},
+              static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              Null()}, // multi type array
             {{STRING(R"([{"k1":"v41", "k2": 400}, 1, "a", 3.14])"),
-              static_cast<int32_t>(TypeIndex::Int32)},
+              static_cast<int32_t>(PrimitiveType::TYPE_INT)},
              Null()}, // complex array
     };
     for (const auto& row : data_set) {
@@ -1366,7 +1395,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt32, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Int64}};
+    input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_BIGINT}};
     // cast to BIGINT
     data_set = {
             {{STRING("null"), BIGINT(1)}, Null()},
@@ -1394,7 +1423,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeInt64, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::Float64}};
+    input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_DOUBLE}};
     // cast to DOUBLE
     data_set = {
             {{STRING("null"), DOUBLE(1)}, Null()},
@@ -1422,7 +1451,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
                 check_function<DataTypeFloat64, true>(func_name, input_types, const_dataset));
     }
 
-    input_types = {Nullable {TypeIndex::JSONB}, Consted {TypeIndex::String}};
+    input_types = {Nullable {PrimitiveType::TYPE_JSONB}, Consted {PrimitiveType::TYPE_VARCHAR}};
     // cast to STRING
     data_set = {
             {{STRING("null"), STRING("1")}, STRING("null")},
@@ -1456,68 +1485,76 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
 TEST(FunctionJsonbTEST, JsonbCastFromOtherTest) {
     // CAST Nullable(X) to Nullable(JSONB)
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::UInt8}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_BOOLEAN}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{BOOLEAN(1), Null()}, STRING("true")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::UInt8}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_BOOLEAN}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{BOOLEAN(0), Null()}, STRING("false")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int8}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_TINYINT}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{TINYINT(100), Null()}, STRING("100")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int16}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_SMALLINT}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{SMALLINT(10000), Null()}, STRING("10000")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int32}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_INT}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{INT(1000000000), Null()}, STRING("1000000000")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Int64}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_BIGINT}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{BIGINT(1152921504606846976), Null()}, STRING("1152921504606846976")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::Float64}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_DOUBLE}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{DOUBLE(6.18), Null()}, STRING("6.18")}}));
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::String}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_VARCHAR}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{STRING(R"(abcd)"), Null()}, Null()}})); // should fail
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Nullable {TypeIndex::String}, Consted {TypeIndex::JSONB}},
+            "CAST", {Nullable {PrimitiveType::TYPE_VARCHAR}, Consted {PrimitiveType::TYPE_JSONB}},
             {{{STRING(R"("abcd")"), Null()}, STRING(R"("abcd")")}}));
 
     // CAST X to JSONB. the second argument is just a dummy because result type is not nullable so we need it
     // rather than a Null.
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_BOOLEAN}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{BOOLEAN(1), STRING()}, STRING("true")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::UInt8}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_BOOLEAN}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{BOOLEAN(0), STRING()}, STRING("false")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int8}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_TINYINT}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{TINYINT(100), STRING()}, STRING("100")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int16}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_SMALLINT}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{SMALLINT(10000), STRING()}, STRING("10000")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int32}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST", {Notnull {PrimitiveType::TYPE_INT}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{INT(1000000000), STRING()}, STRING("1000000000")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Int64}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_BIGINT}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{BIGINT(1152921504606846976), STRING()}, STRING("1152921504606846976")}}));
     static_cast<void>(check_function<DataTypeJsonb, false>(
-            "CAST", {Notnull {TypeIndex::Float64}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_DOUBLE}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{DOUBLE(6.18), STRING()}, STRING("6.18")}}));
     // String to JSONB should always be Nullable
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_VARCHAR}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{STRING(R"(abcd)"), STRING()}, Null()}})); // should fail
     static_cast<void>(check_function<DataTypeJsonb, true>(
-            "CAST", {Notnull {TypeIndex::String}, ConstedNotnull {TypeIndex::JSONB}},
+            "CAST",
+            {Notnull {PrimitiveType::TYPE_VARCHAR}, ConstedNotnull {PrimitiveType::TYPE_JSONB}},
             {{{STRING(R"("abcd")"), STRING()}, STRING(R"("abcd")")}}));
 }
 
 TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
     std::string func_name = "get_json_string";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // get json from root
     DataSet data_set = {
@@ -1661,7 +1698,7 @@ TEST(FunctionJsonbTEST, GetJSONSTRINGTest) {
 
 TEST(FunctionJsonbTEST, GetJsonIntTest) {
     std::string func_name = "get_json_int";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // get json from root
     DataSet data_set = {
@@ -1804,7 +1841,7 @@ TEST(FunctionJsonbTEST, GetJsonIntTest) {
 
 TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
     std::string func_name = "get_json_bigint";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // get json from root
     DataSet data_set = {
@@ -1947,7 +1984,7 @@ TEST(FunctionJsonbTEST, GetJsonBigIntTest) {
 
 TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
     std::string func_name = "get_json_double";
-    InputTypeSet input_types = {TypeIndex::JSONB, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_JSONB, PrimitiveType::TYPE_VARCHAR};
 
     // get json from root
     DataSet data_set = {

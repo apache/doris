@@ -52,7 +52,7 @@ TEST(ComplexTypeTest, CreateColumnConstWithDefaultValue) {
     Field t;
     EXPECT_EQ(1, col_s->size());
     col_s->get(0, t);
-    EXPECT_EQ(Field::Types::Tuple, t.get_type());
+    EXPECT_EQ(PrimitiveType::TYPE_STRUCT, t.get_type());
 
     // data_type_map
     DataTypePtr m = std::make_shared<DataTypeMap>(n1, s1);
@@ -60,7 +60,7 @@ TEST(ComplexTypeTest, CreateColumnConstWithDefaultValue) {
     EXPECT_EQ(1, col_m->size());
     Field mf;
     col_m->get(0, mf);
-    EXPECT_EQ(Field::Types::Map, mf.get_type());
+    EXPECT_EQ(PrimitiveType::TYPE_MAP, mf.get_type());
 
     // data_type_array
     DataTypePtr a = std::make_shared<DataTypeArray>(s1);
@@ -68,6 +68,6 @@ TEST(ComplexTypeTest, CreateColumnConstWithDefaultValue) {
     EXPECT_EQ(1, col_a->size());
     Field af;
     col_a->get(0, af);
-    EXPECT_EQ(Field::Types::Array, af.get_type());
+    EXPECT_EQ(PrimitiveType::TYPE_ARRAY, af.get_type());
 }
 } // namespace doris::vectorized

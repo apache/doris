@@ -374,9 +374,7 @@ Status CsvReader::init_reader(bool is_load) {
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
-        if (data_type_ptr.get()->get_type_id() == TypeIndex::Nullable &&
-            ((DataTypeNullable*)data_type_ptr.get())->get_nested_type()->get_type_id() ==
-                    TypeIndex::String) {
+        if (data_type_ptr->is_nullable() && is_string_type(data_type_ptr->get_primitive_type())) {
             _use_nullable_string_opt[i] = 1;
         }
     }

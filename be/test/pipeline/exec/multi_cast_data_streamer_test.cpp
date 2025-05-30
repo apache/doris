@@ -249,6 +249,7 @@ TEST_F(MultiCastDataStreamerTest, SpillTest) {
     std::vector<std::vector<Block>> output_blocks(cast_sender_count);
 
     auto output_func = [&](int id) {
+        SCOPED_INIT_THREAD_CONTEXT();
         while (true) {
             if (!deps[id]->ready() ||
                 !multi_cast_data_streamer->get_spill_read_dependency(id)->ready()) {

@@ -256,12 +256,12 @@ suite("test_nereids_set_operation") {
     """
 
     order_qt_select43 """
-        SELECT * FROM (select k1, k3 from setOperationTableNotNullable order by k3 union all
+        SELECT * FROM ((select k1, k3 from setOperationTableNotNullable order by k3) union all
             select k1, k5 from setOperationTable) t;
     """
 
     order_qt_select44 """
-    select k1, k3 from setOperationTableNotNullable order by k3 union all
+    (select k1, k3 from setOperationTableNotNullable order by k3) union all
             select k1, k5 from setOperationTable
     """
 
@@ -325,9 +325,9 @@ suite("test_nereids_set_operation") {
 
     sql "sync"
     order_qt_check_child_col_order """
-        select avg(tap), potno from dwd_daytable where potno=3601 and ddate >= '2023-08-01' group by potno limit 10
+        (select avg(tap), potno from dwd_daytable where potno=3601 and ddate >= '2023-08-01' group by potno limit 10)
         union
-        select avg(tap), potno from dwd_daytable where potno=3602 and ddate >= '2023-08-01' group by potno limit 10;
+        (select avg(tap), potno from dwd_daytable where potno=3602 and ddate >= '2023-08-01' group by potno limit 10);
     """
 
     sql "DROP TABLE IF EXISTS table_22_undef_partitions2_keys3_properties4_distributed_by54"

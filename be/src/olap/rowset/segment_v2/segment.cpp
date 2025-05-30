@@ -597,8 +597,8 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
         }
         // it contains children or column missing in storage, so treat it as variant
         return identifier.is_nullable
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
-                       : std::make_shared<vectorized::DataTypeObject>();
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>())
+                       : std::make_shared<vectorized::DataTypeVariant>();
     }
     // TODO support normal column type
     return nullptr;

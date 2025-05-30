@@ -172,7 +172,8 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info);
+             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
+             const std::shared_ptr<ResourceContext>& resource_ctx);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }

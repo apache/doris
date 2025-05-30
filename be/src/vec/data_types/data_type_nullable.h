@@ -58,7 +58,6 @@ public:
         return "Nullable(" + nested_data_type->get_name() + ")";
     }
     const char* get_family_name() const override { return "Nullable"; }
-    TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
     PrimitiveType get_primitive_type() const override {
         return nested_data_type->get_primitive_type();
     }
@@ -80,7 +79,7 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Null();
+            return Field();
         }
         return nested_data_type->get_field(node);
     }
@@ -106,6 +105,9 @@ public:
         return 1 + nested_data_type->get_size_of_value_in_memory();
     }
     bool is_nullable() const override { return true; }
+    bool is_fixed_length_object() const override {
+        return nested_data_type->is_fixed_length_object();
+    }
     bool can_be_inside_low_cardinality() const override {
         return nested_data_type->can_be_inside_low_cardinality();
     }

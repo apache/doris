@@ -48,21 +48,20 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
-class DataTypeObject : public IDataType {
+class DataTypeVariant : public IDataType {
 private:
     String schema_format;
     bool is_nullable;
 
 public:
-    DataTypeObject(const String& schema_format_ = "json", bool is_nullable_ = true);
+    DataTypeVariant(const String& schema_format_ = "json", bool is_nullable_ = true);
     const char* get_family_name() const override { return "Variant"; }
-    TypeIndex get_type_id() const override { return TypeIndex::VARIANT; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
     }
-    MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
+    MutableColumnPtr create_column() const override { return ColumnVariant::create(is_nullable); }
     bool equals(const IDataType& rhs) const override;
     bool have_subtypes() const override { return true; };
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -72,23 +71,12 @@ public:
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
-    Field get_default() const override { return VariantMap(); }
+    Field get_default() const override { return Field::create_field<TYPE_VARIANT>(VariantMap()); }
 
-    Field get_field(const TExprNode& node) const override {
-        if (node.__isset.string_literal) {
-            return Field(node.string_literal.value);
-        }
-        if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return {};
-        }
-        std::stringstream error_string;
-        node.printTo(error_string);
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
-        return {};
-    }
+    Field get_field(const TExprNode& node) const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeObjectSerDe>(nesting_level);
+        return std::make_shared<DataTypeVariantSerDe>(nesting_level);
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::VARIANT);

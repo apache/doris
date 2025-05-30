@@ -146,8 +146,8 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         auto left_data_type = remove_nullable(arguments[0]);
         auto right_data_type = remove_nullable(arguments[1]);
-        DCHECK(is_array(left_data_type)) << arguments[0]->get_name();
-        DCHECK(is_array(right_data_type)) << arguments[1]->get_name();
+        DCHECK(left_data_type->get_primitive_type() == TYPE_ARRAY) << arguments[0]->get_name();
+        DCHECK(right_data_type->get_primitive_type() == TYPE_ARRAY) << arguments[1]->get_name();
         auto left_nested_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*left_data_type).get_nested_type());
         auto right_nested_type = remove_nullable(
@@ -193,7 +193,7 @@ public:
 
         Field param_value;
         arguments[0].column->get(0, param_value);
-        DCHECK(is_array(remove_nullable(arguments[0].type)));
+        DCHECK(arguments[0].type->get_primitive_type() == TYPE_ARRAY);
         auto nested_param_type =
                 check_and_get_data_type<DataTypeArray>(remove_nullable(arguments[0].type).get())
                         ->get_nested_type()
@@ -273,73 +273,95 @@ public:
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
         auto left_element_type =
                 remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
-        WhichDataType left_which_type(left_element_type);
-        if (left_which_type.is_string()) {
+        switch (left_element_type->get_primitive_type()) {
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
             ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date()) {
+            break;
+        case TYPE_DATE:
             ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
                                                 dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date_time()) {
+            break;
+        case TYPE_DATETIME:
             ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
                                                     dst_null_map_data,
                                                     dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date_v2()) {
+            break;
+        case TYPE_DATEV2:
             ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_which_type.is_date_time_v2()) {
+            break;
+        case TYPE_DATETIMEV2:
             ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
-        } else if (left_which_type.is_uint8()) {
+            break;
+        case TYPE_BOOLEAN:
             ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int8()) {
+            break;
+        case TYPE_TINYINT:
             ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data, dst_null_map_data,
                                                 dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int16()) {
+            break;
+        case TYPE_SMALLINT:
             ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int32()) {
+            break;
+        case TYPE_INT:
             ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int64()) {
+            break;
+        case TYPE_BIGINT:
             ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data, dst_null_map_data,
                                                  dst_nested_col->get_data().data());
-        } else if (left_which_type.is_int128()) {
+            break;
+        case TYPE_LARGEINT:
             ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_which_type.is_float32()) {
+            break;
+        case TYPE_FLOAT:
             ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
                                                    dst_null_map_data,
                                                    dst_nested_col->get_data().data());
-        } else if (left_which_type.is_float64()) {
+            break;
+        case TYPE_DOUBLE:
             ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
                                                    dst_null_map_data,
                                                    dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal32()) {
+            break;
+        case TYPE_DECIMAL32:
             ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal64()) {
+            break;
+        case TYPE_DECIMAL64:
             ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal128v3()) {
+            break;
+        case TYPE_DECIMAL128I:
             ret = _execute_internal<ColumnDecimal128V3>(left_exec_data, right_exec_data,
                                                         dst_null_map_data,
                                                         dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal128v2()) {
+            break;
+        case TYPE_DECIMALV2:
             ret = _execute_internal<ColumnDecimal128V2>(left_exec_data, right_exec_data,
                                                         dst_null_map_data,
                                                         dst_nested_col->get_data().data());
-        } else if (left_which_type.is_decimal256()) {
+            break;
+        case TYPE_DECIMAL256:
             ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
+            break;
+        default:
+            break;
         }
 
         if (ret.ok()) {

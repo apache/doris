@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "common/utils.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
@@ -189,6 +190,16 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
+
+    DBUG_EXECUTE_IF("VectorizedFnCall.wait_before_execute", {
+        auto possibility = DebugPoints::instance()->get_debug_param_or_default<double>(
+                "VectorizedFnCall.wait_before_execute", "possibility", 0);
+        if (random_bool_slow(possibility)) {
+            LOG(WARNING) << "VectorizedFnCall::execute sleep 30s";
+            sleep(30);
+        }
+    });
+
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;

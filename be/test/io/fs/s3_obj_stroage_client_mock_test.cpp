@@ -24,6 +24,7 @@
 #include "gmock/gmock.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "util/s3_util.h"
+#include "util/string_util.h"
 
 using namespace Aws::S3::Model;
 
@@ -117,5 +118,11 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(files.size(), 5);
     files.clear();
+}
+
+TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {
+    auto path = doris::get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+    LOG(INFO) << "config:" << config::ca_cert_file_paths << " path:" << path;
+    ASSERT_FALSE(path.empty());
 }
 } // namespace doris::io

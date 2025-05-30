@@ -488,7 +488,6 @@ private:
         const void* get_data_at(size_t offset) const override {
             throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                    "now not support get_data_at for OlapColumnDataConvertorMap");
-            __builtin_unreachable();
         };
 
     private:
@@ -517,7 +516,7 @@ private:
         // const ColumnString* _root_data_column;
         // // _nullmap contains null info for this variant
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
-        ColumnObject* _source_column_ptr;
+        ColumnVariant* _source_column_ptr;
     };
 
 private:

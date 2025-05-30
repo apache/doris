@@ -180,7 +180,12 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             // not we execute as overwrite every partitions.
             if (CollectionUtils.isEmpty(partitionNames)) {
                 wholeTable = true;
-                partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+                try { // avoid concurrent modification exception when get partition names
+                    targetTable.readLock();
+                    partitionNames = Lists.newArrayList(targetTable.getPartitionNames());
+                } finally {
+                    targetTable.readUnlock();
+                }
             }
         } else {
             // Do not create temp partition on FE

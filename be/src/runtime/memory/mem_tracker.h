@@ -47,8 +47,8 @@ public:
     const std::string& label() const { return _label; }
     std::string log_usage() const {
         return fmt::format("MemTracker name={}, Used={}({} B), Peak={}({} B)", _label,
-                           MemCounter::print_bytes(consumption()), consumption(),
-                           MemCounter::print_bytes(peak_consumption()), peak_consumption());
+                           PrettyPrinter::print_bytes(consumption()), consumption(),
+                           PrettyPrinter::print_bytes(peak_consumption()), peak_consumption());
     }
 
 private:

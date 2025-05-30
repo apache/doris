@@ -22,13 +22,11 @@
 
 #include <iostream>
 
-#include "common/exception.h"
 #include "vec/columns/column.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/function/function_test_util.h"
 
@@ -52,127 +50,163 @@ protected:
         // we need to load data from csv file into column_map list
         // step1. create data type for map nested type (const and nullable)
         // map<tinyint, tinyint>
-        InputTypeSet map_tinyint = {TypeIndex::Map, TypeIndex::Int8, TypeIndex::Int8};
+        InputTypeSet map_tinyint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_TINYINT,
+                                    PrimitiveType::TYPE_TINYINT};
         // map<smallint, smallint>
-        InputTypeSet map_smallint = {TypeIndex::Map, TypeIndex::Int16, TypeIndex::Int16};
+        InputTypeSet map_smallint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_SMALLINT,
+                                     PrimitiveType::TYPE_SMALLINT};
         // map<int, int>
-        InputTypeSet map_int = {TypeIndex::Map, TypeIndex::Int32, TypeIndex::Int32};
+        InputTypeSet map_int = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_INT,
+                                PrimitiveType::TYPE_INT};
         // map<bigintm, bigint>
-        InputTypeSet map_bigint = {TypeIndex::Map, TypeIndex::Int64, TypeIndex::Int64};
+        InputTypeSet map_bigint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_BIGINT,
+                                   PrimitiveType::TYPE_BIGINT};
         // map<largeint, largeint>
-        InputTypeSet map_largeint = {TypeIndex::Map, TypeIndex::Int128, TypeIndex::Int128};
+        InputTypeSet map_largeint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_LARGEINT,
+                                     PrimitiveType::TYPE_LARGEINT};
         // map<float, float>
-        InputTypeSet map_float = {TypeIndex::Map, TypeIndex::Float32, TypeIndex::Float32};
+        InputTypeSet map_float = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_FLOAT,
+                                  PrimitiveType::TYPE_FLOAT};
         // map<double, double>
-        InputTypeSet map_double = {TypeIndex::Map, TypeIndex::Float64, TypeIndex::Float64};
+        InputTypeSet map_double = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DOUBLE,
+                                   PrimitiveType::TYPE_DOUBLE};
         // map<ipv4, ipv4>
-        InputTypeSet map_ipv4 = {TypeIndex::Map, TypeIndex::IPv4, TypeIndex::IPv4};
+        InputTypeSet map_ipv4 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_IPV4,
+                                 PrimitiveType::TYPE_IPV4};
         // map<ipv6, ipv6>
-        InputTypeSet map_ipv6 = {TypeIndex::Map, TypeIndex::IPv6, TypeIndex::IPv6};
+        InputTypeSet map_ipv6 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_IPV6,
+                                 PrimitiveType::TYPE_IPV6};
         // map<date, date>
-        InputTypeSet map_date = {TypeIndex::Map, TypeIndex::Date, TypeIndex::Date};
+        InputTypeSet map_date = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DATE,
+                                 PrimitiveType::TYPE_DATE};
         // map<datetime, datetime>
-        InputTypeSet map_datetime = {TypeIndex::Map, TypeIndex::DateTime, TypeIndex::DateTime};
+        InputTypeSet map_datetime = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DATETIME,
+                                     PrimitiveType::TYPE_DATETIME};
         // map<datev2, datev2>
-        InputTypeSet map_datev2 = {TypeIndex::Map, TypeIndex::DateV2, TypeIndex::DateV2};
+        InputTypeSet map_datev2 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DATEV2,
+                                   PrimitiveType::TYPE_DATEV2};
         // map<datetimev2, datetimev2>
-        InputTypeSet map_datetimev2 = {TypeIndex::Map, TypeIndex::DateTimeV2,
-                                       TypeIndex::DateTimeV2};
+        InputTypeSet map_datetimev2 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DATETIMEV2,
+                                       PrimitiveType::TYPE_DATETIMEV2};
         // map<varchar, varchar>
-        InputTypeSet map_varchar = {TypeIndex::Map, TypeIndex::String, TypeIndex::String};
+        InputTypeSet map_varchar = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
         // map<decimal32(9, 5), decimal32(9, 5)> UT
-        InputTypeSet map_decimal = {TypeIndex::Map, TypeIndex::Decimal32, TypeIndex::Decimal32};
+        InputTypeSet map_decimal = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DECIMAL32,
+                                    PrimitiveType::TYPE_DECIMAL32};
         // map<decimal64(18, 9), decimal64(18, 9)> UT
-        InputTypeSet map_decimal64 = {TypeIndex::Map, TypeIndex::Decimal64, TypeIndex::Decimal64};
+        InputTypeSet map_decimal64 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DECIMAL64,
+                                      PrimitiveType::TYPE_DECIMAL64};
         // map<decimal128(38, 20), decimal128(38, 20)> UT
-        InputTypeSet map_decimal128 = {TypeIndex::Map, TypeIndex::Decimal128V3,
-                                       TypeIndex::Decimal128V3};
+        InputTypeSet map_decimal128 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DECIMAL128I,
+                                       PrimitiveType::TYPE_DECIMAL128I};
         // map<decimal256(76, 40), decimal256(76, 40)> UT
-        InputTypeSet map_decimal256 = {TypeIndex::Map, TypeIndex::Decimal256,
-                                       TypeIndex::Decimal256};
+        InputTypeSet map_decimal256 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_DECIMAL256,
+                                       PrimitiveType::TYPE_DECIMAL256};
         std::vector<InputTypeSet> map_typeIndex = {
                 map_tinyint,   map_smallint,   map_int,        map_bigint,  map_largeint,
                 map_float,     map_double,     map_ipv4,       map_ipv6,    map_date,
                 map_datetime,  map_datev2,     map_datetimev2, map_varchar, map_decimal,
                 map_decimal64, map_decimal128, map_decimal256};
         // map<array<tinyint>, array<tinyint>>
-        InputTypeSet map_array_tinyint = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Int8,
-                                          TypeIndex::Array, TypeIndex::Int8};
+        InputTypeSet map_array_tinyint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_TINYINT};
         // map<array<smallint>, array<smallint>>
-        InputTypeSet map_array_smallint = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Int16,
-                                           TypeIndex::Array, TypeIndex::Int16};
+        InputTypeSet map_array_smallint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_SMALLINT};
         // map<array<int, int>, array<int, int>>
-        InputTypeSet map_array_int = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Int32,
-                                      TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet map_array_int = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                      PrimitiveType::TYPE_INT, PrimitiveType::TYPE_ARRAY,
+                                      PrimitiveType::TYPE_INT};
         // map<array<bigint>, array<bigint>>
-        InputTypeSet map_array_bigint = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Int64,
-                                         TypeIndex::Array, TypeIndex::Int64};
+        InputTypeSet map_array_bigint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_BIGINT, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_BIGINT};
         // map<array<largeint>, array<largeint>>
-        InputTypeSet map_array_largeint = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Int128,
-                                           TypeIndex::Array, TypeIndex::Int128};
+        InputTypeSet map_array_largeint = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_LARGEINT};
         // map<array<float>, array<float>>
-        InputTypeSet map_array_float = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Float32,
-                                        TypeIndex::Array, TypeIndex::Float32};
+        InputTypeSet map_array_float = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                        PrimitiveType::TYPE_FLOAT, PrimitiveType::TYPE_ARRAY,
+                                        PrimitiveType::TYPE_FLOAT};
         // map<array<double>, array<double>>
-        InputTypeSet map_array_double = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Float64,
-                                         TypeIndex::Array, TypeIndex::Float64};
+        InputTypeSet map_array_double = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_DOUBLE};
         // map<array<ipv4>, array<ipv4>>
-        InputTypeSet map_array_ipv4 = {TypeIndex::Map, TypeIndex::Array, TypeIndex::IPv4,
-                                       TypeIndex::Array, TypeIndex::IPv4};
+        InputTypeSet map_array_ipv4 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                       PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_ARRAY,
+                                       PrimitiveType::TYPE_IPV4};
         // map<array<ipv6>, array<ipv6>>
-        InputTypeSet map_array_ipv6 = {TypeIndex::Map, TypeIndex::Array, TypeIndex::IPv6,
-                                       TypeIndex::Array, TypeIndex::IPv6};
+        InputTypeSet map_array_ipv6 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                       PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_ARRAY,
+                                       PrimitiveType::TYPE_IPV6};
         // map<array<date>, array<date>>
-        InputTypeSet map_array_date = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Date,
-                                       TypeIndex::Array, TypeIndex::Date};
+        InputTypeSet map_array_date = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                       PrimitiveType::TYPE_DATE, PrimitiveType::TYPE_ARRAY,
+                                       PrimitiveType::TYPE_DATE};
         // map<array<datetime>, array<datetime>>
-        InputTypeSet map_array_datetime = {TypeIndex::Map, TypeIndex::Array, TypeIndex::DateTime,
-                                           TypeIndex::Array, TypeIndex::DateTime};
+        InputTypeSet map_array_datetime = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_DATETIME, PrimitiveType::TYPE_ARRAY,
+                                           PrimitiveType::TYPE_DATETIME};
         // map<array<datev2>, array<datev2>>
-        InputTypeSet map_array_datev2 = {TypeIndex::Map, TypeIndex::Array, TypeIndex::DateV2,
-                                         TypeIndex::Array, TypeIndex::DateV2};
+        InputTypeSet map_array_datev2 = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_ARRAY,
+                                         PrimitiveType::TYPE_DATEV2};
         // map<array<datetimev2>, array<datetimev2>>
-        InputTypeSet map_array_datetimev2 = {TypeIndex::Map, TypeIndex::Array,
-                                             TypeIndex::DateTimeV2, TypeIndex::Array,
-                                             TypeIndex::DateTimeV2};
+        InputTypeSet map_array_datetimev2 = {
+                PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIMEV2,
+                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DATETIMEV2};
         // map<array<varchar>, array<varchar>>
-        InputTypeSet map_array_varchar = {TypeIndex::Map, TypeIndex::Array, TypeIndex::String,
-                                          TypeIndex::Array, TypeIndex::String};
+        InputTypeSet map_array_varchar = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_VARCHAR};
         // map<array<decimal32(9, 5)>, array<decimal32(9, 5)>>
-        InputTypeSet map_array_decimal = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Decimal32,
-                                          TypeIndex::Array, TypeIndex::Decimal32};
+        InputTypeSet map_array_decimal = {PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_DECIMAL32, PrimitiveType::TYPE_ARRAY,
+                                          PrimitiveType::TYPE_DECIMAL32};
         // map<array<decimal64(18, 9)>, array<decimal64(18, 9)>>
-        InputTypeSet map_array_decimal64 = {TypeIndex::Map, TypeIndex::Array, TypeIndex::Decimal64,
-                                            TypeIndex::Array, TypeIndex::Decimal64};
+        InputTypeSet map_array_decimal64 = {
+                PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL64,
+                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL64};
         // map<array<decimal128(38, 20)>, array<decimal128(38, 20)>>
-        InputTypeSet map_array_decimal128 = {TypeIndex::Map, TypeIndex::Array,
-                                             TypeIndex::Decimal128V3, TypeIndex::Array,
-                                             TypeIndex::Decimal128V3};
+        InputTypeSet map_array_decimal128 = {
+                PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL128I,
+                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL128I};
         // map<array<decimal256(76, 40)>, array<decimal256(76, 40)>>
-        InputTypeSet map_array_decimal256 = {TypeIndex::Map, TypeIndex::Array,
-                                             TypeIndex::Decimal256, TypeIndex::Array,
-                                             TypeIndex::Decimal256};
+        InputTypeSet map_array_decimal256 = {
+                PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL256,
+                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_DECIMAL256};
         // map<map<char, double>, map<char, double>>
-        InputTypeSet map_map_char_double = {TypeIndex::Map,     TypeIndex::Map, TypeIndex::String,
-                                            TypeIndex::Float64, TypeIndex::Map, TypeIndex::String,
-                                            TypeIndex::Float64};
+        InputTypeSet map_map_char_double = {
+                PrimitiveType::TYPE_MAP,    PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_VARCHAR,
+                PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_VARCHAR,
+                PrimitiveType::TYPE_DOUBLE};
         // map<map<datetime, decimal<76,56>>, map<datetime, decimal<76,56>>>
         InputTypeSet map_map_datetime_decimal = {
-                TypeIndex::Map, TypeIndex::Map,        TypeIndex::DateTimeV2, TypeIndex::Decimal256,
-                TypeIndex::Map, TypeIndex::DateTimeV2, TypeIndex::Decimal256};
+                PrimitiveType::TYPE_MAP,        PrimitiveType::TYPE_MAP,
+                PrimitiveType::TYPE_DATETIMEV2, PrimitiveType::TYPE_DECIMAL256,
+                PrimitiveType::TYPE_MAP,        PrimitiveType::TYPE_DATETIMEV2,
+                PrimitiveType::TYPE_DECIMAL256};
         // map<map<ipv4, ipv6>, map<ipv4, ipv6>>
-        InputTypeSet map_map_ipv4_ipv6 = {TypeIndex::Map,  TypeIndex::Map, TypeIndex::IPv4,
-                                          TypeIndex::IPv6, TypeIndex::Map, TypeIndex::IPv4,
-                                          TypeIndex::IPv6};
+        InputTypeSet map_map_ipv4_ipv6 = {PrimitiveType::TYPE_MAP,  PrimitiveType::TYPE_MAP,
+                                          PrimitiveType::TYPE_IPV4, PrimitiveType::TYPE_IPV6,
+                                          PrimitiveType::TYPE_MAP,  PrimitiveType::TYPE_IPV4,
+                                          PrimitiveType::TYPE_IPV6};
         // map<map<largeInt, string>, map<largeInt, string>>
         InputTypeSet map_map_largeint_string = {
-                TypeIndex::Map, TypeIndex::Map,    TypeIndex::Int128, TypeIndex::String,
-                TypeIndex::Map, TypeIndex::Int128, TypeIndex::String};
+                PrimitiveType::TYPE_MAP,     PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_LARGEINT,
+                PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_MAP, PrimitiveType::TYPE_LARGEINT,
+                PrimitiveType::TYPE_VARCHAR};
         // map<struct<f1:int,f2:date,f3:decimal>, struct<f4:string,f5:double,f6:ipv4,f7:ipv6>>
-        InputTypeSet map_struct = {TypeIndex::Map,    TypeIndex::Struct,    TypeIndex::Int32,
-                                   TypeIndex::Date,   TypeIndex::Decimal32, TypeIndex::Struct,
-                                   TypeIndex::String, TypeIndex::Float64,   TypeIndex::IPv4,
-                                   TypeIndex::IPv6};
+        InputTypeSet map_struct = {PrimitiveType::TYPE_MAP,       PrimitiveType::TYPE_STRUCT,
+                                   PrimitiveType::TYPE_INT,       PrimitiveType::TYPE_DATE,
+                                   PrimitiveType::TYPE_DECIMAL32, PrimitiveType::TYPE_STRUCT,
+                                   PrimitiveType::TYPE_VARCHAR,   PrimitiveType::TYPE_DOUBLE,
+                                   PrimitiveType::TYPE_IPV4,      PrimitiveType::TYPE_IPV6};
 
         std::vector<InputTypeSet> map_array_typeIndex = {
                 map_array_tinyint,    map_array_smallint,  map_array_int,      map_array_bigint,
@@ -191,8 +225,8 @@ protected:
             descs_.emplace_back();
             InputTypeSet input_types {};
             input_types.emplace_back(map_typeIndex[i][0]);
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_typeIndex[i][1])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_typeIndex[i][2])});
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_typeIndex[i][1])});
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_typeIndex[i][2])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(input_types, descs_[i]));
@@ -202,11 +236,11 @@ protected:
             InputTypeSet input_types {};
             input_types.emplace_back(map_array_typeIndex[i][0]);
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(map_array_typeIndex[i][1])}); // array1
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_array_typeIndex[i][2])});
+                    Nullable {any_cast<PrimitiveType>(map_array_typeIndex[i][1])}); // array1
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_array_typeIndex[i][2])});
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(map_array_typeIndex[i][3])}); // array2
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_array_typeIndex[i][4])});
+                    Nullable {any_cast<PrimitiveType>(map_array_typeIndex[i][3])}); // array2
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_array_typeIndex[i][4])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[3].type(), &typeid(Nullable)) << "nested type is not nullable";
@@ -219,13 +253,13 @@ protected:
             InputTypeSet input_types {};
             input_types.emplace_back(map_map_typeIndex[i][0]); // map
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(map_map_typeIndex[i][1])}); // map1
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_map_typeIndex[i][2])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_map_typeIndex[i][3])});
+                    Nullable {any_cast<PrimitiveType>(map_map_typeIndex[i][1])}); // map1
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_map_typeIndex[i][2])});
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_map_typeIndex[i][3])});
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(map_map_typeIndex[i][4])}); // map2
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_map_typeIndex[i][5])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_map_typeIndex[i][6])});
+                    Nullable {any_cast<PrimitiveType>(map_map_typeIndex[i][4])}); // map2
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_map_typeIndex[i][5])});
+            input_types.emplace_back(Nullable {any_cast<PrimitiveType>(map_map_typeIndex[i][6])});
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[2].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_EQ(input_types[3].type(), &typeid(Nullable)) << "nested type is not nullable";
@@ -241,15 +275,23 @@ protected:
             InputTypeSet input_types {};
             input_types.emplace_back(map_struct_typeIndex[i][0]); // map
             input_types.emplace_back(
-                    Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][1])}); // struct
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][2])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][3])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][4])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][5])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][6])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][7])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][8])});
-            input_types.emplace_back(Nullable {any_cast<TypeIndex>(map_struct_typeIndex[i][9])});
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][1])}); // struct
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][2])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][3])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][4])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][5])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][6])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][7])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][8])});
+            input_types.emplace_back(
+                    Nullable {any_cast<PrimitiveType>(map_struct_typeIndex[i][9])});
 
             EXPECT_EQ(input_types[1].type(), &typeid(Nullable)) << "nested type is not nullable";
             EXPECT_TRUE(parse_ut_data_type(
@@ -281,7 +323,7 @@ protected:
 
     std::string data_file_dir = "regression-test/data/nereids_function_p0/map/";
 
-    vector<string> data_files = {
+    std::vector<std::string> data_files = {
             // map-scalar
             data_file_dir + "test_map_tinyint.csv", data_file_dir + "test_map_smallint.csv",
             data_file_dir + "test_map_int.csv", data_file_dir + "test_map_bigint.csv",
@@ -329,8 +371,8 @@ protected:
             // TODO, json->map<struct<>, struct<>> deserialization result is map<NULL, NULL>.
             data_file_dir + "test_map_struct.csv"};
 
-    vector<ut_type::UTDataTypeDescs> descs_; // map<> descs matrix
-    MutableColumns columns_;                 // column_map list
+    std::vector<ut_type::UTDataTypeDescs> descs_; // map<> descs matrix
+    MutableColumns columns_;                      // column_map list
     DataTypes types_;
     DataTypeSerDeSPtrs serdes_;
 };
@@ -360,28 +402,28 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
         Array a1, a2, a3, a4;
-        a1.push_back(Field("cute"));
-        a1.push_back(Null());
-        a2.push_back(Field("clever"));
-        a1.push_back(Field("hello"));
-        a3.push_back(1);
-        a3.push_back(2);
-        a4.push_back(11);
-        a4.push_back(22);
+        a1.push_back(Field::create_field<TYPE_STRING>("cute"));
+        a1.push_back(Field());
+        a2.push_back(Field::create_field<TYPE_STRING>("clever"));
+        a1.push_back(Field::create_field<TYPE_STRING>("hello"));
+        a3.push_back(Field::create_field<TYPE_INT>(1));
+        a3.push_back(Field::create_field<TYPE_INT>(2));
+        a4.push_back(Field::create_field<TYPE_INT>(11));
+        a4.push_back(Field::create_field<TYPE_INT>(22));
 
         Array k1, v1;
-        k1.push_back(a1);
-        k1.push_back(a2);
-        v1.push_back(a3);
-        v1.push_back(a4);
+        k1.push_back(Field::create_field<TYPE_ARRAY>(a1));
+        k1.push_back(Field::create_field<TYPE_ARRAY>(a2));
+        v1.push_back(Field::create_field<TYPE_ARRAY>(a3));
+        v1.push_back(Field::create_field<TYPE_ARRAY>(a4));
 
         Map m1;
-        m1.push_back(k1);
-        m1.push_back(v1);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
-        map_column->insert(m1);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
@@ -398,28 +440,28 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
         Tuple t1, t2, t3, t4;
-        t1.push_back(Field("clever"));
-        t1.push_back(__int128_t(37));
-        t1.push_back(true);
-        t2.push_back("null");
-        t2.push_back(__int128_t(26));
-        t2.push_back(false);
-        t3.push_back(Field("cute"));
-        t4.push_back("null");
+        t1.push_back(Field::create_field<TYPE_STRING>("clever"));
+        t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        t2.push_back(Field::create_field<TYPE_STRING>("null"));
+        t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+        t3.push_back(Field::create_field<TYPE_STRING>("cute"));
+        t4.push_back(Field::create_field<TYPE_STRING>("null"));
 
         Array k1, v1;
-        k1.push_back(t1);
-        k1.push_back(t2);
-        v1.push_back(t3);
-        v1.push_back(t4);
+        k1.push_back(Field::create_field<TYPE_STRUCT>(t1));
+        k1.push_back(Field::create_field<TYPE_STRUCT>(t2));
+        v1.push_back(Field::create_field<TYPE_STRUCT>(t3));
+        v1.push_back(Field::create_field<TYPE_STRUCT>(t4));
 
         Map m1;
-        m1.push_back(k1);
-        m1.push_back(v1);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
-        map_column->insert(m1);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
@@ -434,46 +476,46 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
         Array k1, k2, k3, k4, v1, v2, v3, v4;
-        k1.push_back(1);
-        k1.push_back(2);
-        k2.push_back(11);
-        k2.push_back(22);
-        v1.push_back(Field("map"));
-        v1.push_back(Null());
-        v2.push_back(Field("clever map"));
-        v2.push_back(Field("hello map"));
-        k3.push_back(__int128_t(37));
-        k3.push_back(__int128_t(26));
-        k4.push_back(__int128_t(1111));
-        k4.push_back(__int128_t(432535423));
-        v3.push_back(true);
-        v3.push_back(false);
-        v4.push_back(false);
-        v4.push_back(true);
+        k1.push_back(Field::create_field<TYPE_INT>(1));
+        k1.push_back(Field::create_field<TYPE_INT>(2));
+        k2.push_back(Field::create_field<TYPE_INT>(11));
+        k2.push_back(Field::create_field<TYPE_INT>(22));
+        v1.push_back(Field::create_field<TYPE_STRING>("map"));
+        v1.push_back(Field());
+        v2.push_back(Field::create_field<TYPE_STRING>("clever map"));
+        v2.push_back(Field::create_field<TYPE_STRING>("hello map"));
+        k3.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        k3.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        k4.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(1111)));
+        k4.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(432535423)));
+        v3.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        v3.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+        v4.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+        v4.push_back(Field::create_field<TYPE_BOOLEAN>(true));
 
         Map m11, m12, m21, m22;
-        m11.push_back(k1);
-        m11.push_back(v1);
-        m12.push_back(k2);
-        m12.push_back(v2);
-        m21.push_back(k3);
-        m21.push_back(v3);
-        m22.push_back(k4);
-        m22.push_back(v4);
+        m11.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m11.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        m12.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        m12.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        m21.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        m21.push_back(Field::create_field<TYPE_ARRAY>(v3));
+        m22.push_back(Field::create_field<TYPE_ARRAY>(k4));
+        m22.push_back(Field::create_field<TYPE_ARRAY>(v4));
 
         Array kk1, vv1;
-        kk1.push_back(m11);
-        kk1.push_back(m12);
-        vv1.push_back(m21);
-        vv1.push_back(m22);
+        kk1.push_back(Field::create_field<TYPE_MAP>(m11));
+        kk1.push_back(Field::create_field<TYPE_MAP>(m12));
+        vv1.push_back(Field::create_field<TYPE_MAP>(m21));
+        vv1.push_back(Field::create_field<TYPE_MAP>(m22));
 
         Map m1;
-        m1.push_back(kk1);
-        m1.push_back(vv1);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(kk1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(vv1));
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
-        map_column->insert(m1);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }

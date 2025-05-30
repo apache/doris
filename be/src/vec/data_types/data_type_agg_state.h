@@ -66,7 +66,6 @@ public:
 
     std::string get_function_name() const { return _function_name; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::AggState; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_AGG_STATE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -151,4 +150,10 @@ private:
     int _be_exec_version;
 };
 
+inline DataTypePtr get_serialized_type(const DataTypePtr& type) {
+    if (const auto* typed = typeid_cast<const DataTypeAggState*>(type.get()); typed) {
+        return typed->get_serialized_type();
+    }
+    return type;
+}
 } // namespace doris::vectorized

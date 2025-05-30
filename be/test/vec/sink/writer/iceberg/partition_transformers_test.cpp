@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 
 namespace doris::vectorized {
 
@@ -484,12 +484,12 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
                     ->get_data();
     const auto& null_map_column = result_column->get_null_map_column();
 
-    EXPECT_EQ(1, null_map_column[0]);
-    EXPECT_EQ(0, null_map_column[1]);
-    EXPECT_EQ(0, null_map_column[2]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(1), null_map_column[0]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), null_map_column[1]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), null_map_column[2]);
 
     for (size_t i = 0, j = 0; i < result_column->size(); ++i) {
-        if (null_map_column[i] == 0) {
+        if (null_map_column[i] == Field::create_field<TYPE_BOOLEAN>(0)) {
             EXPECT_EQ(expected_data[j], result_data[i]);
             EXPECT_EQ(expected_human_string[j],
                       transform.to_human_string(transform.get_result_type(), result_data[i]));

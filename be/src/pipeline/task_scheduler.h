@@ -28,7 +28,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "pipeline_task.h"
 #include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group.h"

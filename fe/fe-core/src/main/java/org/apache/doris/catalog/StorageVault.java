@@ -22,7 +22,9 @@ import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
@@ -103,6 +105,10 @@ public abstract class StorageVault {
         return getStorageVaultInstance(stmt);
     }
 
+    public static StorageVault fromCommand(CreateStorageVaultCommand command) throws DdlException, UserException {
+        return getStorageVaultInstanceByCommand(command);
+    }
+
     public boolean ifNotExists() {
         return this.ifNotExists;
     }
@@ -147,10 +153,6 @@ public abstract class StorageVault {
                 vault.modifyProperties(stmt.getProperties());
                 break;
             case S3:
-                if (!stmt.getProperties().containsKey(PropertyConverter.USE_PATH_STYLE)) {
-                    stmt.getProperties().put(PropertyConverter.USE_PATH_STYLE, "true");
-                }
-
                 CreateResourceStmt resourceStmt =
                         new CreateResourceStmt(false, ifNotExists, name, stmt.getProperties());
                 resourceStmt.analyzeResourceType();
@@ -162,6 +164,41 @@ public abstract class StorageVault {
         vault.checkCreationProperties(stmt.getProperties());
         vault.pathVersion = stmt.getPathVersion();
         vault.numShard = stmt.getNumShard();
+        return vault;
+    }
+
+    /**
+     * Get StorageVault instance by StorageVault name and type
+     * @param type
+     * @param name
+     * @return
+     * @throws DdlException
+     */
+    private static StorageVault
+            getStorageVaultInstanceByCommand(CreateStorageVaultCommand command) throws DdlException, UserException {
+        StorageVaultType type = command.getVaultType();
+        String name = command.getVaultName();
+        boolean ifNotExists = command.isIfNotExists();
+        boolean setAsDefault = command.isSetAsDefault();
+        StorageVault vault;
+        switch (type) {
+            case HDFS:
+                vault = new HdfsStorageVault(name, ifNotExists, setAsDefault);
+                vault.modifyProperties(command.getProperties());
+                break;
+            case S3:
+                CreateResourceInfo info = new CreateResourceInfo(false, ifNotExists, name, command.getProperties());
+                CreateResourceCommand resourceCommand =
+                        new CreateResourceCommand(info);
+                resourceCommand.getInfo().analyzeResourceType();
+                vault = new S3StorageVault(name, ifNotExists, setAsDefault, resourceCommand);
+                break;
+            default:
+                throw new DdlException("Unknown StorageVault type: " + type);
+        }
+        vault.checkCreationProperties(command.getProperties());
+        vault.pathVersion = command.getPathVersion();
+        vault.numShard = command.getNumShard();
         return vault;
     }
 
@@ -186,10 +223,15 @@ public abstract class StorageVault {
      * @throws UserException
      */
     public void checkCreationProperties(Map<String, String> properties) throws UserException {
-        Preconditions.checkArgument(
-                properties.get(PropertyKey.TYPE) != null, "Missing property " + PropertyKey.TYPE);
-        Preconditions.checkArgument(
-                !properties.get(PropertyKey.TYPE).isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(StorageVault.PropertyKey.TYPE)) {
+                type = property.getValue();
+            }
+        }
+
+        Preconditions.checkArgument(type != null, "Missing property " + PropertyKey.TYPE);
+        Preconditions.checkArgument(!type.isEmpty(), "Property " + PropertyKey.TYPE + " cannot be empty");
     }
 
     protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {

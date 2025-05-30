@@ -17,12 +17,12 @@
 
 #include "olap/single_replica_compaction.h"
 
+#include <absl/strings/str_split.h>
 #include <curl/curl.h>
 
 #include "common/logging.h"
 #include "gen_cpp/Types_constants.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -388,7 +388,7 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
     };
     RETURN_IF_ERROR(HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb));
     std::vector<string> file_name_list =
-            strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+            absl::StrSplit(file_list_str, "\n", absl::SkipWhitespace());
 
     // If the header file is not exist, the table couldn't loaded by olap engine.
     // Avoid of data is not complete, we copy the header file at last.

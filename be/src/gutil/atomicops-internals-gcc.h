@@ -40,8 +40,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "gutil/basictypes.h"
-
 typedef int32_t Atomic32;
 
 namespace base {

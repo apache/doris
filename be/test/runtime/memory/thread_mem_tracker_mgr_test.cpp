@@ -341,7 +341,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
     int64_t size3 = size2 * 2;
 
     thread_context->attach_task(rc);
-    auto st = thread_context->thread_mem_tracker_mgr->try_reserve(size3, false);
+    auto st = thread_context->thread_mem_tracker_mgr->try_reserve(size3);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(t->consumption(), size3);
     EXPECT_EQ(doris::GlobalMemoryArbitrator::process_reserved_memory(), size3);
