@@ -546,6 +546,10 @@ public class StmtExecutor {
         return isHandleQueryInFe;
     }
 
+    public boolean isCached() {
+        return isCached;
+    }
+
     // query with a random sql
     public void execute() throws Exception {
         UUID uuid = UUID.randomUUID();
