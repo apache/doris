@@ -56,7 +56,8 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
     if (_filter == nullptr) {
         _filter = std::make_unique<IColumn::Filter>(rows, 0);
     } else {
-        _filter->resize_fill(rows, 0);
+        // reset the array capacity and fill all elements using the 0
+        _filter->assign(rows, UInt8(0));
     }
 
     if (column_and_type->column->is_nullable()) {
@@ -126,7 +127,8 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     if (_filter == nullptr) {
         _filter = std::make_unique<IColumn::Filter>(rows, 1);
     } else {
-        _filter->resize_fill(rows, 1);
+        //reset the array capacity and fill all elements using the 0
+        _filter->assign(rows, UInt8(1));
     }
     auto* filter_data = _filter->data();
     for (size_t i = 0; i < rows; ++i) {
