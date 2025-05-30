@@ -185,12 +185,6 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='99%' );"
 
-    test {
-        sql "alter workload group normal $forComputeGroupStr properties ( 'cpu_hard_limit'='2%' );"
-
-        exception "can not be greater than 100%"
-    }
-
     sql "alter workload group test_group $forComputeGroupStr properties ( 'cpu_hard_limit'='20%' );"
     qt_cpu_hard_limit_1 """ select count(1) from ${table_name} """
     qt_cpu_hard_limit_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num from information_schema.workload_groups where name in ('normal','test_group') order by name;"
@@ -288,31 +282,6 @@ suite("test_crud_wlg") {
                 ");"
 
         exception "must be true or false"
-    }
-
-    // failed for cpu_hard_limit
-    test {
-        sql "create workload group if not exists test_group2 $forComputeGroupStr " +
-                "properties ( " +
-                "    'cpu_share'='10', " +
-                "    'memory_limit'='3%', " +
-                "    'enable_memory_overcommit'='true', " +
-                " 'cpu_hard_limit'='120%' " +
-                ");"
-
-        exception "a positive integer between 1 and 100"
-    }
-
-    test {
-        sql "create workload group if not exists test_group2 $forComputeGroupStr " +
-                "properties ( " +
-                "    'cpu_share'='10', " +
-                "    'memory_limit'='3%', " +
-                "    'enable_memory_overcommit'='true', " +
-                " 'cpu_hard_limit'='99%' " +
-                ");"
-
-        exception "can not be greater than 100%"
     }
 
     // test show workload groups

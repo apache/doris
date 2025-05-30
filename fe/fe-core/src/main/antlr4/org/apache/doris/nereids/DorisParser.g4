@@ -74,11 +74,9 @@ statementBase
 
 unsupportedStatement
     : unsupportedUseStatement
-    | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
-    | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
     | unsupportedCancelStatement
     | unsupportedRefreshStatement
@@ -239,6 +237,8 @@ supportedCreateStatement
         LAYOUT LEFT_PAREN layoutType=identifier RIGHT_PAREN
         properties=propertyClause?         # createDictionary
     | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?      #createStage
+    | CREATE STORAGE VAULT (IF NOT EXISTS)?
+        name=identifierOrText properties=propertyClause?                            #createStorageVault
     ;
 
 dictionaryColumnDefs:
@@ -342,6 +342,8 @@ supportedShowStatement
         (LIKE STRING_LITERAL)?                                                      #showEncryptKeys
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
+    | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
+        wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW BRIEF? RESTORE ((FROM | IN) database=identifier)? wildWhere?             #showRestore
     | SHOW ROLES                                                                    #showRoles
     | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
@@ -403,6 +405,8 @@ supportedShowStatement
     | SHOW DICTIONARIES wildWhere?                                                  #showDictionaries
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
+    | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
+    | SHOW REPLICA STATUS FROM baseTableRef whereClause?                            #showReplicaStatus
     | SHOW WORKLOAD GROUPS (LIKE STRING_LITERAL)?                                   #showWorkloadGroups
     | SHOW COPY ((FROM | IN) database=identifier)?
         whereClause? sortClause? limitClause?                                       #showCopy
@@ -439,11 +443,11 @@ supportedOtherStatement
     | UNLOCK TABLES                                                                 #unlockTables
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
+    | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
     ;
 
-unsupportedOtherStatement 
-    : LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables 
-    | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
+unsupportedOtherStatement
+    : WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
@@ -476,15 +480,11 @@ unsupportedShowStatement
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showAlterTable
-    | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
-        wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
-    | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW REPLICA STATUS FROM baseTableRef wildWhere?                              #showReplicaStatus
     ;
 
 createRoutineLoad
@@ -650,11 +650,8 @@ supportedGrantRevokeStatement
     | REVOKE privilegeList ON
         (RESOURCE | CLUSTER | COMPUTE GROUP | STAGE | STORAGE VAULT | WORKLOAD GROUP)
         identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)              #revokeResourcePrivilege
-    ;
-
-unsupportedGrantRevokeStatement
-    : REVOKE privilegeList ON multipartIdentifierOrAsterisk
-        FROM (userIdentify | ROLE identifierOrText)                                   #revokeTablePrivilege
+    | REVOKE privilegeList ON multipartIdentifierOrAsterisk
+        FROM (userIdentify | ROLE identifierOrText)                                         #revokeTablePrivilege
     ;
 
 privilege
@@ -808,11 +805,6 @@ analyzeProperties
     | (BUCKETS bucket=INTEGER_VALUE)
     | (PERIOD periodInSecond=INTEGER_VALUE)
     | (CRON crontabExpr=STRING_LITERAL)
-    ;
-
-unsupportedCreateStatement
-    : CREATE STORAGE VAULT (IF NOT EXISTS)?
-        name=identifierOrText properties=propertyClause?                        #createStorageVault
     ;
 
 workloadPolicyActions

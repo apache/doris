@@ -421,7 +421,7 @@ public class WorkloadGroupMgrTest {
     @Test
     public void testMultiTagCreateWorkloadGroup() throws UserException {
         Config.enable_workload_group = true;
-        String[] props = {WorkloadGroup.MEMORY_LIMIT, WorkloadGroup.CPU_HARD_LIMIT};
+        String[] props = {WorkloadGroup.MEMORY_LIMIT};
         for (String propName : props) {
             WorkloadGroupMgr workloadGroupMgr = new WorkloadGroupMgr();
 

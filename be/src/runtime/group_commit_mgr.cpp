@@ -35,6 +35,16 @@
 
 namespace doris {
 
+std::string LoadBlockQueue::_get_load_ids() {
+    std::stringstream ss;
+    ss << "[";
+    for (auto& id : _load_ids_to_write_dep) {
+        ss << id.first.to_string() << ", ";
+    }
+    ss << "]";
+    return ss.str();
+}
+
 Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                                  std::shared_ptr<vectorized::Block> block, bool write_wal,
                                  UniqueId& load_id) {
@@ -55,23 +65,12 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
             _data_bytes += block->bytes();
             int before_block_queues_bytes = _all_block_queues_bytes->load();
             _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
-            std::stringstream ss;
-            ss << "[";
-            for (const auto& id : _load_ids_to_write_dep) {
-                ss << id.first.to_string() << ", ";
-            }
-            ss << "]";
             VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::add_block). "
-                       << "block queue size is " << _block_queue.size() << ", block rows is "
-                       << block->rows() << ", block bytes is " << block->bytes()
-                       << ", before add block, all block queues bytes is "
-                       << before_block_queues_bytes
-                       << ", after add block, all block queues bytes is "
-                       << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
-                       << ", label=" << label << ", instance_id=" << load_instance_id
-                       << ", load_ids=" << ss.str() << ", runtime_state=" << runtime_state
-                       << ", the block is " << block->dump_data() << ", the block column size is "
-                       << block->columns_bytes();
+                       << "Cur block rows=" << block->rows() << ", bytes=" << block->bytes()
+                       << ". all block queues bytes from " << before_block_queues_bytes << " to  "
+                       << _all_block_queues_bytes->load() << ", queue size=" << _block_queue.size()
+                       << ". txn_id=" << txn_id << ", label=" << label
+                       << ", instance_id=" << load_instance_id << ", load_ids=" << _get_load_ids();
         }
         if (write_wal || config::group_commit_wait_replay_wal_finish) {
             auto st = _v_wal_writer->write_wal(block.get());
@@ -85,6 +84,9 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
                     config::group_commit_queue_mem_limit) {
             DCHECK(_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end());
             _load_ids_to_write_dep[load_id]->block();
+            VLOG_DEBUG << "block add_block for load_id=" << load_id
+                       << ", memory=" << _all_block_queues_bytes->load(std::memory_order_relaxed)
+                       << ". inner load_id=" << load_instance_id << ", label=" << label;
         }
     }
     if (!_need_commit) {
@@ -104,14 +106,14 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     }
     for (auto read_dep : _read_deps) {
         read_dep->set_ready();
+        VLOG_DEBUG << "set ready for inner load_id=" << load_instance_id;
     }
     return Status::OK();
 }
 
 Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block* block,
                                  bool* find_block, bool* eos,
-                                 std::shared_ptr<pipeline::Dependency> get_block_dep,
-                                 std::shared_ptr<pipeline::Dependency> timer_dependency) {
+                                 std::shared_ptr<pipeline::Dependency> get_block_dep) {
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
@@ -126,15 +128,6 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
     if (!_need_commit && duration >= _group_commit_interval_ms) {
         _need_commit = true;
     }
-    auto get_load_ids = [&]() {
-        std::stringstream ss;
-        ss << "[";
-        for (auto& id : _load_ids_to_write_dep) {
-            ss << id.first.to_string() << ", ";
-        }
-        ss << "]";
-        return ss.str();
-    };
     if (_block_queue.empty()) {
         if (_need_commit && duration >= 10 * _group_commit_interval_ms) {
             auto last_print_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -144,12 +137,13 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
                 _last_print_time = std::chrono::steady_clock::now();
                 LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
                           << ", label=" << label << ", instance_id=" << load_instance_id
-                          << ", duration=" << duration << ", load_ids=" << get_load_ids();
+                          << ", duration=" << duration << ", load_ids=" << _get_load_ids();
             }
         }
+        VLOG_DEBUG << "get_block for inner load_id=" << load_instance_id << ", but queue is empty";
         if (!_need_commit) {
             get_block_dep->block();
-            VLOG_DEBUG << "block get_block for query_id=" << load_instance_id;
+            VLOG_DEBUG << "block get_block for inner load_id=" << load_instance_id;
         }
     } else {
         const BlockData block_data = _block_queue.front();
@@ -159,15 +153,11 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         int before_block_queues_bytes = _all_block_queues_bytes->load();
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
         VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::get_block). "
-                   << "block queue size is " << _block_queue.size() << ", block rows is "
-                   << block->rows() << ", block bytes is " << block->bytes()
-                   << ", before remove block, all block queues bytes is "
-                   << before_block_queues_bytes
-                   << ", after remove block, all block queues bytes is "
-                   << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
-                   << ", label=" << label << ", instance_id=" << load_instance_id
-                   << ", load_ids=" << get_load_ids() << ", the block is " << block->dump_data()
-                   << ", the block column size is " << block->columns_bytes();
+                   << "Cur block rows=" << block->rows() << ", bytes=" << block->bytes()
+                   << ". all block queues bytes from " << before_block_queues_bytes << " to  "
+                   << _all_block_queues_bytes->load() << ", queue size=" << _block_queue.size()
+                   << ". txn_id=" << txn_id << ", label=" << label
+                   << ", instance_id=" << load_instance_id << ", load_ids=" << _get_load_ids();
     }
     if (_block_queue.empty() && _need_commit && _load_ids_to_write_dep.empty()) {
         *eos = true;
@@ -179,6 +169,8 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         for (auto& id : _load_ids_to_write_dep) {
             id.second->set_ready();
         }
+        VLOG_DEBUG << "set ready for load_ids=" << _get_load_ids()
+                   << ". inner load_id=" << load_instance_id << ", label=" << label;
     }
     return Status::OK();
 }
@@ -191,6 +183,7 @@ Status LoadBlockQueue::remove_load_id(const UniqueId& load_id) {
         for (auto read_dep : _read_deps) {
             read_dep->set_ready();
         }
+        VLOG_DEBUG << "set ready for load_id=" << load_id << ", inner load_id=" << load_instance_id;
         return Status::OK();
     }
     return Status::NotFound<false>("load_id=" + load_id.to_string() +
@@ -225,35 +218,25 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
               << ", status=" << st.to_string();
     status =
             Status::Cancelled("cancel group_commit, label=" + label + ", status=" + st.to_string());
+    int before_block_queues_bytes = _all_block_queues_bytes->load();
     while (!_block_queue.empty()) {
         const BlockData& block_data = _block_queue.front().block;
-        int before_block_queues_bytes = _all_block_queues_bytes->load();
         _all_block_queues_bytes->fetch_sub(block_data.block_bytes, std::memory_order_relaxed);
-        std::stringstream ss;
-        ss << "[";
-        for (const auto& id : _load_ids_to_write_dep) {
-            ss << id.first.to_string() << ", ";
-        }
-        ss << "]";
-        VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::_cancel_without_block). "
-                   << "block queue size is " << _block_queue.size() << ", block rows is "
-                   << block_data.block->rows() << ", block bytes is " << block_data.block->bytes()
-                   << ", before remove block, all block queues bytes is "
-                   << before_block_queues_bytes
-                   << ", after remove block, all block queues bytes is "
-                   << _all_block_queues_bytes->load() << ", txn_id=" << txn_id
-                   << ", label=" << label << ", instance_id=" << load_instance_id
-                   << ", load_ids=" << ss.str() << ", the block is "
-                   << block_data.block->dump_data() << ", the block column size is "
-                   << block_data.block->columns_bytes();
         _block_queue.pop_front();
     }
+    VLOG_DEBUG << "[Group Commit Debug] (LoadBlockQueue::_cancel_without_block). "
+               << "all block queues bytes from " << before_block_queues_bytes << " to "
+               << _all_block_queues_bytes->load() << ", queue size=" << _block_queue.size()
+               << ", txn_id=" << txn_id << ", label=" << label
+               << ", instance_id=" << load_instance_id << ", load_ids=" << _get_load_ids();
     for (auto& id : _load_ids_to_write_dep) {
         id.second->set_always_ready();
     }
     for (auto read_dep : _read_deps) {
         read_dep->set_ready();
     }
+    VLOG_DEBUG << "set ready for load_ids=" << _get_load_ids()
+               << ", inner load_id=" << load_instance_id;
 }
 
 Status GroupCommitTable::get_first_block_load_queue(
@@ -287,7 +270,7 @@ Status GroupCommitTable::get_first_block_load_queue(
             }
         }
         return Status::InternalError<false>("can not get a block queue for table_id: " +
-                                            std::to_string(_table_id));
+                                            std::to_string(_table_id) + _create_plan_failed_reason);
     };
 
     if (try_to_get_matched_queue().ok()) {
@@ -310,7 +293,11 @@ Status GroupCommitTable::get_first_block_load_queue(
                     }};
                     auto st = _create_group_commit_load(be_exe_version, mem_tracker);
                     if (!st.ok()) {
-                        LOG(WARNING) << "create group commit load error, st=" << st.to_string();
+                        LOG(WARNING) << "create group commit load error: " << st.to_string();
+                        _create_plan_failed_reason = ". create group commit load error: " +
+                                                     st.to_string().substr(0, 300);
+                    } else {
+                        _create_plan_failed_reason = "";
                     }
                 }));
     }
