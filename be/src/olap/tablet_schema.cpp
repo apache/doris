@@ -203,6 +203,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
         type = FieldType::OLAP_FIELD_TYPE_BITMAP;
+    } else if (0 == upper_type_str.compare("BITMAP")) {
+        type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     } else if (0 == upper_type_str.compare("ARRAY")) {
         type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
