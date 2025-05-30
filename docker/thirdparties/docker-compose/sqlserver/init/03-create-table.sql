@@ -272,3 +272,8 @@ CREATE TABLE dbo.extreme_test_multi_block
     IPv6_Col         VARCHAR(39) NOT NULL,  -- e.g., 'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF'
     IPv6_Nullable    VARCHAR(39) NULL
 );
+
+CREATE TABLE dbo.test_identity_decimal (
+	id decimal(18,0) IDENTITY(1,1),
+	col int
+);
