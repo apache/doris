@@ -355,6 +355,15 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     // mtmv6: drop table of dependent table
     sql """drop table if exists ${tableName7}"""
     def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    def job_name_1 = getJobName(dbName, mtmvName6)
+
+    // 打印mtmv stats和task list
+    def stats_res = sql """select * from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    def task_lists = sql """select * from tasks("type"="mv") where JobName="${job_name_1}";"""
+    logger.info("stats_res: " + stats_res)
+    logger.info("task_lists: " + task_lists)
+
+
     assertTrue(state_mtmv6[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv6[0][1] == "SUCCESS")
     assertTrue(state_mtmv6[0][2] == false)
