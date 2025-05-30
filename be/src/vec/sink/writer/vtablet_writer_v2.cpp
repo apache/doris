@@ -101,7 +101,14 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
                     if (!_load_stream_map->contains(node)) {
-                        new_backends.insert(node);
+                        if (_auto_partition_one_step_close) {
+                            return Status::InternalError(
+                                    "should not happen, node not in load_stream_map, node={}, "
+                                    "tablet_id={}, partition_id={}",
+                                    node, tablet_id, partition->id);
+                        } else {
+                            new_backends.insert(node);
+                        }
                     }
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
@@ -250,6 +257,9 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
     _load_stream_map = ExecEnv::GetInstance()->load_stream_map_pool()->get_or_create(
             _load_id, _backend_id, _stream_per_node, _num_local_sink);
+    if (table_sink.partition.__isset.auto_partition_one_step_close) {
+        _auto_partition_one_step_close = table_sink.partition.auto_partition_one_step_close;
+    }
     return Status::OK();
 }
 
@@ -310,7 +320,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
                     { tablets_for_schema.clear(); });
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile());
+                           _state->enable_profile(), _auto_partition_one_step_close);
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;
@@ -641,25 +651,34 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
                   << ", load_id=" << print_id(_load_id);
 
-        // send CLOSE_LOAD on all non-incremental streams if this is the last sink
-        if (is_last_sink) {
-            _load_stream_map->close_load(false);
+        if (!_auto_partition_one_step_close) {
+            // send CLOSE_LOAD on all non-incremental streams if this is the last sink
+            if (is_last_sink) {
+                _load_stream_map->close_load(false);
+            }
+
+            // close_wait on all non-incremental streams, even if this is not the last sink.
+            // because some per-instance data structures are now shared among all sinks
+            // due to sharing delta writers and load stream stubs.
+            RETURN_IF_ERROR(_close_wait(false));
+
+            // send CLOSE_LOAD on all incremental streams if this is the last sink.
+            // this must happen after all non-incremental streams are closed,
+            // so we can ensure all sinks are in close phase before closing incremental streams.
+            if (is_last_sink) {
+                _load_stream_map->close_load(true);
+            }
+
+            // close_wait on all incremental streams, even if this is not the last sink.
+            RETURN_IF_ERROR(_close_wait(true));
+        } else {
+            // send CLOSE_LOAD on all streams if this is the last sink.
+            if (is_last_sink) {
+                _load_stream_map->close_load_all_streams();
+            }
+            // close_wait on all streams, even if this is not the last sink.
+            RETURN_IF_ERROR(_close_wait_all_streams());
         }
-
-        // close_wait on all non-incremental streams, even if this is not the last sink.
-        // because some per-instance data structures are now shared among all sinks
-        // due to sharing delta writers and load stream stubs.
-        RETURN_IF_ERROR(_close_wait(false));
-
-        // send CLOSE_LOAD on all incremental streams if this is the last sink.
-        // this must happen after all non-incremental streams are closed,
-        // so we can ensure all sinks are in close phase before closing incremental streams.
-        if (is_last_sink) {
-            _load_stream_map->close_load(true);
-        }
-
-        // close_wait on all incremental streams, even if this is not the last sink.
-        RETURN_IF_ERROR(_close_wait(true));
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -727,6 +746,30 @@ Status VTabletWriterV2::_close_wait(bool incremental) {
                 }
                 return st;
             });
+    if (!st.ok()) {
+        LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
+    }
+    return st;
+}
+
+Status VTabletWriterV2::_close_wait_all_streams() {
+    SCOPED_TIMER(_close_load_timer);
+    auto st = _load_stream_map->for_each_st([this](int64_t dst_id,
+                                                   LoadStreamStubs& streams) -> Status {
+        int64_t remain_ms = static_cast<int64_t>(_state->execution_timeout()) * 1000 -
+                            _timeout_watch.elapsed_time() / 1000 / 1000;
+        DBUG_EXECUTE_IF("VTabletWriterV2._close_wait.load_timeout", { remain_ms = 0; });
+        if (remain_ms <= 0) {
+            LOG(WARNING) << "load timed out before close waiting, load_id=" << print_id(_load_id);
+            return Status::TimedOut("load timed out before close waiting");
+        }
+        auto st = streams.close_wait(_state, remain_ms);
+        if (!st.ok()) {
+            LOG(WARNING) << "close_wait timeout on streams to dst_id=" << dst_id
+                         << ", load_id=" << print_id(_load_id) << ": " << st;
+        }
+        return st;
+    });
     if (!st.ok()) {
         LOG(WARNING) << "close_wait failed: " << st << ", load_id=" << print_id(_load_id);
     }
