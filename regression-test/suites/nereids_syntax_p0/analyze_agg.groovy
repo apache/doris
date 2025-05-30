@@ -97,5 +97,6 @@ suite("analyze_agg") {
     (4,5,6),(4,5,7),(4,5,8),
     (5,0,0),(5,0,0),(5,0,0); 
     """
-    sql "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by group by a"
+    qt_test_sum0 "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by group by a order by 1,2"
+    qt_test_sum0_all_null "select sum0(distinct b),sum(distinct c) from test_sum0_multi_distinct_with_group_by where a in (1,2,3) group by a order by 1,2"
 }
