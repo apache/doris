@@ -498,7 +498,8 @@ Status VOlapTablePartitionParam::init() {
         RETURN_IF_ERROR(generate_partition_from(t_part, part));
         _partitions.emplace_back(part);
 
-        if (!_t_param.partitions_is_fake) {
+        bool partition_is_fake = t_part.__isset.partition_is_fake && t_part.partition_is_fake;
+        if (!_t_param.partitions_is_fake && !partition_is_fake) {
             if (_is_in_partition) {
                 for (auto& in_key : part->in_keys) {
                     _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
