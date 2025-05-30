@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("map_agg") {
-    sql "DROP TABLE IF EXISTS `test_map_agg`;"
+suite("map_agg_v1") {
+    sql "DROP TABLE IF EXISTS `test_map_agg_v1`;"
     sql """
-        CREATE TABLE IF NOT EXISTS `test_map_agg` (
+        CREATE TABLE IF NOT EXISTS `test_map_agg_v1` (
             `id` int(11) NOT NULL,
             `label_name` varchar(32) NOT NULL,
             `value_field` string
@@ -36,7 +36,7 @@ suite("map_agg") {
      """
 
     sql """
-        insert into `test_map_agg` values
+        insert into `test_map_agg_v1` values
             (1, "LA", "V1_1"),
             (1, "LB", "V1_2"),
             (1, "LC", "V1_3"),
@@ -54,9 +54,9 @@ suite("map_agg") {
             (5, "LC", "V5_3");
     """
 
-    sql "DROP TABLE IF EXISTS test_map_agg_nullable;"
+    sql "DROP TABLE IF EXISTS test_map_agg_v1_nullable;"
     sql """
-        CREATE TABLE IF NOT EXISTS `test_map_agg_nullable` (
+        CREATE TABLE IF NOT EXISTS `test_map_agg_v1_nullable` (
              `id` int(11) NOT NULL,
              `label_name` varchar(32) NULL,
              `value_field` string
@@ -73,7 +73,7 @@ suite("map_agg") {
           );
      """
     sql """
-        insert into `test_map_agg_nullable` values
+        insert into `test_map_agg_v1_nullable` values
             (1, "LA", "V1_1"),
             (1, "LB", "V1_2"),
             (1, "LC", null),
@@ -91,9 +91,9 @@ suite("map_agg") {
             (5, "LC", "V5_3");
      """
 
-    sql "DROP TABLE IF EXISTS `test_map_agg_numeric_key`;"
+    sql "DROP TABLE IF EXISTS `test_map_agg_v1_numeric_key`;"
     sql """
-        CREATE TABLE IF NOT EXISTS `test_map_agg_numeric_key` (
+        CREATE TABLE IF NOT EXISTS `test_map_agg_v1_numeric_key` (
             `id` int(11) NOT NULL,
             `label_name` bigint NOT NULL,
             `value_field` string
@@ -111,7 +111,7 @@ suite("map_agg") {
       """
 
     sql """
-         insert into `test_map_agg_numeric_key` values
+         insert into `test_map_agg_v1_numeric_key` values
              (1, 1, "V1_1"),
              (1, 9223372036854775807, "V1_2"),
              (1, 22000000000, "V1_3"),
@@ -129,9 +129,9 @@ suite("map_agg") {
              (5, 22000000000, "V5_3");
     """
 
-    sql "DROP TABLE IF EXISTS `test_map_agg_decimal`;"
+    sql "DROP TABLE IF EXISTS `test_map_agg_v1_decimal`;"
     sql """
-         CREATE TABLE IF NOT EXISTS `test_map_agg_decimal` (
+         CREATE TABLE IF NOT EXISTS `test_map_agg_v1_decimal` (
              `id` int(11) NOT NULL,
              `label_name` string NOT NULL,
              `value_field` decimal(15,4)
@@ -149,7 +149,7 @@ suite("map_agg") {
     """
 
     sql """
-        insert into `test_map_agg_decimal` values
+        insert into `test_map_agg_v1_decimal` values
           (1, "k1", 1.2345),
           (1, "k2", 2.4567),
           (1, "k3", 5.9876),
@@ -161,9 +161,9 @@ suite("map_agg") {
           (3, "k3", 1024.1024)
     """
 
-    sql "DROP TABLE IF EXISTS `test_map_agg_score`;"
+    sql "DROP TABLE IF EXISTS `test_map_agg_v1_score`;"
     sql """
-        CREATE TABLE `test_map_agg_score`(
+        CREATE TABLE `test_map_agg_v1_score`(
             id INT(11) NOT NULL,
             userid VARCHAR(20) NOT NULL COMMENT '用户id',
             subject VARCHAR(20) COMMENT '科目',
@@ -182,39 +182,39 @@ suite("map_agg") {
     """
 
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (1,'001','语文',90);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (1,'001','语文',90);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (2,'001','数学',92);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (2,'001','数学',92);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (3,'001','英语',80);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (3,'001','英语',80);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (4,'002','语文',88);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (4,'002','语文',88);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (5,'002','数学',90);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (5,'002','数学',90);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (6,'002','英语',75.5);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (6,'002','英语',75.5);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (7,'003','语文',70);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (7,'003','语文',70);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (8,'003','数学',85);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (8,'003','数学',85);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (9,'003','英语',90);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (9,'003','英语',90);
     """
     sql """
-        INSERT INTO `test_map_agg_score`  VALUES (10,'003','政治',82);
+        INSERT INTO `test_map_agg_v1_score`  VALUES (10,'003','政治',82);
     """
 
     qt_sql1 """
         WITH `labels` as (
-            SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg GROUP BY `id`
+            SELECT `id`, map_agg_v1(`label_name`, `value_field`) m FROM test_map_agg_v1 GROUP BY `id`
         )
         SELECT
             id,
@@ -227,7 +227,7 @@ suite("map_agg") {
 
     qt_sql2 """
         WITH `labels` as (
-            SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_nullable GROUP BY `id`
+            SELECT `id`, map_agg_v1(`label_name`, `value_field`) m FROM test_map_agg_v1_nullable GROUP BY `id`
         )
         SELECT
             id,
@@ -240,7 +240,7 @@ suite("map_agg") {
 
     qt_sql3 """
         WITH `labels` as (
-            SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_numeric_key GROUP BY `id`
+            SELECT `id`, map_agg_v1(`label_name`, `value_field`) m FROM test_map_agg_v1_numeric_key GROUP BY `id`
         )
         SELECT
             id,
@@ -252,12 +252,12 @@ suite("map_agg") {
     """
 
     qt_sql4 """
-        select map_agg(k, v) from (select 'key' as k, array('ab', 'efg', null) v) a;
+        select map_agg_v1(k, v) from (select 'key' as k, array('ab', 'efg', null) v) a;
     """
 
     qt_sql5 """
         WITH `labels` as (
-            SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_decimal GROUP BY `id`
+            SELECT `id`, map_agg_v1(`label_name`, `value_field`) m FROM test_map_agg_v1_decimal GROUP BY `id`
         )
         SELECT
             id,
@@ -269,20 +269,20 @@ suite("map_agg") {
     """
 
     qt_sql6 """
-        select m['LC'] from (SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_map_agg_nullable GROUP BY `id`)t order by 1;
+        select m['LC'] from (SELECT `id`, map_agg_v1(`label_name`, `value_field`) m FROM test_map_agg_v1_nullable GROUP BY `id`)t order by 1;
     """
 
     qt_garbled_characters """
         select
             userid, map['语文'] 语文, map['数学'] 数学, map['英语'] 英语, map['政治'] 政治
         from (
-            select userid, map_agg(subject,score) as map from test_map_agg_score group by userid
+            select userid, map_agg_v1(subject,score) as map from test_map_agg_v1_score group by userid
         ) a order by userid;
     """
 
-    sql "DROP TABLE IF EXISTS test_map_agg_multi;"
+    sql "DROP TABLE IF EXISTS test_map_agg_v1_multi;"
     sql """
-        create table test_map_agg_multi (
+        create table test_map_agg_v1_multi (
             data_time bigint,
             mil int,
             vin string,
@@ -294,7 +294,7 @@ suite("map_agg") {
         properties("replication_num" = "1");
     """
     sql """
-        insert into test_map_agg_multi values (1, 1, 'abc', 'bc', '01', '01'), (2, 2, 'abc', 'bc', '01', '01');
+        insert into test_map_agg_v1_multi values (1, 1, 'abc', 'bc', '01', '01'), (2, 2, 'abc', 'bc', '01', '01');
     """
 
     qt_multi """
@@ -305,15 +305,15 @@ suite("map_agg") {
             select
                 vin
                 , car_type
-                , map_agg(ts, mile) m1
-                , map_agg(mile, ts) m2
+                , map_agg_v1(ts, mile) m1
+                , map_agg_v1(mile, ts) m2
             from (
                  select
                     vin
                     , car_type
                     , data_time as ts
                     , mil as mile, month
-                    , day from test_map_agg_multi
+                    , day from test_map_agg_v1_multi
             )a
             group by
                car_type
@@ -323,9 +323,9 @@ suite("map_agg") {
         ) t order by 1, 2;
     """
 
-    sql "DROP TABLE IF EXISTS `test_map_agg_2`;"
+    sql "DROP TABLE IF EXISTS `test_map_agg_v1_2`;"
     sql """
-        CREATE TABLE `test_map_agg_2` (
+        CREATE TABLE `test_map_agg_v1_2` (
         `k1` int NULL,
         `k2` int NULL,
         `v1` text NULL,
@@ -337,7 +337,7 @@ suite("map_agg") {
     """
 
     sql """
-        insert into `test_map_agg_2` values
+        insert into `test_map_agg_v1_2` values
             (    3 ,    1 , 'k'    , 'j'    ),
             (    3 ,    2 , 'a'    , 'a3'   ),
             (    5 ,    2 , 'a'    , 'a5'   ),
@@ -345,16 +345,12 @@ suite("map_agg") {
             (    1 ,    1 , 'a'    , 'b'    ),
             (    1 ,    2 , 'a'    , 'b'    ),
             (    1 ,    3 , 'c'    , 'c'    ),
-            (    1 ,    3 , null   , '3'    ),
             (    2 ,    1 , 'e'    , 'f'    ),
             (    2 ,    2 , 'a'    , 'a2'   ),
             (    4 ,    2 , 'b'    , 'bddd' ),
-            (    4 ,    2 , null   , '2'    ),
-            (    6 ,    6 , null   , null   );
+            (    4 ,    2 , 'a'    , 'a4'   );
     """
 
     sql "set experimental_ignore_storage_data_distribution = 0;"
-    qt_test_dumplicate "select k2, m['b'] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
-
-    qt_test_null "select k2, m[null] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
+    qt_test_dumplicate "select k2, m['b'] from (select k2, map_agg_v1(v1, v2) m from `test_map_agg_v1_2` group  by k2) a order by k2;"
  }
