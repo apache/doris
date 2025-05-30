@@ -103,6 +103,5 @@ suite("test_regexp_count") {
         exception "Could not compile regexp pattern"
     }
 
-    // 清理测试表
     sql """DROP TABLE IF EXISTS `test_table_for_regexp_count`;"""
 }
