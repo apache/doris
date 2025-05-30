@@ -22,9 +22,11 @@
 
 #include "ann_index_iterator.h"
 #include "common/config.h"
+#include "io/io_common.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "runtime/runtime_state.h"
+#include "util/once.h"
 #include "vector/faiss_vector_index.h"
 #include "vector/vector_index.h"
 
@@ -63,20 +65,24 @@ Status AnnIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReaderStati
 }
 
 Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
-    Result<std::unique_ptr<DorisCompoundReader>> compound_dir =
-            _index_file_reader->open(&_index_meta, io_ctx);
-    if (!compound_dir.has_value()) {
-        return Status::IOError("Failed to open index file: {}", compound_dir.error().to_string());
-    }
-    _vector_index = std::make_unique<FaissVectorIndex>();
+    return _load_index_once.call([&]() {
+        RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
 
-    RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
-    return Status::OK();
+        Result<std::unique_ptr<DorisCompoundReader>> compound_dir =
+                _index_file_reader->open(&_index_meta, io_ctx);
+        if (!compound_dir.has_value()) {
+            return Status::IOError("Failed to open index file: {}",
+                                   compound_dir.error().to_string());
+        }
+        _vector_index = std::make_unique<FaissVectorIndex>();
+
+        RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+        return Status::OK();
+    });
 }
 
 Status AnnIndexReader::query(io::IOContext* io_ctx, AnnIndexParam* param) {
 #ifndef BE_TEST
-    RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
     RETURN_IF_ERROR(load_index(io_ctx));
 #endif
     DCHECK(_vector_index != nullptr);
@@ -110,7 +116,6 @@ Status AnnIndexReader::range_search(const RangeSearchParams& params,
                                     const VectorSearchUserParams& custom_params,
                                     RangeSearchResult* result, io::IOContext* io_ctx) {
 #ifndef BE_TEST
-    RETURN_IF_ERROR(_index_file_reader->init(config::inverted_index_read_buffer_size, io_ctx));
     RETURN_IF_ERROR(load_index(io_ctx));
 #endif
     DCHECK(_vector_index != nullptr);

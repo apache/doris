@@ -22,7 +22,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -71,10 +72,8 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
         ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
         for (Expression conjunct : filter.getConjuncts()) {
-            // Set<Expression> l2Distances = conjunct.collect(L2Distance.class::isInstance);
-            // Set<Expression> innerProducts = conjunct.collect(InnerProduct.class::isInstance);
             Set<Expression> distanceFunctions = conjunct.collect(
-                    e -> e instanceof L2Distance || e instanceof InnerProduct);
+                    e -> e instanceof L2DistanceApproximate || e instanceof InnerProductApproximate);
             for (Expression distanceFunction : distanceFunctions) {
                 if (replaceMap.containsKey(distanceFunction)) {
                     continue;

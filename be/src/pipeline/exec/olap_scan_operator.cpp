@@ -38,7 +38,7 @@
 #include "util/runtime_profile.h"
 #include "util/to_string.h"
 #include "vec/exec/scan/olap_scanner.h"
-#include "vec/exprs/vann_topn_predicate.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -358,7 +358,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
                          state()->query_options().resource_limit.__isset.cpu_limit;
 
     RETURN_IF_ERROR(hold_tablets());
-    LOG_INFO("ScanNode is_preaggregation: {}", p._olap_scan_node.is_preaggregation);
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)) {
@@ -560,8 +559,6 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 
     if (olap_scan_node.__isset.ann_sort_info || olap_scan_node.__isset.ann_sort_limit) {
-        LOG_INFO("Ann sort info: {}",
-                 apache::thrift::ThriftDebugString(olap_scan_node.ann_sort_info));
         DCHECK(olap_scan_node.__isset.ann_sort_info);
         DCHECK(olap_scan_node.__isset.ann_sort_limit);
         DCHECK(olap_scan_node.ann_sort_info.ordering_exprs.size() == 1);
@@ -574,8 +571,8 @@ Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         const size_t limit = olap_scan_node.ann_sort_limit;
         std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
-        _ann_topn_descriptor =
-                vectorized::AnnTopNDescriptor::create_shared(asc, limit, ordering_expr_ctx);
+        _ann_topn_runtime =
+                vectorized::AnnTopNRuntime::create_shared(asc, limit, ordering_expr_ctx);
     }
 
     return ScanLocalState<OlapScanLocalState>::init(state, info);
@@ -613,8 +610,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         }
     }
 
-    if (_ann_topn_descriptor) {
-        RETURN_IF_ERROR(_ann_topn_descriptor->prepare(state, p.intermediate_row_desc()));
+    if (_ann_topn_runtime) {
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
