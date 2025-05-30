@@ -74,7 +74,6 @@ statementBase
 
 unsupportedStatement
     : unsupportedUseStatement
-    | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
@@ -289,7 +288,7 @@ supportedAlterStatement
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
     | DROP ENCRYPTKEY (IF EXISTS)? name=multipartIdentifier                     #dropEncryptkey
-    | DROP ROLE (IF EXISTS)? name=identifierOrText                                    #dropRole
+    | DROP ROLE (IF EXISTS)? name=identifierOrText                              #dropRole
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
@@ -310,10 +309,11 @@ supportedDropStatement
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
     | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
+    | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     ;
 
 supportedShowStatement
-    : SHOW statementScope? VARIABLES wildWhere?                         #showVariables
+    : SHOW statementScope? VARIABLES wildWhere?                                     #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
     | SHOW CREATE (DATABASE | SCHEMA) name=multipartIdentifier                      #showCreateDatabase
     | SHOW BACKUP ((FROM | IN) database=identifier)? wildWhere?                     #showBackup
@@ -354,8 +354,8 @@ supportedShowStatement
     | SHOW CREATE CATALOG name=identifier                                           #showCreateCatalog
     | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW CATALOGS wildWhere?                                                      #showCatalogs
-    | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?                         #showUserProperties
-    | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                               #showAllProperties
+    | SHOW PROPERTY (FOR user=identifierOrText)? (LIKE STRING_LITERAL)?             #showUserProperties
+    | SHOW ALL PROPERTIES (LIKE STRING_LITERAL)?                                    #showAllProperties
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
     | SHOW STORAGE POLICY (USING (FOR policy=identifierOrText)?)?                   #showStoragePolicy   
@@ -755,10 +755,6 @@ toRollup
 
 fromRollup
     : FROM rollup=identifier
-    ;
-
-unsupportedDropStatement
-    : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     ;
 
 supportedStatsStatement
