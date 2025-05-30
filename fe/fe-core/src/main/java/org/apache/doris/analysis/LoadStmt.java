@@ -625,8 +625,21 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
             String endpoint = storageProperties.getEndpoint();
             checkEndpoint(endpoint);
             checkWhiteList(endpoint);
+            List<String> filePaths = new ArrayList<>();
+            if (dataDescriptions != null && !dataDescriptions.isEmpty()) {
+                for (DataDescription dataDescription : dataDescriptions) {
+                    if (dataDescription.getFilePaths() != null) {
+                        for (String filePath : dataDescription.getFilePaths()) {
+                            if (filePath != null && !filePath.isEmpty()) {
+                                filePaths.add(filePath);
+                            }
+                        }
+                    }
+                }
+            }
             //should add connectivity test
-            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties()).connectivityTest();
+            boolean connectivityTest = FileSystemFactory.get(brokerDesc.getStorageProperties())
+                    .connectivityTest(filePaths);
             if (!connectivityTest) {
                 throw new UserException("Failed to access object storage, message=connectivity test failed");
             }
