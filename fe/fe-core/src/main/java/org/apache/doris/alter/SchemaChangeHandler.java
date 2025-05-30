@@ -1303,11 +1303,14 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean hasDropIndex = false;
         Set<Index> newSet = new HashSet<>(indexes);
         Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
+        Set<Index> dropSet = new HashSet<>(olapTable.getIndexes());
         if (!newSet.equals(oriSet) || isBuildIndex) {
             hasIndexChange = true;
         }
         if (newSet.size() < oriSet.size()) {
             hasDropIndex = true;
+            dropSet.addAll(oriSet);
+            dropSet.removeAll(newSet);
         }
 
         // property 2. bloom filter
@@ -1622,6 +1625,7 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
         if (hasDropIndex) {
             schemaChangeJob.setIndexDrop(true);
+            schemaChangeJob.setDropIndexes(new ArrayList<>(dropSet));
         }
         schemaChangeJob.setStoreRowColumnInfo(hasRowStoreChanged, storeRowColumn, rsColumns);
 

@@ -2051,7 +2051,7 @@ create_stmt ::=
     {:
         RESULT = new CreateSqlBlockRuleStmt(ifNotExists, ruleName, properties);
     :}
-    | KW_BUILD KW_INDEX (ident:indexName) KW_ON table_name:tableName opt_partition_names:partitionNames
+    | KW_BUILD KW_INDEX ident:indexName KW_ON table_name:tableName opt_partition_names:partitionNames
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new BuildIndexClause(tableName, indexName, partitionNames, false)));
     :}

@@ -286,32 +286,4 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         return true;
     }
-
-    @Override
-    public void getBuildIndexInfo(List<List<Comparable>> infos) {
-        if (!hasIndexChange()) {
-            return;
-        }
-        // calc progress first. all index share the same process
-        String progress = org.apache.doris.common.FeConstants.null_string;
-        if (jobState == JobState.RUNNING && schemaChangeBatchTask.getTaskNum() > 0) {
-            progress = schemaChangeBatchTask.getFinishedTaskNum() + "/" + schemaChangeBatchTask.getTaskNum();
-        }
-
-        String partitionName = "";
-        for (Index index : indexes) {
-            List<Comparable> info = com.google.common.collect.Lists.newArrayList();
-            info.add(jobId);
-            info.add(tableName);
-            info.add(partitionName);
-            info.add(getAlterIndexInfo(index));
-            info.add(org.apache.doris.common.util.TimeUtils.longToTimeStringWithms(createTimeMs));
-            info.add(org.apache.doris.common.util.TimeUtils.longToTimeStringWithms(finishedTimeMs));
-            info.add(watershedTxnId);
-            info.add(jobState.name());
-            info.add(errMsg);
-            info.add(progress);
-            infos.add(info);
-        }
-    }
 }

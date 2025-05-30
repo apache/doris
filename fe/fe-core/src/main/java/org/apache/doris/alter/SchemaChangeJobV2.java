@@ -137,6 +137,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected List<Index> indexes = null;
     @SerializedName(value = "indexDrop")
     private boolean indexDrop = false;
+    @SerializedName(value = "dropIndexes")
+    protected List<Index> dropIndexes = null;
 
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
@@ -162,12 +164,31 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     public boolean hasIndexChange() {
-        // DO NOT show drop index change.
-        return !indexDrop && indexChange
-                && !indexes.isEmpty()
-                && indexes.stream()
-                .allMatch(idx -> idx.getIndexType() == IndexType.NGRAM_BF
-                        || idx.getIndexType() == IndexType.INVERTED);
+        boolean hasCreateIndexChange = false;
+        boolean hasDropIndexChange = false;
+
+        // Check create index operation
+        if (indexChange) {
+            if ((indexes == null || indexes.isEmpty()) && !indexDrop) {
+                throw new IllegalStateException("indexChange is true but indexes list is empty");
+            }
+            hasCreateIndexChange = indexes.stream().allMatch(this::isSupportedIndexType);
+        }
+
+        // Check drop index operation
+        if (indexDrop) {
+            if (dropIndexes == null || dropIndexes.isEmpty()) {
+                throw new IllegalStateException("indexDrop is true but dropIndexes list is empty");
+            }
+            hasDropIndexChange = dropIndexes.stream().allMatch(this::isSupportedIndexType);
+        }
+
+        return hasCreateIndexChange || hasDropIndexChange;
+    }
+
+    private boolean isSupportedIndexType(Index index) {
+        IndexType type = index.getIndexType();
+        return type == IndexType.NGRAM_BF || type == IndexType.INVERTED;
     }
 
     public void addTabletIdMap(long partitionId, long shadowIdxId, long shadowTabletId, long originTabletId) {
@@ -217,6 +238,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     public void setIndexDrop(boolean indexDrop) {
         this.indexDrop = indexDrop;
+    }
+
+    public void setDropIndexes(List<Index> dropIndexes) {
+        this.dropIndexes = dropIndexes;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -1043,7 +1068,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
     }
 
-    public String getAlterIndexInfo(Index index) {
+    public String getAddIndexInfo(Index index) {
         String info;
         List<String> infoList = Lists.newArrayList();
         infoList.add("[" + ("ADD ") + index.toString() + "], ");
@@ -1051,7 +1076,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         return info;
     }
 
-    protected void getBuildIndexInfo(List<List<Comparable>> infos) {
+    public String getDropIndexInfo(Index index) {
+        String info;
+        List<String> infoList = Lists.newArrayList();
+        infoList.add("[" + ("DROP ") + index.toString() + "], ");
+        info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
+        return info;
+    }
+
+    public void getBuildIndexInfo(List<List<Comparable>> infos) {
         if (!hasIndexChange()) {
             return;
         }
@@ -1062,19 +1095,41 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         String partitionName = "";
-        for (Index index : indexes) {
-            List<Comparable> info = Lists.newArrayList();
-            info.add(jobId);
-            info.add(tableName);
-            info.add(partitionName);
-            info.add(getAlterIndexInfo(index));
-            info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
-            info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
-            info.add(watershedTxnId);
-            info.add(jobState.name());
-            info.add(errMsg);
-            info.add(progress);
-            infos.add(info);
+
+        // Handle add index operations
+        if (indexChange && indexes != null && !indexes.isEmpty()) {
+            for (Index index : indexes) {
+                List<Comparable> info = Lists.newArrayList();
+                info.add(jobId);
+                info.add(tableName);
+                info.add(partitionName);
+                info.add(getAddIndexInfo(index));
+                info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+                info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
+                info.add(watershedTxnId);
+                info.add(jobState.name());
+                info.add(errMsg);
+                info.add(progress);
+                infos.add(info);
+            }
+        }
+
+        // Handle drop index operations
+        if (indexDrop && dropIndexes != null && !dropIndexes.isEmpty()) {
+            for (Index index : dropIndexes) {
+                List<Comparable> info = Lists.newArrayList();
+                info.add(jobId);
+                info.add(tableName);
+                info.add(partitionName);
+                info.add(getDropIndexInfo(index));
+                info.add(TimeUtils.longToTimeStringWithms(createTimeMs));
+                info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
+                info.add(watershedTxnId);
+                info.add(jobState.name());
+                info.add(errMsg);
+                info.add(progress);
+                infos.add(info);
+            }
         }
     }
 

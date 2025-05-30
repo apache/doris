@@ -103,6 +103,7 @@ public class CloudIndexTest {
     private static BuildIndexClause buildIndexClause;
     private static DropIndexClause dropIndexClause;
     private static CancelAlterTableStmt cancelAlterTableStmt;
+    private static SchemaChangeHandler schemaChangeHandler;
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -260,10 +261,13 @@ public class CloudIndexTest {
             public ComputeGroupMgr getComputeGroupMgr() {
                 return new ComputeGroupMgr(Env.getCurrentSystemInfo());
             }
-        };
 
-        // Mock access manager to allow root user access
-        new MockUp<Env>() {
+            @Mock
+            public SchemaChangeHandler getSchemaChangeHandler() {
+                // Create a new independent SchemaChangeHandler for each call
+                return schemaChangeHandler;
+            }
+
             @Mock
             public AccessControllerManager getAccessManager() {
                 return new AccessControllerManager(masterEnv.getAuth()) {
@@ -334,6 +338,7 @@ public class CloudIndexTest {
         masterEnv.unprotectCreateDb(db);
 
         AgentTaskQueue.clearAllTasks();
+        schemaChangeHandler = masterEnv.getSchemaChangeHandler();
     }
 
     @Test
@@ -345,6 +350,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -368,7 +374,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -421,6 +426,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -445,7 +451,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -500,6 +505,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -517,7 +523,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -570,6 +575,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -587,7 +593,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -606,17 +611,6 @@ public class CloudIndexTest {
         schemaChangeHandler.process(alterClauses, db, table);
         Assert.assertEquals(2, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
-
-        Expr where = new BinaryPredicate(
-                BinaryPredicate.Operator.EQ, new SlotRef(tableName, "TableName"),
-                new StringLiteral(table.getName()));
-        ShowBuildIndexStmt buildIndexStmt = new ShowBuildIndexStmt(db.getName(), where, null, null);
-        buildIndexStmt.analyze(analyzer);
-        ShowExecutor executor = new ShowExecutor(ctx, buildIndexStmt);
-        ShowResultSet result = executor.execute();
-        LOG.info(result.getResultRows());
-        Assert.assertEquals(1, result.getResultRows().size());
-
         SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
                 .filter(job -> job.jobId != jobId)
                 .findFirst()
@@ -639,6 +633,16 @@ public class CloudIndexTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+
+        Expr where = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, new SlotRef(tableName, "TableName"),
+                new StringLiteral(table.getName()));
+        ShowBuildIndexStmt buildIndexStmt = new ShowBuildIndexStmt(db.getName(), where, null, null);
+        buildIndexStmt.analyze(analyzer);
+        ShowExecutor executor = new ShowExecutor(ctx, buildIndexStmt);
+        ShowResultSet resultBeforeDrop = executor.execute();
+        LOG.info("Show build index result before drop: {}", resultBeforeDrop.getResultRows());
+        Assert.assertEquals(1, resultBeforeDrop.getResultRows().size());
     }
 
     @Test
@@ -650,6 +654,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -667,7 +672,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -719,6 +723,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -738,7 +743,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef1, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -842,6 +846,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -861,7 +866,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef1, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -977,6 +981,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -1004,7 +1009,6 @@ public class CloudIndexTest {
                 table.getName());
         createIndexClause = new CreateIndexClause(tableName, indexDef, false);
         createIndexClause.analyze(analyzer);
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
         schemaChangeHandler.process(alterClauses, db, table);
@@ -1053,6 +1057,7 @@ public class CloudIndexTest {
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
         FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
 
         Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
         Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
@@ -1067,7 +1072,6 @@ public class CloudIndexTest {
 
         TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
                 table.getName());
-        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
 
         // Step 1: Create tokenized inverted index (heavyweight schema change)
@@ -1248,5 +1252,291 @@ public class CloudIndexTest {
         // Final verification: all 3 indexes should exist and be properly configured
         Assert.assertEquals(3, table.getIndexes().size());
         LOG.info("Successfully created and built mixed indexes: tokenized, NGRAM_BF, and raw inverted");
+    }
+
+    @Test
+    public void testDropIndexAndShowBuildIndex() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        String indexName = "test_drop_inverted_index";
+        IndexDef indexDef = new IndexDef(indexName, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                IndexType.INVERTED,
+                Maps.newHashMap(), "test drop inverted index");
+        TableName tableName = new TableName(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+
+        // Step 1: Create index
+        createIndexClause = new CreateIndexClause(tableName, indexDef, false);
+        createIndexClause.analyze(analyzer);
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("test_drop_inverted_index", table.getIndexes().get(0).getIndexName());
+
+        long createJobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+
+        // Step 2: Build index
+        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
+        buildIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(buildIndexClause);
+
+        schemaChangeHandler.process(alterClauses, db, table);
+        Assert.assertEquals(2, indexChangeJobMap.size());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+
+        SchemaChangeJobV2 buildJobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != createJobId)
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, buildJobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, buildJobV2.getJobState());
+        Assert.assertEquals(0, buildJobV2.schemaChangeBatchTask.getTaskNum());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.RUNNING, buildJobV2.getJobState());
+        Assert.assertEquals(1, buildJobV2.schemaChangeBatchTask.getTaskNum());
+
+        // Show build index before drop - should have results
+        Expr where = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, new SlotRef(tableName, "TableName"),
+                new StringLiteral(table.getName()));
+        ShowBuildIndexStmt buildIndexStmt = new ShowBuildIndexStmt(db.getName(), where, null, null);
+        buildIndexStmt.analyze(analyzer);
+        ShowExecutor executor = new ShowExecutor(ctx, buildIndexStmt);
+        ShowResultSet resultBeforeDrop = executor.execute();
+        LOG.info("Show build index result before drop: {}", resultBeforeDrop.getResultRows());
+        Assert.assertEquals("Should have 1 build index job before drop", 1, resultBeforeDrop.getResultRows().size());
+
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(1, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, buildJobV2.getJobState());
+        Assert.assertEquals(1, table.getIndexes().size());
+
+        // Step 3: Drop index
+        dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
+        dropIndexClause.analyze(analyzer);
+        alterClauses.clear();
+        alterClauses.add(dropIndexClause);
+        schemaChangeHandler.process(alterClauses, db, table);
+
+        // Wait for drop index job to complete
+        SchemaChangeJobV2 dropJobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .filter(job -> job.jobId != createJobId && job.jobId != buildJobV2.jobId)
+                .findFirst()
+                .orElse(null);
+
+        if (dropJobV2 != null) {
+            // Wait for drop index job to complete
+            schemaChangeHandler.runAfterCatalogReady();
+            Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, dropJobV2.getJobState());
+
+            schemaChangeHandler.runAfterCatalogReady();
+            Assert.assertEquals(AlterJobV2.JobState.RUNNING, dropJobV2.getJobState());
+
+            // Mark drop index tasks as finished
+            List<AgentTask> dropTasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+            for (AgentTask agentTask : dropTasks) {
+                agentTask.setFinished(true);
+            }
+
+            schemaChangeHandler.runAfterCatalogReady();
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, dropJobV2.getJobState());
+        }
+
+        // Verify index is dropped after job completion
+        Assert.assertEquals("Index should be dropped", 0, table.getIndexes().size());
+
+        // Step 4: Show build index after drop - should have no results or show finished jobs
+        ShowBuildIndexStmt buildIndexStmtAfterDrop = new ShowBuildIndexStmt(db.getName(), where, null, null);
+        buildIndexStmtAfterDrop.analyze(analyzer);
+        ShowExecutor executorAfterDrop = new ShowExecutor(ctx, buildIndexStmtAfterDrop);
+        ShowResultSet resultAfterDrop = executorAfterDrop.execute();
+        Assert.assertEquals(2, resultAfterDrop.getResultRows().size());
+        LOG.info("Build index results still exist after drop - {} rows", resultAfterDrop.getResultRows().size());
+        for (List<String> row : resultAfterDrop.getResultRows()) {
+            LOG.info("Build index row after drop: {}", row);
+        }
+    }
+
+    @Test
+    public void testHasIndexChangeNormalCases() {
+        SchemaChangeJobV2 job = new SchemaChangeJobV2();
+
+        // Test case 1: Both flags are false
+        job.setAlterIndexInfo(false, null);
+        job.setIndexDrop(false);
+        Assert.assertFalse("Should return false when both flags are false", job.hasIndexChange());
+
+        // Test case 2: Only create index operation
+        List<org.apache.doris.catalog.Index> createIndexes = Lists.newArrayList();
+        createIndexes.add(createMockIndex("test_index", org.apache.doris.analysis.IndexDef.IndexType.INVERTED));
+        job.setAlterIndexInfo(true, createIndexes);
+        job.setIndexDrop(false);
+        Assert.assertTrue("Should return true for valid create index operation", job.hasIndexChange());
+
+        // Test case 3: Only drop index operation
+        List<org.apache.doris.catalog.Index> dropIndexes = Lists.newArrayList();
+        dropIndexes.add(createMockIndex("drop_index", org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF));
+        job.setAlterIndexInfo(false, null);
+        job.setIndexDrop(true);
+        // Use reflection to set dropIndexes since there's no public setter
+        try {
+            java.lang.reflect.Field dropIndexesField = SchemaChangeJobV2.class.getDeclaredField("dropIndexes");
+            dropIndexesField.setAccessible(true);
+            dropIndexesField.set(job, dropIndexes);
+        } catch (Exception e) {
+            Assert.fail("Failed to set dropIndexes field: " + e.getMessage());
+        }
+        Assert.assertTrue("Should return true for valid drop index operation", job.hasIndexChange());
+
+        // Test case 4: Both create and drop operations
+        job.setAlterIndexInfo(true, createIndexes);
+        job.setIndexDrop(true);
+        Assert.assertTrue("Should return true for both operations", job.hasIndexChange());
+
+        // Test case 5: Unsupported index types should return false
+        List<org.apache.doris.catalog.Index> unsupportedIndexes = Lists.newArrayList();
+        unsupportedIndexes.add(createMockIndex("bitmap_index", org.apache.doris.analysis.IndexDef.IndexType.BITMAP));
+        job.setAlterIndexInfo(true, unsupportedIndexes);
+        job.setIndexDrop(false);
+        Assert.assertFalse("Should return false for unsupported index types", job.hasIndexChange());
+    }
+
+    @Test
+    public void testHasIndexChangeExceptionCases() {
+        SchemaChangeJobV2 job = new SchemaChangeJobV2();
+
+        // Test case 1: indexChange is true but indexes is null
+        job.setAlterIndexInfo(true, null);
+        job.setIndexDrop(false);
+
+        try {
+            job.hasIndexChange();
+            Assert.fail("Should throw IllegalStateException when indexChange is true but indexes is null");
+        } catch (IllegalStateException e) {
+            Assert.assertEquals("indexChange is true but indexes list is empty", e.getMessage());
+        }
+
+        // Test case 2: indexChange is true but indexes is empty
+        job.setAlterIndexInfo(true, Lists.newArrayList());
+        job.setIndexDrop(false);
+
+        try {
+            job.hasIndexChange();
+            Assert.fail("Should throw IllegalStateException when indexChange is true but indexes is empty");
+        } catch (IllegalStateException e) {
+            Assert.assertEquals("indexChange is true but indexes list is empty", e.getMessage());
+        }
+
+        // Test case 3: indexDrop is true but dropIndexes is null
+        job.setAlterIndexInfo(false, null);
+        job.setIndexDrop(true);
+        try {
+            java.lang.reflect.Field dropIndexesField = SchemaChangeJobV2.class.getDeclaredField("dropIndexes");
+            dropIndexesField.setAccessible(true);
+            dropIndexesField.set(job, null);
+        } catch (Exception e) {
+            Assert.fail("Failed to set dropIndexes field: " + e.getMessage());
+        }
+
+        try {
+            job.hasIndexChange();
+            Assert.fail("Should throw IllegalStateException when indexDrop is true but dropIndexes is null");
+        } catch (IllegalStateException e) {
+            Assert.assertEquals("indexDrop is true but dropIndexes list is empty", e.getMessage());
+        }
+
+        // Test case 4: indexDrop is true but dropIndexes is empty
+        job.setAlterIndexInfo(false, null);
+        job.setIndexDrop(true);
+        try {
+            java.lang.reflect.Field dropIndexesField = SchemaChangeJobV2.class.getDeclaredField("dropIndexes");
+            dropIndexesField.setAccessible(true);
+            dropIndexesField.set(job, Lists.newArrayList());
+        } catch (Exception e) {
+            Assert.fail("Failed to set dropIndexes field: " + e.getMessage());
+        }
+
+        try {
+            job.hasIndexChange();
+            Assert.fail("Should throw IllegalStateException when indexDrop is true but dropIndexes is empty");
+        } catch (IllegalStateException e) {
+            Assert.assertEquals("indexDrop is true but dropIndexes list is empty", e.getMessage());
+        }
+    }
+
+    @Test
+    public void testHasIndexChangeMixedValidAndInvalidCases() {
+        SchemaChangeJobV2 job = new SchemaChangeJobV2();
+
+        // Test case: indexChange is false (valid), indexDrop is true with valid dropIndexes
+        List<org.apache.doris.catalog.Index> dropIndexes = Lists.newArrayList();
+        dropIndexes.add(createMockIndex("valid_drop_index", org.apache.doris.analysis.IndexDef.IndexType.INVERTED));
+
+        job.setAlterIndexInfo(false, null);  // This is valid since indexChange is false
+        job.setIndexDrop(true);
+        try {
+            java.lang.reflect.Field dropIndexesField = SchemaChangeJobV2.class.getDeclaredField("dropIndexes");
+            dropIndexesField.setAccessible(true);
+            dropIndexesField.set(job, dropIndexes);
+        } catch (Exception e) {
+            Assert.fail("Failed to set dropIndexes field: " + e.getMessage());
+        }
+
+        Assert.assertTrue("Should return true when drop operation is valid even if create operation is disabled",
+                         job.hasIndexChange());
+
+        // Test case: indexChange is true with valid indexes, indexDrop is false
+        List<org.apache.doris.catalog.Index> createIndexes = Lists.newArrayList();
+        createIndexes.add(createMockIndex("valid_create_index", org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF));
+
+        job.setAlterIndexInfo(true, createIndexes);
+        job.setIndexDrop(false);  // This is valid since indexDrop is false
+        try {
+            java.lang.reflect.Field dropIndexesField = SchemaChangeJobV2.class.getDeclaredField("dropIndexes");
+            dropIndexesField.setAccessible(true);
+            dropIndexesField.set(job, null);  // dropIndexes can be null when indexDrop is false
+        } catch (Exception e) {
+            Assert.fail("Failed to set dropIndexes field: " + e.getMessage());
+        }
+
+        Assert.assertTrue("Should return true when create operation is valid even if drop operation is disabled",
+                         job.hasIndexChange());
+    }
+
+    /**
+     * Helper method to create a mock Index object for testing
+     */
+    private org.apache.doris.catalog.Index createMockIndex(String indexName,
+                                                           org.apache.doris.analysis.IndexDef.IndexType indexType) {
+        List<String> columns = Lists.newArrayList("test_column");
+        Map<String, String> properties = Maps.newHashMap();
+        return new org.apache.doris.catalog.Index(0L, indexName, columns, indexType, properties, "test comment");
     }
 }
