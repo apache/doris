@@ -245,8 +245,19 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
     _dependency->sub();
 }
 
-Status RuntimeFilterProducer::init(size_t local_size) {
-    return _wrapper->init(_synced_size != -1 ? _synced_size : local_size);
+Status RuntimeFilterProducer::init(RuntimeState* state, size_t local_size) {
+    int64_t real_size = _synced_size != -1 ? _synced_size : local_size;
+    if (state->query_options().__isset.runtime_filter_max_build_row_count) {
+        if (real_size > state->query_options().runtime_filter_max_build_row_count) {
+            _wrapper->set_state(
+                    RuntimeFilterWrapper::State::DISABLED,
+                    fmt::format("reached max build row count, max_build_row_count={}, real_size={}",
+                                state->query_options().runtime_filter_max_build_row_count,
+                                real_size));
+            return Status::OK();
+        }
+    }
+    return _wrapper->init(real_size);
 }
 
 } // namespace doris
