@@ -60,11 +60,11 @@ public:
             IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
             const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql(
             const IColumn& column, MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
             bool col_const,
@@ -81,8 +81,8 @@ public:
 
 protected:
     template <bool is_date>
-    void _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                 int64_t end, const cctz::time_zone& ctz) const;
+    Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                   int64_t end, const cctz::time_zone& ctz) const;
 
 private:
     template <bool is_binary_format>
@@ -107,8 +107,8 @@ public:
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
 };
 } // namespace vectorized
 } // namespace doris
