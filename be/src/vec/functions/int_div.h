@@ -31,10 +31,10 @@ namespace doris::vectorized {
 
 template <typename A, typename B>
 struct DivideIntegralImpl {
-    using ResultType = typename NumberTraits::ResultOfIntegerDivision<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfIntegerDivision<A, B>::Type;
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::ColumnItemType>
     static void apply(const typename Traits::ArrayA& a, B b,
                       typename ColumnVector<Result>::Container& c,
                       typename Traits::ArrayNull& null_map) {
@@ -57,7 +57,7 @@ struct DivideIntegralImpl {
         }
     }
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::ColumnItemType>
     static inline Result apply(A a, B b, UInt8& is_null) {
         is_null = b == 0;
         return Result(a / (b + is_null));

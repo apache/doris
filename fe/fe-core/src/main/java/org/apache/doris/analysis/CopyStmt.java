@@ -34,6 +34,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -178,11 +179,11 @@ public class CopyStmt extends DdlStmt implements NotFallbackInParser {
                     getOrigStmt() != null ? getOrigStmt().originStmt : "", copyFromParam.getFileColumns(),
                     copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr());
         }
+        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
         dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
                 copyFromParam.getFileColumns(), separator, fileFormatStr, null, false,
                 copyFromParam.getColumnMappingList(), copyFromParam.getFileFilterExpr(), null, MergeType.APPEND, null,
                 null, dataDescProperties);
-        dataDescription.setCompressType(StageUtil.parseCompressType(copyIntoProperties.getCompression()));
         if (!(copyFromParam.getColumnMappingList() == null
                 || copyFromParam.getColumnMappingList().isEmpty())) {
             dataDescription.setIgnoreCsvRedundantCol(true);

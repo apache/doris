@@ -58,7 +58,7 @@ class AggregateFunctionApproxTopSum final
 private:
     using State = AggregateFunctionTopKGenericData;
 
-    using ResultDataType = DataTypeNumber<TResult>;
+    using ResultDataType = DataTypeNumber<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = ColumnVector<TResult>;
 

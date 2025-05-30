@@ -69,8 +69,7 @@ suite("explain") {
     assertTrue(!explainStr.contains("projections"))
 
     explain {
-        sql("select week(cast('0000-01-01' as DATEV2), cast(2 as INT));")
-        notContains "week"
-        contains "1"
+        sql("select week(cast('0000-02-02' as DATEV2), cast(2 as INT));")
+        contains "5"
     }
 }

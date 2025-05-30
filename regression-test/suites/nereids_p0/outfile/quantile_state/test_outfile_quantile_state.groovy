@@ -26,7 +26,7 @@ suite("test_outfile_quantile_state") {
     sql "set return_object_data_as_binary=true"
     def outFilePath = """./tmp/test_outfile_quantile_state"""
     File path = new File(outFilePath)
-    path.delete()
+    path.deleteDir()
     path.mkdirs()
 
     sql "DROP TABLE IF EXISTS q_table"
@@ -63,6 +63,6 @@ suite("test_outfile_quantile_state") {
     cmd """
     curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_quantile_state/q_table2/_stream_load
     """
-
+    Thread.sleep(10000)
     qt_test "select k1,quantile_percent(quantile_union_merge(k2),0.5) from q_table2 group by k1 order by k1;"
 }

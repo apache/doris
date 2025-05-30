@@ -166,12 +166,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 boolean hasSlot = compare.left() instanceof SlotReference || compare.right() instanceof SlotReference;
                 if (hasSlot && hasLiteral) {
                     if (compare.left() instanceof SlotReference) {
-                        if (((SlotReference) compare.left()).getColumn().isPresent()) {
-                            columns.add(((SlotReference) compare.left()).getColumn().get());
+                        if (((SlotReference) compare.left()).getOriginalColumn().isPresent()) {
+                            columns.add(((SlotReference) compare.left()).getOriginalColumn().get());
                         }
                     } else {
-                        if (((SlotReference) compare.right()).getColumn().isPresent()) {
-                            columns.add(((SlotReference) compare.right()).getColumn().get());
+                        if (((SlotReference) compare.right()).getOriginalColumn().isPresent()) {
+                            columns.add(((SlotReference) compare.right()).getOriginalColumn().get());
                         }
                     }
                 }

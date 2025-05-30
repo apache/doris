@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
@@ -37,6 +38,7 @@ import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -212,41 +214,47 @@ public class CloudReplica extends Replica {
         String cluster = null;
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            if (!Strings.isNullOrEmpty(context.getSessionVariable().getCloudCluster())) {
-                cluster = context.getSessionVariable().getCloudCluster();
+            // TODO(wb) rethinking whether should update err status.
+            cluster = context.getCloudCluster();
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get compute group by context {}", cluster);
+            }
+
+            UserIdentity currentUid = context.getCurrentUserIdentity();
+            if (currentUid != null && !StringUtils.isEmpty(currentUid.getQualifiedUser())) {
                 try {
                     ((CloudEnv) Env.getCurrentEnv()).checkCloudClusterPriv(cluster);
                 } catch (Exception e) {
-                    LOG.warn("get compute group by session context exception");
-                    throw new ComputeGroupException(String.format("session context compute group %s check auth failed",
-                            cluster),
-                        ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get compute group by session context compute group: {}", cluster);
+                    LOG.warn("check compute group {} for {} auth failed.", cluster,
+                            context.getCurrentUserIdentity().toString());
+                    throw new ComputeGroupException(
+                            String.format("context compute group %s check auth failed, user is %s",
+                                    cluster, context.getCurrentUserIdentity().toString()),
+                            ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
                 }
             } else {
-                cluster = context.getCloudCluster(false);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("get compute group by context {}", cluster);
-                }
-                String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                        .getCloudStatusByName(cluster);
-                if (!Strings.isNullOrEmpty(clusterStatus)
-                        && Cloud.ClusterStatus.valueOf(clusterStatus)
-                        == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
-                    LOG.warn("auto start compute group {} in manual shutdown status", cluster);
-                    throw new ComputeGroupException(
+                LOG.info("connect context user is null.");
+                throw new ComputeGroupException("connect context's user is null",
+                        ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
+            }
+
+            String clusterStatus = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                    .getCloudStatusByName(cluster);
+            if (!Strings.isNullOrEmpty(clusterStatus)
+                    && Cloud.ClusterStatus.valueOf(clusterStatus)
+                    == Cloud.ClusterStatus.MANUAL_SHUTDOWN) {
+                LOG.warn("auto start compute group {} in manual shutdown status", cluster);
+                throw new ComputeGroupException(
                         String.format("The current compute group %s has been manually shutdown", cluster),
                         ComputeGroupException.FailedTypeEnum.CURRENT_COMPUTE_GROUP_BEEN_MANUAL_SHUTDOWN);
-                }
             }
         } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("connect context is null in getBackendId");
             }
-            throw new ComputeGroupException("connect context not set",
-                ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
+            throw new ComputeGroupException("connect context not set cluster ",
+                    ComputeGroupException.FailedTypeEnum.CONNECT_CONTEXT_NOT_SET);
         }
 
         return getCloudClusterIdByName(cluster);

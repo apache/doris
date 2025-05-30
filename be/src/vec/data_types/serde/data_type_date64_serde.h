@@ -41,32 +41,38 @@ class JsonbOutStream;
 namespace vectorized {
 class Arena;
 
-class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
+template <PrimitiveType T = PrimitiveType::TYPE_DATE>
+class DataTypeDate64SerDe : public DataTypeNumberSerDe<T> {
 public:
-    DataTypeDate64SerDe(int nesting_level = 1) : DataTypeNumberSerDe<Int64>(nesting_level) {};
+    DataTypeDate64SerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
 
-    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
-                                      FormatOptions& options) const override;
-    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
-                                    BufferWritable& bw, FormatOptions& options) const override;
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
+    Status serialize_one_cell_to_json(
+            const IColumn& column, int64_t row_num, BufferWritable& bw,
+            typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+    Status serialize_column_to_json(
+            const IColumn& column, int64_t start_idx, int64_t end_idx, BufferWritable& bw,
+            typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+    Status deserialize_one_cell_from_json(
+            IColumn& column, Slice& slice,
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
 
-    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               uint64_t* num_deserialized,
-                                               const FormatOptions& options) const override;
+    Status deserialize_column_from_json_vector(
+            IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
-    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int64_t row_idx, bool col_const,
-                                 const FormatOptions& options) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
+    Status write_column_to_mysql(
+            const IColumn& column, MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
+            bool col_const,
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+    Status write_column_to_mysql(
+            const IColumn& column, MysqlRowBuffer<false>& row_buffer, int64_t row_idx,
+            bool col_const,
+            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -75,19 +81,20 @@ public:
 
 protected:
     template <bool is_date>
-    void _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                 int64_t end, const cctz::time_zone& ctz) const;
+    Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                   int64_t end, const cctz::time_zone& ctz) const;
 
 private:
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int64_t row_idx, bool col_const,
-                                  const FormatOptions& options) const;
+    Status _write_column_to_mysql(
+            const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
+            bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const;
 };
 
-class DataTypeDateTimeSerDe : public DataTypeDate64SerDe {
+class DataTypeDateTimeSerDe : public DataTypeDate64SerDe<PrimitiveType::TYPE_DATETIME> {
 public:
-    DataTypeDateTimeSerDe(int nesting_level = 1) : DataTypeDate64SerDe(nesting_level) {};
+    DataTypeDateTimeSerDe(int nesting_level = 1)
+            : DataTypeDate64SerDe<PrimitiveType::TYPE_DATETIME>(nesting_level) {};
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
@@ -100,8 +107,8 @@ public:
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
 };
 } // namespace vectorized
 } // namespace doris

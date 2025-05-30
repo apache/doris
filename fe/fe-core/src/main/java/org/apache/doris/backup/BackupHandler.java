@@ -56,6 +56,7 @@ import org.apache.doris.fsv2.remote.AzureFileSystem;
 import org.apache.doris.fsv2.remote.RemoteFileSystem;
 import org.apache.doris.fsv2.remote.S3FileSystem;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -205,6 +206,38 @@ public class BackupHandler extends MasterDaemon implements Writable {
         for (AbstractJob job : getAllCurrentJobs()) {
             job.setEnv(env);
             job.run();
+        }
+    }
+
+    // handle create repository command
+    public void createRepository(CreateRepositoryCommand command) throws DdlException {
+        if (!env.getBrokerMgr().containsBroker(command.getBrokerName())
+                && command.getStorageType() == StorageBackend.StorageType.BROKER) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "broker does not exist: " + command.getBrokerName());
+        }
+
+        RemoteFileSystem fileSystem;
+        try {
+            fileSystem = FileSystemFactory.get(command.getStorageType(), command.getProperties());
+        } catch (UserException e) {
+            throw new DdlException("Failed to initialize remote file system: " + e.getMessage());
+        }
+        org.apache.doris.fs.remote.RemoteFileSystem oldfs = org.apache.doris.fs.FileSystemFactory
+                .get(command.getBrokerName(), command.getStorageType(),
+                command.getProperties());
+        long repoId = env.getNextId();
+        Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
+                fileSystem, oldfs);
+
+        Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
+        if (!st.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: " + st.getErrMsg());
+        }
+        if (!repo.ping()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: failed to connect to the repo");
         }
     }
 

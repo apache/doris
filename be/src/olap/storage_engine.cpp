@@ -52,6 +52,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
 #include "olap/data_dir.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -1267,7 +1268,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
+                                                 bool force_use_cache) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1496,6 +1498,9 @@ void BaseStorageEngine::_evict_querying_rowset() {
             }
         }
     }
+
+    uint64_t now = UnixSeconds();
+    ExecEnv::GetInstance()->get_id_manager()->gc_expired_id_file_map(now);
 }
 
 bool BaseStorageEngine::_should_delay_large_task() {

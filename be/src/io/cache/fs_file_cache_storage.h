@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
+
 #include <memory>
 #include <shared_mutex>
 #include <thread>
@@ -87,6 +89,11 @@ public:
     FileCacheStorageType get_type() override { return DISK; }
 
 private:
+    void remove_old_version_directories();
+
+    Status collect_directory_entries(const std::filesystem::path& dir_path,
+                                     std::vector<std::string>& file_list) const;
+
     Status upgrade_cache_dir_if_necessary() const;
 
     Status read_file_cache_version(std::string* buffer) const;
@@ -111,6 +118,7 @@ private:
     // TODO(Lchangliang): use a more efficient data structure
     std::mutex _mtx;
     std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
+    std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
 };
 
 } // namespace doris::io

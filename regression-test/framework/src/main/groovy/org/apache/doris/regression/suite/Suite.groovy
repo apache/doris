@@ -1648,41 +1648,6 @@ class Suite implements GroovyInterceptable {
         return debugPoint
     }
 
-    // get follower ip
-    def get_follower_ip = {
-        def result = sql """show frontends;"""
-        if (result.size() == 1) {
-            return null
-        }
-        for (int i = 0; i < result.size(); i++) {
-            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
-                return result[i][1]
-            }
-        }
-        return null
-    }
-
-    // get master ip
-    def get_master_ip = {
-        def result = sql """show frontends;"""
-        for (int i = 0; i < result.size(); i++) {
-            if (result[i][7] == "FOLLOWER" && result[i][8] == "true" && result[i][11] == "true") {
-                return result[i][1]
-            }
-        }
-        return null
-    }
-
-    def run_on_follower_and_master = { test_fn ->
-        for (def ip in [get_follower_ip(), get_master_ip()]) {
-            if (ip != null) {
-                def jdbc_url = context.config.jdbcUrl.replaceAll(/\/\/[0-9.]+:/, "//${ip}:")
-                logger.info("jdbc_url: " + jdbc_url)
-                test_fn(jdbc_url)
-            }
-        }
-    }
-
     def waitingMTMVTaskFinishedByMvName = { mvName, dbName = context.dbName ->
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"

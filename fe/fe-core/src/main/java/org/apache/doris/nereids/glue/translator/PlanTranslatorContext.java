@@ -116,6 +116,8 @@ public class PlanTranslatorContext {
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
 
+    private boolean isTopMaterializeNode = true;
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -286,7 +288,7 @@ public class PlanTranslatorContext {
             @Nullable TableIf table) {
         SlotDescriptor slotDescriptor = this.addSlotDesc(tupleDesc);
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
-        Optional<Column> column = slotReference.getColumn();
+        Optional<Column> column = slotReference.getOriginalColumn();
         column.ifPresent(slotDescriptor::setColumn);
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
@@ -299,7 +301,7 @@ public class PlanTranslatorContext {
             slotDescriptor.setLabel(slotReference.getName());
         } else {
             slotRef = new SlotRef(slotDescriptor);
-            if (slotReference.hasSubColPath() && slotReference.getColumn().isPresent()) {
+            if (slotReference.hasSubColPath() && slotReference.getOriginalColumn().isPresent()) {
                 slotDescriptor.setSubColLables(slotReference.getSubPath());
                 // use lower case name for variant's root, since backend treat parent column as lower case
                 // see issue: https://github.com/apache/doris/pull/32999/commits
@@ -343,4 +345,13 @@ public class PlanTranslatorContext {
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
+
+    public boolean isTopMaterializeNode() {
+        return isTopMaterializeNode;
+    }
+
+    public void setTopMaterializeNode(boolean topMaterializeNode) {
+        isTopMaterializeNode = topMaterializeNode;
+    }
+
 }

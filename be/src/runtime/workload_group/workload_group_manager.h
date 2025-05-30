@@ -81,12 +81,6 @@ public:
 
     void stop();
 
-    std::atomic<bool> _enable_cpu_hard_limit = false;
-
-    bool enable_cpu_soft_limit() const { return !_enable_cpu_hard_limit.load(); }
-
-    bool enable_cpu_hard_limit() const { return _enable_cpu_hard_limit.load(); }
-
     void refresh_wg_weighted_memory_limit();
 
     void get_wg_resource_usage(vectorized::Block* block);

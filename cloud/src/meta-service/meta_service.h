@@ -324,6 +324,12 @@ private:
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(InstanceInfoPB*)> action);
 
+    bool get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
+                                       const GetDeleteBitmapUpdateLockRequest* request,
+                                       GetDeleteBitmapUpdateLockResponse* response,
+                                       std::string& instance_id, std::string& lock_key,
+                                       std::string lock_use_version);
+
     void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
                                           const GetDeleteBitmapUpdateLockRequest* request,
                                           GetDeleteBitmapUpdateLockResponse* response,

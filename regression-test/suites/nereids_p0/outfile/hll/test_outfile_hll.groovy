@@ -25,7 +25,7 @@ suite("test_outfile_hll") {
     sql "set return_object_data_as_binary=true"
     def outFilePath = """./tmp/test_outfile_hll"""
     File path = new File(outFilePath)
-    path.delete()
+    path.deleteDir()
     path.mkdirs()
 
     sql "DROP TABLE IF EXISTS h_table"
@@ -60,8 +60,8 @@ suite("test_outfile_hll") {
 
     def filePath=path.getAbsolutePath()+"/tmp*"
     cmd """
-    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns: k1, tmp, k2=hll_from_base64(tmp)" -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_hll/h_table2/_stream_load
+    curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns: k1, tmp, k2=hll_from_base64(tmp)" -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} -XPUT http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_hll/h_table2/_stream_load
     """
-
+    Thread.sleep(10000)
     qt_test "select k1,hll_union_agg(k2) from h_table2 group by k1 order by k1;"
 }

@@ -739,9 +739,6 @@ TEST_F(DataTypeDecimalTest, get_decimal_scale) {
     EXPECT_EQ(get_decimal_scale(DataTypeInt64()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeInt128()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeUInt8()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt16()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt32()), 0);
-    EXPECT_EQ(get_decimal_scale(DataTypeUInt64()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeFloat32()), 0);
     EXPECT_EQ(get_decimal_scale(DataTypeFloat64()), 0);
 }

@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter.h"
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "vec/exprs/vexpr.h"

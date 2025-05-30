@@ -297,8 +297,8 @@ public class ShowLoadCommand extends ShowCommand {
     }
 
     private boolean analyzeCompoundPredicate(Expression expr) throws AnalysisException {
-        if (wildWhere instanceof CompoundPredicate) {
-            if (!(wildWhere instanceof And)) {
+        if (expr instanceof CompoundPredicate) {
+            if (!(expr instanceof And)) {
                 throw new AnalysisException("Only allow compound predicate with operator AND");
             }
             checkPredicateName(expr.child(0), expr.child(1));

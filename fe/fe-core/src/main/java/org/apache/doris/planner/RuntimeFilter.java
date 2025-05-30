@@ -130,7 +130,9 @@ public final class RuntimeFilter {
         public RuntimeFilterTarget(ScanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
             Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds())
-                    || targetNode instanceof CTEScanNode);
+                    || targetNode instanceof CTEScanNode,
+                    "RuntimeFilter target " + expr + " is not bounded: slotDesc"
+                            + (targetExpr instanceof SlotRef ? ((SlotRef) targetExpr).getTupleId() : "null"));
             this.node = targetNode;
             this.expr = targetExpr;
             this.isBoundByKeyColumns = isBoundByKeyColumns;
@@ -343,10 +345,9 @@ public final class RuntimeFilter {
             return null;
         }
 
-        BinaryPredicate normalizedJoinConjunct =
-                SingleNodePlanner.getNormalizedEqPred(joinPredicate,
-                        filterSrcNode.getChild(0).getTupleIds(),
-                        filterSrcNode.getChild(1).getTupleIds(), analyzer);
+        BinaryPredicate normalizedJoinConjunct = getNormalizedEqPred(joinPredicate,
+                filterSrcNode.getChild(0).getTupleIds(),
+                filterSrcNode.getChild(1).getTupleIds(), analyzer);
         if (normalizedJoinConjunct == null) {
             return null;
         }
@@ -777,5 +778,42 @@ public final class RuntimeFilter {
 
     public void setBloomFilterSizeCalculatedByNdv(boolean bloomFilterSizeCalculatedByNdv) {
         this.bloomFilterSizeCalculatedByNdv = bloomFilterSizeCalculatedByNdv;
+    }
+
+    /**
+     * Returns a normalized version of a binary equality predicate 'expr' where the lhs
+     * child expr is bound by some tuple in 'lhsTids' and the rhs child expr is bound by
+     * some tuple in 'rhsTids'. Returns 'expr' if this predicate is already normalized.
+     * Returns null in any of the following cases:
+     * 1. It is not an equality predicate
+     * 2. One of the operands is a constant
+     * 3. Both children of this predicate are the same expr
+     * The so-called normalization is to ensure that the above conditions are met, and then
+     * to ensure that the order of expr is consistent with the order of node
+     */
+    public static BinaryPredicate getNormalizedEqPred(Expr expr, List<TupleId> lhsTids,
+            List<TupleId> rhsTids, Analyzer analyzer) {
+        if (!(expr instanceof BinaryPredicate)) {
+            return null;
+        }
+        BinaryPredicate pred = (BinaryPredicate) expr;
+        if (!pred.getOp().isEquivalence()) {
+            return null;
+        }
+        if (pred.getChild(0).isConstant() || pred.getChild(1).isConstant()) {
+            return null;
+        }
+
+        // Use the child that contains lhsTids as lhsExpr, for example, A join B on B.k = A.k,
+        // where lhsExpr=A.k, rhsExpr=B.k, changed the order, A.k = B.k
+        Expr lhsExpr = Expr.getFirstBoundChild(pred, lhsTids);
+        Expr rhsExpr = Expr.getFirstBoundChild(pred, rhsTids);
+        if (lhsExpr == null || rhsExpr == null || lhsExpr == rhsExpr) {
+            return null;
+        }
+
+        BinaryPredicate result = new BinaryPredicate(pred.getOp(), lhsExpr, rhsExpr);
+        result.analyzeNoThrow(analyzer);
+        return result;
     }
 }
