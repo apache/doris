@@ -106,7 +106,8 @@ enum TFileFormatType {
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
     FORMAT_WAL,
-    FORMAT_ARROW
+    FORMAT_ARROW,
+    FORMAT_TEXT
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -398,6 +399,7 @@ struct TTableFormatFileDesc {
     9: optional i64 table_level_row_count
 }
 
+// Deprecated, hive text talbe is a special format, not a serde type
 enum TTextSerdeType {
     JSON_TEXT_SERDE = 0,
     HIVE_TEXT_SERDE = 1,
@@ -446,6 +448,7 @@ struct TFileScanRangeParams {
     19: optional map<string, i32> slot_name_to_schema_pos
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
+    // Deprecated, hive text talbe is a special format, not a serde type
     22: optional TTextSerdeType  text_serde_type 
     // used by flexible partial update
     23: optional string sequence_map_col
