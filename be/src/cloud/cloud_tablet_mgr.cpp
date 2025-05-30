@@ -266,18 +266,18 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
             .tag("num_tablets", tablets_to_vacuum.size());
 
     {
-        LOG_INFO("begin to remove pre rowsets delete bitmap");
+        LOG_INFO("begin to remove delete bitmap");
         std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
         tablets_to_remove_delete_bitmap.reserve(_tablet_map->size());
         _tablet_map->traverse([&tablets_to_remove_delete_bitmap](auto&& t) {
-            if (t->need_remove_pre_rowset_delete_bitmap()) {
+            if (t->need_remove_delete_bitmap()) {
                 tablets_to_remove_delete_bitmap.push_back(t);
             }
         });
         for (auto& t : tablets_to_remove_delete_bitmap) {
-            t->remove_pre_rowset_delete_bitmap();
+            t->remove_delete_bitmap();
         }
-        LOG_INFO("finish remove pre rowsets delete bitmap")
+        LOG_INFO("finish remove delete bitmap")
                 .tag("num_tablets", tablets_to_remove_delete_bitmap.size());
         if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
             int64_t max_useless_rowset_count = 0;
