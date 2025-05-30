@@ -74,6 +74,7 @@ statementBase
 
 unsupportedStatement
     : unsupportedUseStatement
+    | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
@@ -814,7 +815,7 @@ analyzeProperties
     ;
 
 unsupportedCreateStatement
-    | CREATE INVERTED INDEX ANALYZER (IF NOT EXISTS)?
+    : CREATE INVERTED INDEX ANALYZER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createAnalyzer
     | CREATE INVERTED INDEX TOKENIZER (IF NOT EXISTS)?
         name=identifier properties=propertyClause?                              #createTokenizer
