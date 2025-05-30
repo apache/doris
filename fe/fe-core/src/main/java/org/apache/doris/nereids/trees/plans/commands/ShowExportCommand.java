@@ -98,7 +98,7 @@ public class ShowExportCommand extends ShowCommand {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(128)));
         }
         return builder.build();
     }
