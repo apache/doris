@@ -32,29 +32,23 @@
 
 namespace doris::vectorized {
 
-class L1Distance {
+class L2DistanceApproximate {
 public:
-    static constexpr auto name = "l1_distance";
+    static constexpr auto name = "l2_distance_approximate";
     struct State {
         double sum = 0;
+        size_t count = 0;
     };
-    static void accumulate(State& state, double x, double y) { state.sum += fabs(x - y); }
-    static double finalize(const State& state) { return state.sum; }
+    static void accumulate(State& state, double x, double y) {
+        state.sum += (x - y) * (x - y);
+        state.count++;
+    }
+    static double finalize(const State& state) { return sqrt(state.sum / state.count); }
 };
 
-class L2Distance {
+class InnerProductApproximate {
 public:
-    static constexpr auto name = "l2_distance";
-    struct State {
-        double sum = 0;
-    };
-    static void accumulate(State& state, double x, double y) { state.sum += (x - y) * (x - y); }
-    static double finalize(const State& state) { return sqrt(state.sum); }
-};
-
-class InnerProduct {
-public:
-    static constexpr auto name = "inner_product";
+    static constexpr auto name = "inner_product_approximate";
     struct State {
         double sum = 0;
     };
@@ -62,30 +56,14 @@ public:
     static double finalize(const State& state) { return state.sum; }
 };
 
-class CosineDistance {
-public:
-    static constexpr auto name = "cosine_distance";
-    struct State {
-        double dot_prod = 0;
-        double squared_x = 0;
-        double squared_y = 0;
-    };
-    static void accumulate(State& state, double x, double y) {
-        state.dot_prod += x * y;
-        state.squared_x += x * x;
-        state.squared_y += y * y;
-    }
-    static double finalize(const State& state) {
-        return 1 - state.dot_prod / sqrt(state.squared_x * state.squared_y);
-    }
-};
-
 template <typename DistanceImpl>
-class FunctionArrayDistance : public IFunction {
+class FunctionArrayDistanceApproximate : public IFunction {
 public:
     static constexpr auto name = DistanceImpl::name;
     String get_name() const override { return name; }
-    static FunctionPtr create() { return std::make_shared<FunctionArrayDistance<DistanceImpl>>(); }
+    static FunctionPtr create() {
+        return std::make_shared<FunctionArrayDistanceApproximate<DistanceImpl>>();
+    }
     bool is_variadic() const override { return false; }
     size_t get_number_of_arguments() const override { return 2; }
     bool use_default_implementation_for_nulls() const override { return false; }

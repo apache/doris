@@ -102,7 +102,8 @@ Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {
     }
 
     if (ord_idx >= _max_ordinal) {
-        return Status::InternalError("Seek to ordinal out of range: {} out of {}", ord_idx, _max_ordinal);
+        return Status::InternalError("Seek to ordinal out of range: {} out of {}", ord_idx,
+                                     _max_ordinal);
     }
 
     _current_ordinal = ord_idx;

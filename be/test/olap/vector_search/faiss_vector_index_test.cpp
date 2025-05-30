@@ -604,7 +604,7 @@ TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
                 vector_search_utils::create_doris_index(vector_search_utils::IndexType::HNSW, d, m);
 
         std::vector<float> vectors;
-        // Create 1000 vectors and make sure their l2_distance with [1,2,3,4,5,6,7,8,9,10] is less than 100
+        // Create 1000 vectors and make sure their l2_distance_approximate with [1,2,3,4,5,6,7,8,9,10] is less than 100
         // [1,2,3,4,5,6,7,8,9,10]
         // [2,3,4,5,6,7,8,9,10,1]
         // [3,4,5,6,7,8,9,10,1,2]

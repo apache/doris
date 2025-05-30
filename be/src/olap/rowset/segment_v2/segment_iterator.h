@@ -52,7 +52,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
-#include "vec/exprs/vann_topn_predicate.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -480,7 +480,7 @@ private:
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
 
-    std::shared_ptr<vectorized::AnnTopNDescriptor> _ann_topn_descriptor;
+    std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
 
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;

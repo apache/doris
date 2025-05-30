@@ -196,7 +196,7 @@ public:
         int64_t batch_size = -1;
 
         std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
-        std::shared_ptr<vectorized::AnnTopNDescriptor> ann_topn_descriptor;
+        std::shared_ptr<vectorized::AnnTopNRuntime> ann_topn_runtime;
         std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
         std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
     };

@@ -91,7 +91,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
-#include "vec/exprs/vann_topn_predicate.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/virtual_slot_ref.h"
@@ -319,7 +319,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
              opts.vir_cid_to_idx_in_block.size());
 
     _virtual_column_exprs = _opts.virtual_column_exprs;
-    _ann_topn_descriptor = _opts.ann_topn_descriptor;
+    _ann_topn_runtime = _opts.ann_topn_runtime;
     _vir_cid_to_idx_in_block = _opts.vir_cid_to_idx_in_block;
 
     RETURN_IF_ERROR(init_iterators());
@@ -372,9 +372,9 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     RETURN_IF_ERROR(_construct_compound_expr_context());
     _enable_common_expr_pushdown = !_common_expr_ctxs_push_down.empty();
     LOG_INFO(
-            "Segment iterator init, virtual_column_exprs size: {}, has ann_topn_descriptor: {}, "
+            "Segment iterator init, virtual_column_exprs size: {}, has ann_topn_runtime: {}, "
             "_vir_cid_to_idx_in_block size: {}, common_expr_pushdown size: {}",
-            _opts.virtual_column_exprs.size(), _opts.ann_topn_descriptor != nullptr,
+            _opts.virtual_column_exprs.size(), _opts.ann_topn_runtime != nullptr,
             _opts.vir_cid_to_idx_in_block.size(), _common_expr_ctxs_push_down.size());
     _initialize_predicate_results();
     return Status::OK();
@@ -616,14 +616,13 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 }
 
 Status SegmentIterator::_apply_ann_topn_predicate() {
-    if (_ann_topn_descriptor == nullptr) {
+    if (_ann_topn_runtime == nullptr) {
         return Status::OK();
     }
 
-    LOG_INFO("Ann topn descriptor: {}", _ann_topn_descriptor->debug_string());
-    size_t src_col_idx = _ann_topn_descriptor->get_src_column_idx();
+    LOG_INFO("Try apply ann topn: {}", _ann_topn_runtime->debug_string());
+    size_t src_col_idx = _ann_topn_runtime->get_src_column_idx();
     ColumnId src_cid = _schema->column_id(src_col_idx);
-    LOG_INFO("Ann topn src column id: {}", src_cid);
     IndexIterator* ann_index_iterator = _index_iterators[src_cid].get();
 
     if (ann_index_iterator == nullptr || !_common_expr_ctxs_push_down.empty() ||
@@ -641,22 +640,22 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     auto ann_index_reader = dynamic_cast<AnnIndexReader*>(index_reader.get());
     DCHECK(ann_index_reader != nullptr);
     if (ann_index_reader->get_metric_type() == VectorIndex::Metric::INNER_PRODUCT) {
-        if (_ann_topn_descriptor->is_asc()) {
-            LOG_INFO("asc topn for inner product can not be evaluated by ann index");
+        if (_ann_topn_runtime->is_asc()) {
+            LOG_INFO("Asc topn for inner product can not be evaluated by ann index");
             return Status::OK();
         }
     } else {
-        if (!_ann_topn_descriptor->is_asc()) {
-            LOG_INFO("desc topn for l2/cosine can not be evaluated by ann index");
+        if (!_ann_topn_runtime->is_asc()) {
+            LOG_INFO("Desc topn for l2/cosine can not be evaluated by ann index");
             return Status::OK();
         }
     }
 
-    if (ann_index_reader->get_metric_type() != _ann_topn_descriptor->get_metric_type()) {
+    if (ann_index_reader->get_metric_type() != _ann_topn_runtime->get_metric_type()) {
         LOG_INFO(
                 "Ann topn metric type {} not match index metric type {}, can not be evaluated by "
                 "ann index",
-                VectorIndex::metric_to_string(_ann_topn_descriptor->get_metric_type()),
+                VectorIndex::metric_to_string(_ann_topn_runtime->get_metric_type()),
                 VectorIndex::metric_to_string(ann_index_reader->get_metric_type()));
         return Status::OK();
     }
@@ -665,16 +664,17 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     size_t rows_of_semgnet = _segment->num_rows();
     if (pre_size < rows_of_semgnet * 0.3) {
         LOG_INFO(
-                "Ann topn predicate input rows {} < 30% of segment rows {}, will not use ann index to "
+                "Ann topn predicate input rows {} < 30% of segment rows {}, will not use ann index "
+                "to "
                 "filter",
                 pre_size, rows_of_semgnet);
         return Status::OK();
     }
-    size_t dst_col_idx = _ann_topn_descriptor->get_dest_column_idx();
+    const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
-    RETURN_IF_ERROR(_ann_topn_descriptor->evaluate_vector_ann_search(
-            ann_index_iterator, _row_bitmap, result_column, result_row_ids));
+    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, _row_bitmap,
+                                                                  result_column, result_row_ids));
     // TODO: 处理 nullable
     LOG_INFO("Ann topn filtered {} - {} = {} rows", pre_size, _row_bitmap.cardinality(),
              pre_size - _row_bitmap.cardinality());
@@ -1254,6 +1254,7 @@ Status SegmentIterator::_init_index_iterators() {
         return Status::OK();
     }
 
+    // Inverted index iterators
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
@@ -1270,7 +1271,7 @@ Status SegmentIterator::_init_index_iterators() {
         }
     }
 
-    // TODO: tablet_schema 管理 index_meta 的逻辑很乱很奇怪，需要重构
+    // Ann index iterators
     for (auto cid : _schema->column_ids()) {
         if (_index_iterators[cid] == nullptr) {
             const auto& column = _opts.tablet_schema->column(cid);

@@ -26,7 +26,7 @@
 #include <iostream>
 #include <memory>
 
-#include "vec/exprs/vann_topn_predicate.h"
+#include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vector_search_utils.h"
 
@@ -36,7 +36,7 @@ using ::testing::Return;
 
 namespace doris::vectorized {
 
-TEST_F(VectorSearchTest, AnnTopNDescriptorConstructor) {
+TEST_F(VectorSearchTest, AnnTopNRuntimeConstructor) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
@@ -59,17 +59,17 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorConstructor) {
     std::shared_ptr<VirtualSlotRef> v =
             std::dynamic_pointer_cast<VirtualSlotRef>(virtual_slot_expr_ctx->root());
     if (v == nullptr) {
-        LOG(FATAL) << "VAnnTopNDescriptor::SetUp() failed";
+        LOG(FATAL) << "VAnnTopNRuntime::SetUp() failed";
     }
 
     v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
 
-    std::shared_ptr<AnnTopNDescriptor> predicate;
-    predicate = AnnTopNDescriptor::create_shared(true, limit, virtual_slot_expr_ctx);
-    ASSERT_TRUE(predicate != nullptr) << "AnnTopNDescriptor::create_shared(true,) failed";
+    std::shared_ptr<AnnTopNRuntime> predicate;
+    predicate = AnnTopNRuntime::create_shared(true, limit, virtual_slot_expr_ctx);
+    ASSERT_TRUE(predicate != nullptr) << "AnnTopNRuntime::create_shared(true,) failed";
 }
 
-TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
+TEST_F(VectorSearchTest, AnnTopNRuntimePrepare) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
@@ -81,12 +81,12 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
     std::shared_ptr<VirtualSlotRef> v =
             std::dynamic_pointer_cast<VirtualSlotRef>(virtual_slot_expr_ctx->root());
     if (v == nullptr) {
-        LOG(FATAL) << "VAnnTopNDescriptor::SetUp() failed";
+        LOG(FATAL) << "VAnnTopNRuntime::SetUp() failed";
     }
 
     v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
-    std::shared_ptr<AnnTopNDescriptor> predicate;
-    predicate = AnnTopNDescriptor::create_shared(true, limit, virtual_slot_expr_ctx);
+    std::shared_ptr<AnnTopNRuntime> predicate;
+    predicate = AnnTopNRuntime::create_shared(true, limit, virtual_slot_expr_ctx);
     st = predicate->prepare(&_runtime_state, _row_desc);
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());
@@ -94,7 +94,7 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorPrepare) {
     std::cout << "predicate: " << predicate->debug_string() << std::endl;
 }
 
-TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
+TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     int limit = 10;
     std::shared_ptr<VExprContext> distanc_calcu_fn_call_ctx;
     auto distance_function_call_thrift = read_from_json<TExpr>(_distance_function_call_thrift);
@@ -106,12 +106,12 @@ TEST_F(VectorSearchTest, AnnTopNDescriptorEvaluateTopN) {
     std::shared_ptr<VirtualSlotRef> v =
             std::dynamic_pointer_cast<VirtualSlotRef>(virtual_slot_expr_ctx->root());
     if (v == nullptr) {
-        LOG(FATAL) << "VAnnTopNDescriptor::SetUp() failed";
+        LOG(FATAL) << "VAnnTopNRuntime::SetUp() failed";
     }
 
     v->set_virtual_column_expr(distanc_calcu_fn_call_ctx->root());
-    std::shared_ptr<AnnTopNDescriptor> predicate;
-    predicate = AnnTopNDescriptor::create_shared(true, limit, virtual_slot_expr_ctx);
+    std::shared_ptr<AnnTopNRuntime> predicate;
+    predicate = AnnTopNRuntime::create_shared(true, limit, virtual_slot_expr_ctx);
     st = predicate->prepare(&_runtime_state, _row_desc);
     ASSERT_TRUE(st.ok()) << fmt::format("st: {}, expr {}", st.to_string(),
                                         predicate->get_order_by_expr_ctx()->root()->debug_string());

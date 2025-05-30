@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/index_reader.h"
 #include "olap/tablet_schema.h"
 #include "runtime/runtime_state.h"
+#include "util/once.h"
 #include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
@@ -53,6 +54,7 @@ public:
     Status new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
                         RuntimeState* runtime_state,
                         std::unique_ptr<IndexIterator>* iterator) override;
+
     VectorIndex::Metric get_metric_type() const { return _metric_type; }
 
 private:
@@ -62,6 +64,8 @@ private:
     // TODO: Use integer.
     std::string _index_type;
     VectorIndex::Metric _metric_type;
+
+    DorisCallOnce<Status> _load_index_once;
 };
 
 using AnnIndexReaderPtr = std::shared_ptr<AnnIndexReader>;

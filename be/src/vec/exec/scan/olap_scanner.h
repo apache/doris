@@ -118,7 +118,7 @@ public:
     // The idx of vir_col in block to its data type.
     std::map<size_t, vectorized::DataTypePtr> _vir_col_idx_to_type;
 
-    std::shared_ptr<vectorized::AnnTopNDescriptor> _ann_topn_descriptor;
+    std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
 
     VectorSearchUserParams _vector_search_params;
 };
