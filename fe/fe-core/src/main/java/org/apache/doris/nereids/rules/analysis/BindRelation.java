@@ -35,6 +35,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -405,7 +406,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String hiveCatalog = hmsTable.getCatalog().getName();
                         String hiveDb = hmsTable.getDatabase().getFullName();
                         String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(
+                        Plan hiveViewPlan = parseAndAnalyzeExternalView(
                                 hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
@@ -422,6 +423,23 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 unboundRelation.getTableSnapshot(), ImmutableList.of());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
+                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
+                        isView = true;
+                        String hiveCatalog = icebergExternalTable.getCatalog().getName();
+                        String hiveDb = icebergExternalTable.getDatabase().getFullName();
+                        String ddlSql = icebergExternalTable.getViewText();
+                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
+                                hiveCatalog, hiveDb, ddlSql, cascadesContext);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
+                    }
+                    if (icebergExternalTable.isView()) {
+                        throw new UnsupportedOperationException(
+                            "please set enable_query_iceberg_views=true to enable query iceberg views");
+                    }
+                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+                        qualifierWithoutTableName, unboundRelation.getTableSample(),
+                        unboundRelation.getTableSnapshot());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
@@ -460,8 +478,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private Plan parseAndAnalyzeHiveView(
-            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
+    private Plan parseAndAnalyzeExternalView(
+            ExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();

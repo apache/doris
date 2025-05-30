@@ -25,6 +25,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 
+import org.apache.iceberg.view.View;
+
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -173,4 +176,17 @@ public interface ExternalMetadataOps {
      * close the connection, eg, to hms
      */
     void close();
+
+    default View loadView(String dbName, String viewName) {
+        throw new UnsupportedOperationException("Load view is not supported.");
+    }
+
+    default boolean viewExists(String dbName, String viewName) {
+        throw new UnsupportedOperationException("View is not supported.");
+    }
+
+    default List<String> listViewNames(String db) {
+        return Collections.emptyList();
+    }
+
 }

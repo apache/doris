@@ -654,6 +654,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         makeSureInitialized();
         if (dlaType.equals(DLAType.ICEBERG)) {
+            if (isView()) {
+                throw new RuntimeException("Cannot use ICEBERG schema when view is used");
+            }
             return getIcebergSchema(key);
         } else if (dlaType.equals(DLAType.HUDI)) {
             return getHudiSchema(key);
@@ -663,7 +666,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getIcebergSchema(SchemaCacheKey key) {
-        return IcebergUtils.loadSchemaCacheValue(catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId());
+        return IcebergUtils.loadSchemaCacheValue(
+            catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId(), isView());
     }
 
     private Optional<SchemaCacheValue> getHudiSchema(SchemaCacheKey key) {
@@ -1188,4 +1192,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 return Lists.newArrayList();
         }
     }
+
+    @Override
+    public boolean isTable() {
+        return catalog.tableExist(null, dbName, name);
+    }
+
 }

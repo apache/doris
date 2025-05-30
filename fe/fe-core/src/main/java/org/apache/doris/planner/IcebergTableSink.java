@@ -59,6 +59,9 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
 
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
+        if (targetTable.isView()) {
+            throw new UnsupportedOperationException("IcebergTableSink does not support view");
+        }
         this.targetTable = targetTable;
     }
 
