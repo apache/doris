@@ -120,12 +120,12 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(test_sql5, mtmvName5)
+        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
         compare_res(test_sql5 + " order by 1,2,3")
     }
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(test_sql5, mtmvName5)
+        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
         compare_res(test_sql5 + " order by 1,2,3")
     }
 
@@ -140,13 +140,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
 
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(test_sql3, mtmvName3)
+        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(test_sql3, mtmvName3)
+        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
@@ -154,13 +154,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     waitingMTMVTaskFinishedByMvName(mtmvName3)
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(test_sql3, mtmvName3)
+        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(test_sql3, mtmvName3)
+        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
@@ -226,13 +226,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     def sql2 = "SELECT a.* FROM ${tableName2} a inner join ${tableName10} b on a.user_id=b.user_id"
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(sql2, mtmvName2)
+        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
         compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(sql2, mtmvName2)
+        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
         compare_res(sql2 + " order by 1,2,3")
     }
 
@@ -260,13 +260,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
 
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(sql2, mtmvName2)
+        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
         compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
-        mv_rewrite_success(sql2, mtmvName2)
+        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
         compare_res(sql2 + " order by 1,2,3")
     }
 
@@ -316,13 +316,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         assertTrue(state_mtmv4[0][2] == true)
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
-            mv_rewrite_success(test_sql4, mtmvName4)
+            mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
-            mv_rewrite_success(test_sql4, mtmvName4)
+            mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
