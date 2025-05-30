@@ -28,11 +28,8 @@ HeapSorter::HeapSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
           _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 Status HeapSorter::append_block(Block* block) {
-    if (!_init_sort_descs) {
-        RETURN_IF_ERROR(_prepare_sort_descs(block));
-    }
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
-    RETURN_IF_ERROR(partial_sort(*block, *tmp_block));
+    RETURN_IF_ERROR(partial_sort(*block, *tmp_block, true));
     _queue.push(
             MergeSortCursor(std::make_shared<MergeSortCursorImpl>(tmp_block, _sort_description)));
     _queue_row_num += tmp_block->rows();
@@ -53,9 +50,6 @@ Status HeapSorter::append_block(Block* block) {
 
     return Status::OK();
 }
-// [1, 3) :  2, [1, 0]
-// [0, 2) : [0, 1], 2
-// pos,rows -> 0,rows-pos-1
 
 Status HeapSorter::prepare_for_read() {
     while (_queue.is_valid()) {
@@ -82,21 +76,6 @@ Field HeapSorter::get_top_value() {
     }
 
     return field;
-}
-
-Status HeapSorter::_prepare_sort_descs(Block* block) {
-    _sort_description.resize(_vsort_exec_exprs.ordering_expr_ctxs().size());
-    for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
-        RETURN_IF_ERROR(ordering_expr->execute(block, &_sort_description[i].column_number));
-
-        _sort_description[i].direction = _is_asc_order[i] ? -1 : 1; // reversed
-        _sort_description[i].nulls_direction =
-                _nulls_first[i] ? -_sort_description[i].direction : _sort_description[i].direction;
-    }
-
-    _init_sort_descs = true;
-    return Status::OK();
 }
 
 size_t HeapSorter::data_size() const {

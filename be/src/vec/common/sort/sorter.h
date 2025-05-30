@@ -151,7 +151,7 @@ public:
     void set_enable_spill() { _enable_spill = true; }
 
 protected:
-    Status partial_sort(Block& src_block, Block& dest_block);
+    Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
 
     bool _enable_spill = false;
     SortDescription _sort_description;
