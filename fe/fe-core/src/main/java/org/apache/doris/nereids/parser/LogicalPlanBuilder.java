@@ -352,6 +352,7 @@ import org.apache.doris.nereids.DorisParser.ShowDictionariesContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowEncryptKeysContext;
 import org.apache.doris.nereids.DorisParser.ShowEventsContext;
+import org.apache.doris.nereids.DorisParser.ShowExportContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowFunctionsContext;
 import org.apache.doris.nereids.DorisParser.ShowGlobalFunctionsContext;
@@ -719,6 +720,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDictionariesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -4628,6 +4630,41 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowEvents(ShowEventsContext ctx) {
         return new ShowEventsCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowExport(ShowExportContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        long limit = -1L;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+        }
+        return new ShowExportCommand(ctlName, dbName, wildWhere, orderKeys, limit);
     }
 
     @Override
