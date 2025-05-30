@@ -51,6 +51,10 @@ under the License.
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
         </dependency>
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
         <dependency>
             <groupId>org.apache.thrift</groupId>
