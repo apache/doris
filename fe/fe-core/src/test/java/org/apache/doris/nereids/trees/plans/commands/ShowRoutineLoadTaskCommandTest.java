@@ -43,7 +43,7 @@ public class ShowRoutineLoadTaskCommandTest extends TestWithFeService {
         ShowRoutineLoadTaskCommand command = new ShowRoutineLoadTaskCommand("test_db", where);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
 
-        Expression where2 = new EqualTo(new UnboundSlot(Lists.newArrayList("TaskId")),
+        Expression where2 = new EqualTo(new UnboundSlot(Lists.newArrayList("JobName")),
                 new StringLiteral("1111"));
         ShowRoutineLoadTaskCommand command2 = new ShowRoutineLoadTaskCommand("test_db", where2);
         Assertions.assertDoesNotThrow(() -> command2.validate(connectContext));
