@@ -28,11 +28,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.MockUp;
 import mockit.Mocked;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -91,13 +87,15 @@ public class SplitAssignmentTest {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
-        new Expectations() {{
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
+        new Expectations() {
+            {
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+            }
+        };
 
         // Start a thread to simulate split generation after a short delay
         Thread splitGeneratorThread = new Thread(() -> {
@@ -113,10 +111,10 @@ public class SplitAssignmentTest {
         splitGeneratorThread.start();
 
         // Test
-        assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
 
         // Verify sample split is set
-        assertNotNull(splitAssignment.getSampleSplit());
+        Assertions.assertNotNull(splitAssignment.getSampleSplit());
 
         splitGeneratorThread.join(1000); // Wait for thread to complete
     }
@@ -141,8 +139,8 @@ public class SplitAssignmentTest {
         };
 
         // Test & Verify - should timeout immediately now
-        UserException exception = assertThrows(UserException.class, () -> testAssignment.init());
-        assertTrue(exception.getMessage().contains("Failed to get first split after waiting for"));
+        UserException exception = Assertions.assertThrows(UserException.class, () -> testAssignment.init());
+        Assertions.assertTrue(exception.getMessage().contains("Failed to get first split after waiting for"));
     }
 
     @Test
@@ -176,8 +174,8 @@ public class SplitAssignmentTest {
         splitAssignment.setException(preException);
 
         // Test & Verify
-        UserException exception = assertThrows(UserException.class, () -> splitAssignment.init());
-        assertTrue(exception.getMessage().contains(" Pre-existing error"), exception.getMessage());
+        UserException exception = Assertions.assertThrows(UserException.class, () -> splitAssignment.init());
+        Assertions.assertTrue(exception.getMessage().contains(" Pre-existing error"), exception.getMessage());
     }
 
     // ==================== addToQueue() method tests ====================
@@ -185,7 +183,7 @@ public class SplitAssignmentTest {
     @Test
     void testAddToQueueWithEmptyList() throws Exception {
         // Test
-        assertDoesNotThrow(() -> splitAssignment.addToQueue(Collections.emptyList()));
+        Assertions.assertDoesNotThrow(() -> splitAssignment.addToQueue(Collections.emptyList()));
     }
 
     @Test
@@ -193,26 +191,28 @@ public class SplitAssignmentTest {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
-        new Expectations() {{
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
+        new Expectations() {
+            {
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+            }
+        };
 
         // Mock setup
         List<Split> splits = Collections.singletonList(mockSplit);
 
         // Test
-        assertDoesNotThrow(() -> splitAssignment.addToQueue(splits));
+        Assertions.assertDoesNotThrow(() -> splitAssignment.addToQueue(splits));
 
         // Verify sample split is set
-        assertEquals(mockSplit, splitAssignment.getSampleSplit());
+        Assertions.assertEquals(mockSplit, splitAssignment.getSampleSplit());
 
         // Verify assignment queue is created and contains data
         BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
-        assertNotNull(queue);
+        Assertions.assertNotNull(queue);
     }
 
     @Test
@@ -220,15 +220,17 @@ public class SplitAssignmentTest {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
-        new Expectations() {{
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
-            minTimes = 0;
+        new Expectations() {
+            {
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
+                minTimes = 0;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-            minTimes = 0;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+                minTimes = 0;
+            }
+        };
 
         // Setup: First call to set sample split
         List<Split> firstSplits = Collections.singletonList(mockSplit);
@@ -242,7 +244,7 @@ public class SplitAssignmentTest {
         splitAssignment.addToQueue(secondSplits);
 
         // Verify sample split unchanged
-        assertEquals(firstSampleSplit, splitAssignment.getSampleSplit());
+        Assertions.assertEquals(firstSampleSplit, splitAssignment.getSampleSplit());
     }
 
     @Test
@@ -250,13 +252,15 @@ public class SplitAssignmentTest {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
-        new Expectations() {{
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
+        new Expectations() {
+            {
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+            }
+        };
 
         // This test simulates a scenario where appendBatch might experience queue blocking
         // by adding multiple batches rapidly
@@ -270,7 +274,7 @@ public class SplitAssignmentTest {
 
         // Verify the queue has data
         BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
-        assertNotNull(queue);
+        Assertions.assertNotNull(queue);
     }
 
     @Test
@@ -278,13 +282,15 @@ public class SplitAssignmentTest {
         Multimap<Backend, Split> batch = ArrayListMultimap.create();
         batch.put(mockBackend, mockSplit);
 
-        new Expectations() {{
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
+        new Expectations() {
+            {
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+            }
+        };
 
         // Test concurrent access to addToQueue method
         List<Split> splits = Collections.singletonList(mockSplit);
@@ -310,10 +316,10 @@ public class SplitAssignmentTest {
         }
 
         startLatch.countDown(); // Start all threads
-        assertTrue(doneLatch.await(5, TimeUnit.SECONDS)); // Wait for completion
+        Assertions.assertTrue(doneLatch.await(5, TimeUnit.SECONDS)); // Wait for completion
 
         // Verify sample split is set
-        assertNotNull(splitAssignment.getSampleSplit());
+        Assertions.assertNotNull(splitAssignment.getSampleSplit());
 
         // Cleanup
         for (Thread thread : threads) {
@@ -325,16 +331,18 @@ public class SplitAssignmentTest {
 
     @Test
     void testInitAndAddToQueueIntegration() throws Exception {
-        new Expectations() {{
-            Multimap<Backend, Split> batch = ArrayListMultimap.create();
-            batch.put(mockBackend, mockSplit);
+        new Expectations() {
+            {
+                Multimap<Backend, Split> batch = ArrayListMultimap.create();
+                batch.put(mockBackend, mockSplit);
 
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+            }
+        };
 
         List<Split> splits = Collections.singletonList(mockSplit);
 
@@ -351,14 +359,14 @@ public class SplitAssignmentTest {
         splitsProvider.start();
 
         // Test init - should succeed once splits are added
-        assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
 
         // Verify
-        assertNotNull(splitAssignment.getSampleSplit());
-        assertEquals(mockSplit, splitAssignment.getSampleSplit());
+        Assertions.assertNotNull(splitAssignment.getSampleSplit());
+        Assertions.assertEquals(mockSplit, splitAssignment.getSampleSplit());
 
         BlockingQueue<Collection<TScanRangeLocations>> queue = splitAssignment.getAssignedSplits(mockBackend);
-        assertNotNull(queue);
+        Assertions.assertNotNull(queue);
 
         splitsProvider.join(1000);
     }
@@ -367,16 +375,18 @@ public class SplitAssignmentTest {
 
     @Test
     void testAppendBatchTimeoutBehavior() throws Exception {
-        new Expectations() {{
-            Multimap<Backend, Split> batch = ArrayListMultimap.create();
-            batch.put(mockBackend, mockSplit);
+        new Expectations() {
+            {
+                Multimap<Backend, Split> batch = ArrayListMultimap.create();
+                batch.put(mockBackend, mockSplit);
 
-            mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
-            result = batch;
+                mockBackendPolicy.computeScanRangeAssignment((List<Split>) any);
+                result = batch;
 
-            mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
-            result = mockScanRangeLocations;
-        }};
+                mockSplitToScanRange.getScanRange(mockBackend, locationProperties, mockSplit, pathPartitionKeys);
+                result = mockScanRangeLocations;
+            }
+        };
 
         // This test verifies that appendBatch properly handles queue offer timeouts
         // We'll simulate this by first filling the assignment and then trying to add more
@@ -394,7 +404,7 @@ public class SplitAssignmentTest {
         }
 
         // Verify that splits were processed
-        assertNotNull(splitAssignment.getSampleSplit());
+        Assertions.assertNotNull(splitAssignment.getSampleSplit());
     }
 
     @Test
@@ -403,7 +413,7 @@ public class SplitAssignmentTest {
         splitAssignment.stop(); // This should make needMoreSplit() return false
 
         // Init should complete immediately without waiting
-        assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
     }
 
     @Test
@@ -412,6 +422,6 @@ public class SplitAssignmentTest {
         splitAssignment.finishSchedule();
 
         // Init should complete immediately without waiting
-        assertDoesNotThrow(() -> splitAssignment.init());
+        Assertions.assertDoesNotThrow(() -> splitAssignment.init());
     }
 }
