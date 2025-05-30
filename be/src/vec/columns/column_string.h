@@ -64,12 +64,10 @@ public:
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if constexpr (std::is_same_v<T, UInt32>) {
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-                throw Exception(
-                        ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                        "string column length is too large: total_length={}, element_number={}, "
-                        "you can set batch_size a number smaller than {} to avoid this error. "
-                        "rows:{}",
-                        total_length, element_number, element_number, rows);
+                throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                                "string column length is too large: total_length={}, "
+                                "element_number={}, rows={}",
+                                total_length, element_number, rows);
             }
         }
     }
