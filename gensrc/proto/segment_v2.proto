@@ -31,6 +31,7 @@ message MetadataPairPB {
   optional bytes value = 2;
 }
 
+// should update TEncodingType if add new EncodingTypePB
 enum EncodingTypePB {
     UNKNOWN_ENCODING = 0;
     DEFAULT_ENCODING = 1;

@@ -181,6 +181,7 @@ public:
     const TabletColumn& sparse_column_at(size_t oridinal) const;
     const std::vector<TabletColumnPtr>& sparse_columns() const;
     size_t num_sparse_columns() const { return _num_sparse_columns; }
+    segment_v2::EncodingTypePB encoding_type() const { return _encoding_type; }
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
@@ -208,6 +209,7 @@ private:
     // to FieldType by 'TabletColumn::get_field_type_by_string' (reference: TabletColumn::init_from_pb).
     // And the _type in columnPB is string and it changed from FieldType by 'get_string_by_field_type' (reference: TabletColumn::to_schema_pb).
     FieldType _type;
+    segment_v2::EncodingTypePB _encoding_type = segment_v2::EncodingTypePB::DEFAULT_ENCODING;
     bool _is_key = false;
     FieldAggregationMethod _aggregation;
     std::string _aggregation_name;
