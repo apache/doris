@@ -347,11 +347,13 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         }
         // If tablet has too many rowsets but not be compacted for a long time, compaction should be performed
         // regardless of whether there is a load job recently.
+
+        int32_t max_version_config = t->max_version_config();
         return now - t->last_cumu_compaction_failure_time() < config::min_compaction_failure_interval_ms ||
                now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms ||
                (now - t->last_load_time_ms > config::cu_compaction_freeze_interval_s * 1000
                && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000
-               && t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num / 2);
+               && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
     };
     // We don't schedule tablets that are disabled for compaction
     auto disable = [](CloudTablet* t) { return t->tablet_meta()->tablet_schema()->disable_auto_compaction(); };

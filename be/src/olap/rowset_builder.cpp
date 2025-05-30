@@ -150,9 +150,10 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
+    int32_t max_version_config = _tablet->max_version_config();
     if (injection) {
         // do not return if injection
-    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
                GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
@@ -166,12 +167,12 @@ Status RowsetBuilder::check_tablet_version_count() {
     int version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
-    if (version_count > config::max_tablet_version_num) {
+    if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
                 "tablet: {}. Please reduce the frequency of loading data or adjust the "
-                "max_tablet_version_num in be.conf to a larger value.",
-                version_count, config::max_tablet_version_num, _tablet->tablet_id());
+                "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a larger value.",
+                version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();
 }
