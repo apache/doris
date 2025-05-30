@@ -128,15 +128,25 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
         return Status::OK();
     }
 
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        const TBackendInfo& backend_info = backends[row_idx];
+
+
+    }
+
     for (size_t col_idx = 0; col_idx < _s_backends_columns.size(); ++col_idx) {
         std::vector<void*> datas(row_num);
 
         std::vector<StringRef> str_refs(row_num);
         std::vector<int32_t> int32_refs(row_num);
         std::vector<int64_t> int64_refs(row_num);
-        std::vector<bool> int64_refs(row_num);
+        std::vector<bool> bool_refs(row_num);
+
+        for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+            const TBackendInfo& backend_info = backends[row_idx];
 
 
+        }
 
     }
 

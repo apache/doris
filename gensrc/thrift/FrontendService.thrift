@@ -1615,7 +1615,7 @@ struct TFetchBackendsRequest {
 }
 
 
-struct TBackendsInfo {
+struct TBackendInfo {
     1: optional i64 backend_id
     2: optional string host
     3: optional i32 heartbeat_port
@@ -1646,7 +1646,7 @@ struct TBackendsInfo {
 }
 
 struct TFetchBackendsResult {
-    1: optional list<TBackendsInfo> backends
+    1: optional list<TBackendInfo> backends
 }
 
 service FrontendService {
