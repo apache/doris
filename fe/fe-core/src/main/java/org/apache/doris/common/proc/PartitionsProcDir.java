@@ -305,6 +305,11 @@ public class PartitionsProcDir implements ProcDirInterface {
             if (endIndex > filterPartitionInfos.size()) {
                 endIndex = filterPartitionInfos.size();
             }
+
+            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
+            if (beginIndex > endIndex) {
+                beginIndex = endIndex;
+            }
             filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
         }
 
@@ -354,6 +359,11 @@ public class PartitionsProcDir implements ProcDirInterface {
             int endIndex = (int) (beginIndex + limitElement.getLimit());
             if (endIndex > filterPartitionInfos.size()) {
                 endIndex = filterPartitionInfos.size();
+            }
+
+            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
+            if (beginIndex > endIndex) {
+                beginIndex = endIndex;
             }
             filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
         }

@@ -63,6 +63,8 @@ suite("test_nereids_show_partitions") {
             "where PartitionId != 1748353297225 order by PartitionId limit 1")
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
             "where PartitionId != 1748353297225 limit 1,1")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
+            "where PartitionId != 1748353297225 limit 100,1")
 
     // PartitionName
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
@@ -75,6 +77,8 @@ suite("test_nereids_show_partitions") {
             "where PartitionName = 'p_dongbei' limit 1")
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
             "where PartitionName = 'p_dongbei' limit 1,1")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
+            "where PartitionName = 'p_dongbei' limit 100,1")
 
     // like
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
@@ -87,6 +91,8 @@ suite("test_nereids_show_partitions") {
             "where PartitionName like 'p_dongbei' limit 1")
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
             "where PartitionName like 'p_dongbei' limit 1,1")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
+            "where PartitionName like 'p_dongbei' limit 100,1")
 
     // Buckets
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
@@ -107,6 +113,8 @@ suite("test_nereids_show_partitions") {
             "where Buckets >= 16 order by PartitionName limit 1")
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
             "where Buckets <= 16 limit 1")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
+            "where Buckets <= 16 limit 100,1")
 
     // complex where
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
@@ -129,6 +137,8 @@ suite("test_nereids_show_partitions") {
             "where Buckets = 16 and PartitionName = 'p_dongbei' and PartitionId != 1748353297225 limit 1")
     checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
             "where Buckets = 16 and PartitionName = 'p_dongbei' and PartitionId != 1748353297225 limit 1,1")
+    checkNereidsExecute("show partitions from test_show_partitions.test_show_partitions_tbl " +
+            "where Buckets = 16 and PartitionName = 'p_dongbei' and PartitionId != 1748353297225 limit 100,1")
 
    def res1 = sql """show partitions from test_show_partitions.test_show_partitions_tbl"""
    assertEquals(3, res1.size())
@@ -175,6 +185,10 @@ suite("test_nereids_show_partitions") {
    assertEquals("p_huabei", res21.get(0).get(1))
    def res22 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where Buckets >= 16 and PartitionName = 'p_huabei' and PartitionId = 1"""
    assertEquals(0, res22.size())
+
+   // test for offset value is bigger than partitions' number
+   def res23 = sql """show partitions from test_show_partitions.test_show_partitions_tbl where Buckets = 16 limit 100,1"""
+   assertEquals(0, res23.size())
 
    assertThrows(Exception.class, {
       sql """show partitions from test_show_partitions.test_show_partitions_tbl where VisibleVersion = 1"""
