@@ -482,7 +482,7 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
                           << ", max_threads: " << thread_pool->max_threads()
                           << ", min_threads: " << thread_pool->min_threads()
                           << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
-            std::vector<std::shared_ptr<CloudTablet>> tablets_compaction =
+            std::vector<CloudTabletSPtr> tablets_compaction =
                     _generate_cloud_compaction_tasks(compaction_type, check_score);
 
             /// Regardless of whether the tablet is submitted for compaction or not,
@@ -507,7 +507,7 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
-std::vector<std::shared_ptr<CloudTablet>> CloudStorageEngine::_generate_cloud_compaction_tasks(
+std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_tasks(
         CompactionType compaction_type, bool check_score) {
     std::vector<std::shared_ptr<CloudTablet>> tablets_compaction;
 
@@ -575,7 +575,7 @@ std::vector<std::shared_ptr<CloudTablet>> CloudStorageEngine::_generate_cloud_co
     // Even if need_pick_tablet is false, we still need to call find_best_tablet_to_compaction(),
     // So that we can update the max_compaction_score metric.
     do {
-        std::vector<std::shared_ptr<CloudTablet>> tablets;
+        std::vector<CloudTabletSPtr> tablets;
         auto st = tablet_mgr().get_topn_tablets_to_compact(n, compaction_type, filter_out, &tablets,
                                                            &max_compaction_score);
         if (!st.ok()) {
@@ -600,7 +600,7 @@ std::vector<std::shared_ptr<CloudTablet>> CloudStorageEngine::_generate_cloud_co
 }
 
 Status CloudStorageEngine::_request_tablet_global_compaction_lock(
-        ReaderType compaction_type, const std::shared_ptr<CloudTablet>& tablet,
+        ReaderType compaction_type, const CloudTabletSPtr& tablet,
         std::shared_ptr<CloudCompactionMixin> compaction) {
     long now = duration_cast<std::chrono::milliseconds>(
                        std::chrono::system_clock::now().time_since_epoch())
@@ -654,8 +654,7 @@ Status CloudStorageEngine::_request_tablet_global_compaction_lock(
     }
 }
 
-Status CloudStorageEngine::_submit_base_compaction_task(
-        const std::shared_ptr<CloudTablet>& tablet) {
+Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& tablet) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -719,8 +718,7 @@ Status CloudStorageEngine::_submit_base_compaction_task(
     return st;
 }
 
-Status CloudStorageEngine::_submit_cumulative_compaction_task(
-        const std::shared_ptr<CloudTablet>& tablet) {
+Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletSPtr& tablet) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -874,8 +872,7 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(
     return st;
 }
 
-Status CloudStorageEngine::_submit_full_compaction_task(
-        const std::shared_ptr<CloudTablet>& tablet) {
+Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& tablet) {
     using namespace std::chrono;
     {
         std::lock_guard lock(_compaction_mtx);
@@ -930,7 +927,7 @@ Status CloudStorageEngine::_submit_full_compaction_task(
     return st;
 }
 
-Status CloudStorageEngine::submit_compaction_task(const std::shared_ptr<CloudTablet>& tablet,
+Status CloudStorageEngine::submit_compaction_task(const CloudTabletSPtr& tablet,
                                                   CompactionType compaction_type) {
     DCHECK(compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
            compaction_type == CompactionType::BASE_COMPACTION ||
@@ -1005,7 +1002,7 @@ void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<std::shared_ptr<CloudTablet>> tablets;
+        std::vector<CloudTabletSPtr> tablets;
         tablet_mgr().get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
                                                          &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
@@ -1061,7 +1058,7 @@ std::shared_ptr<CloudCumulativeCompactionPolicy> CloudStorageEngine::cumu_compac
     return _cumulative_compaction_policies.at(compaction_policy);
 }
 
-Status CloudStorageEngine::register_compaction_stop_token(std::shared_ptr<CloudTablet> tablet,
+Status CloudStorageEngine::register_compaction_stop_token(CloudTabletSPtr tablet,
                                                           int64_t initiator) {
     {
         std::lock_guard lock(_compaction_mtx);
@@ -1092,8 +1089,7 @@ Status CloudStorageEngine::register_compaction_stop_token(std::shared_ptr<CloudT
     return st;
 }
 
-Status CloudStorageEngine::unregister_compaction_stop_token(std::shared_ptr<CloudTablet> tablet,
-                                                            bool clear_ms) {
+Status CloudStorageEngine::unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms) {
     std::shared_ptr<CloudCompactionStopToken> stop_token;
     {
         std::lock_guard lock(_compaction_mtx);

@@ -44,9 +44,10 @@ public:
 
     // If the tablet is in cache, return this tablet directly; otherwise will get tablet meta first,
     // sync rowsets after, and download segment data in background if `warmup_data` is true.
-    Result<s 't' d> get_tablet(int64_t tablet_id, bool warmup_data = false,
-                               bool sync_delete_bitmap = true,
-                               SyncRowsetStats* sync_stats = nullptr, bool force_use_cache = false);
+    Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
+                                                    bool sync_delete_bitmap = true,
+                                                    SyncRowsetStats* sync_stats = nullptr,
+                                                    bool force_use_cache = false);
 
     void erase_tablet(int64_t tablet_id);
 
