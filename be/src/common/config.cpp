@@ -1661,7 +1661,7 @@ bool replaceenv(std::string key, std::string& s) {
                 continue;
             }
             char first_char = s[var_start];
-            if (!std::isalpha(first_char) && first_char != '_') {
+            if (!std::isalnum(first_char) && first_char != '_') {
                 pos = var_start;
                 continue;
             }
