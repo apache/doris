@@ -98,8 +98,8 @@ FieldType TabletColumn::get_field_type_by_type(PrimitiveType primitiveType) {
         return FieldType::OLAP_FIELD_TYPE_HLL;
     case PrimitiveType::TYPE_DECIMALV2:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN; // Not implemented
-    case PrimitiveType::TYPE_OBJECT:
-        return FieldType::OLAP_FIELD_TYPE_OBJECT;
+    case PrimitiveType::TYPE_BITMAP:
+        return FieldType::OLAP_FIELD_TYPE_BITMAP;
     case PrimitiveType::TYPE_STRING:
         return FieldType::OLAP_FIELD_TYPE_STRING;
     case PrimitiveType::TYPE_QUANTILE_STATE:
@@ -202,7 +202,7 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     } else if (0 == upper_type_str.compare("MAP")) {
         type = FieldType::OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
-        type = FieldType::OLAP_FIELD_TYPE_OBJECT;
+        type = FieldType::OLAP_FIELD_TYPE_BITMAP;
     } else if (0 == upper_type_str.compare("ARRAY")) {
         type = FieldType::OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
@@ -351,7 +351,7 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_MAP:
         return "MAP";
 
-    case FieldType::OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
         return "OBJECT";
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
@@ -426,7 +426,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::DOUBLE:
         return 8;
     case TPrimitiveType::QUANTILE_STATE:
-    case TPrimitiveType::OBJECT:
+    case TPrimitiveType::BITMAP:
         return 16;
     case TPrimitiveType::CHAR:
         return string_length;

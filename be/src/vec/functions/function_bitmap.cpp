@@ -977,7 +977,7 @@ struct NameBitmapToString {
 
 struct BitmapToString {
     using ReturnType = DataTypeString;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BITMAP;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -1000,7 +1000,7 @@ struct NameBitmapToBase64 {
 
 struct BitmapToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_OBJECT;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_BITMAP;
     using Type = DataTypeBitMap::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
