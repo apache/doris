@@ -395,13 +395,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             return false;
         }
         try {
-            preExecutionAuthenticator.execute(() ->
+            return preExecutionAuthenticator.execute(() ->
                     ((ViewCatalog) catalog).viewExists(getTableIdentifier(dbName, viewName)));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check view exist, error message is:" + e.getMessage(), e);
 
         }
-        return false;
     }
 
     @Override
