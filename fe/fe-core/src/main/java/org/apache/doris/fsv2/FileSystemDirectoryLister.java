@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.fsv2;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.fsv2.FileSystemProvider;
+import org.apache.doris.backup.Status;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
-import java.util.concurrent.Executor;
+import java.util.ArrayList;
+import java.util.List;
 
-public class TransactionManagerFactory {
-
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
-    }
-
-    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
-        return new IcebergTransactionManager(ops);
+public class FileSystemDirectoryLister implements DirectoryLister {
+    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
+            throws FileSystemIOException {
+        List<RemoteFile> result = new ArrayList<>();
+        Status status = fs.listFiles(location, recursive, result);
+        if (!status.ok()) {
+            throw new FileSystemIOException(status.getErrCode(), status.getErrMsg());
+        }
+        return new RemoteFileRemoteIterator(result);
     }
 }
