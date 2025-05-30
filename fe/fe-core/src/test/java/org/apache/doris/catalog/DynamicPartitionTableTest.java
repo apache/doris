@@ -1824,7 +1824,7 @@ public class DynamicPartitionTableTest {
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
         Assert.assertEquals(54, partitions.size());
-        // 100GB total, 1GB per bucket, should 100 buckets.
-        Assert.assertEquals(100, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+        // 100GB total, 5GB per bucket, should 20 buckets.
+        Assert.assertEquals(20, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
     }
 }
