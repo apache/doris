@@ -61,6 +61,7 @@ public final class GlobalVariable {
 
     public static final String SQL_CONVERTER_SERVICE_URL = "sql_converter_service_url";
     public static final String ENABLE_AUDIT_PLUGIN = "enable_audit_plugin";
+    public static final String ENABLE_HOT_SPOT = "enable_hotspot_plugin";
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
@@ -145,6 +146,9 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VariableMgr.GLOBAL)
     public static boolean enableAuditLoader = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_HOT_SPOT, flag = VariableMgr.GLOBAL)
+    public static boolean enableHotSpot = false;
+
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
 
@@ -194,7 +198,6 @@ public final class GlobalVariable {
                 "当HMS catalog中的Iceberg表没有统计信息时，是否通过Iceberg Api获取统计信息",
                 "Enable fetch stats for HMS Iceberg table when it's not analyzed."})
     public static boolean enableFetchIcebergStats = false;
-
 
     @VariableMgr.VarAttr(name = ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR, flag = VariableMgr.GLOBAL,
             description = {

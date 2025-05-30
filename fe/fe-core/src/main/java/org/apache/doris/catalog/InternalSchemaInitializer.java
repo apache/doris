@@ -43,6 +43,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.plugin.audit.AuditHotSpotLoader;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -58,7 +59,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 
 public class InternalSchemaInitializer extends Thread {
 
@@ -125,7 +125,7 @@ public class InternalSchemaInitializer extends Thread {
                 LOG.warn("Failed to do schema change for stats table. Try again later.", t);
             }
             try {
-                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
@@ -233,7 +233,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
             }
             try {
-                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
@@ -252,6 +252,8 @@ public class InternalSchemaInitializer extends Thread {
                                 "col_id")));
         // audit table
         Env.getCurrentEnv().getInternalCatalog().createTable(buildAuditTblStmt());
+        // hot spot table
+        Env.getCurrentEnv().getInternalCatalog().createTable(buildHotSpotTblStmt());
     }
 
     @VisibleForTesting
@@ -323,6 +325,37 @@ public class InternalSchemaInitializer extends Thread {
         return createTableStmt;
     }
 
+    private static CreateTableStmt buildHotSpotTblStmt() throws UserException {
+        TableName tableName = new TableName("",
+                FeConstants.INTERNAL_DB_NAME, AuditHotSpotLoader.HOT_SPOT_TABLE);
+
+        String engineName = "olap";
+        ArrayList<String> aggKeys = Lists.newArrayList("catalog", "db", "tbl", "time");
+        KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
+        // partition
+        PartitionDesc partitionDesc = new RangePartitionDesc(Lists.newArrayList("time"), Lists.newArrayList());
+        // distribution
+        int bucketNum = 2;
+        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, aggKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("dynamic_partition.time_unit", "HOUR");
+                put("dynamic_partition.end", "8");
+                put("dynamic_partition.prefix", "p");
+                put("dynamic_partition.buckets", String.valueOf(bucketNum));
+                put("dynamic_partition.enable", "true");
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        List<ColumnDef> defs = InternalSchema.getCopiedSchema(AuditHotSpotLoader.HOT_SPOT_TABLE);
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, defs,
+                engineName, keysDesc, partitionDesc, distributionDesc,
+                properties, null, "Doris internal hotspot table, DO NOT MODIFY IT", null);
+        StatisticsUtil.analyze(createTableStmt);
+        return createTableStmt;
+    }
 
     private boolean created() {
         // 1. check database exist
@@ -359,6 +392,10 @@ public class InternalSchemaInitializer extends Thread {
 
         // 3. check audit table
         optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
+        optionalStatsTbl = db.getTable(AuditHotSpotLoader.HOT_SPOT_TABLE);
         if (!optionalStatsTbl.isPresent()) {
             return false;
         }

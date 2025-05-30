@@ -200,7 +200,6 @@ public class ColumnDef {
     private Optional<GeneratedColumnInfo> generatedColumnInfo = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
 
-
     public ColumnDef(String name, TypeDef typeDef) {
         this(name, typeDef, false, null, ColumnNullableType.NOT_NULLABLE, DefaultValue.NOT_SET, "");
     }
@@ -321,6 +320,10 @@ public class ColumnDef {
 
     public String getDefaultValue() {
         return defaultValue.value;
+    }
+
+    public DefaultValue getInitDefaultValue() {
+        return defaultValue;
     }
 
     public String getName() {
@@ -491,7 +494,6 @@ public class ColumnDef {
                 throw new AnalysisException("Struct type column default value just support null");
             }
         }
-
 
         if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
             if (!isAllowNull) {

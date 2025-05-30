@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.UserException;
+import org.apache.doris.plugin.audit.AuditHotSpotLoader;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
@@ -36,6 +37,7 @@ public class InternalSchema {
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
+    public static final List<ColumnDef> HOT_SPOT_SCHEMA;
 
     static {
         // table statistics table
@@ -169,6 +171,22 @@ public class InternalSchema {
                 new ColumnDef("compute_group", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         // Keep stmt as last column. So that in fe.audit.log, it will be easier to get sql string
         AUDIT_SCHEMA.add(new ColumnDef("stmt", TypeDef.create(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        //hot spot schema
+        HOT_SPOT_SCHEMA = new ArrayList<>();
+        HOT_SPOT_SCHEMA.add(new ColumnDef("catalog", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        HOT_SPOT_SCHEMA.add(new ColumnDef("db", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
+        HOT_SPOT_SCHEMA.add(new ColumnDef("tbl", TypeDef.createVarchar(256), ColumnNullableType.NULLABLE));
+        HOT_SPOT_SCHEMA.add(new ColumnDef("time", TypeDef.createDatetimeV2(0), ColumnNullableType.NULLABLE));
+        HOT_SPOT_SCHEMA.add(new ColumnDef("query_count", TypeDef.create(PrimitiveType.BIGINT),
+                false, AggregateType.SUM, ColumnNullableType.NOT_NULLABLE,
+                new ColumnDef.DefaultValue(true, "0"), "query count"));
+        HOT_SPOT_SCHEMA.add(new ColumnDef("write_count", TypeDef.create(PrimitiveType.BIGINT),
+                false, AggregateType.SUM, ColumnNullableType.NOT_NULLABLE,
+                new ColumnDef.DefaultValue(true, "0"), "write count"));
+        HOT_SPOT_SCHEMA.add(new ColumnDef("last_visit_date", TypeDef.create(PrimitiveType.DATETIME),
+                false, AggregateType.REPLACE_IF_NOT_NULL, ColumnNullableType.NOT_NULLABLE,
+                ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE, "last visit date"));
+
     }
 
     // Get copied schema for statistic table
@@ -188,12 +206,18 @@ public class InternalSchema {
             case AuditLoader.AUDIT_LOG_TABLE:
                 schema = AUDIT_SCHEMA;
                 break;
+            case AuditHotSpotLoader.HOT_SPOT_TABLE:
+                schema = HOT_SPOT_SCHEMA;
+                break;
+
             default:
                 throw new UserException("Unknown internal table name: " + tblName);
         }
         List<ColumnDef> copiedSchema = Lists.newArrayList();
         for (ColumnDef columnDef : schema) {
-            copiedSchema.add(new ColumnDef(columnDef.getName(), columnDef.getTypeDef(), columnDef.isAllowNull()));
+            copiedSchema.add(new ColumnDef(columnDef.getName(), columnDef.getTypeDef(), columnDef.isKey(),
+                    columnDef.getAggregateType(),
+                    columnDef.isAllowNull(), columnDef.getInitDefaultValue(), columnDef.getComment()));
         }
         return copiedSchema;
     }
