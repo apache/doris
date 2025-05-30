@@ -36,7 +36,12 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -176,10 +181,19 @@ public class ShowBuildIndexCommand extends ShowCommand {
             throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
 
-        if (!(expr.child(0) instanceof UnboundSlot)) {
-            throw new AnalysisException("Only support column = xxx syntax.");
+        String leftKey = "";
+        if (expr instanceof ComparisonPredicate) {
+            if (!(expr.child(0) instanceof UnboundSlot)) {
+                throw new AnalysisException("Only support column = xxx syntax.");
+            }
+            leftKey = ((UnboundSlot) expr.child(0)).getName();
+        } else if (expr instanceof Not && expr.child(0) instanceof EqualTo) {
+            if (!(expr.child(0).child(0) instanceof UnboundSlot)) {
+                throw new AnalysisException("Only support column = xxx syntax.");
+            }
+            leftKey = ((UnboundSlot) expr.child(0).child(0)).getName();
         }
-        String leftKey = ((UnboundSlot) expr.child(0)).getName();
+
         if (leftKey.equalsIgnoreCase("tablename")
                 || leftKey.equalsIgnoreCase("state")
                 || leftKey.equalsIgnoreCase("partitionname")) {
@@ -188,17 +202,45 @@ public class ShowBuildIndexCommand extends ShowCommand {
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
         } else if (leftKey.equalsIgnoreCase("createtime") || leftKey.equalsIgnoreCase("finishtime")) {
-            if (!(expr.child(1) instanceof StringLikeLiteral)) {
+            if (expr instanceof ComparisonPredicate && !(expr.child(1) instanceof StringLikeLiteral)) {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
-            expr.children().set(1, expr.child(1).castTo(DateTimeType.INSTANCE.conversion()));
+
+            if (expr instanceof Not && expr.child(0) instanceof EqualTo) {
+                if (!(expr.child(0).child(1) instanceof StringLikeLiteral)) {
+                    throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
+                        + "\"2019-12-02|2019-12-02 14:54:00\"");
+                }
+                expr = rebuildExpr(expr, expr.child(0).child(1).castTo(DateTimeType.INSTANCE.conversion()));
+            } else {
+                expr = rebuildExpr(expr, expr.child(1).castTo(DateTimeType.INSTANCE.conversion()));
+            }
         } else {
             throw new AnalysisException(
                 "The columns of TableName/PartitionName/CreateTime/FinishTime/State are supported.");
         }
 
         filterMap.put(leftKey, expr);
+    }
+
+    private Expression rebuildExpr(Expression expr, Expression right) {
+        if (expr instanceof EqualTo) {
+            expr = new EqualTo(expr.child(0), right);
+        } else if (expr instanceof GreaterThan) {
+            expr = new GreaterThan(expr.child(0), right);
+        } else if (expr instanceof GreaterThanEqual) {
+            expr = new GreaterThanEqual(expr.child(0), right);
+        } else if (expr instanceof LessThan) {
+            expr = new LessThan(expr.child(0), right);
+        } else if (expr instanceof LessThanEqual) {
+            expr = new LessThanEqual(expr.child(0), right);
+        } else if (expr instanceof NullSafeEqual) {
+            expr = new NullSafeEqual(expr.child(0), right);
+        } else if (expr instanceof Not && expr.child(0) instanceof EqualTo) {
+            expr = new Not(new EqualTo(expr.child(0).child(0), right));
+        }
+        return expr;
     }
 
     private ShowResultSet handleShowBuildIndex() throws AnalysisException {

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -79,19 +80,24 @@ public class BuildIndexProcDir implements ProcDirInterface {
             return true;
         }
 
-        if (subExpr.child(1) instanceof org.apache.doris.nereids.trees.expressions.literal.StringLiteral
-                && subExpr instanceof EqualTo) {
-            return ((org.apache.doris.nereids.trees.expressions.literal.StringLiteral) subExpr
-                    .child(1)).getValue().equals(element);
+        Expression right;
+        if (subExpr instanceof Not && subExpr.child(0) instanceof EqualTo) {
+            right = subExpr.child(0).child(1);
+        } else {
+            right = subExpr.child(1);
         }
 
-        if (subExpr.child(1) instanceof org.apache.doris.nereids.trees.expressions.literal.DateLiteral) {
-            if (!(subExpr.child(1) instanceof DateTimeLiteral)) {
-                throw new AnalysisException("Invalid date type: " + subExpr.child(1).getDataType());
+        if (right instanceof StringLikeLiteral && subExpr instanceof EqualTo) {
+            return ((StringLikeLiteral) right).getValue().equals(element);
+        }
+
+        if (right instanceof org.apache.doris.nereids.trees.expressions.literal.DateLiteral) {
+            if (!(right instanceof DateTimeLiteral)) {
+                throw new AnalysisException("Invalid date type: " + right.getDataType());
             }
 
             Long leftVal = new DateTimeLiteral((String) element).getValue();
-            Long rightVal = ((DateTimeLiteral) subExpr.child(1)).getValue();
+            Long rightVal = ((DateTimeLiteral) right).getValue();
 
             if (subExpr instanceof EqualPredicate) {
                 return leftVal.equals(rightVal);
