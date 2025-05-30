@@ -87,7 +87,7 @@ private:
     std::unordered_map<Key, std::shared_ptr<Call>> _call_map;
 };
 
-SingleFlight<int64_t /* tablet_id */, CloudTabletSPtr> s_singleflight_load_tablet;
+SingleFlight<int64_t /* tablet_id */, std::shared_ptr<CloudTablet>> s_singleflight_load_tablet;
 
 } // namespace
 
@@ -97,7 +97,7 @@ SingleFlight<int64_t /* tablet_id */, CloudTabletSPtr> s_singleflight_load_table
 // TODO(plat1ko): multi shard to increase concurrency
 class CloudTabletMgr::TabletMap {
 public:
-    void put(CloudTabletSPtr tablet) {
+    void put(std::shared_ptr<CloudTablet> tablet) {
         std::lock_guard lock(_mtx);
         _map[tablet->tablet_id()] = std::move(tablet);
     }
@@ -113,7 +113,7 @@ public:
         }
     }
 
-    CloudTabletSPtr get(int64_t tablet_id) {
+    std::shared_ptr<CloudTablet> get(int64_t tablet_id) {
         std::lock_guard lock(_mtx);
         if (auto it = _map.find(tablet_id); it != _map.end()) {
             return it->second;
@@ -123,7 +123,7 @@ public:
 
     size_t size() { return _map.size(); }
 
-    void traverse(std::function<void(const CloudTabletSPtr&)> visitor) {
+    void traverse(std::function<void(const std::shared_ptr<CloudTablet>&)> visitor) {
         std::lock_guard lock(_mtx);
         for (auto& [_, tablet] : _map) {
             visitor(tablet);
@@ -132,7 +132,7 @@ public:
 
 private:
     std::mutex _mtx;
-    std::unordered_map<int64_t, CloudTabletSPtr> _map;
+    std::unordered_map<int64_t, std::shared_ptr<CloudTablet>> _map;
 };
 
 // TODO(plat1ko): Prune cache
@@ -151,20 +151,20 @@ void set_tablet_access_time_ms(CloudTablet* tablet) {
     tablet->last_access_time_ms = now;
 }
 
-Result<CloudTabletSPtr> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
-                                                   bool sync_delete_bitmap,
-                                                   SyncRowsetStats* sync_stats,
-                                                   bool force_use_cache) {
+Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmup_data,
+                                                                bool sync_delete_bitmap,
+                                                                SyncRowsetStats* sync_stats,
+                                                                bool force_use_cache) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
     class Value : public LRUCacheValueBase {
     public:
-        Value(const CloudTabletSPtr& tablet, TabletMap& tablet_map)
+        Value(const std::shared_ptr<CloudTablet>& tablet, TabletMap& tablet_map)
                 : tablet(tablet), tablet_map(tablet_map) {}
         ~Value() override { tablet_map.erase(tablet.get()); }
 
         // FIXME(plat1ko): The ownership of tablet seems to belong to 'TabletMap', while `Value`
         // only requires a reference.
-        CloudTabletSPtr tablet;
+        std::shared_ptr<CloudTablet> tablet;
         TabletMap& tablet_map;
     };
 
@@ -210,10 +210,11 @@ Result<CloudTabletSPtr> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmu
 
             auto* handle = _cache->insert(key, value.release(), 1, sizeof(CloudTablet),
                                           CachePriority::NORMAL);
-            auto ret = CloudTabletSPtr(tablet.get(), [this, handle](CloudTablet* tablet) {
-                set_tablet_access_time_ms(tablet);
-                _cache->release(handle);
-            });
+            auto ret =
+                    std::shared_ptr<CloudTablet>(tablet.get(), [this, handle](CloudTablet* tablet) {
+                        set_tablet_access_time_ms(tablet);
+                        _cache->release(handle);
+                    });
             _tablet_map->put(std::move(tablet));
             return ret;
         };
@@ -230,7 +231,7 @@ Result<CloudTabletSPtr> CloudTabletMgr::get_tablet(int64_t tablet_id, bool warmu
     }
     CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(_cache->value(handle))->tablet.get();
     set_tablet_access_time_ms(tablet_raw_ptr);
-    auto tablet = CloudTabletSPtr(tablet_raw_ptr, [this, handle](CloudTablet* tablet) {
+    auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr, [this, handle](CloudTablet* tablet) {
         set_tablet_access_time_ms(tablet);
         _cache->release(handle);
     });
@@ -245,7 +246,7 @@ void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
 
 void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to vacuum stale rowsets");
-    std::vector<CloudTabletSPtr> tablets_to_vacuum;
+    std::vector<std::shared_ptr<CloudTablet>> tablets_to_vacuum;
     tablets_to_vacuum.reserve(_tablet_map->size());
     _tablet_map->traverse([&tablets_to_vacuum](auto&& t) {
         if (t->has_stale_rowsets()) {
@@ -325,7 +326,7 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
 
 Status CloudTabletMgr::get_topn_tablets_to_compact(
         int n, CompactionType compaction_type, const std::function<bool(CloudTablet*)>& filter_out,
-        std::vector<CloudTabletSPtr>* tablets, int64_t* max_score) {
+        std::vector<std::shared_ptr<CloudTablet>>* tablets, int64_t* max_score) {
     DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
            compaction_type == CompactionType::CUMULATIVE_COMPACTION);
     *max_score = 0;
@@ -358,7 +359,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     auto [num_filtered, num_disabled, num_skipped] = std::make_tuple(0, 0, 0);
 
     auto weak_tablets = get_weak_tablets();
-    std::vector<std::pair<CloudTabletSPtr, int64_t>> buf;
+    std::vector<std::pair<std::shared_ptr<CloudTablet>, int64_t>> buf;
     buf.reserve(n + 1);
     for (auto& weak_tablet : weak_tablets) {
         auto t = weak_tablet.lock();
@@ -454,7 +455,7 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
     uint64_t total_delete_map_count = 0;
     int64_t max_base_rowset_delete_bitmap_score_tablet_id = 0;
     int n = config::check_tablet_delete_bitmap_score_top_n;
-    std::vector<std::pair<CloudTabletSPtr, int64_t>> buf;
+    std::vector<std::pair<std::shared_ptr<CloudTablet>, int64_t>> buf;
     buf.reserve(n + 1);
     auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
         auto t = tablet_wk.lock();
@@ -493,8 +494,8 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
               << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
 }
 
-std::vector<CloudTabletSPtr> CloudTabletMgr::get_all_tablet() {
-    std::vector<CloudTabletSPtr> tablets;
+std::vector<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_all_tablet() {
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
     tablets.reserve(_tablet_map->size());
     _tablet_map->traverse([&tablets](auto& t) { tablets.push_back(t); });
     return tablets;

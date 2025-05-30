@@ -31,6 +31,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
+#include "common/status.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
@@ -63,6 +64,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTabletsScanner::_s_tbls_columns = {
         {"COMPRESS_KIND", TYPE_STRING, sizeof(StringRef), true},
         {"IS_USED", TYPE_BOOLEAN, sizeof(bool), true},
         {"IS_ALTER_FAILED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"CREATE_TIME", TYPE_BIGINT, sizeof(int64_t), true},
+        {"UPDATE_TIME", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaTabletsScanner::SchemaTabletsScanner()
@@ -191,6 +194,14 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
             13));
     RETURN_IF_ERROR(fill_boolean_column(
             [](BaseTabletSPtr tablet) { return tablet->is_alter_failed(); }, 14));
+    RETURN_IF_ERROR(fill_column(
+            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->creation_time(); }, 15));
+    RETURN_IF_ERROR(fill_column(
+            [](BaseTabletSPtr tablet) {
+                auto rowset = tablet->get_rowset_with_max_version();
+                return rowset == nullptr ? 0 : rowset->newest_write_timestamp();
+            },
+            16));
 
     _tablets_idx += fill_tablets_num;
     return Status::OK();

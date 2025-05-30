@@ -47,8 +47,8 @@ private:
 
 private:
     CloudStorageEngine& _cloud_storage_engine;
-    CloudTabletSPtr _base_tablet;
-    CloudTabletSPtr _new_tablet;
+    std::shared_ptr<CloudTablet> _base_tablet;
+    std::shared_ptr<CloudTablet> _new_tablet;
     TabletSchemaSPtr _base_tablet_schema;
     TabletSchemaSPtr _new_tablet_schema;
     std::string _job_id;
