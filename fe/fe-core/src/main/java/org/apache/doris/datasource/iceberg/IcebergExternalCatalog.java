@@ -53,8 +53,15 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected abstract void initCatalog();
 
     @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
+        }
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
-        preExecutionAuthenticator = new PreExecutionAuthenticator();
+        initPreExecutionAuthenticator();
         initCatalog();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
