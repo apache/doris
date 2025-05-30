@@ -38,3 +38,6 @@ true
 -- !sql_to_big --
 1212
 
+-- !sql_to_struct --
+\N
+
