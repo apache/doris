@@ -216,6 +216,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
@@ -1195,6 +1196,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {
         return visitCommand(dropStageCommand, context);
+    }
+
+    default R visitShowTransactionCommand(ShowTransactionCommand showTransactionCommand, C context) {
+        return visitCommand(showTransactionCommand, context);
     }
 
     default R visitShowReplicaStatusCommand(ShowReplicaStatusCommand showReplicaStatusCommand, C context) {
