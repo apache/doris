@@ -1030,9 +1030,24 @@ Status SegmentWriter::finalize_columns_data() {
     }
     _num_rows_written = 0;
 
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->finish());
+#ifdef BE_TEST
+    int64_t total_data_size = 0;
+    for (const auto& _column_writer : _column_writers) {
+        total_data_size += _column_writer->estimate_buffer_size();
     }
+    auto origin_data_footprint = _footer.data_footprint();
+    _footer.set_data_footprint(origin_data_footprint + total_data_size);
+#endif
+
+    for (size_t id = 0; id < _column_writers.size(); ++id) {
+        // record the data size of each column before page builder reset in finish()
+        auto cid = _column_ids[id];
+        // estimate column data size for flush memtable, may be inaccurate at low cardinality
+        _footer.mutable_columns(cid)->set_estimate_total_data_size(
+                _column_writers[id]->estimate_buffer_size());
+        RETURN_IF_ERROR(_column_writers[id]->finish());
+    }
+
     RETURN_IF_ERROR(_write_data());
 
     return Status::OK();
