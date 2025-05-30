@@ -242,8 +242,13 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        return toSqlImpl(false, false, null, null);
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql,TableType tableType, TableIf inputTable) {
         if (needExternalSql) {
-            return toExternalSqlImpl();
+            return toExternalSqlImpl(tableType, table);
         }
 
         if (disableTableName && label != null) {
@@ -290,7 +295,7 @@ public class SlotRef extends Expr {
         }
     }
 
-    private String toExternalSqlImpl() {
+    private String toExternalSqlImpl(TableType tableType, TableIf inputTable) {
         if (col != null) {
             if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
                     .equals(TableType.ODBC)) {

@@ -318,8 +318,7 @@ public class DescribeCommand extends ShowCommand {
                             String defineExprStr = "";
                             Expr defineExpr = column.getDefineExpr();
                             if (defineExpr != null) {
-                                column.getDefineExpr().setDisableTableName(true);
-                                defineExprStr = defineExpr.toSql();
+                                defineExprStr = defineExpr.toSqlWithoutTbl();
                             }
 
                             List<String> row = Arrays.asList(

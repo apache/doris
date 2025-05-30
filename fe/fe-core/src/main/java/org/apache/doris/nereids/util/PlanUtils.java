@@ -404,7 +404,6 @@ public class PlanUtils {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
             slotRef.setLabel(slotReference.getName());
             slotRef.setCol(slotReference.getName());
-            slotRef.setDisableTableName(true);
             return slotRef;
         }
     }
