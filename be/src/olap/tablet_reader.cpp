@@ -261,7 +261,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.virtual_column_exprs = read_params.virtual_column_exprs;
-    _reader_context.ann_topn_descriptor = read_params.ann_topn_descriptor;
+    _reader_context.ann_topn_runtime = read_params.ann_topn_runtime;
     _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
     _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
     _reader_context.output_columns = &read_params.output_columns;

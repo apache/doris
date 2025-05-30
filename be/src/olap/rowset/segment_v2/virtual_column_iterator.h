@@ -59,7 +59,7 @@ private:
     std::map<uint64_t, uint64_t> _row_id_to_idx;
     doris::vectorized::IColumn::Filter _filter;
     size_t _size = 0;
-
+    size_t _max_ordinal = 0;
     ordinal_t _current_ordinal = 0;
 };
 

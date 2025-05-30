@@ -51,6 +51,7 @@
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/functions/array/function_array_distance.h"
+#include "vec/functions/array/function_array_distance_approximate.h"
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
@@ -382,13 +383,18 @@ Status VectorizedFnCall::prepare_ann_range_search(
     }
 
     // Now left child is a function call, we need to check if it is a distance function
-    std::set<std::string> distance_functions = {L2Distance::name, InnerProduct::name};
+    std::set<std::string> distance_functions = {L2DistanceApproximate::name,
+                                                InnerProductApproximate::name};
     if (distance_functions.find(function_call->_function_name) == distance_functions.end()) {
-        LOG_INFO("Left child is not a distance function. Got {}", function_call->_function_name);
+        LOG_INFO("Left child is not a approximate distance function. Got {}",
+                 function_call->_function_name);
         return Status::OK();
     } else {
+        // Strip the _approximate suffix.
+        std::string metric_name = function_call->_function_name;
+        metric_name = metric_name.substr(0, metric_name.size() - 12);
         _ann_range_search_params.metric_type =
-                segment_v2::VectorIndex::string_to_metric(function_call->_function_name);
+                segment_v2::VectorIndex::string_to_metric(metric_name);
     }
 
     if (function_call->get_num_children() != 2) {

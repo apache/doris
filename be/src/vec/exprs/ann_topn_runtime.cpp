@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/vann_topn_predicate.h"
+#include "vec/exprs/ann_topn_runtime.h"
 
 #include <cstdint>
 #include <memory>
-#include <sstream>
 #include <string>
 
 #include "common/logging.h"
@@ -36,10 +35,11 @@
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/functions/array/function_array_distance_approximate.h"
 
 namespace doris::vectorized {
 
-Status AnnTopNDescriptor::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
+Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     RETURN_IF_ERROR(_order_by_expr_ctx->prepare(state, row_desc));
     RETURN_IF_ERROR(_order_by_expr_ctx->open(state));
 
@@ -104,22 +104,26 @@ Status AnnTopNDescriptor::prepare(RuntimeState* state, const RowDescriptor& row_
     _query_array = array_literal->get_column_ptr();
     _user_params = state->get_vector_search_params();
 
-    std::set<std::string> distance_func_names = {vectorized::L2Distance::name,
-                                                 vectorized::InnerProduct::name};
+    std::set<std::string> distance_func_names = {vectorized::L2DistanceApproximate::name,
+                                                 vectorized::InnerProductApproximate::name};
     if (distance_func_names.contains(distance_fn_call->function_name()) == false) {
         return Status::InternalError("Ann topn expr expect distance function, got {}",
                                      distance_fn_call->function_name());
     }
+    std::string metric_name = distance_fn_call->function_name();
+    // Strip the "_approximate" suffix
+    metric_name = metric_name.substr(0, metric_name.size() - 12);
 
-    _metric_type = segment_v2::VectorIndex::string_to_metric(distance_fn_call->function_name());
-    VLOG_DEBUG << "AnnTopNDescriptor: {}" << this->debug_string();
+    _metric_type = segment_v2::VectorIndex::string_to_metric(metric_name);
+
+    VLOG_DEBUG << "AnnTopNRuntime: {}" << this->debug_string();
     return Status::OK();
 }
 
-Status AnnTopNDescriptor::evaluate_vector_ann_search(
-        segment_v2::IndexIterator* ann_index_iterator, roaring::Roaring& roaring,
-        vectorized::IColumn::MutablePtr& result_column,
-        std::unique_ptr<std::vector<uint64_t>>& row_ids) {
+Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann_index_iterator,
+                                                  roaring::Roaring& roaring,
+                                                  vectorized::IColumn::MutablePtr& result_column,
+                                                  std::unique_ptr<std::vector<uint64_t>>& row_ids) {
     DCHECK(ann_index_iterator != nullptr);
     segment_v2::AnnIndexIterator* ann_index_iterator_casted =
             dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
@@ -169,12 +173,12 @@ Status AnnTopNDescriptor::evaluate_vector_ann_search(
     return Status::OK();
 }
 
-std::string AnnTopNDescriptor::debug_string() const {
-    return "AnnTopNDescriptor: limit=" + std::to_string(_limit) +
-           ", src_col_idx=" + std::to_string(_src_column_idx) +
-           ", dest_col_idx=" + std::to_string(_dest_column_idx) + ", asc=" + std::to_string(_asc) +
-           ", user_params=" + _user_params.to_string() +
-           ", metric_type=" + segment_v2::VectorIndex::metric_to_string(_metric_type) +
-           ", order_by_expr=" + _order_by_expr_ctx->root()->debug_string();
+std::string AnnTopNRuntime::debug_string() const {
+    return fmt::format(
+            "AnnTopNRuntime: limit={}, src_col_idx={}, dest_col_idx={}, asc={}, user_params={}, "
+            "metric_type={}, order_by_expr={}",
+            _limit, _src_column_idx, _dest_column_idx, _asc, _user_params.to_string(),
+            segment_v2::VectorIndex::metric_to_string(_metric_type),
+            _order_by_expr_ctx->root()->debug_string());
 }
 } // namespace doris::vectorized

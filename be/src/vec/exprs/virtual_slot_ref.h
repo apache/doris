@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-#include <cstdint>
 
 #include "vec/exprs/vexpr.h"
 
@@ -45,8 +44,6 @@ public:
         column_ids.insert(_column_id);
     }
     std::shared_ptr<VExpr> get_virtual_column_expr() const { return _virtual_column_expr; }
-    // void prepare_virtual_slots(const std::map<SlotId, vectorized::VExprContextSPtr>&
-    //                                    _slot_id_to_virtual_column_expr) override;
 
     /*
     select * from tbl where distance_function(columnA, ArrayLiterat) > 100
@@ -56,7 +53,7 @@ public:
     BINARY_PRED
     |---------------------------------------|
     |                                       |
-    FUNCTION_CALL(l2_distance)              IntLiteral
+    FUNCTION_CALL(l2_distance_approximate)  IntLiteral
     |
     |-----------------------|
     |                       |
@@ -70,7 +67,7 @@ public:
     |                                       |
     VIRTUAL_SLOT_REF                        IntLiteral
     |
-    FUNCTION_CALL(l2_distance)
+    FUNCTION_CALL(l2_distance_approximate)
     |
     |-----------------------|
     |                       |

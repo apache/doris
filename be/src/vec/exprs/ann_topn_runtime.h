@@ -29,11 +29,11 @@
 
 namespace doris::vectorized {
 
-class AnnTopNDescriptor {
-    ENABLE_FACTORY_CREATOR(AnnTopNDescriptor);
+class AnnTopNRuntime {
+    ENABLE_FACTORY_CREATOR(AnnTopNRuntime);
 
 public:
-    AnnTopNDescriptor(bool asc, size_t limit, VExprContextSPtr order_by_expr_ctx)
+    AnnTopNRuntime(bool asc, size_t limit, VExprContextSPtr order_by_expr_ctx)
             : _asc(asc), _limit(limit), _order_by_expr_ctx(order_by_expr_ctx) {};
 
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
@@ -59,7 +59,7 @@ private:
     // order by distance(xxx, [1,2])
     VExprContextSPtr _order_by_expr_ctx;
 
-    std::string _name = "AnnTopNDescriptor";
+    std::string _name = "ann_topn_runtime";
     size_t _src_column_idx = -1;
     size_t _dest_column_idx = -1;
     segment_v2::VectorIndex::Metric _metric_type;

@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -88,15 +88,15 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
         if (orderKeyExpr == null) {
             return null;
         }
-        if (!(orderKeyExpr instanceof L2Distance)) {
+        if (!(orderKeyExpr instanceof L2DistanceApproximate)) {
             return null;
         }
-        L2Distance l2Distance = (L2Distance) orderKeyExpr;
-        Expression left = l2Distance.left();
+        L2DistanceApproximate l2DistanceApproximate = (L2DistanceApproximate) orderKeyExpr;
+        Expression left = l2DistanceApproximate.left();
         while (left instanceof Cast) {
             left = ((Cast) left).child();
         }
-        if (!(left instanceof SlotReference && ((L2Distance) orderKeyExpr).right().isConstant())) {
+        if (!(left instanceof SlotReference && ((L2DistanceApproximate) orderKeyExpr).right().isConstant())) {
             return null;
         }
         SlotReference leftInput = (SlotReference) left;
