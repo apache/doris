@@ -74,6 +74,7 @@ statementBase
 
 unsupportedStatement
     : unsupportedUseStatement
+    | unsupportedCreateStatement
     | unsupportedDropStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
@@ -485,6 +486,9 @@ unsupportedShowStatement
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
         wildWhere? sortClause? limitClause?                                         #showBuildIndex
+    | SHOW INVERTED INDEX ANALYZER                                                  #showAnalyzer
+    | SHOW INVERTED INDEX TOKENIZER                                                 #showTokenizer
+    | SHOW INVERTED INDEX TOKEN_FILTER                                              #showTokenFilter
     ;
 
 createRoutineLoad
@@ -759,6 +763,9 @@ fromRollup
 
 unsupportedDropStatement
     : DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
+    | DROP INVERTED INDEX ANALYZER (IF EXISTS)? name=identifier                 #dropAnalyzer
+    | DROP INVERTED INDEX TOKENIZER (IF EXISTS)? name=identifier                #dropTokenizer
+    | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropTokenFilter
     ;
 
 supportedStatsStatement
@@ -805,6 +812,15 @@ analyzeProperties
     | (BUCKETS bucket=INTEGER_VALUE)
     | (PERIOD periodInSecond=INTEGER_VALUE)
     | (CRON crontabExpr=STRING_LITERAL)
+    ;
+
+unsupportedCreateStatement
+    : CREATE INVERTED INDEX ANALYZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createAnalyzer
+    | CREATE INVERTED INDEX TOKENIZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createTokenizer
+    | CREATE INVERTED INDEX TOKEN_FILTER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                              #createTokenFilter
     ;
 
 workloadPolicyActions
