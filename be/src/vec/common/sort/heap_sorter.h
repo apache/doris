@@ -58,7 +58,6 @@ private:
     std::unique_ptr<MergeSorterState> _state;
 
     bool _init_sort_descs = false;
-    SortDescription _sort_description_reversed;
 
     RuntimeProfile::Counter* _topn_filter_timer = nullptr;
     RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
