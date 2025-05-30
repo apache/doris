@@ -32,6 +32,18 @@ suite("test_group_commit_error", "nonConcurrent") {
     GetDebugPoint().clearDebugPointsForAllBEs()
     GetDebugPoint().clearDebugPointsForAllFEs()
     try {
+        GetDebugPoint().enableDebugPointForAllFEs("OlapInsertExecutor.beginTransaction.failed")
+        sql """ set group_commit = async_mode """
+        sql """ insert into ${tableName} values (1, 1) """
+        assertTrue(false)
+    } catch (Exception e) {
+        logger.info("failed: " + e.getMessage())
+        assertTrue(e.getMessage().contains("begin transaction failed"))
+    } finally {
+        GetDebugPoint().clearDebugPointsForAllFEs()
+    }
+
+    try {
         GetDebugPoint().enableDebugPointForAllBEs("FragmentMgr.exec_plan_fragment.failed")
         sql """ set group_commit = async_mode """
         sql """ insert into ${tableName} values (1, 1) """
