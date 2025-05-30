@@ -27,6 +27,8 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
@@ -220,6 +222,11 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        return toSqlImpl(false, false, null, null);
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
         if (needExternalSql) {
             return getChild(0).toSql();
         }

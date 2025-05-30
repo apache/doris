@@ -272,7 +272,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.setDisableTableName(true);
             }
             return olapScan;
         }
@@ -609,7 +608,6 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.setDisableTableName(true);
             return expr;
         }
 

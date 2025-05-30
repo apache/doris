@@ -95,11 +95,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_FOREACH_SUFFIX = "_foreach";
     public static final String DEFAULT_EXPR_NAME = "expr";
 
-    protected boolean disableTableName = false;
-    protected boolean needExternalSql = false;
-    protected TableType tableType = null;
-    protected TableIf inputTable = null;
-
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
 
@@ -926,28 +921,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
-    public void setDisableTableName(boolean value) {
-        disableTableName = value;
-        for (Expr child : children) {
-            child.setDisableTableName(value);
-        }
-    }
-
-    public void setExternalContext(boolean needExternalSql, TableType tableType, TableIf inputTable) {
-        this.needExternalSql = needExternalSql;
-        this.tableType = tableType;
-        this.inputTable = inputTable;
-
-        for (Expr child : children) {
-            child.setExternalContext(needExternalSql, tableType, inputTable);
-        }
+    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
+        return (printSqlInParens) ? "(" + toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")"
+                : toSqlImpl();
     }
 
     public String toSqlWithoutTbl() {
-        setDisableTableName(true);
-        String result = toSql();
-        setDisableTableName(false);
-        return result;
+        return toSql(true, false, null, null);
     }
 
     public String toDigest() {
@@ -960,6 +940,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     protected abstract String toSqlImpl();
 
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
+        return toSqlImpl();
+    }
+
     /**
      * !!!!!! Important !!!!!!
      * Subclasses should override this method if
@@ -970,10 +954,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toExternalSql(TableType tableType, TableIf table) {
-        setExternalContext(true, tableType, table);
-        String result = toSql();
-        setExternalContext(false, null, null);
-        return result;
+        return toSql(false,true,tableType, table);
     }
 
     /**

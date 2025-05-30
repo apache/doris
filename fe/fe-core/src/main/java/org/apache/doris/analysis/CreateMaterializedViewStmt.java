@@ -272,12 +272,11 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             SelectListItem selectListItem = selectList.getItems().get(i);
 
             Expr selectListItemExpr = selectListItem.getExpr();
-            selectListItemExpr.setDisableTableName(true);
             Expr realItem = selectListItemExpr.unwrapExpr(false);
             if (!(realItem instanceof SlotRef) && !(realItem instanceof FunctionCallExpr)
                     && !(realItem instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                        + "Error column: " + selectListItemExpr.toSql());
+                        + "Error column: " + selectListItemExpr.toSqlWithoutTbl());
             }
 
             if (!isReplay && selectListItemExpr.hasAutoInc()) {
@@ -298,14 +297,14 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
                 if (!isReplay && selectListItemExpr.containsAggregate()) {
                     throw new AnalysisException(
                             "The materialized view's expr calculations cannot be included outside aggregate functions"
-                                    + ", expr: " + selectListItemExpr.toSql());
+                                    + ", expr: " + selectListItemExpr.toSqlWithoutTbl());
                 }
                 List<SlotRef> slots = new ArrayList<>();
                 selectListItemExpr.collect(SlotRef.class, slots);
                 if (!isReplay && slots.size() == 0) {
                     throw new AnalysisException(
                             "The materialized view contain constant expr is disallowed, expr: "
-                                    + selectListItemExpr.toSql());
+                                    + selectListItemExpr.toSqlWithoutTbl());
                 }
                 if (meetAggregate) {
                     throw new AnalysisException("The aggregate column should be after the single column");
