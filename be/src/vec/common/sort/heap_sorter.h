@@ -32,12 +32,6 @@ public:
 
     ~HeapSorter() override = default;
 
-    void init_profile(RuntimeProfile* runtime_profile) override {
-        _topn_filter_timer = ADD_TIMER(runtime_profile, "TopNFilterTime");
-        _topn_filter_rows_counter = ADD_COUNTER(runtime_profile, "TopNFilterRows", TUnit::UNIT);
-        _materialize_timer = ADD_TIMER(runtime_profile, "MaterializeTime");
-    }
-
     Status append_block(Block* block) override;
 
     Status prepare_for_read() override;
@@ -56,12 +50,6 @@ private:
     size_t _queue_row_num = 0;
     MergeSorterQueue _queue;
     std::unique_ptr<MergeSorterState> _state;
-
-    bool _init_sort_descs = false;
-
-    RuntimeProfile::Counter* _topn_filter_timer = nullptr;
-    RuntimeProfile::Counter* _topn_filter_rows_counter = nullptr;
-    RuntimeProfile::Counter* _materialize_timer = nullptr;
 };
 
 #include "common/compile_check_end.h"
