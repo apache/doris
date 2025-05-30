@@ -637,6 +637,8 @@ public class SchemaTable extends Table {
                             .column("COMPRESS_KIND", ScalarType.createStringType())
                             .column("IS_USED", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .column("IS_ALTER_FAILED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("CREATE_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .build())
             )
             .build();
