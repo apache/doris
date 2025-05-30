@@ -35,6 +35,11 @@ suite("test_map") {
     sql 'insert into `test_map_table` values (5, 2, {"key2_2": "value2_2", "key22_2": "value22_2"});'
     sql 'insert into `test_map_table` values (6, 3, {"key3": "value3", "key33": "value33", "key3333": "value333"});'
     sql 'insert into `test_map_table` values (7, 4, {"key4": "value4", "key44": "value44", "key444": "value444", "key4444": "value4444"});'
+    sql 'insert into `test_map_table` values (7, 5, {"key5": "value5", "key44": "value44", null: "null", "key4": "value444", null: "null2", "key44": "value4444"});'
+
+    qt_sql """
+        select * from test_map_table order by 1, 2;
+    """
 
     sql "DROP TABLE IF EXISTS `test_map_table_right`"
     sql """
