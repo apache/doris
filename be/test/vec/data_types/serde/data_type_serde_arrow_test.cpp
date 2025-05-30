@@ -474,4 +474,24 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
+TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
+    std::string col_name = "big_string";
+    auto block = std::make_shared<Block>();
+    auto strcol = vectorized::ColumnString::create();
+    // 2G, if > 4G report string column length is too large: total_length=4402341462
+    for (int i = 0; i < 20; ++i) {
+        std::string is(107374182, '0'); // 100M
+        strcol->insert_data(is.c_str(), is.size());
+    }
+    vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
+    vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+    block->insert(type_and_name);
+
+    std::shared_ptr<arrow::RecordBatch> record_batch =
+            CommonDataTypeSerdeTest::serialize_arrow(block);
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
 } // namespace doris::vectorized

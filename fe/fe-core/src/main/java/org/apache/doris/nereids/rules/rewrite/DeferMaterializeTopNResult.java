@@ -259,6 +259,9 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
     private Plan deferMaterialize(LogicalResultSink<? extends Plan> logicalResultSink,
             LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalProject<? extends Plan>> logicalProject,
             Optional<LogicalFilter<? extends Plan>> logicalFilter, LogicalOlapScan logicalOlapScan) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableTopnLazyMaterialization) {
+            return null;
+        }
         Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
         SlotReference columnId = SlotReference.fromColumn(
                 logicalOlapScan.getTable(), rowId, logicalOlapScan.getQualifier());
