@@ -28,6 +28,7 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.LockTable;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.ResourcePattern;
@@ -234,6 +235,7 @@ import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LoadPropertyContext;
+import org.apache.doris.nereids.DorisParser.LockTablesContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
@@ -664,6 +666,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -845,6 +848,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
+import org.apache.doris.nereids.trees.plans.commands.info.LockTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnCommentOp;
@@ -6625,6 +6629,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return new ShowTableStatusCommand(dbName, ctlName);
+    }
+
+    @Override
+    public LogicalPlan visitLockTables(LockTablesContext ctx) {
+        List<LockTableInfo> lockTablesInfo = ctx.lockTable().stream().map(lockTableCtx -> {
+            TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(lockTableCtx.name));
+            String alias = lockTableCtx.alias != null ? lockTableCtx.alias.getText() : null;
+
+            LockTable.LockType lockType;
+            if (lockTableCtx.READ() != null) {
+                lockType = lockTableCtx.LOCAL() != null ? LockTable.LockType.READ_LOCAL : LockTable.LockType.READ;
+            } else if (lockTableCtx.WRITE() != null) {
+                lockType = lockTableCtx.LOW_PRIORITY() != null ? LockTable.LockType.LOW_PRIORITY_WRITE
+                    : LockTable.LockType.WRITE;
+            } else {
+                throw new IllegalArgumentException("Invalid lock type in LOCK TABLES command.");
+            }
+
+            return new LockTableInfo(tableNameInfo, alias, lockType);
+        }).collect(Collectors.toList());
+
+        return new LockTablesCommand(lockTablesInfo);
     }
 
     @Override
