@@ -1687,8 +1687,9 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             if (version != max_version + 1) {
+                int32_t max_version_config = tablet->max_version_config();
                 // Keep only the most recent versions
-                while (tablet_iter->second.size() > config::max_tablet_version_num) {
+                while (tablet_iter->second.size() > max_version_config) {
                     need_removed_tasks.emplace_back(tablet, version);
                     task_iter = tablet_iter->second.erase(task_iter);
                     version = task_iter->first;
