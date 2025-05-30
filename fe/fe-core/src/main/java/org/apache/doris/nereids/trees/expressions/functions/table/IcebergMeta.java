@@ -22,8 +22,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.tablefunction.iceberg.IcebergTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
@@ -37,10 +37,10 @@ public class IcebergMeta extends TableValuedFunction {
         super("iceberg_meta", properties);
     }
 
-    public static IcebergMeta createSnapshots(List<String> nameParts) {
+    public static IcebergMeta createIcebergMeta(List<String> nameParts, String queryType) {
         Map<String, String> prop = Maps.newHashMap();
         prop.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
-        prop.put(IcebergTableValuedFunction.QUERY_TYPE, "snapshots");
+        prop.put(IcebergTableValuedFunction.QUERY_TYPE, queryType);
         return new IcebergMeta(new Properties(prop));
     }
 
@@ -53,10 +53,10 @@ public class IcebergMeta extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new IcebergTableValuedFunction(arguments);
+            return IcebergTableValuedFunction.create(arguments);
         } catch (Throwable t) {
             throw new AnalysisException("Can not build IcebergTableValuedFunction by "
-                + this + ": " + t.getMessage(), t);
+                    + this + ": " + t.getMessage(), t);
         }
     }
 

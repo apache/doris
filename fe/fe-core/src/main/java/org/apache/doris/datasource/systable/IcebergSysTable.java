@@ -20,9 +20,10 @@ package org.apache.doris.datasource.systable;
 import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
-import org.apache.doris.tablefunction.IcebergTableValuedFunction;
+import org.apache.doris.tablefunction.iceberg.IcebergTableValuedFunction;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -31,21 +32,38 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
-// table$snapshots
-public class IcebergSnapshotsSysTable extends SysTable {
-    private static final Logger LOG = LogManager.getLogger(IcebergSnapshotsSysTable.class);
+// table${sysTable}
+public class IcebergSysTable extends SysTable {
+    private static final Logger LOG = LogManager.getLogger(IcebergSysTable.class);
+    // iceberg system tables:
+    // https://iceberg.apache.org/docs/nightly/spark-queries/#inspecting-tables
+    private static final List<IcebergSysTable> SUPPORTED_ICEBERG_SYS_TABLES = ImmutableList.of(
+            new IcebergSysTable("history"),
+            new IcebergSysTable("metadata_log_entries"),
+            new IcebergSysTable("snapshots"),
+            new IcebergSysTable("entries"),
+            new IcebergSysTable("files"),
+            new IcebergSysTable("manifests"),
+            new IcebergSysTable("partitions"),
+            new IcebergSysTable("position_deletes"),
+            new IcebergSysTable("refs"));
 
-    public static final IcebergSnapshotsSysTable INSTANCE = new IcebergSnapshotsSysTable();
+    private final String tableName;
 
-    private IcebergSnapshotsSysTable() {
-        super("snapshots", "iceberg_meta");
+    private IcebergSysTable(String tableName) {
+        super(tableName, "iceberg_meta");
+        this.tableName = tableName;
+    }
+
+    public static List<IcebergSysTable> getSupportedIcebergSysTables() {
+        return SUPPORTED_ICEBERG_SYS_TABLES;
     }
 
     @Override
     public TableValuedFunction createFunction(String ctlName, String dbName, String sourceNameWithMetaName) {
         List<String> nameParts = Lists.newArrayList(ctlName, dbName,
                 getSourceTableName(sourceNameWithMetaName));
-        return IcebergMeta.createSnapshots(nameParts);
+        return IcebergMeta.createIcebergMeta(nameParts, tableName);
     }
 
     @Override
@@ -54,7 +72,7 @@ public class IcebergSnapshotsSysTable extends SysTable {
                 getSourceTableName(sourceNameWithMetaName));
         Map<String, String> params = Maps.newHashMap();
         params.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
-        params.put(IcebergTableValuedFunction.QUERY_TYPE, "snapshots");
+        params.put(IcebergTableValuedFunction.QUERY_TYPE, tableName);
         try {
             return new TableValuedFunctionRef(tvfName, null, params);
         } catch (org.apache.doris.common.AnalysisException e) {
