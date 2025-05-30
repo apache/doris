@@ -76,9 +76,13 @@ public class DateTimeV2Type extends DateLikeType {
         if (dataType instanceof DateTimeV2Type) {
             return (DateTimeV2Type) dataType;
         }
+        //TODO: boolean type?
         if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
                 || dataType instanceof DateTimeType || dataType instanceof DateType || dataType instanceof DateV2Type) {
             return SYSTEM_DEFAULT;
+        }
+        if (dataType instanceof TimeV2Type) {
+            return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
         }
         return MAX;
     }

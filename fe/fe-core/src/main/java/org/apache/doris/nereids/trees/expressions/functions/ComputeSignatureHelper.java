@@ -31,7 +31,9 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
@@ -336,14 +338,16 @@ public class ComputeSignatureHelper {
         }
 
         boolean hasDateTimeV2Type = false;
+        boolean hasTimeV2Type = false;
         boolean hasDecimalV3Type = false;
         for (DataType argumentsType : signature.argumentsTypes) {
             hasDateTimeV2Type |= TypeCoercionUtils.hasDateTimeV2Type(argumentsType);
+            hasTimeV2Type |= TypeCoercionUtils.hasTimeV2Type(argumentsType);
             hasDecimalV3Type |= TypeCoercionUtils.hasDecimalV3Type(argumentsType);
         }
 
-        if (hasDateTimeV2Type) {
-            signature = defaultDateTimeV2PrecisionPromotion(signature, arguments);
+        if (hasDateTimeV2Type || hasTimeV2Type) {
+            signature = defaultTimePrecisionPromotion(signature, arguments);
         }
         if (hasDecimalV3Type) {
             // do decimal v3 precision
@@ -376,59 +380,83 @@ public class ComputeSignatureHelper {
                 ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
     }
 
-    private static FunctionSignature defaultDateTimeV2PrecisionPromotion(
-            FunctionSignature signature, List<Expression> arguments) {
-        DateTimeV2Type finalType = null;
+    // for time type with precision(now are DateTimeV2Type and TimeV2Type),
+    // we will promote the precision of the type to the maximum precision of all arguments
+    private static FunctionSignature defaultTimePrecisionPromotion(FunctionSignature signature,
+            List<Expression> arguments) {
+        ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
+
+        int finalTypeScale = -1;
         for (int i = 0; i < arguments.size(); i++) {
-            DataType targetType;
+            DataType signatureArgType;
             if (i >= signature.argumentsTypes.size()) {
                 Preconditions.checkState(signature.getVarArgType().isPresent(),
                         "argument size larger than signature");
-                targetType = signature.getVarArgType().get();
+                signatureArgType = signature.getVarArgType().get();
             } else {
-                targetType = signature.getArgType(i);
+                signatureArgType = signature.getArgType(i);
             }
-            List<DataType> argTypes = extractArgumentType(DateTimeV2Type.class,
-                    targetType, arguments.get(i).getDataType());
-            if (argTypes.isEmpty()) {
+            List<DataType> nestedTypes = extractArgumentTypeBySignature(DateTimeV2Type.class,
+                    signatureArgType, arguments.get(i).getDataType());
+            List<DataType> timeV2Types = extractArgumentTypeBySignature(TimeV2Type.class,
+                    signatureArgType, arguments.get(i).getDataType());
+            nestedTypes.addAll(timeV2Types);
+            if (nestedTypes.isEmpty()) {
+                // if no DateTimeV2Type or TimeV2Type in the argument, no precision promotion
                 continue;
             }
 
-            for (DataType argType : argTypes) {
+            // for Map or Struct, we have more than one nested type
+            for (DataType argType : nestedTypes) {
                 Expression arg = arguments.get(i);
-                DateTimeV2Type dateTimeV2Type;
+                DataType targetNestedType; // real target type for this nested type
                 if (arg instanceof StringLikeLiteral) {
-                    StringLikeLiteral str = (StringLikeLiteral) arguments.get(i);
-                    dateTimeV2Type = DateTimeV2Type.forTypeFromString(str.getStringValue());
+                    StringLikeLiteral str = (StringLikeLiteral) arg;
+                    if (argType instanceof TimeV2Type) {
+                        targetNestedType = TimeV2Type.forTypeFromString(str.getStringValue());
+                    } else { // must be DateTimeV2Type
+                        targetNestedType = DateTimeV2Type.forTypeFromString(str.getStringValue());
+                    }
                 } else {
-                    dateTimeV2Type = DateTimeV2Type.forType(argType);
+                    if (argType instanceof TimeV2Type) {
+                        targetNestedType = TimeV2Type.forType(argType);
+                    } else { // must be DateTimeV2Type
+                        targetNestedType = DateTimeV2Type.forType(argType);
+                    }
                 }
-                if (finalType == null) {
-                    finalType = dateTimeV2Type;
+                // promote the precision of TimeV2Type to DateTimeV2Type
+                if (finalTypeScale < 0) {
+                    if (targetNestedType instanceof DateTimeV2Type) {
+                        finalTypeScale = ((DateTimeV2Type) targetNestedType).getScale();
+                    } else if (targetNestedType instanceof TimeV2Type) {
+                        finalTypeScale = ((TimeV2Type) targetNestedType).getScale();
+                    } else {
+                        throw new AnalysisException("unexpected type: " + targetNestedType);
+                    }
                 } else {
-                    finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType, dateTimeV2Type);
+                    if (targetNestedType instanceof DateTimeV2Type) {
+                        finalTypeScale = Math.max(finalTypeScale, ((DateTimeV2Type) targetNestedType).getScale());
+                    } else if (targetNestedType instanceof TimeV2Type) {
+                        finalTypeScale = Math.max(finalTypeScale, ((TimeV2Type) targetNestedType).getScale());
+                    }
                 }
             }
         }
-        if (finalType == null) {
+
+        // if no DateTimeV2Type or TimeV2Type in the arguments, no precision promotion
+        if (finalTypeScale < 0) {
             return signature;
         }
-        DateTimeV2Type argType = finalType;
-
-        ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
-        for (DataType at : signature.argumentsTypes) {
-            newArgTypesBuilder.add(TypeCoercionUtils.replaceDateTimeV2WithTarget(at, argType));
+        // promote the precision of return type
+        for (DataType signatureArgType : signature.argumentsTypes) {
+            newArgTypesBuilder.add(TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType, finalTypeScale));
         }
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
-        if (signature.returnType instanceof DateTimeV2Type) {
-            signature = signature.withReturnType(argType);
-        } else if (signature.returnType instanceof ArrayType) {
-            DataType itemType = ((ArrayType) signature.returnType).getItemType();
-            if (itemType instanceof DateTimeV2Type) {
-                signature = signature.withReturnType(ArrayType.of(argType));
-            }
+        if (signature.returnType instanceof DateTimeV2Type || signature.returnType instanceof TimeV2Type
+                || signature.returnType instanceof ComplexDataType) {
+            signature = signature.withReturnType(
+                    TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
         }
         return signature;
     }
@@ -445,8 +473,8 @@ public class ComputeSignatureHelper {
             } else {
                 targetType = signature.getArgType(i);
             }
-            List<DataType> argTypes = extractArgumentType(DecimalV3Type.class,
-                    targetType, arguments.get(i).getDataType());
+            List<DataType> argTypes = extractArgumentTypeBySignature(DecimalV3Type.class, targetType,
+                    arguments.get(i).getDataType());
             if (argTypes.isEmpty()) {
                 continue;
             }
@@ -482,30 +510,33 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    private static List<DataType> extractArgumentType(Class<? extends DataType> targetType,
+    // if signatureType is a super type of targetType, then extract corresponding argumentType slot
+    private static List<DataType> extractArgumentTypeBySignature(Class<? extends DataType> targetType,
             DataType signatureType, DataType argumentType) {
         if (targetType.isAssignableFrom(signatureType.getClass())) {
             return Lists.newArrayList(argumentType);
         } else if (signatureType instanceof ArrayType) {
             if (argumentType instanceof NullType) {
-                return extractArgumentType(targetType, ((ArrayType) signatureType).getItemType(), argumentType);
+                return extractArgumentTypeBySignature(targetType, ((ArrayType) signatureType).getItemType(),
+                        argumentType);
             } else if (argumentType instanceof ArrayType) {
-                return extractArgumentType(targetType,
-                        ((ArrayType) signatureType).getItemType(), ((ArrayType) argumentType).getItemType());
+                return extractArgumentTypeBySignature(targetType, ((ArrayType) signatureType).getItemType(),
+                        ((ArrayType) argumentType).getItemType());
             } else {
                 return Lists.newArrayList();
             }
         } else if (signatureType instanceof MapType) {
             if (argumentType instanceof NullType) {
-                List<DataType> ret = extractArgumentType(targetType,
-                        ((MapType) signatureType).getKeyType(), argumentType);
-                ret.addAll(extractArgumentType(targetType, ((MapType) signatureType).getValueType(), argumentType));
+                List<DataType> ret = extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                        argumentType);
+                ret.addAll(extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getValueType(),
+                        argumentType));
                 return ret;
             } else if (argumentType instanceof MapType) {
-                List<DataType> ret = extractArgumentType(targetType,
-                        ((MapType) signatureType).getKeyType(), ((MapType) argumentType).getKeyType());
-                ret.addAll(extractArgumentType(targetType,
-                        ((MapType) signatureType).getValueType(), ((MapType) argumentType).getValueType()));
+                List<DataType> ret = extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                        ((MapType) argumentType).getKeyType());
+                ret.addAll(extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getValueType(),
+                        ((MapType) argumentType).getValueType()));
                 return ret;
             } else {
                 return Lists.newArrayList();

@@ -17,7 +17,7 @@
 
 suite("cast_to_time") {
     sql "set debug_skip_fold_constant = true"
-
+//FIXME: need parse microseconds
 qt_sql """ select cast("1" as time(6)) """
 qt_sql """ select cast("123" as time(6)) """
 qt_sql """ select cast("2005959.12" as time(6)) """
