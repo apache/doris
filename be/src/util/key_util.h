@@ -17,16 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <cstdint>
-#include <iterator>
 #include <string>
-#include <vector>
 
-#include "common/status.h"
-#include "util/debug_util.h"
-#include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -110,5 +106,10 @@ void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
         }
     }
 }
+
+// we can only know if a key is excluded from the segment
+// based on strictly order compare result with segments key bounds
+bool key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
+                           bool is_segments_key_bounds_truncated);
 
 } // namespace doris
