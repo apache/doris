@@ -33,12 +33,13 @@ public:
     void add(const std::wstring& field_name, const std::vector<std::wstring>& terms);
     void search(roaring::Roaring& roaring) override;
 
-    static void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
-                                 const std::string& prefix, std::vector<std::wstring>& prefix_terms,
-                                 int32_t max_expansions = 50);
+    void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
+                          const std::string& prefix, std::vector<std::wstring>& prefix_terms,
+                          int32_t max_expansions = 50);
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    const io::IOContext* _io_ctx = nullptr;
 
     UnionTermIterPtr _lead1;
 };
