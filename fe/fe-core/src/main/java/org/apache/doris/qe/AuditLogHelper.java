@@ -99,9 +99,8 @@ public class AuditLogHelper {
 
         // 2. handle other statement
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
-        if (origStmt.length() > maxLen) {
-            origStmt = truncateByBytes(origStmt) + " ... /* truncated. audit_plugin_max_sql_length=" + maxLen + " */";
-        }
+        origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
+                + " */");
         return origStmt.replace("\n", "\\n")
                 .replace("\t", "\\t")
                 .replace("\r", "\\r");
@@ -131,12 +130,10 @@ public class AuditLogHelper {
         }
         if (rowCnt > 0) {
             // This is an insert statement.
-            int maxLen = GlobalVariable.auditPluginMaxInsertStmtLength <= 0
-                    ? GlobalVariable.auditPluginMaxSqlLength : GlobalVariable.auditPluginMaxInsertStmtLength;
-            if (origStmt.length() > maxLen) {
-                origStmt = truncateByBytes(origStmt) + " ... /* total " + rowCnt
-                        + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */";
-            }
+            int maxLen = Math.max(0,
+                    Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
+            origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
+                    + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
             origStmt = origStmt.replace("\n", "\\n")
                     .replace("\t", "\\t")
                     .replace("\r", "\\r");
@@ -146,8 +143,7 @@ public class AuditLogHelper {
         }
     }
 
-    private static String truncateByBytes(String str) {
-        int maxLen = Math.min(GlobalVariable.auditPluginMaxSqlLength, str.getBytes().length);
+    private static String truncateByBytes(String str, int maxLen, String suffix) {
         // use `getBytes().length` to get real byte length
         if (maxLen >= str.getBytes().length) {
             return str;
@@ -160,7 +156,7 @@ public class AuditLogHelper {
         decoder.onMalformedInput(CodingErrorAction.IGNORE);
         decoder.decode(buffer, charBuffer, true);
         decoder.flush(charBuffer);
-        return new String(charBuffer.array(), 0, charBuffer.position());
+        return new String(charBuffer.array(), 0, charBuffer.position()) + suffix;
     }
 
     /**

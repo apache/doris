@@ -75,7 +75,7 @@ public class AuditLogBuilderTest {
             Assert.assertTrue("Result should contain truncation message",
                     result.contains("/* truncated. audit_plugin_max_sql_length=50 */"));
             Assert.assertTrue("Result should be shorter than original",
-                    result.length() < longStmt.length() + 100); // Add length for truncation message
+                    result.getBytes().length < longStmt.getBytes().length + 100); // Add length for truncation message
 
             // 4. Test statement with newlines, tabs, carriage returns
             String stmtWithSpecialChars = "SELECT *\nFROM table1\tWHERE id = 1\r";
@@ -259,7 +259,7 @@ public class AuditLogBuilderTest {
                 // Verify truncated length is reasonable (original part + truncation info)
                 String expectedTruncationMsg = " ... /* truncated audit_plugin_max_sql_length=" + maxLength + " */";
                 Assert.assertTrue("Truncated. result should be reasonable length",
-                        result.length() <= maxLength + expectedTruncationMsg.length() + 10); // Allow some UTF-8 encoding error margin
+                        result.getBytes().length <= maxLength + expectedTruncationMsg.getBytes().length + 10); // Allow some UTF-8 encoding error margin
             }
 
         } finally {
@@ -286,7 +286,7 @@ public class AuditLogBuilderTest {
             Assert.assertNotNull("Result should not be null", result);
 
             // If truncated, should contain truncation info
-            if (utf8Stmt.length() > 20) {
+            if (utf8Stmt.getBytes().length > 20) {
                 Assert.assertTrue("Should contain truncation message for UTF-8 text",
                         result.contains("/* truncated. audit_plugin_max_sql_length=20 */"));
             } else {
@@ -352,6 +352,313 @@ public class AuditLogBuilderTest {
             // Restore original values
             GlobalVariable.auditPluginMaxSqlLength = originalMaxSqlLength;
             GlobalVariable.auditPluginMaxInsertStmtLength = originalMaxInsertStmtLength;
+        }
+    }
+
+    @Test
+    public void testHandleStmtInsertLengthLimitLogic() {
+        // Save original values
+        int originalMaxSqlLength = GlobalVariable.auditPluginMaxSqlLength;
+        int originalMaxInsertStmtLength = GlobalVariable.auditPluginMaxInsertStmtLength;
+        ConnectContext ctx = new ConnectContext();
+        ctx.changeDefaultCatalog("internal");
+        ctx.setDatabase("db1");
+
+        try {
+            ctx.setThreadLocalInfo();
+            NereidsParser parser = new NereidsParser();
+
+            // Test 1: auditPluginMaxInsertStmtLength < auditPluginMaxSqlLength
+            // Should use the smaller INSERT limit
+            GlobalVariable.auditPluginMaxSqlLength = 200;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 80;
+
+            String insertStmt = "INSERT INTO test_table VALUES " + generateValueList(50); // Generate a long INSERT
+            StatementBase parsedStmt = parser.parseSQL(insertStmt).get(0);
+            String result = AuditLogHelper.handleStmt(insertStmt, parsedStmt);
+
+            if (insertStmt.getBytes().length > 80) {
+                Assert.assertTrue("Should use insert stmt length limit (80) when it's smaller",
+                        result.contains("audit_plugin_max_insert_stmt_length=80"));
+                Assert.assertFalse("Should not use sql length limit when insert limit is smaller",
+                        result.contains("audit_plugin_max_sql_length=200"));
+            }
+
+            // Test 2: auditPluginMaxInsertStmtLength > auditPluginMaxSqlLength  
+            // Should use the smaller SQL limit
+            GlobalVariable.auditPluginMaxSqlLength = 60;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 150;
+
+            result = AuditLogHelper.handleStmt(insertStmt, parsedStmt);
+
+            if (insertStmt.getBytes().length > 60) {
+                Assert.assertTrue("Should use insert stmt length limit (60) when sql limit is smaller",
+                        result.contains("audit_plugin_max_insert_stmt_length=60"));
+            }
+
+            // Test 3: auditPluginMaxInsertStmtLength = auditPluginMaxSqlLength
+            // Should use the same limit value
+            GlobalVariable.auditPluginMaxSqlLength = 100;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 100;
+
+            result = AuditLogHelper.handleStmt(insertStmt, parsedStmt);
+
+            if (insertStmt.getBytes().length > 100) {
+                Assert.assertTrue("Should use limit (100) when both limits are equal",
+                        result.contains("audit_plugin_max_insert_stmt_length=100"));
+            }
+
+            // Test 4: Test with very small but valid limits
+            GlobalVariable.auditPluginMaxSqlLength = 10;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 15;
+
+            // Create a short INSERT that will exceed the 10-char SQL limit
+            String shortInsert = "INSERT INTO t VALUES (1, 'data')";
+            parsedStmt = parser.parseSQL(shortInsert).get(0);
+            result = AuditLogHelper.handleStmt(shortInsert, parsedStmt);
+
+            // Math.max(0, Math.min(15, 10)) = Math.max(0, 10) = 10
+            if (shortInsert.getBytes().length > 10) {
+                Assert.assertTrue("Should use the smaller limit (10) when sql limit is smaller",
+                        result.contains("audit_plugin_max_insert_stmt_length=10"));
+            }
+
+            // Test 5: Test with small INSERT limit but larger SQL limit
+            GlobalVariable.auditPluginMaxSqlLength = 100;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 25;
+
+            result = AuditLogHelper.handleStmt(shortInsert, parsedStmt);
+
+            // Math.max(0, Math.min(25, 100)) = Math.max(0, 25) = 25
+            if (shortInsert.getBytes().length > 25) {
+                Assert.assertTrue("Should use the insert limit (25) when it's smaller",
+                        result.contains("audit_plugin_max_insert_stmt_length=25"));
+            }
+
+            // Test 6: Verify the exact boundary behavior
+            GlobalVariable.auditPluginMaxSqlLength = 100;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 50;
+
+            // Create an INSERT statement with exactly 50 characters
+            String exactLengthInsert = createExactLengthInsertStatement(50);
+            parsedStmt = parser.parseSQL(exactLengthInsert).get(0);
+            result = AuditLogHelper.handleStmt(exactLengthInsert, parsedStmt);
+
+            Assert.assertFalse("Statement with exactly max length should not be truncated",
+                    result.contains("truncated"));
+
+            // Create an INSERT statement with 51 characters (1 over limit)
+            String overLimitInsert = createExactLengthInsertStatement(51);
+            parsedStmt = parser.parseSQL(overLimitInsert).get(0);
+            result = AuditLogHelper.handleStmt(overLimitInsert, parsedStmt);
+
+            Assert.assertTrue("Statement exceeding max length by 1 should be truncated",
+                    result.contains("audit_plugin_max_insert_stmt_length=50"));
+
+            // Test 7: Test the Math.min logic with different combinations
+            GlobalVariable.auditPluginMaxSqlLength = 120;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 80;
+
+            String mediumInsert = "INSERT INTO table_name VALUES " + generateValueList(10);
+            parsedStmt = parser.parseSQL(mediumInsert).get(0);
+            result = AuditLogHelper.handleStmt(mediumInsert, parsedStmt);
+
+            // Should use Math.max(0, Math.min(80, 120)) = 80
+            if (mediumInsert.getBytes().length > 80) {
+                Assert.assertTrue("Should use the smaller insert limit (80)",
+                        result.contains("audit_plugin_max_insert_stmt_length=80"));
+            }
+
+        } finally {
+            // Restore original values
+            GlobalVariable.auditPluginMaxSqlLength = originalMaxSqlLength;
+            GlobalVariable.auditPluginMaxInsertStmtLength = originalMaxInsertStmtLength;
+            ConnectContext.remove();
+        }
+    }
+
+    /**
+     * Helper method to generate a VALUES list with specified number of rows
+     */
+    private String generateValueList(int rowCount) {
+        StringBuilder sb = new StringBuilder("(1, 'value1')");
+        for (int i = 2; i <= rowCount; i++) {
+            sb.append(", (").append(i).append(", 'value").append(i).append("')");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Helper method to create INSERT statement with exact character length
+     */
+    private String createExactLengthInsertStatement(int targetLength) {
+        String prefix = "INSERT INTO t VALUES (1, '";
+        String suffix = "')";
+        int dataLength = targetLength - prefix.getBytes().length - suffix.getBytes().length;
+
+        if (dataLength <= 0) {
+            // If target length is too small, create minimal valid INSERT
+            return "INSERT INTO t VALUES (1)";
+        }
+
+        StringBuilder data = new StringBuilder();
+        for (int i = 0; i < dataLength; i++) {
+            data.append("a");
+        }
+
+        return prefix + data.toString() + suffix;
+    }
+
+    @Test
+    public void testHandleStmtWithAbnormalLengthLimits() {
+        // Save original values
+        int originalMaxSqlLength = GlobalVariable.auditPluginMaxSqlLength;
+        int originalMaxInsertStmtLength = GlobalVariable.auditPluginMaxInsertStmtLength;
+        ConnectContext ctx = new ConnectContext();
+        ctx.changeDefaultCatalog("internal");
+        ctx.setDatabase("db1");
+
+        try {
+            ctx.setThreadLocalInfo();
+            NereidsParser parser = new NereidsParser();
+
+            // Test INSERT statement that will be used across multiple test cases
+            String testInsertStmt = "INSERT INTO test_table VALUES (1, 'test_data')";
+            StatementBase parsedInsertStmt = parser.parseSQL(testInsertStmt).get(0);
+
+            // Test non-INSERT statement
+            StatementBase nonInsertStmt = new EmptyStmt();
+            String testSelectStmt = "SELECT * FROM test_table WHERE id = 1";
+
+            // Test Case 1: auditPluginMaxSqlLength = 0, auditPluginMaxInsertStmtLength > 0
+            // Expected: Math.max(0, Math.min(positive, 0)) = Math.max(0, 0) = 0
+            GlobalVariable.auditPluginMaxSqlLength = 0;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 50;
+
+            String result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null when sql length limit is 0", result);
+            // When maxLen = 0, the statement should be heavily truncated
+            if (testInsertStmt.getBytes().length > 0) {
+                Assert.assertTrue("Should be truncated when effective limit is 0",
+                        result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
+            }
+
+            // Test Case 2: auditPluginMaxSqlLength > 0, auditPluginMaxInsertStmtLength = 0  
+            // Expected: Math.max(0, Math.min(0, positive)) = Math.max(0, 0) = 0
+            GlobalVariable.auditPluginMaxSqlLength = 50;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 0;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null when insert length limit is 0", result);
+            if (testInsertStmt.getBytes().length > 0) {
+                Assert.assertTrue("Should be truncated when effective limit is 0",
+                        result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
+            }
+
+            // Test Case 3: Both limits are 0
+            // Expected: Math.max(0, Math.min(0, 0)) = Math.max(0, 0) = 0
+            GlobalVariable.auditPluginMaxSqlLength = 0;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 0;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null when both limits are 0", result);
+            if (testInsertStmt.getBytes().length > 0) {
+                Assert.assertTrue("Should be truncated when both limits are 0",
+                        result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
+            }
+
+            // Test Case 4: Negative auditPluginMaxSqlLength
+            // Expected: Math.max(0, Math.min(positive, negative)) = Math.max(0, negative) = 0
+            GlobalVariable.auditPluginMaxSqlLength = -10;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 50;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null when sql length limit is negative", result);
+            if (testInsertStmt.getBytes().length > 0) {
+                Assert.assertTrue("Should be truncated when sql limit is negative",
+                        result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
+            }
+
+            // Test Case 5: Negative auditPluginMaxInsertStmtLength
+            // Expected: Math.max(0, Math.min(negative, positive)) = Math.max(0, negative) = 0  
+            GlobalVariable.auditPluginMaxSqlLength = 50;
+            GlobalVariable.auditPluginMaxInsertStmtLength = -20;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null when insert length limit is negative", result);
+            if (testInsertStmt.getBytes().length > 0) {
+                Assert.assertTrue("Should be truncated when insert limit is negative",
+                        result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
+            }
+
+            // Test Case 6: Both limits are negative
+            // Expected: Math.max(0, Math.min(negative1, negative2)) = Math.max(0, min(neg1,neg2)) = 0
+            GlobalVariable.auditPluginMaxSqlLength = -15;
+            GlobalVariable.auditPluginMaxInsertStmtLength = -25;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null when both limits are negative", result);
+            if (testInsertStmt.getBytes().length > 0) {
+                Assert.assertTrue("Should be truncated when both limits are negative",
+                        result.contains("audit_plugin_max_insert_stmt_length=0") || result.isEmpty());
+            }
+
+            // Test Case 7: Test non-INSERT statement with abnormal limits
+            // Non-INSERT statements should use auditPluginMaxSqlLength directly in truncateByBytes
+            GlobalVariable.auditPluginMaxSqlLength = 0;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 100; // This should be ignored for non-INSERT
+
+            result = AuditLogHelper.handleStmt(testSelectStmt, nonInsertStmt);
+            Assert.assertNotNull("Result should not be null for non-INSERT with zero sql limit", result);
+            // Non-INSERT statements bypass the Math.max(0, Math.min(...)) logic and go directly to truncateByBytes
+
+            // Test Case 8: Very large negative numbers
+            GlobalVariable.auditPluginMaxSqlLength = Integer.MIN_VALUE;
+            GlobalVariable.auditPluginMaxInsertStmtLength = Integer.MIN_VALUE;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null with very large negative values", result);
+
+            // Test Case 9: Mixed extreme values
+            GlobalVariable.auditPluginMaxSqlLength = Integer.MAX_VALUE;
+            GlobalVariable.auditPluginMaxInsertStmtLength = Integer.MIN_VALUE;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null with mixed extreme values", result);
+            // Expected: Math.max(0, Math.min(MIN_VALUE, MAX_VALUE)) = Math.max(0, MIN_VALUE) = 0
+
+            // Test Case 10: Edge case with very small positive numbers
+            GlobalVariable.auditPluginMaxSqlLength = 1;
+            GlobalVariable.auditPluginMaxInsertStmtLength = 1;
+
+            result = AuditLogHelper.handleStmt(testInsertStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null with very small positive limits", result);
+            // Expected: Math.max(0, Math.min(1, 1)) = Math.max(0, 1) = 1
+            if (testInsertStmt.getBytes().length > 1) {
+                Assert.assertTrue("Should be truncated with limit of 1",
+                        result.contains("audit_plugin_max_insert_stmt_length=1"));
+            }
+
+            // Test Case 11: Test empty string with abnormal limits
+            String emptyStmt = "";
+            GlobalVariable.auditPluginMaxSqlLength = -5;
+            GlobalVariable.auditPluginMaxInsertStmtLength = -10;
+
+            result = AuditLogHelper.handleStmt(emptyStmt, parsedInsertStmt);
+            Assert.assertNotNull("Result should not be null for empty string", result);
+            Assert.assertEquals("Empty string should remain empty", "", result);
+
+        } catch (Exception e) {
+            // If any exception occurs, we want to log it but not fail the test immediately
+            // This helps us identify which specific abnormal values cause issues
+            Assert.fail("Unexpected exception with abnormal length limits: " + e.getMessage() + 
+                       ". sqlLength=" + GlobalVariable.auditPluginMaxSqlLength + 
+                       ", insertLength=" + GlobalVariable.auditPluginMaxInsertStmtLength);
+        } finally {
+            // Restore original values
+            GlobalVariable.auditPluginMaxSqlLength = originalMaxSqlLength;
+            GlobalVariable.auditPluginMaxInsertStmtLength = originalMaxInsertStmtLength;
+            ConnectContext.remove();
         }
     }
 
