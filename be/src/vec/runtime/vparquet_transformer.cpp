@@ -228,10 +228,7 @@ Status VParquetTransformer::_parse_properties() {
         builder.max_row_group_length(std::numeric_limits<int64_t>::max());
         builder.memory_pool(pool);
         _parquet_writer_properties = builder.build();
-        _arrow_properties = parquet::ArrowWriterProperties::Builder()
-                                    .enable_deprecated_int96_timestamps()
-                                    ->store_schema()
-                                    ->build();
+        _arrow_properties = parquet::ArrowWriterProperties::Builder().store_schema()->build();
     } catch (const parquet::ParquetException& e) {
         return Status::InternalError("parquet writer parse properties error: {}", e.what());
     }
