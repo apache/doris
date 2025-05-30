@@ -65,7 +65,7 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
 }
 
 void ConjunctionQuery::search(roaring::Roaring& roaring) {
-    if (_lead1->is_empty()) {
+    if (_lead1 == nullptr) {
         return;
     }
 
@@ -100,7 +100,7 @@ void ConjunctionQuery::search_by_bitmap(roaring::Roaring& roaring) {
     func(_lead1, true);
 
     // the second inverted list may be empty
-    if (!_lead2->is_empty()) {
+    if (_lead2 != nullptr) {
         func(_lead2, false);
     }
 
@@ -133,7 +133,7 @@ int32_t ConjunctionQuery::do_next(int32_t doc) {
         // if both lead1 and lead2 exist, use skip list to lookup other inverted indexes
         bool advance_head = false;
         for (auto& other : _others) {
-            if (other->is_empty()) {
+            if (other == nullptr) {
                 continue;
             }
 

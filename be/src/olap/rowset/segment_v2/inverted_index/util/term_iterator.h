@@ -46,8 +46,6 @@ public:
     TermIterator(TermDocsPtr term_docs) : term_docs_(std::move(term_docs)) {}
     virtual ~TermIterator() = default;
 
-    bool is_empty() const { return term_docs_ == nullptr; }
-
     int32_t doc_id() const {
         int32_t docId = term_docs_->doc();
         return docId >= INT_MAX ? INT_MAX : docId;
