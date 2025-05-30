@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
@@ -49,6 +50,8 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -457,6 +460,22 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     default:
         LOG(WARNING) << "unknown field type. [type=" << type << "]";
         return 0;
+    }
+}
+
+bool TabletColumn::has_char_type() const {
+    switch (_type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR: {
+        return true;
+    }
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+    case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+        return std::any_of(_sub_columns.begin(), _sub_columns.end(),
+                           [&](const auto& sub) -> bool { return sub->has_char_type(); });
+    }
+    default:
+        return false;
     }
 }
 
