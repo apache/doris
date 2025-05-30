@@ -146,13 +146,6 @@ Status CloudTablet::merge_rowsets_schema() {
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode
 // This function will erase the tablet from `CloudTabletMgr` when it can't find this tablet in MS.
 Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* stats) {
-    int64_t duration_ns {0};
-    Defer defer {[&]() {
-        if (stats) {
-            stats->get_remote_rowsets_total_time_ns += duration_ns;
-        }
-    }};
-    SCOPED_RAW_TIMER(&duration_ns);
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
