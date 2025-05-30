@@ -39,7 +39,7 @@
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_date_v1 = std::make_shared<DataTypeDate64SerDe>();
+static auto serde_date_v1 = std::make_shared<DataTypeDate64SerDe<>>();
 static auto serde_datetime_v1 = std::make_shared<DataTypeDateTimeSerDe>(0);
 
 static ColumnDateTime::MutablePtr column_datetime_v1_0;

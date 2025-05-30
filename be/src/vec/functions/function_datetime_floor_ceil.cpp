@@ -87,7 +87,7 @@ class FunctionDateTimeFloorCeil : public IFunction {
 public:
     using DateValueType = date_cast::TypeToValueTypeV<DateType>;
     using NativeType = DateType::FieldType;
-    using DeltaDataType = DataTypeNumber<Int32>;
+    using DeltaDataType = DataTypeInt32;
     // return date type = DateType
     static constexpr auto name = Flag::name;
 
