@@ -17,8 +17,6 @@
 
 #include "vec/common/sort/heap_sorter.h"
 
-#include "vec/core/sort_block.h"
-
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -35,8 +33,8 @@ Status HeapSorter::append_block(Block* block) {
     }
     auto tmp_block = std::make_shared<Block>(block->clone_empty());
     RETURN_IF_ERROR(partial_sort(*block, *tmp_block));
-    _queue.push(MergeSortCursor(
-            std::make_shared<MergeSortCursorImpl>(tmp_block, _sort_description_reversed)));
+    _queue.push(
+            MergeSortCursor(std::make_shared<MergeSortCursorImpl>(tmp_block, _sort_description)));
     _queue_row_num += tmp_block->rows();
     _data_size += tmp_block->allocated_bytes();
 
@@ -92,14 +90,9 @@ Status HeapSorter::_prepare_sort_descs(Block* block) {
         const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
         RETURN_IF_ERROR(ordering_expr->execute(block, &_sort_description[i].column_number));
 
-        _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
+        _sort_description[i].direction = _is_asc_order[i] ? -1 : 1; // reversed
         _sort_description[i].nulls_direction =
                 _nulls_first[i] ? -_sort_description[i].direction : _sort_description[i].direction;
-    }
-
-    _sort_description_reversed = _sort_description;
-    for (int i = 0; i < _sort_description.size(); i++) {
-        _sort_description_reversed[i].direction *= -1;
     }
 
     _init_sort_descs = true;
