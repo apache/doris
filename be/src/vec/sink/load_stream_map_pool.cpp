@@ -126,6 +126,22 @@ void LoadStreamMap::close_load(bool incremental) {
     }
 }
 
+void LoadStreamMap::close_load_all_streams() {
+    for (auto& [dst_id, streams] : _streams_for_node) {
+        std::vector<PTabletID> tablets_to_commit;
+        const auto& tablets = _tablets_to_commit[dst_id];
+        tablets_to_commit.reserve(tablets.size());
+        for (const auto& [tablet_id, tablet] : tablets) {
+            tablets_to_commit.push_back(tablet);
+            tablets_to_commit.back().set_num_segments(_segments_for_tablet[tablet_id]);
+        }
+        auto st = streams->close_load(tablets_to_commit);
+        if (!st.ok()) {
+            LOG(WARNING) << "close_load for all streams failed: " << st << ", load_id=" << _load_id;
+        }
+    }
+}
+
 LoadStreamMapPool::LoadStreamMapPool() = default;
 
 LoadStreamMapPool::~LoadStreamMapPool() = default;

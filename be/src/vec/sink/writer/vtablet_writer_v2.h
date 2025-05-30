@@ -149,6 +149,8 @@ private:
 
     Status _close_wait(bool incremental);
 
+    Status _close_wait_all_streams();
+
     void _cancel(Status status);
 
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -230,6 +232,8 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
+
+    bool _auto_partition_one_step_close = false;
 };
 
 } // namespace vectorized

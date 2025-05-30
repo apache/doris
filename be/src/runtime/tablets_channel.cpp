@@ -157,7 +157,10 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
      *     then _num_remaining_senders will not be set here. but inc every time when incremental_open() called. so it's dynamic
      *     and also need same number of senders' close to close. but will not hang.
      */
-    if (_open_by_incremental) {
+    bool auto_partition_one_step_close = request.has_auto_partition_one_step_close()
+                                                 ? request.auto_partition_one_step_close()
+                                                 : false;
+    if (!auto_partition_one_step_close && _open_by_incremental) {
         DCHECK(_num_remaining_senders == 0) << _num_remaining_senders;
     } else {
         _num_remaining_senders = max_sender;

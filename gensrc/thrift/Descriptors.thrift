@@ -196,6 +196,7 @@ struct TOlapTablePartition {
     10: optional bool is_default_partition;
     // only used in random distribution scenario to make data distributed even 
     11: optional i64 load_tablet_idx
+    12: optional bool partition_is_fake = false
 }
 
 struct TOlapTablePartitionParam {
@@ -220,7 +221,10 @@ struct TOlapTablePartitionParam {
     // insert overwrite partition(*)
     11: optional bool enable_auto_detect_overwrite
     12: optional i64 overwrite_group_id
+    // deprecated, use partitions.partition_is_fake instead
     13: optional bool partitions_is_fake = false
+    // upgrade compability
+    14: optional bool auto_partition_one_step_close
 }
 
 struct TOlapTableIndex {

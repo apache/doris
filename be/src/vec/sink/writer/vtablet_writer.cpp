@@ -125,7 +125,14 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 _node_channels.emplace(replica_node_id, channel);
                 // incremental opened new node. when close we have use two-stage close.
                 if (incremental) {
-                    _has_inc_node = true;
+                    if (_parent->_t_sink.olap_table_sink.partition.__isset
+                                .auto_partition_one_step_close &&
+                        _parent->_t_sink.olap_table_sink.partition.auto_partition_one_step_close) {
+                        return Status::InternalError(
+                                "incremental channel should already initialized");
+                    } else {
+                        _has_inc_node = true;
+                    }
                 }
                 LOG(INFO) << "init new node for instance " << _parent->_sender_id
                           << ", node id:" << replica_node_id << ", incremantal:" << incremental;
@@ -443,6 +450,11 @@ void VNodeChannel::_open_internal(bool is_incremental) {
 
     if (_wg_id > 0) {
         request->set_workload_group_id(_wg_id);
+    }
+
+    if (_parent->_t_sink.olap_table_sink.partition.__isset.auto_partition_one_step_close) {
+        request->set_auto_partition_one_step_close(
+                _parent->_t_sink.olap_table_sink.partition.auto_partition_one_step_close);
     }
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
@@ -1465,7 +1477,10 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
             // when they all closed, we are sure all Writer of instances called _do_try_close. that means no new channel
             // will be opened. the refcount of recievers will be monotonically decreasing. then we are safe to close all
             // our channels.
-            if (index_channel->has_incremental_node_channel()) {
+            bool auto_partition_one_step_close =
+                    _t_sink.olap_table_sink.partition.__isset.auto_partition_one_step_close &&
+                    _t_sink.olap_table_sink.partition.auto_partition_one_step_close;
+            if (index_channel->has_incremental_node_channel() && !auto_partition_one_step_close) {
                 if (!status.ok()) {
                     break;
                 }
@@ -1519,7 +1534,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                                         *ch);
                             }
                         });
-            } else { // not has_incremental_node_channel
+            } else {
                 VLOG_TRACE << _sender_id << " has no incremental channels " << _txn_id;
                 index_channel->for_each_node_channel(
                         [&index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {

@@ -98,6 +98,10 @@ public:
     // only call this method after release() returns true.
     void close_load(bool incremental);
 
+    // send CLOSE_LOAD to all streams, return ERROR if any.
+    // only call this method after release() returns true.
+    void close_load_all_streams();
+
 private:
     const UniqueId _load_id;
     const int64_t _src_id;

@@ -109,6 +109,8 @@ message PTabletWriterOpenRequest {
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
     optional int64 workload_group_id = 20;
+    // upgrade compatible
+    optional bool auto_partition_one_step_close = 21;
 };
 
 message PTabletWriterOpenResult {
@@ -879,6 +881,8 @@ message POpenLoadStreamRequest {
     optional bool enable_profile = 6 [default = false];
     optional int64 total_streams = 7;
     optional int64 idle_timeout_ms = 8;
+    // update compability
+    optional bool auto_partition_one_step_close = 9;
 }
 
 message PTabletSchemaWithIndex {
