@@ -614,6 +614,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -7769,6 +7770,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         return new CreateDictionaryCommand(ctx.EXISTS() != null, // if not exists
                 dbName, dictName, sCatalogName, sDbName, sTableName, columns, properties, layoutType);
+    }
+
+    @Override
+    public LogicalPlan visitCreateStorageVault(DorisParser.CreateStorageVaultContext ctx) {
+        String vaultName = visitIdentifierOrText(ctx.identifierOrText());
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+
+        return new CreateStorageVaultCommand(
+            ctx.IF() != null,
+                vaultName,
+                properties);
     }
 
     @Override
