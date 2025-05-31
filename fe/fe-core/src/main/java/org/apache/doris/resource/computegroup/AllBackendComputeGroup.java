@@ -28,8 +28,10 @@ import java.util.Set;
 
 public class AllBackendComputeGroup extends ComputeGroup {
 
+    private static final String ALL_BACKEND_COMPUTE_GROUP_NAME = "_all_compute_group";
+
     public AllBackendComputeGroup(SystemInfoService systemInfoService) {
-        super(AllBackendComputeGroup.class.getSimpleName(), AllBackendComputeGroup.class.getSimpleName(),
+        super(ALL_BACKEND_COMPUTE_GROUP_NAME, ALL_BACKEND_COMPUTE_GROUP_NAME,
                 systemInfoService);
     }
 
@@ -41,16 +43,6 @@ public class AllBackendComputeGroup extends ComputeGroup {
         // currently AllBackendComputeGroup is used when admin/root user not specifies a resource tag,
         // then they can get all backends
         return true;
-    }
-
-    @Override
-    public String getId() {
-        throw new RuntimeException("AllBackendComputeGroup not implements getId.");
-    }
-
-    @Override
-    public String getName() {
-        throw new RuntimeException("AllBackendComputeGroup not implements getName.");
     }
 
     @Override
@@ -71,7 +63,7 @@ public class AllBackendComputeGroup extends ComputeGroup {
 
     @Override
     public String toString() {
-        return AllBackendComputeGroup.class.getSimpleName();
+        return ALL_BACKEND_COMPUTE_GROUP_NAME;
     }
 
 }
