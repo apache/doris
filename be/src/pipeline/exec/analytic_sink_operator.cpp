@@ -26,6 +26,7 @@
 
 #include "pipeline/exec/operator.h"
 #include "runtime/runtime_state.h"
+#include "util/uid_util.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
@@ -60,6 +61,7 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 p._window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
                 // For window frame `RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_range;
+                _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_range_between;
             }
@@ -69,13 +71,12 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         if (!p._has_window_start && !p._has_window_end) {
             _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_partition;
         } else {
-            if (!p._has_window_start &&
-                p._window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) {
+            if (!p._has_window_start) {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_unbounded_rows;
-                _streaming_mode = true;
             } else {
                 _executor.get_next_impl = &AnalyticSinkLocalState::_get_next_for_sliding_rows;
             }
+            _streaming_mode = true;
         }
 
         if (p._has_window_start) { //calculate start boundary
@@ -194,16 +195,19 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
 
 bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
                                                         int64_t current_block_base_pos) {
-    while (_current_row_position < _partition_by_pose.end) {
-        int64_t current_row_start = 0;
+    int64_t remain_size = batch_rows - current_pos_in_block();
+    while (_current_row_position < _partition_by_pose.end && remain_size > 0) {
+        int64_t current_row_start = _current_row_position + _rows_start_offset;
         int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
+        const bool is_n_following_frame = _rows_end_offset > 0;
 
-        _reset_agg_status();
-        if (!_parent->cast<AnalyticSinkOperatorX>()._window.__isset.window_start) {
-            current_row_start = _partition_by_pose.start;
-        } else {
-            current_row_start = _current_row_position + _rows_start_offset;
+        if (is_n_following_frame && !_partition_by_pose.is_ended &&
+            current_row_end > _partition_by_pose.end) {
+            _need_more_data = true;
+            return false;
         }
+        _reset_agg_status();
+
         // Eg: rows between unbounded preceding and 10 preceding
         // Make sure range_start <= range_end
         current_row_start = std::min(current_row_start, current_row_end);
@@ -212,7 +216,8 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
-        if (_current_row_position - current_block_base_pos >= batch_rows) {
+        remain_size--;
+        if (remain_size == 0) {
             return true;
         }
     }
@@ -221,16 +226,29 @@ bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_rows(int64_t batch_rows,
                                                           int64_t current_block_base_pos) {
-    while (_current_row_position < _partition_by_pose.end) {
+    int64_t remain_size = batch_rows - current_pos_in_block();
+    while (_current_row_position < _partition_by_pose.end && remain_size > 0) {
+        int64_t current_row_end = _current_row_position + _rows_end_offset + 1;
+        const bool is_n_following_frame = _rows_end_offset > 0;
         // [preceding, current_row], [current_row, following] rewrite it's same
         // as could reuse the previous calculate result, so don't call _reset_agg_status function
         // going on calculate, add up data, no need to reset state
-        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
-                              _current_row_position, _current_row_position + 1);
+        if (is_n_following_frame && !_partition_by_pose.is_ended &&
+            current_row_end > _partition_by_pose.end) {
+            _need_more_data = true;
+            return false;
+        }
+        if (is_n_following_frame && _current_row_position == _partition_by_pose.start) {
+            _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
+                                  _partition_by_pose.start, current_row_end - 1);
+        }
+        _execute_for_function(_partition_by_pose.start, _partition_by_pose.end, current_row_end - 1,
+                              current_row_end);
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + 1);
         _current_row_position++;
-        if (_current_row_position - current_block_base_pos >= batch_rows) {
+        remain_size--;
+        if (remain_size == 0) {
             return true;
         }
     }
@@ -261,8 +279,14 @@ bool AnalyticSinkLocalState::_get_next_for_partition(int64_t batch_rows,
 
 bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
                                                            int64_t current_block_base_pos) {
-    while (_current_row_position < _partition_by_pose.end) {
-        _update_order_by_range();
+    int64_t remain_size = batch_rows - current_pos_in_block();
+    _update_order_by_range();
+    if (!_order_by_pose.is_ended) {
+        DCHECK(!_partition_by_pose.is_ended);
+        _need_more_data = true;
+        return false;
+    }
+    while (_current_row_position < _order_by_pose.end && remain_size > 0) {
         if (_current_row_position == _order_by_pose.start) {
             _execute_for_function(_partition_by_pose.start, _partition_by_pose.end,
                                   _order_by_pose.start, _order_by_pose.end);
@@ -274,7 +298,9 @@ bool AnalyticSinkLocalState::_get_next_for_unbounded_range(int64_t batch_rows,
         int64_t pos = current_pos_in_block();
         _insert_result_info(pos, pos + real_deal_with_width);
         _current_row_position += real_deal_with_width;
+        remain_size -= real_deal_with_width;
         if (_current_row_position - current_block_base_pos >= batch_rows) {
+            DCHECK(remain_size <= 0);
             return true;
         }
     }
@@ -321,7 +347,7 @@ Status AnalyticSinkLocalState::_execute_impl() {
         {
             _get_partition_by_end();
             // streaming_mode means no need get all parition data, could calculate data when it's arrived
-            if (!_partition_by_pose.is_ended && !_streaming_mode) {
+            if (!_partition_by_pose.is_ended && (!_streaming_mode || _need_more_data)) {
                 break;
             }
             _init_result_columns();
@@ -356,6 +382,10 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
     _current_window_empty =
             std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
 
+    if (_current_window_empty) {
+        LOG(INFO) << "asd " << print_id(state()->query_id());
+    }
+    _current_window_empty = false;
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i] && _current_window_empty) {
             continue;
