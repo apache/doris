@@ -204,8 +204,8 @@ private:
             builder.append(entry.first.get_parts(), false);
             PathInData parent_path = builder.build();
             // unset nested parts
-            parent_path.unset_nested();
-            DCHECK(!parent_path.has_nested_part());
+            // parent_path.unset_nested();
+            // DCHECK(!parent_path.has_nested_part());
             container_variant.add_sub_column(parent_path, array->assume_mutable(),
                                              ColumnVariant::NESTED_TYPE);
         }
