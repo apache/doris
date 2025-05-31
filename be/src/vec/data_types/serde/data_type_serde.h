@@ -128,11 +128,6 @@ public:
     // in formatOptions.
     struct FormatOptions {
         /**
-         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
-         * use this format in olap, because it is more slower, keep this option is for compatibility.
-         */
-        bool date_olap_format = false;
-        /**
          * field delimiter is used to separate fields in one row
          */
         std::string field_delim = ",";
