@@ -721,7 +721,7 @@ public class Column implements GsonPostProcessable {
             case DOUBLE:
                 return 8;
             case QUANTILE_STATE:
-            case OBJECT:
+            case BITMAP:
                 return 16;
             case CHAR:
                 return stringLength;
