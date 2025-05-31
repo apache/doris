@@ -336,9 +336,8 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
     }
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
-                                   vectorized::ColumnVector<unsigned int>& row_indexs,
-                                   int column_offset, vectorized::Block* source_block,
-                                   bool try_all_match_one) {
+                                   vectorized::ColumnOffset32& row_indexs, int column_offset,
+                                   vectorized::Block* source_block, bool try_all_match_one) {
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&

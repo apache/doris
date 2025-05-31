@@ -292,21 +292,5 @@ protected:
     };
 };
 
-template <typename>
-class ColumnVector;
-
-template <typename T, bool is_decimal = false>
-struct ColumnVectorOrDecimalT {
-    using Col = ColumnVector<T>;
-};
-
-template <typename T>
-struct ColumnVectorOrDecimalT<T, true> {
-    using Col = ColumnDecimal<T>;
-};
-
-template <typename T>
-using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
-
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

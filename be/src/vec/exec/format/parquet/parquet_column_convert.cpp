@@ -179,9 +179,9 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
     case LOGICAL_PTYPE: {                                                                         \
         using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
         if (src_physical_type == tparquet::Type::INT32) {                                         \
-            physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE>());               \
+            physical_converter.reset(new NumberToDecimal<TYPE_INT, DECIMAL_TYPE>());              \
         } else {                                                                                  \
-            physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE>());               \
+            physical_converter.reset(new NumberToDecimal<TYPE_BIGINT, DECIMAL_TYPE>());           \
         }                                                                                         \
         break;                                                                                    \
     }

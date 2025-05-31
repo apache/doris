@@ -544,9 +544,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(vectorized::VExpr* vexpr,
                 _eos = true;
                 _scan_dependency->set_ready();
             }
-        } else if (const auto* bool_column =
-                           check_and_get_column<vectorized::ColumnVector<vectorized::UInt8>>(
-                                   const_col_wrapper->column_ptr.get())) {
+        } else if (const auto* bool_column = check_and_get_column<vectorized::ColumnUInt8>(
+                           const_col_wrapper->column_ptr.get())) {
             // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,

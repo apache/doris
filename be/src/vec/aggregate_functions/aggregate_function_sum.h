@@ -45,7 +45,7 @@ template <typename T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
 template <PrimitiveType T>
@@ -69,19 +69,13 @@ struct AggregateFunctionSumData {
 };
 
 /// Counts the sum of the numbers.
-template <typename T, PrimitiveType TResult, typename Data>
+template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionSum final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>> {
 public:
-    using ResultDataType = std::conditional_t<
-            IsDecimalNumber<T>,
-            DataTypeDecimal<typename PrimitiveTypeTraits<TResult>::ColumnItemType>,
-            DataTypeNumber<TResult>>;
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult =
-            std::conditional_t<IsDecimalNumber<T>,
-                               ColumnDecimal<typename PrimitiveTypeTraits<TResult>::ColumnItemType>,
-                               ColumnVector<typename PrimitiveTypeTraits<TResult>::ColumnItemType>>;
+    using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
 
     String get_name() const override { return "sum"; }
 
@@ -91,7 +85,7 @@ public:
               scale(get_decimal_scale(*argument_types_[0])) {}
 
     DataTypePtr get_return_type() const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
@@ -232,8 +226,7 @@ struct SumSimple {
                                                  : PrimitiveTypeTraits<T>::NearestPrimitiveType))
                      : T;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<T>::ColumnItemType,
-                                          ResultType, AggregateDataType>;
+    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };
 
 template <PrimitiveType T>
@@ -249,8 +242,7 @@ struct SumSimpleDecimal256 {
                                                  : PrimitiveTypeTraits<T>::NearestPrimitiveType))
                      : T;
     using AggregateDataType = AggregateFunctionSumData<ResultType>;
-    using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<T>::ColumnItemType,
-                                          ResultType, AggregateDataType>;
+    using Function = AggregateFunctionSum<T, ResultType, AggregateDataType>;
 };
 
 template <PrimitiveType T>
