@@ -15,23 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.mvcc;
+package org.apache.doris.datasource.iceberg.source;
 
-import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.catalog.TableIf;
+public class IcebergTableQueryInfo {
+    private long snapshotId;
+    private String ref;
+    private int schemaId;
 
-import java.util.Optional;
+    public IcebergTableQueryInfo(long snapshotId, String ref, int schemaId) {
+        this.snapshotId = snapshotId;
+        this.ref = ref;
+        this.schemaId = schemaId;
+    }
 
-/**
- * The table that needs to query data based on the version needs to implement this interface.
- */
-public interface MvccTable extends TableIf {
-    /**
-     * Retrieve the current snapshot information of the table,
-     * and the returned result will be used for the entire process of this query
-     *
-     * @return MvccSnapshot
-     */
-    MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams);
+    public long getSnapshotId() {
+        return snapshotId;
+    }
+
+    public String getRef() {
+        return ref;
+    }
+
+    public int getSchemaId() {
+        return schemaId;
+    }
 }
