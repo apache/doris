@@ -176,6 +176,7 @@ public class AuditLogHelper {
             } else if (child instanceof InlineTable) {
                 cnt += ((InlineTable) child).getConstantExprsList().size();
             } else if (child instanceof LogicalUnion) {
+                cnt += ((LogicalUnion) child).getConstantExprsList().size();
                 cnt += countValues(child.children());
             }
         }

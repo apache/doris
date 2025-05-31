@@ -2,11 +2,8 @@
 -- !eqset --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalProject
-------PhysicalWindow
---------PhysicalQuickSort[LOCAL_SORT]
-----------PhysicalDistribute[DistributionSpecHash]
-------------PhysicalProject
---------------filter((region.r_regionkey = 1))
-----------------PhysicalOlapScan[region]
-
+----PhysicalWindow
+------PhysicalQuickSort[LOCAL_SORT]
+--------PhysicalProject
+----------filter((region.r_regionkey = 1))
+------------PhysicalOlapScan[region]
