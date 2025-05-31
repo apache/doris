@@ -353,8 +353,8 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
 
     auto copy = [](const T* __restrict src, T* __restrict dest, const uint32_t* __restrict begin,
                    const uint32_t* __restrict end) {
-        for (const auto* it = begin; it != end; ++it) {
-            *dest = src[*it];
+        for (const auto* row_number = begin; row_number != end; ++row_number) {
+            *dest = src[*row_number];
             ++dest;
         }
     };
