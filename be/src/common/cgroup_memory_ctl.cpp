@@ -116,6 +116,15 @@ struct CgroupsV2Reader : CGroupMemoryCtl::ICgroupsReader {
         // Part of "slab" that might be reclaimed, such as dentries and inodes.
         // https://arthurchiao.art/blog/cgroupv2-zh/
         *value -= metrics_map["slab_reclaimable"];
+
+        // TODO, CgroupV2 MemAvailable is usually a little smaller than Process MemAvailable.
+        // Process `MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))`,
+        // from `MemAvailable` in `/proc/meminfo`, calculated by OS.
+        // CgroupV2 `MemAvailable = cgroup_mem_limit - cgroup_mem_usage`,
+        // `cgroup_mem_usage = memory.current - inactive_file - slab_reclaimable`, in fact,
+        // there seems to be some memory that can be reused in `cgroup_mem_usage`.
+        *value = 0;
+
         return Status::OK();
     }
 
