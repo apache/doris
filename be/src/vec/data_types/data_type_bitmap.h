@@ -48,7 +48,7 @@ public:
 
     using ColumnType = ColumnBitmap;
     using FieldType = BitmapValue;
-    static constexpr PrimitiveType PType = TYPE_OBJECT;
+    static constexpr PrimitiveType PType = TYPE_BITMAP;
 
     std::string do_get_name() const override { return get_family_name(); }
     const char* get_family_name() const override { return "BitMap"; }
