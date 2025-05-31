@@ -19,7 +19,6 @@
 #include "mock_query_context.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/workload_group/dummy_workload_group.h"
 
 namespace doris {
 

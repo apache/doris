@@ -126,6 +126,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
+    _resource_ctx->set_workload_group(ExecEnv::GetInstance()->dummy_workload_group());
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -381,20 +382,29 @@ void QueryContext::set_pipeline_context(
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
-    if (workload_group()) {
-        if (_task_scheduler) {
-            return _task_scheduler;
-        }
+    if (!_task_scheduler) {
+        throw Exception(Status::InternalError("task_scheduler is null"));
     }
-    return _exec_env->pipeline_task_scheduler();
+    return _task_scheduler;
 }
 
-void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
-    _resource_ctx->set_workload_group(wg);
-    // Should add query first, then the workload group will not be deleted.
+Status QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
+    // resource_ctx use dummmy wg as default wg.
+    // if user specify a wg, then set it in resource_ctx.
+    if (wg) {
+        _resource_ctx->set_workload_group(wg);
+    } else {
+        LOG(ERROR) << "query not set workload group";
+    }
+
+    // Should add query first, the workload group will not be deleted,
+    // then visit workload group's resource
     // see task_group_manager::delete_workload_group_by_ids
+    RETURN_IF_ERROR(workload_group()->add_resource_ctx(_query_id, _resource_ctx));
+
     workload_group()->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                           &_remote_scan_task_scheduler);
+    return Status::OK();
 }
 
 void QueryContext::add_fragment_profile(

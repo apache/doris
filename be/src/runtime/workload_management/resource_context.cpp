@@ -20,10 +20,26 @@
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
+#include "runtime/exec_env.h"
 #include "util/time.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+ResourceContext::ResourceContext() {
+    // These all default values, it may be reset.
+    cpu_context_ = CPUContext::create_unique();
+    memory_context_ = MemoryContext::create_unique();
+    io_context_ = IOContext::create_unique();
+    task_controller_ = TaskController::create_unique();
+
+    cpu_context_->set_resource_ctx(this);
+    memory_context_->set_resource_ctx(this);
+    io_context_->set_resource_ctx(this);
+    task_controller_->set_resource_ctx(this);
+
+    _workload_group = ExecEnv::GetInstance()->dummy_workload_group();
+}
 
 void ResourceContext::to_pb_query_statistics(PQueryStatistics* statistics) const {
     DCHECK(statistics != nullptr);

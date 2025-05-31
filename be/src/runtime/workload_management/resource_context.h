@@ -41,18 +41,7 @@ class ResourceContext : public std::enable_shared_from_this<ResourceContext> {
     ENABLE_FACTORY_CREATOR(ResourceContext);
 
 public:
-    ResourceContext() {
-        // These all default values, it may be reset.
-        cpu_context_ = CPUContext::create_unique();
-        memory_context_ = MemoryContext::create_unique();
-        io_context_ = IOContext::create_unique();
-        task_controller_ = TaskController::create_unique();
-
-        cpu_context_->set_resource_ctx(this);
-        memory_context_->set_resource_ctx(this);
-        io_context_->set_resource_ctx(this);
-        task_controller_->set_resource_ctx(this);
-    }
+    ResourceContext();
     ~ResourceContext() = default;
 
     // Only return the raw pointer to the caller, so that the caller should not save it to other variables.
