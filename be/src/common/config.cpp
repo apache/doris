@@ -1495,6 +1495,8 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
+DEFINE_mBool(enable_rowset_zone_map_cache, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
