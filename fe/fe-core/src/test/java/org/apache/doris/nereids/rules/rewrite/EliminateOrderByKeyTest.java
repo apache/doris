@@ -507,6 +507,6 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
                         + "    order by a, b, a+100,abs(a)+b;")
                 .rewrite()
                 .printlnTree()
-                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 2));
+                .matches(logicalSort().when(sort -> sort.getOrderKeys().size() == 1));
     }
 }

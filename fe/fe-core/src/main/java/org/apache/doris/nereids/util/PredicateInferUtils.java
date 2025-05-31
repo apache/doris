@@ -63,6 +63,10 @@ public class PredicateInferUtils {
         return expr instanceof SlotReference || expr instanceof Literal;
     }
 
+    public static boolean isSlotOrNotNullLiteral(Expression expr) {
+        return isSlotOrLiteral(expr) && !expr.isNullLiteral();
+    }
+
     /**The inputs predicate is divided into two parts. One is the predicate directly reserved, which does not enter
      *  the non equivalent derivation, and the other is the predicates entering the non equivalent derivation*/
     public static void getComplexAndSimplePredicates(Set<Expression> inputs, Set<Expression> complex,
