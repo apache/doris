@@ -261,11 +261,9 @@ Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     result.Accept(writer);
-    JsonbParser parser;
-    bool ok = parser.parse(buffer.GetString(), buffer.GetLength());
-    CHECK(ok);
-    col.insert_data(parser.getWriter().getOutput()->getBuffer(),
-                    parser.getWriter().getOutput()->getSize());
+    JsonBinaryValue jsonb_value;
+    RETURN_IF_ERROR(jsonb_value.from_json_string(buffer.GetString(), buffer.GetLength()));
+    col.insert_data(jsonb_value.value(), jsonb_value.size());
     return Status::OK();
 }
 Status DataTypeJsonbSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
