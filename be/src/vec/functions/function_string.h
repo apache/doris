@@ -3769,9 +3769,7 @@ struct SubReplaceImpl {
 
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
-                    if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(),
-                                           data_column->get_chars().size()})) {
+                    if (data_column->is_ascii()) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,
@@ -4359,11 +4357,7 @@ public:
         ColumnString::MutablePtr col_res = ColumnString::create();
 
         // if all input string is ascii, we can use ascii function to handle it
-        const bool is_all_ascii =
-                simd::VStringFunctions::is_ascii(StringRef {col_origin->get_chars().data(),
-                                                            col_origin->get_chars().size()}) &&
-                simd::VStringFunctions::is_ascii(
-                        StringRef {col_insert->get_chars().data(), col_insert->get_chars().size()});
+        const bool is_all_ascii = col_origin->is_ascii() && col_insert->is_ascii();
         std::visit(
                 [&](auto origin_const, auto pos_const, auto len_const, auto insert_const) {
                     if (is_all_ascii) {
@@ -4631,12 +4625,7 @@ public:
         const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
         const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
 
-        bool is_ascii = simd::VStringFunctions::is_ascii(
-                                {col_source->get_chars().data(), col_source->get_chars().size()}) &&
-                        simd::VStringFunctions::is_ascii(
-                                {col_from->get_chars().data(), col_from->get_chars().size()}) &&
-                        simd::VStringFunctions::is_ascii(
-                                {col_to->get_chars().data(), col_to->get_chars().size()});
+        bool is_ascii = col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
         auto impl_vectors = impl_vectors_utf8<false>;
         if (col_const[1] && col_const[2] && is_ascii) {
             impl_vectors = impl_vectors_ascii<true>;
