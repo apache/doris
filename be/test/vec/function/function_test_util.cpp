@@ -90,7 +90,7 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         type = std::make_shared<DataTypeJsonb>();
         desc = type;
         return 1;
-    case PrimitiveType::TYPE_OBJECT:
+    case PrimitiveType::TYPE_BITMAP:
         type = std::make_shared<DataTypeBitMap>();
         desc = type;
         return 1;
@@ -378,7 +378,7 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
             column->insert_data(jsonb_val.value(), jsonb_val.size());
             break;
         }
-        case PrimitiveType::TYPE_OBJECT: {
+        case PrimitiveType::TYPE_BITMAP: {
             auto* bitmap = any_cast<BitmapValue*>(cell);
             column->insert_data((char*)bitmap, sizeof(BitmapValue));
             break;

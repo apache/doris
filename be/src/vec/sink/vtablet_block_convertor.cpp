@@ -445,7 +445,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     // Only two case:
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
-    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_OBJECT) && column_ptr) {
+    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_BITMAP) && column_ptr) {
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {

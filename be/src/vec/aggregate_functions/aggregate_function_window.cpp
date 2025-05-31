@@ -303,7 +303,7 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
                     argument_types);
         }
     }
-    case PrimitiveType::TYPE_OBJECT: {
+    case PrimitiveType::TYPE_BITMAP: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
                     Impl<Data<ColumnBitmap, result_is_nullable, arg_is_nullable>, true>>>(

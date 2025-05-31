@@ -368,7 +368,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
             {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT},
             {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING},
             {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I},
-            {"v1", FieldType::OLAP_FIELD_TYPE_OBJECT, 7, TYPE_OBJECT},
+            {"v1", FieldType::OLAP_FIELD_TYPE_BITMAP, 7, TYPE_BITMAP},
             {"v2", FieldType::OLAP_FIELD_TYPE_HLL, 8, TYPE_HLL},
             {"k4", FieldType::OLAP_FIELD_TYPE_STRING, 4, TYPE_STRING},
             {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 5, TYPE_DECIMAL128I},

@@ -138,7 +138,7 @@ public:
     Field operator[](size_t n) const override {
         assert(n < size());
         if constexpr (std::is_same_v<BitmapValue, T>) {
-            return Field::create_field<TYPE_OBJECT>(data[n]);
+            return Field::create_field<TYPE_BITMAP>(data[n]);
         } else if constexpr (std::is_same_v<HyperLogLog, T>) {
             return Field::create_field<TYPE_HLL>(data[n]);
         } else if constexpr (std::is_same_v<QuantileState, T>) {
@@ -151,7 +151,7 @@ public:
     void get(size_t n, Field& res) const override {
         assert(n < size());
         if constexpr (std::is_same_v<BitmapValue, T>) {
-            res = Field::create_field<TYPE_OBJECT>(data[n]);
+            res = Field::create_field<TYPE_BITMAP>(data[n]);
         } else if constexpr (std::is_same_v<HyperLogLog, T>) {
             res = Field::create_field<TYPE_HLL>(data[n]);
         } else if constexpr (std::is_same_v<QuantileState, T>) {

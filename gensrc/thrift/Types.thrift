@@ -77,7 +77,7 @@ enum TPrimitiveType {
   HLL,
   DECIMALV2,
   TIME,
-  OBJECT,
+  BITMAP,
   ARRAY,
   MAP,
   STRUCT,

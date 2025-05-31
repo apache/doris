@@ -349,7 +349,7 @@ public:
         }
 
         switch (type) {
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
         case PrimitiveType::TYPE_HLL:
         case PrimitiveType::TYPE_QUANTILE_STATE:
         case PrimitiveType::INVALID_TYPE:
@@ -457,7 +457,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             f(field.template get<VariantMap>());
             return;
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             f(field.template get<BitmapValue>());
             return;
         case PrimitiveType::TYPE_HLL:

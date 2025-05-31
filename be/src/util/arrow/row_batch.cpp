@@ -156,7 +156,7 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         break;
     }
     case TYPE_QUANTILE_STATE:
-    case TYPE_OBJECT:
+    case TYPE_BITMAP:
     case TYPE_HLL: {
         *result = arrow::binary();
         break;

@@ -99,7 +99,7 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
-               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }

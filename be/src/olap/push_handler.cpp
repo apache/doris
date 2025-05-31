@@ -492,7 +492,7 @@ Status PushBrokerReader::_cast_to_input_block() {
         auto return_type = slot_desc->get_data_type_ptr();
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         // bitmap convert：src -> to_base64 -> bitmap_from_base64
-        if (slot_desc->type()->get_primitive_type() == TYPE_OBJECT) {
+        if (slot_desc->type()->get_primitive_type() == TYPE_BITMAP) {
             auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
                     PrimitiveType::TYPE_STRING, slot_desc->is_nullable());
             auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(

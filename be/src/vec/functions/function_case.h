@@ -429,7 +429,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             return execute_get_when_null<ColumnVariant>(data_type, block, arguments, result,
                                                         input_rows_count);
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             return execute_get_when_null<ColumnBitmap>(data_type, block, arguments, result,
                                                        input_rows_count);
         case PrimitiveType::TYPE_HLL:

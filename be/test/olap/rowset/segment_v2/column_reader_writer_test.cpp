@@ -479,7 +479,7 @@ void test_read_default_value(string value, void* result) {
                             << "j:" << j;
                 } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                            type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                           type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                           type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                     EXPECT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string())
                             << "j:" << j;
                 } else {
@@ -512,7 +512,7 @@ void test_read_default_value(string value, void* result) {
                                 << "j:" << j;
                     } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                                type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                               type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                               type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                         EXPECT_EQ(value,
                                   reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                     } else {
@@ -581,7 +581,7 @@ void test_v_read_default_value(string value, void* result) {
                 if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 } else if (type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                            type == FieldType::OLAP_FIELD_TYPE_HLL ||
-                           type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+                           type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 } else if (type == FieldType::OLAP_FIELD_TYPE_DATE ||
                            type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
                     StringRef sr = mcp->get_data_at(j);
@@ -755,7 +755,7 @@ TEST_F(ColumnReaderWriterTest, test_default_value) {
     c[0] = 0;
     std::string v_object(c, 1);
     test_read_default_value<FieldType::OLAP_FIELD_TYPE_HLL>(v_object, &v_object);
-    test_read_default_value<FieldType::OLAP_FIELD_TYPE_OBJECT>(v_object, &v_object);
+    test_read_default_value<FieldType::OLAP_FIELD_TYPE_BITMAP>(v_object, &v_object);
     free(c);
 
     std::string v_date("2019-11-12");
