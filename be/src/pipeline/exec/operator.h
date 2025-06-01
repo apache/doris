@@ -552,8 +552,8 @@ public:
               _node_id(tnode.node_id),
               _dests_id({dest_id}) {}
 
-    DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
-            : _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+    DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& dests)
+            : _operator_id(operator_id), _node_id(node_id), _dests_id(dests) {}
 
 #ifdef BE_TEST
     DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
@@ -660,13 +660,13 @@ protected:
 template <typename LocalStateType>
 class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
-    DataSinkOperatorX(const int id, const int node_id, const int source_id)
-            : DataSinkOperatorXBase(id, node_id, source_id) {}
-    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int source_id)
-            : DataSinkOperatorXBase(id, tnode, source_id) {}
+    DataSinkOperatorX(const int id, const int node_id, const int dest_id)
+            : DataSinkOperatorXBase(id, node_id, dest_id) {}
+    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int dest_id)
+            : DataSinkOperatorXBase(id, tnode, dest_id) {}
 
-    DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
-            : DataSinkOperatorXBase(id, node_id, sources) {}
+    DataSinkOperatorX(const int id, const int node_id, std::vector<int> dest_ids)
+            : DataSinkOperatorXBase(id, node_id, dest_ids) {}
 #ifdef BE_TEST
     DataSinkOperatorX() = default;
 #endif

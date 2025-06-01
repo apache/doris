@@ -87,8 +87,7 @@ struct BasicSharedState {
 
     void create_source_dependencies(int num_sources, int operator_id, int node_id,
                                     const std::string& name);
-    virtual Dependency* create_source_dependency(int operator_id, int node_id,
-                                                 const std::string& name);
+    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
 
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
     std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
@@ -807,68 +806,6 @@ public:
     }
 };
 
-//struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
-//    ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
-//    LocalMergeExchangeSharedState(int num_instances)
-//            : LocalExchangeSharedState(num_instances),
-//              _each_queue_limit(config::local_exchange_buffer_mem_limit / num_instances) {}
-//
-//    void create_dependencies(int local_exchange_id) override {
-//        sink_deps.resize(source_deps.size());
-//        for (size_t i = 0; i < source_deps.size(); i++) {
-//            source_deps[i] =
-//                    std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
-//                                                 "LOCAL_MERGE_EXCHANGE_OPERATOR_DEPENDENCY");
-//            source_deps[i]->set_shared_state(this);
-//            sink_deps[i] = std::make_shared<Dependency>(
-//                    local_exchange_id, local_exchange_id,
-//                    "LOCAL_MERGE_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
-//            sink_deps[i]->set_shared_state(this);
-//        }
-//    }
-//
-//    void sub_total_mem_usage(size_t delta) override { mem_usage.fetch_sub(delta); }
-//    void add_total_mem_usage(size_t delta) override { mem_usage.fetch_add(delta); }
-//
-//    void add_mem_usage(int channel_id, size_t delta) override {
-//        LocalExchangeSharedState::add_mem_usage(channel_id, delta);
-//        if (mem_counters[channel_id]->value() > _each_queue_limit.load()) {
-//            sink_deps[channel_id]->block();
-//        }
-//    }
-//
-//    void sub_mem_usage(int channel_id, size_t delta) override {
-//        LocalExchangeSharedState::sub_mem_usage(channel_id, delta);
-//        if (mem_counters[channel_id]->value() <= _each_queue_limit.load()) {
-//            sink_deps[channel_id]->set_ready();
-//        }
-//    }
-//
-//    void set_low_memory_mode(RuntimeState* state) override {
-//        _buffer_mem_limit = std::min<int64_t>(config::local_exchange_buffer_mem_limit,
-//                                              state->low_memory_mode_buffer_limit());
-//        _each_queue_limit = std::max<int64_t>(64 * 1024, _buffer_mem_limit / source_deps.size());
-//    }
-//
-//    Dependency* get_sink_dep_by_channel_id(int channel_id) override {
-//        return sink_deps[channel_id].get();
-//    }
-//
-//    std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) override {
-//        return source_deps;
-//    }
-//
-//private:
-//    std::atomic_int64_t _each_queue_limit;
-//};
-
-//class QueryGlobalDependency final : public Dependency {
-//    ENABLE_FACTORY_CREATOR(QueryGlobalDependency);
-//    QueryGlobalDependency(std::string name, bool ready = false) : Dependency(-1, -1, name, ready) {}
-//    ~QueryGlobalDependency() override = default;
-//    Dependency* is_blocked_by(PipelineTask* task = nullptr) override;
-//};
-
 struct FetchRpcStruct {
     std::shared_ptr<PBackendService_Stub> stub;
     PMultiGetRequestV2 request;
@@ -885,8 +822,7 @@ public:
     Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
     Status merge_multi_response(vectorized::Block* block);
 
-    Dependency* create_source_dependency(int operator_id, int node_id,
-                                         const std::string& name) override;
+    void create_counter_dependency(int operator_id, int node_id, const std::string& name);
 
     bool rpc_struct_inited = false;
     Status rpc_status = Status::OK();
