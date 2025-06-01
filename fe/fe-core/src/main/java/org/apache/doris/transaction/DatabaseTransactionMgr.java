@@ -315,7 +315,7 @@ public class DatabaseTransactionMgr {
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
 
-        if (!Env.getCurrentEnv().isMaster()) {
+        if (!Env.getCurrentEnv().isMaster() && !FeConstants.runningUnitTest) {
             throw new BeginTransactionException("FE is not master");
         }
 
