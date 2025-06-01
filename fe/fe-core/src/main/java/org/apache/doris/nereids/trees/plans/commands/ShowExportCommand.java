@@ -67,6 +67,7 @@ public class ShowExportCommand extends ShowCommand {
             .add("Timeout").add("ErrorMsg").add("OutfileInfo")
             .build();
     private static final String ID = "id";
+    private static final String JOBID = "jobid";
     private static final String STATE = "state";
     private static final String LABEL = "label";
     private static final Logger LOG = LogManager.getLogger(ShowExportCommand.class);
@@ -142,7 +143,8 @@ public class ShowExportCommand extends ShowCommand {
             String leftKey = ((UnboundSlot) expr.child(0)).getName().toLowerCase();
 
             if (expr instanceof EqualTo) {
-                if (ID.equalsIgnoreCase(leftKey) && expr.child(1) instanceof IntegerLikeLiteral) {
+                if ((JOBID.equalsIgnoreCase(leftKey) || ID.equalsIgnoreCase(leftKey))
+                        && expr.child(1) instanceof IntegerLikeLiteral) {
                     jobId = ((IntegerLikeLiteral) expr.child(1)).getLongValue();
                     valid = true;
                 } else if (STATE.equalsIgnoreCase(leftKey) && expr.child(1) instanceof StringLikeLiteral) {
