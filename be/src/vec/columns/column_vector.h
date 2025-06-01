@@ -260,13 +260,13 @@ public:
             for (size_t i = start; i < end; i++) {
                 if (null_data[i] == 0) {
                     hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
-                                                      sizeof(T), hash);
+                                                      sizeof(value_type), hash);
                 }
             }
         } else {
             for (size_t i = start; i < end; i++) {
                 hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
-                                                  sizeof(T), hash);
+                                                  sizeof(value_type), hash);
             }
         }
     }

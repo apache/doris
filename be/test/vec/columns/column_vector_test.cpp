@@ -167,19 +167,19 @@ protected:
         test_func(column_date->get_ptr(), dt_date, "column_date_v1");
     }
 
-#define _column_vector_common_test(callback)                       \
-    callback<TYPE_TINYINT>(0, column_int8->get_ptr());             \
-    callback<TYPE_SMALLINT>(0, column_int16->get_ptr());           \
-    callback<TYPE_INT>(0, column_int32->get_ptr());                \
-    callback<TYPE_BIGINT>(0, column_int64->get_ptr());             \
-    callback<TYPE_LARGEINT>(0, column_int128->get_ptr());          \
-    callback<TYPE_BOOLEAN>(0, column_uint8->get_ptr());            \
-    callback<TYPE_DATE>(0, column_date->get_ptr());                \
-    callback<TYPE_DATETIME>(0, column_datetime->get_ptr());        \
-    callback<TYPE_DATETIMEV2>(0, column_datetime_v2_0->get_ptr()); \
-    callback<TYPE_DATETIMEV2>(0, column_datetime_v2_5->get_ptr()); \
-    callback<TYPE_DATETIMEV2>(0, column_datetime_v2_6->get_ptr()); \
-    callback<TYPE_DATEV2>(0, column_date_v2->get_ptr());
+#define _column_vector_common_test(callback)                               \
+    callback<TYPE_TINYINT>((Int8)0, column_int8->get_ptr());               \
+    callback<TYPE_SMALLINT>((Int16)0, column_int16->get_ptr());            \
+    callback<TYPE_INT>((Int32)0, column_int32->get_ptr());                 \
+    callback<TYPE_BIGINT>((Int64)0, column_int64->get_ptr());              \
+    callback<TYPE_LARGEINT>((Int128)0, column_int128->get_ptr());          \
+    callback<TYPE_BOOLEAN>((UInt8)0, column_uint8->get_ptr());             \
+    callback<TYPE_DATE>((Int64)0, column_date->get_ptr());                 \
+    callback<TYPE_DATETIME>((Int64)0, column_datetime->get_ptr());         \
+    callback<TYPE_DATETIMEV2>((UInt64)0, column_datetime_v2_0->get_ptr()); \
+    callback<TYPE_DATETIMEV2>((UInt64)0, column_datetime_v2_5->get_ptr()); \
+    callback<TYPE_DATETIMEV2>((UInt64)0, column_datetime_v2_6->get_ptr()); \
+    callback<TYPE_DATEV2>((UInt32)0, column_date_v2->get_ptr());
 };
 
 TEST_F(ColumnVectorTest, get_name) {
@@ -253,9 +253,26 @@ TEST_F(ColumnVectorTest, insert_range_of_integer) {
 // void insert_date_column(const char* data_ptr, size_t num) {
 // decimal, vector, nullable, PredicateColumnType
 TEST_F(ColumnVectorTest, insert_many_fix_len_data) {
-    _column_vector_common_test(assert_column_vector_insert_many_fix_len_data_callback);
-
-    // assert_column_vector_insert_many_fix_len_data_callback((uint24_t)0, column_date->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_TINYINT>((Int8)0,
+                                                                         column_int8->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_SMALLINT>((Int16)0,
+                                                                          column_int16->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_INT>((Int32)0,
+                                                                     column_int32->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_BIGINT>((Int64)0,
+                                                                        column_int64->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_LARGEINT>((Int128)0,
+                                                                          column_int128->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_BOOLEAN>((UInt8)0,
+                                                                         column_uint8->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATETIMEV2>(
+            (UInt64)0, column_datetime_v2_0->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATETIMEV2>(
+            (UInt64)0, column_datetime_v2_5->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATETIMEV2>(
+            (UInt64)0, column_datetime_v2_6->get_ptr());
+    assert_column_vector_insert_many_fix_len_data_callback<TYPE_DATEV2>((UInt32)0,
+                                                                        column_date_v2->get_ptr());
 }
 TEST_F(ColumnVectorTest, insert_many_raw_data) {
     _column_vector_common_test(assert_column_vector_insert_many_raw_data_callback);

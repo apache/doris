@@ -2392,7 +2392,7 @@ auto assert_column_vector_field_callback = [](auto x, const MutableColumnPtr& so
     for (size_t i = 0; i != src_size; ++i) {
         Field f;
         assert_col->get(i, f);
-        ASSERT_EQ(f.get<T>(), col_vec_src->get_element(i));
+        ASSERT_EQ(f.get<T>(), col_vec_src->get_element(i)) << f.get_type_name();
     }
 };
 
@@ -2659,7 +2659,8 @@ auto assert_column_vector_insert_many_fix_len_data_callback =
                             EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
                         }
                         for (size_t j = *pos; i < target_size; ++i, ++j) {
-                            EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j));
+                            EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j))
+                                    << col_vec_src->get_name() << ' ' << col_vec_target->get_name();
                         }
                     }
                 }
