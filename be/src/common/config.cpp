@@ -816,6 +816,8 @@ DEFINE_Int32(query_cache_max_partition_count, "1024");
 // This is to avoid too many version num.
 DEFINE_mInt32(max_tablet_version_num, "2000");
 
+DEFINE_mInt32(time_series_max_tablet_version_num, "20000");
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
