@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
@@ -91,4 +92,11 @@ uint32_t BaseTablet::get_real_compaction_score() const {
                            });
 }
 
-} /* namespace doris */
+int32_t BaseTablet::max_version_config() {
+    int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
+                                  ? config::time_series_max_tablet_version_num
+                                  : config::max_tablet_version_num;
+    return max_version;
+}
+
+} // namespace doris
