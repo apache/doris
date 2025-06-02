@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -50,7 +51,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -377,7 +377,7 @@ public class ProfileManager extends MasterDaemon {
         return futures;
     }
 
-    public Optional<TQueryStatistics> getQueryStatistic(String queryId) {
+    public TQueryStatistics getQueryStatistic(String queryId) throws Exception {
         List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(queryId,
                 "stats");
         List<TQueryStatistics> queryStatisticsList = Lists.newArrayList();
@@ -389,20 +389,17 @@ public class ProfileManager extends MasterDaemon {
                 } else {
                     LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
                             queryId, resp == null ? "null" : resp.toString());
-                    break;
+                    throw new Exception("Failed to get realtime query stats: " + resp.toString());
                 }
             } catch (Exception e) {
                 LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
+                throw new Exception("Failed to get realtime query stats: " + e.getMessage());
             }
         }
-        if (queryStatisticsList.size() != futures.size()) {
-            LOG.warn("Failed to get real-time stats, id {}, queryStatisticsList size {} != futures size {}",
-                    queryId, queryStatisticsList.size(), futures.size());
-            return Optional.empty();
-        }
-        if (queryStatisticsList.isEmpty()) {
-            return Optional.empty();
-        }
+        Preconditions.checkState(queryStatisticsList.isEmpty() || queryStatisticsList.size() != futures.size(),
+                String.format("Failed to get real-time stats, id %s, "
+                                + "queryStatisticsList size %d != futures size %d",
+                        queryId, queryStatisticsList.size(), futures.size()));
 
         TQueryStatistics summary = new TQueryStatistics();
         for (TQueryStatistics queryStats : queryStatisticsList) {
@@ -426,7 +423,7 @@ public class ProfileManager extends MasterDaemon {
             summary.setSpillReadBytesFromLocalStorage(
                     summary.getSpillReadBytesFromLocalStorage() + queryStats.getSpillReadBytesFromLocalStorage());
         }
-        return Optional.of(summary);
+        return summary;
     }
 
     public String getProfile(String id) {
