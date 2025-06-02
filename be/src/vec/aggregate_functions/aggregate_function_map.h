@@ -190,7 +190,7 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>>(
                       argument_types_) {}
 
-    std::string get_name() const override { return "map_agg"; }
+    std::string get_name() const override { return "map_agg_v1"; }
 
     DataTypePtr get_return_type() const override {
         /// keys and values column of `ColumnMap` are always nullable.

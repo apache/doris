@@ -153,7 +153,7 @@ constexpr bool is_string_type(PrimitiveType type) {
 }
 
 constexpr bool is_var_len_object(PrimitiveType type) {
-    return type == TYPE_HLL || type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE;
+    return type == TYPE_HLL || type == TYPE_BITMAP || type == TYPE_QUANTILE_STATE;
 }
 
 constexpr bool is_complex_type(PrimitiveType type) {
@@ -678,7 +678,7 @@ struct PrimitiveTypeTraits<TYPE_VARIANT> {
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARIANT;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_OBJECT> {
+struct PrimitiveTypeTraits<TYPE_BITMAP> {
     using CppType = BitmapValue;
     using StorageFieldType = CppType;
     using CppNativeType = CppType;
@@ -688,9 +688,9 @@ struct PrimitiveTypeTraits<TYPE_OBJECT> {
     using NearestFieldType = BitmapValue;
     using AvgNearestFieldType = BitmapValue;
     using AvgNearestFieldType256 = BitmapValue;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_OBJECT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_OBJECT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_OBJECT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BITMAP;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BITMAP;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BITMAP;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {

@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -87,6 +88,12 @@ public class S3StorageVault extends StorageVault {
             boolean setAsDefault, CreateResourceStmt stmt) throws DdlException {
         super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
         resource = Resource.fromStmt(stmt);
+    }
+
+    public S3StorageVault(String name, boolean ifNotExists,
+            boolean setAsDefault, CreateResourceCommand command) throws DdlException {
+        super(name, StorageVault.StorageVaultType.S3, ifNotExists, setAsDefault);
+        resource = Resource.fromCommand(command);
     }
 
     @Override

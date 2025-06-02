@@ -107,7 +107,7 @@ AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         argument_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
         argument_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
         argument_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE ||
-        argument_type->get_primitive_type() == PrimitiveType::TYPE_OBJECT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_BITMAP ||
         argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
         argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
         return creator_without_type::create<

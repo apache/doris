@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.fsv2.obj.S3ObjStorage;
 
@@ -28,8 +29,11 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.amazon.awssdk.services.s3.S3Client;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class S3FileSystem extends ObjFileSystem {
 
@@ -72,16 +76,27 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
-    public boolean connectivityTest() throws UserException {
+    public boolean connectivityTest(List<String> filePaths) throws UserException {
+        if (filePaths == null || filePaths.isEmpty()) {
+            throw new UserException("File paths cannot be null or empty for connectivity test.");
+        }
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         try {
-            objStorage.getClient().listBuckets();
+            S3Client s3Client = objStorage.getClient();
+            Set<String> bucketNames = new HashSet<>();
+            boolean usePathStyle = Boolean.parseBoolean(s3Properties.getUsePathStyle());
+            boolean forceParsingByStandardUri = Boolean.parseBoolean(s3Properties.getForceParsingByStandardUrl());
+            for (String filePath : filePaths) {
+                S3URI s3uri;
+                s3uri = S3URI.create(filePath, usePathStyle, forceParsingByStandardUri);
+                bucketNames.add(s3uri.getBucket());
+            }
+            bucketNames.forEach(bucketName -> s3Client.headBucket(b -> b.bucket(bucketName)));
             return true;
         } catch (Exception e) {
-            LOG.error("S3 connectivityTest error", e);
+            LOG.warn("S3 connectivityTest error: {}", e.getMessage(), e);
         }
         return false;
-
     }
 
     @VisibleForTesting

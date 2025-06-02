@@ -364,7 +364,7 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          SingleValueDataFixed<TYPE_DATETIMEV2>>(
                 argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_OBJECT:
+    case PrimitiveType::TYPE_BITMAP:
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data,
                                                          BitmapValueData>(argument_types,
                                                                           result_is_nullable);
