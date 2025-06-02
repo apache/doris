@@ -99,16 +99,16 @@ public:
 
 SimpleObjectPool<JsonParser> parsers_pool;
 
-using Node = typename ColumnObject::Subcolumns::Node;
+using Node = typename ColumnVariant::Subcolumns::Node;
 /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
 /// and replaces all scalars or nested arrays to @replacement at that level.
 class FieldVisitorReplaceScalars : public StaticVisitor<Field> {
 public:
     FieldVisitorReplaceScalars(const Field& replacement_, size_t num_dimensions_to_keep_)
             : replacement(replacement_), num_dimensions_to_keep(num_dimensions_to_keep_) {}
-    template <typename T>
-    Field operator()(const T& x) const {
-        if constexpr (std::is_same_v<T, Array>) {
+    template <PrimitiveType T>
+    Field operator()(const typename PrimitiveTypeTraits<T>::NearestFieldType& x) const {
+        if constexpr (T == TYPE_ARRAY) {
             if (num_dimensions_to_keep == 0) {
                 return replacement;
             }
@@ -118,7 +118,7 @@ public:
                 res[i] = apply_visitor(
                         FieldVisitorReplaceScalars(replacement, num_dimensions_to_keep - 1), x[i]);
             }
-            return res;
+            return Field::create_field<TYPE_ARRAY>(res);
         } else {
             return replacement;
         }
@@ -132,7 +132,7 @@ private:
 template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
                            JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
-    auto& column_object = assert_cast<ColumnObject&>(column);
+    auto& column_object = assert_cast<ColumnVariant&>(column);
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
@@ -149,7 +149,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         // Treat as string
         PathInData root_path;
-        Field field(String(src, length));
+        Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
     auto& [paths, values] = *result;
@@ -158,7 +158,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
-        if (WhichDataType(field_info.scalar_type_id).is_nothing()) {
+        if (field_info.scalar_type_id == PrimitiveType::INVALID_TYPE) {
             continue;
         }
         if (column_object.get_subcolumn(paths[i], i) == nullptr) {

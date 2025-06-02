@@ -155,12 +155,12 @@ MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
 }
 
 Field ColumnNullable::operator[](size_t n) const {
-    return is_null_at(n) ? Null() : get_nested_column()[n];
+    return is_null_at(n) ? Field::create_field<TYPE_NULL>(Null()) : get_nested_column()[n];
 }
 
 void ColumnNullable::get(size_t n, Field& res) const {
     if (is_null_at(n)) {
-        res = Null();
+        res = Field();
     } else {
         get_nested_column().get(n, res);
     }
@@ -561,8 +561,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
 
     if (arr1.size() != arr2.size()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Inconsistent sizes of ColumnNullable objects");
-        __builtin_unreachable();
+                               "Inconsistent sizes of ColumnNullable objects. Self: {}. Expect: {}",
+                               arr1.size(), arr2.size());
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {

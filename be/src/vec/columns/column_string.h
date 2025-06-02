@@ -64,12 +64,10 @@ public:
     void static check_chars_length(size_t total_length, size_t element_number, size_t rows = 0) {
         if constexpr (std::is_same_v<T, UInt32>) {
             if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-                throw Exception(
-                        ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                        "string column length is too large: total_length={}, element_number={}, "
-                        "you can set batch_size a number smaller than {} to avoid this error. "
-                        "rows:{}",
-                        total_length, element_number, element_number, rows);
+                throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                                "string column length is too large: total_length={}, "
+                                "element_number={}, rows={}",
+                                total_length, element_number, rows);
             }
         }
     }
@@ -131,22 +129,9 @@ public:
 
     void shrink_padding_chars() override;
 
-    Field operator[](size_t n) const override {
-        assert(n < size());
-        sanity_check_simple();
-        return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
-    }
+    Field operator[](size_t n) const override;
 
-    void get(size_t n, Field& res) const override {
-        assert(n < size());
-        sanity_check_simple();
-        if (res.get_type() == Field::Types::JSONB) {
-            // Handle JsonbField
-            res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
-            return;
-        }
-        res = Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
-    }
+    void get(size_t n, Field& res) const override;
 
     StringRef get_data_at(size_t n) const override {
         DCHECK_LT(n, size());
@@ -154,31 +139,11 @@ public:
         return StringRef(&chars[offset_at(n)], size_at(n));
     }
 
-    void insert(const Field& x) override {
-        StringRef s;
-        if (x.get_type() == Field::Types::JSONB) {
-            // Handle JsonbField
-            const auto& real_field = vectorized::get<const JsonbField&>(x);
-            s = StringRef(real_field.get_value(), real_field.get_size());
-        } else {
-            DCHECK_EQ(x.get_type(), Field::Types::String);
-            // If `x.get_type()` is not String, such as UInt64, may get the error
-            // `string column length is too large: total_length=13744632839234567870`
-            // because `<String>(x).size() = 13744632839234567870`
-            s.data = vectorized::get<const String&>(x).data();
-            s.size = vectorized::get<const String&>(x).size();
-        }
-        const size_t old_size = chars.size();
-        const size_t size_to_append = s.size;
-        const size_t new_size = old_size + size_to_append;
+    String get_element(size_t n) const { return get_data_at(n).to_string(); }
 
-        check_chars_length(new_size, old_size + 1);
+    void insert_value(const String& value) { insert_data(value.data(), value.size()); }
 
-        chars.resize(new_size);
-        memcpy(chars.data() + old_size, s.data, size_to_append);
-        offsets.push_back(new_size);
-        sanity_check_simple();
-    }
+    void insert(const Field& x) override;
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
@@ -558,6 +523,8 @@ public:
                           uint8* __restrict filter) const override;
 
     ColumnPtr convert_column_if_overflow() override;
+
+    void erase(size_t start, size_t length) override;
 };
 
 using ColumnString = ColumnStr<UInt32>;

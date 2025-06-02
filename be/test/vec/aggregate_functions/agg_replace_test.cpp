@@ -162,15 +162,17 @@ public:
             for (int32_t j = 0; j < i; ++j) {
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(j);
-                    array[j] = std::move(item);
+                    array[j] = Field::create_field<TYPE_STRING>(item);
                 } else if constexpr (IsDecimalNumber<FieldType>) {
                     auto item = FieldType(static_cast<uint64_t>(j));
-                    array[j] = std::move(DecimalField<FieldType>(item, 20));
+                    array[j] =
+                            Field::create_field<TYPE_DECIMALV2>(DecimalField<FieldType>(item, 20));
                 } else {
-                    array[j] = std::move(FieldType(static_cast<uint64_t>(j)));
+                    array[j] = Field::create_field<TYPE_DATETIMEV2>(
+                            FieldType(static_cast<uint64_t>(j)));
                 }
             }
-            input_col->insert(array);
+            input_col->insert(Field::create_field<TYPE_ARRAY>(array));
         }
 
         EXPECT_EQ(input_col->size(), input_nums + 1);

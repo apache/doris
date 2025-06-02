@@ -1033,10 +1033,45 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        return _polygon->Contains(*point->point());
+        if (!_polygon->Contains(*point->point())) {
+            return false;
+        }
+
+        // Point on the edge of polygon doesn't count as "Contians"
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                const S2Point& p1 = loop->vertex(j);
+                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
+                if (compute_distance_to_line(*point->point(), p1, p2) < TOLERANCE) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
+
+        // solve the problem caused by the `Contains(const S2Polyline)` in the S2 library
+        // due to the direction of the line segment
+        for (int i = 0; i < _polygon->num_loops(); ++i) {
+            const S2Loop* loop = _polygon->loop(i);
+            for (int j = 0; j < loop->num_vertices(); ++j) {
+                const S2Point& p1 = loop->vertex(j);
+                const S2Point& p2 = loop->vertex((j + 1) % loop->num_vertices());
+                for (int k = 0; k < line->polyline()->num_vertices() - 1; ++k) {
+                    const S2Point& p3 = line->polyline()->vertex(k);
+                    const S2Point& p4 = line->polyline()->vertex(k + 1);
+                    if ((compute_distance_to_line(p3, p1, p2) < TOLERANCE ||
+                         compute_distance_to_line(p4, p1, p2) < TOLERANCE) &&
+                        !is_line_touches_line(p1, p2, p3, p4)) {
+                        return false;
+                    }
+                }
+            }
+        }
+
         return _polygon->Contains(*line->polyline());
     }
     case GEO_SHAPE_POLYGON: {
@@ -1271,10 +1306,14 @@ bool GeoMultiPolygon::contains(const GeoShape* rhs) const {
         //All polygons in rhs need to be contained
         const GeoMultiPolygon* multi_polygon = assert_cast<const GeoMultiPolygon*>(rhs);
         for (const auto& other : multi_polygon->polygons()) {
+            bool is_contains = false;
             for (const auto& polygon : this->_polygons) {
                 if (polygon->contains(other.get())) {
-                    continue;
+                    is_contains = true;
+                    break;
                 }
+            }
+            if (!is_contains) {
                 return false;
             }
         }

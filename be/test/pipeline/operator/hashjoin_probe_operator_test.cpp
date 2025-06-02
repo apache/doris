@@ -333,10 +333,18 @@ TEST_F(HashJoinProbeOperatorTest, InnerJoin) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {3, 4});
-    check_column_values(*sorted_block.get_by_position(1).column, {"c", "d"});
-    check_column_values(*sorted_block.get_by_position(2).column, {3, 4});
-    check_column_values(*sorted_block.get_by_position(3).column, {"c", "d"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4)});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, InnerJoinEmptyBuildSide) {
@@ -399,12 +407,24 @@ TEST_F(HashJoinProbeOperatorTest, InnerJoinOtherConjuncts) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 3});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "c"});
-    check_column_values(*sorted_block.get_by_position(2).column, {101, 102});
-    check_column_values(*sorted_block.get_by_position(3).column, {1, 3});
-    check_column_values(*sorted_block.get_by_position(4).column, {"a", "c"});
-    check_column_values(*sorted_block.get_by_position(5).column, {51, 59});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(3)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(101),
+                         vectorized::Field::create_field<TYPE_INT>(102)});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(3)});
+    check_column_values(*sorted_block.get_by_position(4).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c")});
+    check_column_values(*sorted_block.get_by_position(5).column,
+                        {vectorized::Field::create_field<TYPE_INT>(51),
+                         vectorized::Field::create_field<TYPE_INT>(59)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, InnerJoinNullSafeEqual) {
@@ -429,10 +449,20 @@ TEST_F(HashJoinProbeOperatorTest, InnerJoinNullSafeEqual) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {3, 4, 5});
-    check_column_values(*sorted_block.get_by_position(1).column, {"c", "d", Null()});
-    check_column_values(*sorted_block.get_by_position(2).column, {3, 4, 5});
-    check_column_values(*sorted_block.get_by_position(3).column, {"c", "d", Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, CheckSlot) {
@@ -445,7 +475,13 @@ TEST_F(HashJoinProbeOperatorTest, CheckSlot) {
     ASSERT_TRUE(sink_operator);
 
     auto desc_tbl = _helper.runtime_state->desc_tbl();
-    desc_tbl._slot_desc_map[4]->_is_nullable = !desc_tbl._slot_desc_map[4]->_is_nullable;
+    if (desc_tbl._slot_desc_map[4]->type()->is_nullable()) {
+        desc_tbl._slot_desc_map[4]->_type =
+                vectorized::remove_nullable(desc_tbl._slot_desc_map[4]->_type);
+    } else {
+        desc_tbl._slot_desc_map[4]->_type =
+                vectorized::make_nullable(desc_tbl._slot_desc_map[4]->_type);
+    }
     _helper.runtime_state->set_desc_tbl(&desc_tbl);
 
     auto st = probe_operator->init(tnode, _helper.runtime_state.get());
@@ -477,10 +513,18 @@ TEST_F(HashJoinProbeOperatorTest, InnerJoinBroadcast) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {3, 4});
-    check_column_values(*sorted_block.get_by_position(1).column, {"c", "d"});
-    check_column_values(*sorted_block.get_by_position(2).column, {3, 4});
-    check_column_values(*sorted_block.get_by_position(3).column, {"c", "d"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4)});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, FullOuterJoin) {
@@ -503,14 +547,30 @@ TEST_F(HashJoinProbeOperatorTest, FullOuterJoin) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(output_block.rows(), 8);
 
-    check_column_values(*sorted_block.get_by_position(0).column,
-                        {1, 3, 4, Null(), Null(), Null(), Null(), Null()});
+    check_column_values(
+            *sorted_block.get_by_position(0).column,
+            {vectorized::Field::create_field<TYPE_INT>(1),
+             vectorized::Field::create_field<TYPE_INT>(3),
+             vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(), vectorized::Field(),
+             vectorized::Field(), vectorized::Field(), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(1).column,
-                        {"a", "c", "d", "b", "e", Null(), Null(), Null()});
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e"), vectorized::Field(),
+                         vectorized::Field(), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {Null(), 3, 4, Null(), Null(), 1, 2, 5});
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
     check_column_values(*sorted_block.get_by_position(3).column,
-                        {Null(), "c", "d", Null(), Null(), Null(), "b", Null()});
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field(),
+                         vectorized::Field(), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_STRING>("b"), vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, FullOuterJoinEmptyBuildSide) {
@@ -593,13 +653,33 @@ TEST_F(HashJoinProbeOperatorTest, LeftOuterJoin2) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 7);
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 2, 3, 3, 4, Null(), Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(1).column,
-                        {"a", "b", "c", "c", "d", "b", "e"});
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
     check_column_values(*sorted_block.get_by_position(2).column,
-                        {Null(), 2, 3, 3, 4, Null(), Null()});
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(3).column,
-                        {Null(), "b", "c", "c", "d", Null(), Null()});
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field(),
+                         vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, RightOuterJoin) {
@@ -622,11 +702,24 @@ TEST_F(HashJoinProbeOperatorTest, RightOuterJoin) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 5);
 
-    check_column_values(*sorted_block.get_by_position(0).column, {3, 4, Null(), Null(), Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field(), vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(1).column,
-                        {"c", "d", Null(), Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(2).column, {3, 4, 1, 2, 5});
-    check_column_values(*sorted_block.get_by_position(3).column, {"c", "d", Null(), "b", Null()});
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field(),
+                         vectorized::Field(), vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_STRING>("b"), vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, RightOuterJoinEmptyBuildSide) {
@@ -669,12 +762,31 @@ TEST_F(HashJoinProbeOperatorTest, RightOuterJoin2) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 6);
 
-    check_column_values(*sorted_block.get_by_position(0).column, {2, 3, 3, 4, Null(), Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
     check_column_values(*sorted_block.get_by_position(1).column,
-                        {"b", "c", "c", "d", Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(2).column, {2, 3, 3, 4, 1, 5});
+                        {vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
     check_column_values(*sorted_block.get_by_position(3).column,
-                        {"b", "c", "c", "d", Null(), Null()});
+                        {vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field(),
+                         vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoin) {
@@ -697,8 +809,13 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoin) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 3);
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "b", "e"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftSemiJoin) {
@@ -720,8 +837,12 @@ TEST_F(HashJoinProbeOperatorTest, LeftSemiJoin) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 2);
-    check_column_values(*sorted_block.get_by_position(0).column, {3, 4});
-    check_column_values(*sorted_block.get_by_position(1).column, {"c", "d"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftSemiJoinEmptyBuildSide) {
@@ -764,8 +885,13 @@ TEST_F(HashJoinProbeOperatorTest, RightAntiJoin) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 3);
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 2, 5});
-    check_column_values(*sorted_block.get_by_position(1).column, {Null(), "b", Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, RightSemiJoin) {
@@ -788,8 +914,52 @@ TEST_F(HashJoinProbeOperatorTest, RightSemiJoin) {
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 2);
 
-    check_column_values(*sorted_block.get_by_position(0).column, {3, 4});
-    check_column_values(*sorted_block.get_by_position(1).column, {"c", "d"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d")});
+}
+
+TEST_F(HashJoinProbeOperatorTest, RightSemiJoinMarkJoin) {
+    auto sink_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+    sink_block.insert(ColumnHelper::create_nullable_column_with_name<DataTypeString>(
+            {"a", "b", "c", "d", "e"}, {1, 0, 0, 0, 1}));
+
+    auto probe_block =
+            ColumnHelper::create_nullable_block<DataTypeInt32>({1, 2, 3, 4, 5}, {0, 1, 0, 0, 1});
+    probe_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeString>({"a", "b", "c", "d", "e"}));
+
+    Block output_block;
+    std::vector<Block> build_blocks = {sink_block};
+    std::vector<Block> probe_blocks = {probe_block};
+    run_test({.join_op_type = TJoinOp::RIGHT_SEMI_JOIN,
+              .is_mark_join = true,
+              .mark_join_conjuncts_size = 1},
+             {TPrimitiveType::INT, TPrimitiveType::STRING}, {true, false}, {false, true},
+             build_blocks, probe_blocks, output_block);
+
+    auto sorted_block = sort_block_by_columns(output_block);
+    std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
+    ASSERT_EQ(sorted_block.rows(), 5);
+
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4),
+                         vectorized::Field::create_field<TYPE_INT>(5)});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"), vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(4).column,
+                        {vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(0)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoin) {
@@ -878,8 +1048,10 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoin2) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 1);
-    check_column_values(*sorted_block.get_by_position(0).column, {2});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(2)});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoinOtherConjuncts2) {
@@ -927,8 +1099,13 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoin2) {
     auto sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
     ASSERT_EQ(sorted_block.rows(), 3);
-    check_column_values(*sorted_block.get_by_position(0).column, {2, Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "b", "e"});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(2), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoinMark) {
@@ -952,9 +1129,21 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftAntiJoinMark) {
 
     Block sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 3, 4, Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "c", "d", "b", "e"});
-    check_column_values(*sorted_block.get_by_position(2).column, {Null(), 0, 0, Null(), Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(0),
+                         vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
+                         vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, NullAwareLeftSemiJoinMark) {
@@ -979,9 +1168,21 @@ TEST_F(HashJoinProbeOperatorTest, NullAwareLeftSemiJoinMark) {
     Block sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data() << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 3, 4, Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "c", "d", "b", "e"});
-    check_column_values(*sorted_block.get_by_position(2).column, {Null(), 1, 1, Null(), Null()});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field(), vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
+                         vectorized::Field()});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftSemiJoinMark) {
@@ -1005,9 +1206,22 @@ TEST_F(HashJoinProbeOperatorTest, LeftSemiJoinMark) {
     Block sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data(0, 100, true) << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 3, 4, Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "c", "d", "b", "e"});
-    check_column_values(*sorted_block.get_by_position(2).column, {0, 1, 1, Null(), 0});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(0),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(1), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_INT>(0)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMark) {
@@ -1031,9 +1245,22 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMark) {
     Block sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data(0, 100, true) << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 3, 4, Null(), Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "c", "d", "b", "e"});
-    check_column_values(*sorted_block.get_by_position(2).column, {1, 0, 0, Null(), 1});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field(),
+                         vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(0),
+                         vectorized::Field::create_field<TYPE_INT>(0), vectorized::Field(),
+                         vectorized::Field::create_field<TYPE_INT>(1)});
 }
 
 TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
@@ -1065,10 +1292,28 @@ TEST_F(HashJoinProbeOperatorTest, LeftAntiJoinMarkOtherConjuncts) {
     Block sorted_block = sort_block_by_columns(output_block);
     std::cout << "Output block: " << sorted_block.dump_data(0, 100, true) << std::endl;
 
-    check_column_values(*sorted_block.get_by_position(0).column, {1, 2, 3, 4, Null()});
-    check_column_values(*sorted_block.get_by_position(1).column, {"a", "b", "c", "d", "e"});
-    check_column_values(*sorted_block.get_by_position(2).column, {101, 100, 102, 99, Null()});
-    check_column_values(*sorted_block.get_by_position(3).column, {0, 1, 0, 1, 1});
+    check_column_values(*sorted_block.get_by_position(0).column,
+                        {vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(2),
+                         vectorized::Field::create_field<TYPE_INT>(3),
+                         vectorized::Field::create_field<TYPE_INT>(4), vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(1).column,
+                        {vectorized::Field::create_field<TYPE_STRING>("a"),
+                         vectorized::Field::create_field<TYPE_STRING>("b"),
+                         vectorized::Field::create_field<TYPE_STRING>("c"),
+                         vectorized::Field::create_field<TYPE_STRING>("d"),
+                         vectorized::Field::create_field<TYPE_STRING>("e")});
+    check_column_values(*sorted_block.get_by_position(2).column,
+                        {vectorized::Field::create_field<TYPE_INT>(101),
+                         vectorized::Field::create_field<TYPE_INT>(100),
+                         vectorized::Field::create_field<TYPE_INT>(102),
+                         vectorized::Field::create_field<TYPE_INT>(99), vectorized::Field()});
+    check_column_values(*sorted_block.get_by_position(3).column,
+                        {vectorized::Field::create_field<TYPE_INT>(0),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(0),
+                         vectorized::Field::create_field<TYPE_INT>(1),
+                         vectorized::Field::create_field<TYPE_INT>(1)});
 }
 
 } // namespace doris::pipeline

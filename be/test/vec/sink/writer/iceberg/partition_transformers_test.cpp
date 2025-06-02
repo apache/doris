@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 
 namespace doris::vectorized {
 
@@ -37,7 +37,7 @@ TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
                                    "test_int");
 
     Block block({test_int});
-    TypeDescriptor source_type(PrimitiveType::TYPE_INT);
+    auto source_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
     IntegerTruncatePartitionColumnTransform transform(source_type, 10);
 
     auto result = transform.apply(block, 0);
@@ -58,7 +58,8 @@ TEST_F(PartitionTransformersTest, test_bigint_truncate_transform) {
                                       "test_bigint");
 
     Block block({test_bigint});
-    TypeDescriptor source_type(PrimitiveType::TYPE_BIGINT);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
     BigintTruncatePartitionColumnTransform transform(source_type, 10);
 
     auto result = transform.apply(block, 0);
@@ -80,7 +81,7 @@ TEST_F(PartitionTransformersTest, test_decimal32_truncate_transform) {
                                          "test_decimal32");
 
     Block block({test_decimal32});
-    TypeDescriptor source_type = TypeDescriptor::create_decimalv3_type(4, 2);
+    auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
     DecimalTruncatePartitionColumnTransform<Decimal32> transform(source_type, 50);
 
     auto result = transform.apply(block, 0);
@@ -101,7 +102,7 @@ TEST_F(PartitionTransformersTest, test_string_truncate_transform) {
                                       "test_string");
 
     Block block({test_string});
-    TypeDescriptor source_type = TypeDescriptor::create_string_type();
+    auto source_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
     StringTruncatePartitionColumnTransform transform(source_type, 3);
 
     auto result = transform.apply(block, 0);
@@ -123,7 +124,7 @@ TEST_F(PartitionTransformersTest, test_integer_bucket_transform) {
                                    "test_int");
 
     Block block({test_int});
-    TypeDescriptor source_type(PrimitiveType::TYPE_INT);
+    auto source_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
     IntBucketPartitionColumnTransform transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
@@ -144,7 +145,8 @@ TEST_F(PartitionTransformersTest, test_bigint_bucket_transform) {
                                       "test_bigint");
 
     Block block({test_bigint});
-    TypeDescriptor source_type(PrimitiveType::TYPE_BIGINT);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
     BigintBucketPartitionColumnTransform transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
@@ -166,7 +168,7 @@ TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
                                          "test_decimal32");
 
     Block block({test_decimal32});
-    TypeDescriptor source_type = TypeDescriptor::create_decimalv3_type(4, 2);
+    auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
     DecimalBucketPartitionColumnTransform<Decimal32> transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
@@ -189,7 +191,8 @@ TEST_F(PartitionTransformersTest, test_date_bucket_transform) {
                                     "test_date");
 
     Block block({test_date});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
     DateBucketPartitionColumnTransform transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
@@ -212,7 +215,8 @@ TEST_F(PartitionTransformersTest, test_timestamp_bucket_transform) {
                                          "test_timestamp");
 
     Block block({test_timestamp});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATETIMEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
     TimestampBucketPartitionColumnTransform transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
@@ -233,7 +237,8 @@ TEST_F(PartitionTransformersTest, test_string_bucket_transform) {
                                       "test_string");
 
     Block block({test_string});
-    TypeDescriptor source_type(PrimitiveType::TYPE_STRING);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, false);
     StringBucketPartitionColumnTransform transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
@@ -256,7 +261,8 @@ TEST_F(PartitionTransformersTest, test_date_year_transform) {
                                     "test_date");
 
     Block block({test_date});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
     DateYearPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -282,7 +288,8 @@ TEST_F(PartitionTransformersTest, test_timestamp_year_transform) {
                                          "test_timestamp");
 
     Block block({test_timestamp});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATETIMEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
     TimestampYearPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -308,7 +315,8 @@ TEST_F(PartitionTransformersTest, test_date_month_transform) {
                                     "test_date");
 
     Block block({test_date});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
     DateMonthPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -334,7 +342,8 @@ TEST_F(PartitionTransformersTest, test_timestamp_month_transform) {
                                          "test_timestamp");
 
     Block block({test_timestamp});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATETIMEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
     TimestampMonthPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -360,7 +369,8 @@ TEST_F(PartitionTransformersTest, test_date_day_transform) {
                                     "test_date");
 
     Block block({test_date});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATEV2, false);
     DateDayPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -386,7 +396,8 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform) {
                                          "test_timestamp");
 
     Block block({test_timestamp});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATETIMEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
     TimestampDayPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -412,7 +423,8 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
                                          "test_timestamp");
 
     Block block({test_timestamp});
-    TypeDescriptor source_type(PrimitiveType::TYPE_DATETIMEV2);
+    auto source_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
     TimestampHourPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -436,7 +448,7 @@ TEST_F(PartitionTransformersTest, test_void_transform) {
                                    "test_int");
 
     Block block({test_int});
-    TypeDescriptor source_type(PrimitiveType::TYPE_INT);
+    auto source_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
     VoidPartitionColumnTransform transform(source_type);
 
     auto result = transform.apply(block, 0);
@@ -459,7 +471,7 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "test_int");
 
     Block block({test_int});
-    TypeDescriptor source_type(PrimitiveType::TYPE_INT);
+    auto source_type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
     IntegerTruncatePartitionColumnTransform transform(source_type, 10);
 
     auto result = transform.apply(block, 0);
@@ -472,12 +484,12 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
                     ->get_data();
     const auto& null_map_column = result_column->get_null_map_column();
 
-    EXPECT_EQ(1, null_map_column[0]);
-    EXPECT_EQ(0, null_map_column[1]);
-    EXPECT_EQ(0, null_map_column[2]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(1), null_map_column[0]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), null_map_column[1]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), null_map_column[2]);
 
     for (size_t i = 0, j = 0; i < result_column->size(); ++i) {
-        if (null_map_column[i] == 0) {
+        if (null_map_column[i] == Field::create_field<TYPE_BOOLEAN>(0)) {
             EXPECT_EQ(expected_data[j], result_data[i]);
             EXPECT_EQ(expected_human_string[j],
                       transform.to_human_string(transform.get_result_type(), result_data[i]));

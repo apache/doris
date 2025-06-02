@@ -154,8 +154,10 @@ public:
 
     bool need_finalize_variant_column() const { return _need_finalize_variant_column; }
 
+    bool can_do_lazy_materialized() const { return _have_other_join_conjunct || _is_mark_join; }
+
     bool is_lazy_materialized_column(int column_id) const {
-        return _have_other_join_conjunct &&
+        return can_do_lazy_materialized() &&
                !_should_not_lazy_materialized_column_ids.contains(column_id);
     }
 
@@ -189,6 +191,9 @@ private:
     std::set<int> _should_not_lazy_materialized_column_ids;
     std::vector<std::string> _right_table_column_names;
     const std::vector<TExpr> _partition_exprs;
+
+    // Index of column(slot) from right table in the `_intermediate_row_desc`.
+    size_t _right_col_idx;
 };
 
 } // namespace pipeline

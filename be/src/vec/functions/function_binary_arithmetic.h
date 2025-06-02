@@ -240,6 +240,7 @@ struct DecimalBinaryOperation {
     using OpTraits = OperationTraits<Operation, A, B>;
 
     using NativeResultType = typename NativeType<ResultType>::Type;
+    static constexpr PrimitiveType PType = ResultType::PType;
     using Op = Operation<NativeResultType, NativeResultType>;
 
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
@@ -751,10 +752,6 @@ inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal128V3>, DataTypeDeci
 template <>
 inline constexpr bool UseLeftDecimal<DataTypeDecimal<Decimal64>, DataTypeDecimal<Decimal32>> = true;
 
-template <typename T>
-using DataTypeFromFieldType =
-        std::conditional_t<std::is_same_v<T, NumberTraits::Error>, InvalidType, DataTypeNumber<T>>;
-
 template <template <typename, typename> class Operation, typename LeftDataType,
           typename RightDataType>
 struct BinaryOperationTraits {
@@ -792,7 +789,7 @@ struct BinaryOperationTraits {
                  InvalidType>,
             /// number <op> number -> see corresponding impl
             Case<!IsDataTypeDecimal<LeftDataType> && !IsDataTypeDecimal<RightDataType>,
-                 DataTypeFromFieldType<typename Op::ResultType>>>;
+                 typename PrimitiveTypeTraits<Op::ResultType>::DataType>>;
 };
 
 template <typename LeftDataType, typename RightDataType, typename FEResultDataType,
@@ -1049,12 +1046,9 @@ public:
         std::shared_ptr<BinaryArithmeticState> state = std::make_shared<BinaryArithmeticState>();
         context->set_function_state(scope, state);
 
-        state->left_type =
-                DataTypeFactory::instance().create_data_type(*context->get_arg_type(0), false);
-        state->right_type =
-                DataTypeFactory::instance().create_data_type(*context->get_arg_type(1), false);
-        state->result_type =
-                DataTypeFactory::instance().create_data_type(context->get_return_type(), false);
+        state->left_type = remove_nullable(context->get_arg_type(0));
+        state->right_type = remove_nullable(context->get_arg_type(1));
+        state->result_type = remove_nullable(context->get_return_type());
         const auto* left_generic = state->left_type.get();
         const auto* right_generic = state->right_type.get();
         const auto* result_generic = state->result_type.get();

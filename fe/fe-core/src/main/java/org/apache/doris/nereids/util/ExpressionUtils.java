@@ -91,7 +91,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -195,9 +194,19 @@ public class ExpressionUtils {
     }
 
     /**
+     *  AND / OR expression, also remove duplicate expression, boolean literal
+     */
+    public static Expression compound(boolean isAnd, Collection<Expression> expressions) {
+        return isAnd ? and(expressions) : or(expressions);
+    }
+
+    /**
      *  AND expression, also remove duplicate expression, boolean literal
      */
     public static Expression and(Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(BooleanLiteral.FALSE)) {
@@ -243,6 +252,9 @@ public class ExpressionUtils {
      *  OR expression, also remove duplicate expression, boolean literal
      */
     public static Expression or(Collection<Expression> expressions) {
+        if (expressions.size() == 1) {
+            return expressions.iterator().next();
+        }
         Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
         for (Expression expression : expressions) {
             if (expression.equals(BooleanLiteral.TRUE)) {
@@ -284,47 +296,6 @@ public class ExpressionUtils {
         } else {
             return new InPredicate(reference, ImmutableList.copyOf(values));
         }
-    }
-
-    /**
-     * Use AND/OR to combine expressions together.
-     */
-    public static Expression combineAsLeftDeepTree(
-            Class<? extends Expression> type, Collection<Expression> expressions) {
-        /*
-         *             (AB) (CD) E   ((AB)(CD))  E     (((AB)(CD))E)
-         *               ▲   ▲   ▲       ▲       ▲          ▲
-         *               │   │   │       │       │          │
-         * A B C D E ──► A B C D E ──► (AB) (CD) E ──► ((AB)(CD)) E ──► (((AB)(CD))E)
-         */
-        Preconditions.checkArgument(type == And.class || type == Or.class);
-        Objects.requireNonNull(expressions, "expressions is null");
-
-        Expression shortCircuit = (type == And.class ? BooleanLiteral.FALSE : BooleanLiteral.TRUE);
-        Expression skip = (type == And.class ? BooleanLiteral.TRUE : BooleanLiteral.FALSE);
-        Set<Expression> distinctExpressions = Sets.newLinkedHashSetWithExpectedSize(expressions.size());
-        for (Expression expression : expressions) {
-            if (expression.equals(shortCircuit)) {
-                return shortCircuit;
-            } else if (!expression.equals(skip)) {
-                distinctExpressions.add(expression);
-            }
-        }
-
-        if (distinctExpressions.isEmpty()) {
-            return BooleanLiteral.of(type == And.class);
-        }
-        Expression result = null;
-        for (Expression expr : distinctExpressions) {
-            if (result == null) {
-                result = expr;
-            } else if (type == And.class) {
-                result = new And(result, expr);
-            } else {
-                result = new Or(result, expr);
-            }
-        }
-        return result;
     }
 
     public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan, BitSet tableBitSet) {
@@ -846,8 +817,7 @@ public class ExpressionUtils {
     public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
         ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.putAll(extractUniformSlot(expression.child(0)));
-            builder.putAll(extractUniformSlot(expression.child(1)));
+            expression.children().forEach(child -> builder.putAll(extractUniformSlot(child)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
@@ -1140,5 +1110,24 @@ public class ExpressionUtils {
             // we need to rewrite it to String Literal '21G'
             return new StringLiteral(unboundSlot.getName());
         }
+    }
+
+    /**
+     * format a list of slots
+     */
+    public static String slotListShapeInfo(List<Slot> materializedSlots) {
+        StringBuilder shapeBuilder = new StringBuilder();
+        shapeBuilder.append("(");
+        boolean isFirst = true;
+        for (Slot slot : materializedSlots) {
+            if (isFirst) {
+                shapeBuilder.append(slot.shapeInfo());
+                isFirst = false;
+            } else {
+                shapeBuilder.append(",").append(slot.shapeInfo());
+            }
+        }
+        shapeBuilder.append(")");
+        return shapeBuilder.toString();
     }
 }

@@ -69,7 +69,7 @@ class UniqueTest extends TestWithFeService {
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUnique(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id, sum(id), avg(id), max(id), min(id) from agg group by id")
+                .analyze("select id, sum(id), avg(id), max(id), min(id), topn(id,2) from agg group by id")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
@@ -141,7 +141,7 @@ class UniqueTest extends TestWithFeService {
     @Test
     void testSetOp() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select name from agg limit 1 except select name from agg")
+                .analyze("(select name from agg limit 1) except select name from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()

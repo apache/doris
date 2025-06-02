@@ -29,7 +29,6 @@
 #pragma once
 
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -70,7 +69,7 @@ public:
         // If the page is full, should stop adding more items.
         while (!is_page_full() && i < *count) {
             const auto* src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
                 }
@@ -237,7 +236,7 @@ public:
             const uint32_t start_offset = last_offset;
             last_offset = guarded_offset(_cur_idx + 1);
             _offsets[i + 1] = last_offset;
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
                 if (_options.need_check_bitmap) {
                     RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + start_offset)));
                 }
@@ -245,7 +244,7 @@ public:
         }
         _cur_idx++;
         _offsets[max_fetch] = offset(_cur_idx);
-        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_OBJECT) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
             if (_options.need_check_bitmap) {
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }

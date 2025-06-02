@@ -103,7 +103,8 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
         if (Strings.isNullOrEmpty(targetURL)) {
             return null;
         }
-        return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect());
+        return HttpDialectUtils.convertSql(targetURL, originSql, sessionVariable.getSqlDialect(),
+                sessionVariable.getSqlConvertorFeatures(), sessionVariable.getSqlConvertorConfig());
     }
 
     // no need to override parseSqlWithDialect, just return null

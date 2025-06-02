@@ -47,6 +47,8 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
+    bool must_set_shared_state() const override;
+
 private:
     friend class UnionSourceOperatorX;
     friend class OperatorX<UnionSourceLocalState>;

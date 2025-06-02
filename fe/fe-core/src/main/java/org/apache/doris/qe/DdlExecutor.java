@@ -70,7 +70,6 @@ import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -79,7 +78,6 @@ import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.CreateStorageVaultStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -179,8 +177,6 @@ public class DdlExecutor {
             EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateTableLikeStmt) {
-            env.createTableLike((CreateTableLikeStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableAsSelectStmt) {
             env.createTableAsSelect((CreateTableAsSelectStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {
@@ -372,8 +368,6 @@ public class DdlExecutor {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreatePolicyStmt) {
-            env.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
             env.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {
@@ -435,7 +429,9 @@ public class DdlExecutor {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
-            env.getBackupHandler().alterRepository((AlterRepositoryStmt) ddlStmt);
+            AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
+            env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
+                    false);
         } else if (ddlStmt instanceof CreateStorageVaultStmt) {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateStageStmt) {
@@ -454,7 +450,7 @@ public class DdlExecutor {
         }
     }
 
-    private static void executeCopyStmt(Env env, CopyStmt copyStmt) throws Exception {
+    public static void executeCopyStmt(Env env, CopyStmt copyStmt) throws Exception {
         CopyJob job = (CopyJob) (((CloudLoadManager) env.getLoadManager()).createLoadJobFromStmt(copyStmt));
         if (!copyStmt.isAsync()) {
             // wait for execute finished
@@ -475,7 +471,7 @@ public class DdlExecutor {
                 entry.add(loadingStatus.getTrackingUrl());
                 result.add(entry);
                 queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
-                copyStmt.getAnalyzer().getContext().setState(queryState);
+                ConnectContext.get().setState(queryState);
                 return;
             } else if (job.getState() == JobState.FINISHED) {
                 EtlStatus loadingStatus = job.getLoadingStatus();
@@ -493,7 +489,7 @@ public class DdlExecutor {
                 entry.add(loadingStatus.getTrackingUrl());
                 result.add(entry);
                 queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
-                copyStmt.getAnalyzer().getContext().setState(queryState);
+                ConnectContext.get().setState(queryState);
                 return;
             }
         }
@@ -510,7 +506,7 @@ public class DdlExecutor {
         entry.add("");
         result.add(entry);
         queryState.setResultSet(new ShowResultSet(copyStmt.getMetaData(), result));
-        copyStmt.getAnalyzer().getContext().setState(queryState);
+        ConnectContext.get().setState(queryState);
     }
 
     private static void waitJobCompleted(CopyJob job) throws InterruptedException {
