@@ -70,7 +70,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/vgeneric_iterators.h"
 

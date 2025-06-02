@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "data_type_object_serde.h"
+#include "data_type_variant_serde.h"
 
 #include <rapidjson/stringbuffer.h>
 
@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "util/jsonb_parser_simd.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"

@@ -119,7 +119,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     std::shared_ptr<VDataStreamRecvr> recvr = nullptr;
     ThreadCpuStopWatch cpu_time_stop_watch;
     cpu_time_stop_watch.start();
-    static_cast<void>(find_recvr(t_finst_id, request->node_id(), &recvr));
+    RETURN_IF_ERROR(find_recvr(t_finst_id, request->node_id(), &recvr));
     if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.

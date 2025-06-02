@@ -329,7 +329,7 @@ public:
         DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
             DCHECK_EQ(0, pos);
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("invalid pos");
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid pos {}", pos);
         }
 
         DCHECK_LE(pos, _num_elements);

@@ -31,7 +31,7 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"

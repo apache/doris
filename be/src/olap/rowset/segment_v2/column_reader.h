@@ -196,6 +196,7 @@ public:
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
+        // The set operation could not fail, so use cast void here.
         static_cast<void>(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
@@ -397,7 +398,7 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
 private:
-    void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
+    Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();

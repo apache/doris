@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeObject.cpp
 // and modified by Doris
 
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 
 #include <gen_cpp/data.pb.h>
 #include <string.h>
@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"

@@ -1772,6 +1772,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    // We do not care about report status, even if report failed, we go forward.
     static_cast<void>(send_report(true));
     // Print profile content in info log is a tempoeray solution for stream load and external_connector.
     // Since stream load does not have someting like coordinator on FE, so
