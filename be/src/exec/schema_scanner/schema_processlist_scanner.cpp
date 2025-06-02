@@ -65,6 +65,7 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
                 SchemaHelper::show_process_list(fe_addr.hostname, fe_addr.port, request, &tmp_ret));
 
         // Check and adjust the number of columns in each row to ensure 15 columns
+        // This is compatible with newly added column "trace id". #51400
         for (auto& row : tmp_ret.process_list) {
             if (row.size() == 14) {
                 // Insert an empty string at position 11 (index 11) for the TRACE_ID column
