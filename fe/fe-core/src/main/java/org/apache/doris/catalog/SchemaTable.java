@@ -540,7 +540,7 @@ public class SchemaTable extends Table {
                                     .column("QueryId", ScalarType.createVarchar(256))
                                     .column("TraceId", ScalarType.createVarchar(256))
                                     .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
-                                    .column("Fe", ScalarType.createVarchar(64))
+                                    .column("FE", ScalarType.createVarchar(64))
                                     .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
