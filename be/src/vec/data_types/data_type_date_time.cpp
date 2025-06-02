@@ -111,7 +111,7 @@ void DataTypeDateTime::cast_to_date_time(Int64& x) {
 }
 
 MutableColumnPtr DataTypeDateTime::create_column() const {
-    auto col = DataTypeNumberBase<Int64>::create_column();
+    auto col = DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::create_column();
     col->set_datetime_type();
     return col;
 }

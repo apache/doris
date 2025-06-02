@@ -227,3 +227,8 @@
 400	Dan	50	4	Street 4	22.214	b
 400	Dan	50	4	Street 4	214.1	b
 
+-- !explode_json_array17 --
+4	{"a":1}
+4	{"b":2}
+4	{"c":3}
+

@@ -190,6 +190,10 @@ public:
     void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
                        PMultiGetResponse* response, google::protobuf::Closure* done) override;
 
+    void multiget_data_v2(google::protobuf::RpcController* controller,
+                          const PMultiGetRequestV2* request, PMultiGetResponseV2* response,
+                          google::protobuf::Closure* done) override;
+
     void tablet_fetch_data(google::protobuf::RpcController* controller,
                            const PTabletKeyLookupRequest* request,
                            PTabletKeyLookupResponse* response,
@@ -208,6 +212,20 @@ public:
     void get_be_resource(google::protobuf::RpcController* controller,
                          const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
                          google::protobuf::Closure* done) override;
+
+    void delete_dictionary(google::protobuf::RpcController* controller,
+                           const PDeleteDictionaryRequest* request,
+                           PDeleteDictionaryResponse* response,
+                           google::protobuf::Closure* done) override;
+
+    void commit_refresh_dictionary(google::protobuf::RpcController* controller,
+                                   const PCommitRefreshDictionaryRequest* request,
+                                   PCommitRefreshDictionaryResponse* response,
+                                   google::protobuf::Closure* done) override;
+    void abort_refresh_dictionary(google::protobuf::RpcController* controller,
+                                  const PAbortRefreshDictionaryRequest* request,
+                                  PAbortRefreshDictionaryResponse* response,
+                                  google::protobuf::Closure* done) override;
 
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,

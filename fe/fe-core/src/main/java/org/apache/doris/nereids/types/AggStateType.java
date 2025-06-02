@@ -57,6 +57,7 @@ public class AggStateType extends DataType {
             .put("variance_pop", "variance")
             .put("var_samp", "variance_samp")
             .put("hist", "histogram")
+            .put("map_agg", "map_agg_v2")
             .build();
 
     private final List<DataType> subTypes;
@@ -102,6 +103,12 @@ public class AggStateType extends DataType {
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
         return Expr.createAggStateType(functionName, types, subTypeNullables);
+    }
+
+    @Override
+    public DataType conversion() {
+        return new AggStateType(functionName, subTypes.stream().map(DataType::conversion).collect(Collectors.toList()),
+                subTypeNullables);
     }
 
     @Override

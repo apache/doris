@@ -64,6 +64,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -186,6 +187,22 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public long getRollupIndexId() {
+        return rollupIndexId;
+    }
+
+    public String getRollupIndexName() {
+        return rollupIndexName;
+    }
+
+    public long getBaseIndexId() {
+        return baseIndexId;
+    }
+
+    public String getBaseIndexName() {
+        return baseIndexName;
     }
 
     protected void initAnalyzer() throws AnalysisException {
@@ -526,10 +543,18 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() > 0) {
+                int maxFailedTimes = 0;
+                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
+                    if (task.getErrorCode() != null && task.getErrorCode()
+                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
+                        maxFailedTimes = Config.schema_change_max_retry_time;
+                    }
+                }
+                if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("rollup task failed: " + task.getErrorMsg());
+                    LOG.warn("rollup task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                            task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                     List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                     if (failedBackends == null) {
                         failedBackends = Lists.newArrayList();

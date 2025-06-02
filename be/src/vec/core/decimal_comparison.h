@@ -34,10 +34,12 @@
 namespace doris::vectorized {
 
 inline bool allow_decimal_comparison(const DataTypePtr& left_type, const DataTypePtr& right_type) {
-    if (is_decimal(left_type)) {
-        if (is_decimal(right_type) || is_not_decimal_but_comparable_to_decimal(right_type))
+    if (is_decimal(left_type->get_primitive_type())) {
+        if (is_decimal(right_type->get_primitive_type()) ||
+            is_int_or_bool(right_type->get_primitive_type()))
             return true;
-    } else if (is_not_decimal_but_comparable_to_decimal(left_type) && is_decimal(right_type))
+    } else if (is_int_or_bool(left_type->get_primitive_type()) &&
+               is_decimal(right_type->get_primitive_type()))
         return true;
     return false;
 }
@@ -201,7 +203,7 @@ private:
                 A a = c0_const->template get_value<A>();
                 B b = c1_const->template get_value<B>();
                 UInt8 res = apply<scale_left, scale_right>(a, b, scale);
-                return DataTypeUInt8().create_column_const(c0->size(), to_field(res));
+                return DataTypeUInt8().create_column_const(c0->size(), to_field<TYPE_BOOLEAN>(res));
             }
 
             auto c_res = ColumnUInt8::create(c0->size());

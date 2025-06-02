@@ -99,6 +99,17 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_bytes_total, MetricUn
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(full_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "full"}}));
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_running_total, MetricUnit::ROWSETS, "",
+                                     compaction_task_state_total, Labels({{"type", "base"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_pending_total, MetricUnit::ROWSETS, "",
+                                     compaction_task_state_total, Labels({{"type", "base"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_running_total, MetricUnit::ROWSETS,
+                                     "", compaction_task_state_total,
+                                     Labels({{"type", "cumulative"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_pending_total, MetricUnit::ROWSETS,
+                                     "", compaction_task_state_total,
+                                     Labels({{"type", "cumulative"}}));
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
                                      Labels({{"type", "segment_read_total"}}));
@@ -203,6 +214,9 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_wait_ready_ms,
                                      MetricUnit::MILLISECONDS);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_timeout_num, MetricUnit::NOUNIT);
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_time_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(get_remote_tablet_slow_cnt, MetricUnit::NOUNIT);
+
 const std::string DorisMetrics::_s_registry_name = "doris_be";
 const std::string DorisMetrics::_s_hook_name = "doris_metrics";
 
@@ -256,6 +270,11 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_bytes_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, full_compaction_deltas_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, full_compaction_bytes_total);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_task_running_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_task_pending_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_running_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
@@ -337,6 +356,9 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_ready_num);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_wait_ready_ms);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, runtime_filter_consumer_timeout_num);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_time_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_cnt);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,

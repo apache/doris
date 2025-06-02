@@ -271,9 +271,9 @@ void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVa
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int64_t start,
-                                               int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                 arrow::ArrayBuilder* array_builder, int64_t start,
+                                                 int64_t end, const cctz::time_zone& ctz) const {
     const auto& array_column = static_cast<const ColumnArray&>(column);
     const auto& offsets = array_column.get_offsets();
     const auto& nested_data = array_column.get_data();
@@ -281,19 +281,22 @@ void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const Null
     auto* nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
         if (null_map && (*null_map)[array_idx]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
             continue;
         }
-        checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
-        nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
-                                            offsets[array_idx - 1], offsets[array_idx], ctz);
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
+                                         array_builder->type()->name()));
+        RETURN_IF_ERROR(nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
+                                                            offsets[array_idx - 1],
+                                                            offsets[array_idx], ctz));
     }
+    return Status::OK();
 }
 
-void DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                int64_t start, int64_t end,
-                                                const cctz::time_zone& ctz) const {
+Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                  int64_t start, int64_t end,
+                                                  const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
     const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
@@ -341,7 +344,6 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            ++options.level;
             if (is_nested_string && options.wrapper_len > 0) {
                 if (0 != result.push_string(options.nested_string_wrapper, options.wrapper_len)) {
                     return Status::InternalError("pack mysql buffer failed.");
@@ -355,7 +357,6 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
                 RETURN_IF_ERROR(
                         nested_serde->write_column_to_mysql(data, result, j, false, options));
             }
-            --options.level;
         }
     }
     if (0 != result.push_string("]", 1)) {
