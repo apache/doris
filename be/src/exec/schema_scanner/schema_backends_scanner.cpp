@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_table_privileges_scanner.h"
+#include "exec/schema_scanner/schema_backends_scanner.h"
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/FrontendService_types.h>
@@ -80,25 +80,11 @@ Status SchemaBackendsScanner::start(RuntimeState* state) {
 
 Status SchemaBackendsScanner::_get_new_table() {
     SCOPED_TIMER(_get_table_timer);
-    TGetTablesParams table_params;
-    if (nullptr != _param->common_param->wild) {
-        table_params.__set_pattern(*(_param->common_param->wild));
-    }
-    if (nullptr != _param->common_param->current_user_ident) {
-        table_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
-    } else {
-        if (nullptr != _param->common_param->user) {
-            table_params.__set_user(*(_param->common_param->user));
-        }
-        if (nullptr != _param->common_param->user_ip) {
-            table_params.__set_user_ip(*(_param->common_param->user_ip));
-        }
-    }
-
+    TFetchBackendsRequest request;
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::fetch_backends(*(_param->common_param->ip),
                                                      _param->common_param->port,
-                                                     table_params, &_backends_result));
+                                                     request, &_backends_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -122,97 +108,209 @@ Status SchemaBackendsScanner::get_next_block_internal(vectorized::Block* block, 
 
 Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
-    const auto& backends = _backends_result.backends;
+    const std::vector<TBackendDetailInfo>& backends = _backends_result.backends;
     size_t row_num = backends.size();
     if (row_num == 0) {
         return Status::OK();
     }
 
+    std::vector<StringRef> str_refs(row_num);
+    std::vector<int32_t> int32_refs(row_num);
+    std::vector<int64_t> int64_refs(row_num);
+    std::vector<char> bool_refs(row_num);
+    std::vector<double> double_refs(row_num);
+    std::vector<void*> null_datas(row_num, nullptr);
+    std::vector<void*> datas(row_num);
+
+    // BACKENDID
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        const TBackendInfo& backend_info = backends[row_idx];
-
-
+        int64_refs[row_idx] = backends[row_idx].backend_id ;
+        datas[row_idx] = int64_refs.data() + row_idx;
     }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
 
-    for (size_t col_idx = 0; col_idx < _s_backends_columns.size(); ++col_idx) {
-        std::vector<void*> datas(row_num);
-
-        std::vector<StringRef> str_refs(row_num);
-        std::vector<int32_t> int32_refs(row_num);
-        std::vector<int64_t> int64_refs(row_num);
-        std::vector<bool> bool_refs(row_num);
-
-        for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-            const TBackendInfo& backend_info = backends[row_idx];
-
-
-        }
-
+    // HOST
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].host.c_str(), backends[row_idx].host.length());
+        datas[row_idx] = str_refs.data() + row_idx;
     }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
 
+    // HEARTBEATPORT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].heartbeat_port;
+        datas[row_idx] = int32_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
 
+    // BEPORT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].be_port;
+        datas[row_idx] = int32_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
 
-    // grantee
-    {
-        std::vector<StringRef> strs(row_num);
-        for (int i = 0; i < row_num; ++i) {
-            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            strs[i] = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
-            datas[i] = strs.data() + i;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
+    // HTTPPORT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].http_port;
+        datas[row_idx] = int32_refs.data() + row_idx;
     }
-    // catalog
-    // This value is always def.
-    {
-        std::string definer = "def";
-        StringRef str = StringRef(definer.c_str(), definer.size());
-        for (int i = 0; i < row_num; ++i) {
-            datas[i] = &str;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
+
+    // BRPCPORT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].brpc_port;
+        datas[row_idx] = int32_refs.data() + row_idx;
     }
-    // schema
-    {
-        std::vector<StringRef> strs(row_num);
-        for (int i = 0; i < row_num; ++i) {
-            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            strs[i] = StringRef(priv_status.schema.c_str(), priv_status.schema.size());
-            datas[i] = strs.data() + i;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+
+    // ARROWFLIGHTSQLPORT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].arrowflightsqlport;
+        datas[row_idx] = int32_refs.data() + row_idx;
     }
-    // table name
-    {
-        std::vector<StringRef> strs(row_num);
-        for (int i = 0; i < row_num; ++i) {
-            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            strs[i] = StringRef(priv_status.table_name.c_str(), priv_status.table_name.size());
-            datas[i] = strs.data() + i;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
+
+    // LASTSTARTTIME
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].last_start_time.c_str(), backends[row_idx].last_start_time.length());
+        datas[row_idx] = str_refs.data() + row_idx;
     }
-    // privilege type
-    {
-        std::vector<StringRef> strs(row_num);
-        for (int i = 0; i < row_num; ++i) {
-            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            strs[i] = StringRef(priv_status.privilege_type.c_str(),
-                                priv_status.privilege_type.size());
-            datas[i] = strs.data() + i;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
+
+    // LASTHEARTBEAT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].last_heartbeat.c_str(), backends[row_idx].last_heartbeat.length());
+        datas[row_idx] = str_refs.data() + row_idx;
     }
-    // is grantable
-    {
-        std::vector<StringRef> strs(row_num);
-        for (int i = 0; i < row_num; ++i) {
-            const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
-            strs[i] = StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
-            datas[i] = strs.data() + i;
-        }
-        RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
+
+    // ALIVE
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        bool_refs[row_idx] = static_cast<char>(backends[row_idx].alive);
+        datas[row_idx] = bool_refs.data() + row_idx;
     }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
+
+    // SYSTEMDECOMMISSIONED
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        bool_refs[row_idx] = static_cast<char>(backends[row_idx].system_decommissioned);
+        datas[row_idx] = bool_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
+
+    // TABLETNUM
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].tablet_num;
+        datas[row_idx] = int32_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
+
+    // DATAUSEDCAPACITY
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int64_refs[row_idx] = backends[row_idx].data_used_capacity ;
+        datas[row_idx] = int64_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+
+    // TRASHUSEDCAPACITY
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int64_refs[row_idx] = backends[row_idx].trash_used_capacity ;
+        datas[row_idx] = int64_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
+
+    // AVAILCAPACITY
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int64_refs[row_idx] = backends[row_idx].avail_capacity ;
+        datas[row_idx] = int64_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
+
+    // TOTALCAPACITY
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int64_refs[row_idx] = backends[row_idx].total_capacity ;
+        datas[row_idx] = int64_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 15, datas));
+
+    // USEDPCT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        double_refs[row_idx] = backends[row_idx].used_pct;
+        datas[row_idx] = double_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
+
+    // MAXDISKUSEDPCT
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        double_refs[row_idx] = backends[row_idx].max_disk_used_pct ;
+        datas[row_idx] = double_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
+
+    // REMOTEUSEDCAPACITY
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int64_refs[row_idx] = backends[row_idx].remote_used_capacity ;
+        datas[row_idx] = int64_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas));
+
+    // TAG
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].tag.c_str(), backends[row_idx].tag.length());
+        datas[row_idx] = str_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, datas));
+
+    // ERRMSG
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].errmsg.c_str(), backends[row_idx].errmsg.length());
+        datas[row_idx] = str_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
+
+    // VERSION
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].version.c_str(), backends[row_idx].version.length());
+        datas[row_idx] = str_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 21, datas));
+
+    // STATUS
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].status.c_str(), backends[row_idx].status.length());
+        datas[row_idx] = str_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 22, datas));
+
+    // HEARTBEATFAILURECOUNTER
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].heartbeat_failure_counter;
+        datas[row_idx] = int32_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 23, datas));
+
+    // NODEROLE
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        str_refs[row_idx] = StringRef(backends[row_idx].node_role.c_str(), backends[row_idx].node_role.length());
+        datas[row_idx] = str_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 24, datas));
+
+    // CPUCORES
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int32_refs[row_idx] = backends[row_idx].cpu_cores;
+        datas[row_idx] = int32_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 25, datas));
+
+    // MEMORY
+    for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
+        int64_refs[row_idx] = backends[row_idx].memory;
+        datas[row_idx] = int64_refs.data() + row_idx;
+    }
+    RETURN_IF_ERROR(fill_dest_column_for_range(block, 26, datas));
+
     return Status::OK();
 }
 
