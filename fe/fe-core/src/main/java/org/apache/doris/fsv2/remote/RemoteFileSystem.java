@@ -135,7 +135,7 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
         }
     }
 
-    public  boolean connectivityTest() throws UserException {
+    public  boolean connectivityTest(List<String> filePaths) throws UserException {
         return true;
     }
 }

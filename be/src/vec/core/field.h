@@ -349,7 +349,7 @@ public:
         }
 
         switch (type) {
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
         case PrimitiveType::TYPE_HLL:
         case PrimitiveType::TYPE_QUANTILE_STATE:
         case PrimitiveType::INVALID_TYPE:
@@ -457,7 +457,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             f(field.template get<VariantMap>());
             return;
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             f(field.template get<BitmapValue>());
             return;
         case PrimitiveType::TYPE_HLL:
@@ -470,6 +470,83 @@ public:
             throw Exception(
                     Status::FatalError("type not supported, type={}", field.get_type_name()));
         }
+    }
+
+    std::string to_string() const {
+        std::string res;
+        switch (type) {
+        case PrimitiveType::TYPE_DATETIMEV2: {
+            auto v = get<UInt64>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DATETIME:
+        case PrimitiveType::TYPE_DATE:
+        case PrimitiveType::TYPE_BIGINT: {
+            auto v = get<Int64>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_LARGEINT: {
+            auto v = get<Int128>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_IPV6: {
+            auto v = get<IPv6>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DOUBLE: {
+            auto v = get<Float64>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_STRING:
+        case PrimitiveType::TYPE_CHAR:
+        case PrimitiveType::TYPE_VARCHAR: {
+            res = get<String>();
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL32: {
+            auto v = get<DecimalField<Decimal32>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL64: {
+            auto v = get<DecimalField<Decimal64>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMALV2: {
+            auto v = get<DecimalField<Decimal128V2>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL128I: {
+            auto v = get<DecimalField<Decimal128V3>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        case PrimitiveType::TYPE_DECIMAL256: {
+            auto v = get<DecimalField<Decimal256>>();
+            res.resize(sizeof(v));
+            memcpy(res.data(), &v, sizeof(v));
+            break;
+        }
+        default:
+            throw Exception(Status::FatalError("type not supported, type={}", get_type_name()));
+        }
+        return res;
     }
 
 private:
@@ -651,3 +728,14 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
 }
 
 } // namespace doris::vectorized
+
+template <>
+struct std::hash<doris::vectorized::Field> {
+    size_t operator()(const doris::vectorized::Field& field) const {
+        if (field.is_null()) {
+            return 0;
+        }
+        std::hash<std::string> hasher;
+        return hasher(field.to_string());
+    }
+};

@@ -325,7 +325,7 @@ public:
         case PrimitiveType::TYPE_DATETIMEV2:
             return insert_result_data<ColumnUInt64>(result_column, argument_column, null_map_data,
                                                     filled_flag, input_rows_count);
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             return insert_result_data_bitmap(result_column, argument_column, null_map_data,
                                              filled_flag, input_rows_count);
         default:

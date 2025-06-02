@@ -394,6 +394,49 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
         RETURN_IF_ERROR(process_old_version_delete_bitmap());
     }
+    // agg delete bitmap for pre rowsets
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
+        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
+        OlapStopWatch watch;
+        std::vector<RowsetSharedPtr> pre_rowsets {};
+        {
+            std::shared_lock rlock(_tablet->get_header_lock());
+            for (const auto& it2 : cloud_tablet()->rowset_map()) {
+                if (it2.first.second < _output_rowset->start_version()) {
+                    pre_rowsets.emplace_back(it2.second);
+                }
+            }
+        }
+        std::sort(pre_rowsets.begin(), pre_rowsets.end(), Rowset::comparator);
+        auto pre_rowsets_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_id());
+        std::map<std::string, int64_t> pre_rowset_to_versions;
+        cloud_tablet()->agg_delete_bitmap_for_compaction(
+                _output_rowset->start_version(), _output_rowset->end_version(), pre_rowsets,
+                pre_rowsets_delete_bitmap, pre_rowset_to_versions);
+        // update delete bitmap to ms
+        DBUG_EXECUTE_IF(
+                "CumulativeCompaction.modify_rowsets.cloud_update_delete_bitmap_without_lock.block",
+                DBUG_BLOCK);
+        auto status = _engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
+                *cloud_tablet(), pre_rowsets_delete_bitmap.get(), pre_rowset_to_versions,
+                _output_rowset->start_version(), _output_rowset->end_version());
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to agg pre rowsets delete bitmap to ms. tablet_id="
+                         << _tablet->tablet_id() << ", pre rowset num=" << pre_rowsets.size()
+                         << ", output version=" << _output_rowset->version().to_string()
+                         << ", status=" << status.to_string();
+        } else {
+            LOG(INFO) << "agg pre rowsets delete bitmap to ms. tablet_id=" << _tablet->tablet_id()
+                      << ", pre rowset num=" << pre_rowsets.size()
+                      << ", output version=" << _output_rowset->version().to_string()
+                      << ", cost(us)=" << watch.get_elapse_time_us();
+        }
+    }
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset", {
+        LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
+        _engine.tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1));
+    });
     return Status::OK();
 }
 
@@ -419,8 +462,9 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                         "test fail to update delete bitmap for tablet_id {}",
                                         cloud_tablet()->tablet_id());
                             });
+            std::map<std::string, int64_t> rowset_to_versions;
             RETURN_IF_ERROR(_engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
-                    *cloud_tablet(), new_delete_bitmap.get()));
+                    *cloud_tablet(), new_delete_bitmap.get(), rowset_to_versions));
 
             Version version(_input_rowsets.front()->start_version(),
                             _input_rowsets.back()->end_version());

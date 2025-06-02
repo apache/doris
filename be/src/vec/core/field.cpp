@@ -219,9 +219,9 @@ void Field::create(const Field& field) {
         create_concrete<TYPE_VARIANT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
         return;
-    case PrimitiveType::TYPE_OBJECT:
-        create_concrete<TYPE_OBJECT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>());
+    case PrimitiveType::TYPE_BITMAP:
+        create_concrete<TYPE_BITMAP>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_HLL:
         create_concrete<TYPE_HLL>(
@@ -263,8 +263,8 @@ void Field::destroy() {
     case PrimitiveType::TYPE_VARIANT:
         destroy<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>();
         break;
-    case PrimitiveType::TYPE_OBJECT:
-        destroy<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>();
+    case PrimitiveType::TYPE_BITMAP:
+        destroy<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>();
         break;
     case PrimitiveType::TYPE_HLL:
         destroy<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>();
@@ -386,9 +386,9 @@ void Field::assign(const Field& field) {
         assign_concrete<TYPE_VARIANT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
         return;
-    case PrimitiveType::TYPE_OBJECT:
-        assign_concrete<TYPE_OBJECT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>());
+    case PrimitiveType::TYPE_BITMAP:
+        assign_concrete<TYPE_BITMAP>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_HLL:
         assign_concrete<TYPE_HLL>(
@@ -544,10 +544,10 @@ std::string Field::get_type_name() const {
             typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType && rhs);                \
     template void Field::FUNC_NAME<TYPE_MAP>(                                                \
             const typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_OBJECT>(                                             \
-            typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_OBJECT>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_BITMAP>(                                             \
+            typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_BITMAP>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType& rhs);         \
     template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
             const typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType& rhs);         \
     template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \

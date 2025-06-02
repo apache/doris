@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter.h"
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "vec/exprs/vexpr.h"
@@ -103,7 +104,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");
         }
-        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_OBJECT) {
+        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_BITMAP) {
             return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
                                          build_ctx->root()->data_type()->get_name());
         }
