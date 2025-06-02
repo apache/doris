@@ -327,7 +327,16 @@ public class QueryProfileAction extends RestBaseController {
      */
     private String getQueryIdByTraceIdImpl(HttpServletRequest request, String traceId, boolean isAllNode)
             throws Exception {
+        // Get query id by trace id in current FE
+        ExecuteEnv env = ExecuteEnv.getInstance();
+        String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
+        if (!Strings.isNullOrEmpty(queryId)) {
+            checkAuthByUserAndQueryId(queryId);
+            return queryId;
+        }
+
         if (isAllNode) {
+            // If the query id is not found in current FE, try to get it from other FE
             String httpPath = "/rest/v2/manager/query/trace_id/" + traceId;
             ImmutableMap<String, String> arguments =
                     ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false").build();
@@ -335,6 +344,10 @@ public class QueryProfileAction extends RestBaseController {
             ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
                     .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
             for (Pair<String, Integer> ipPort : frontends) {
+                if (HttpUtils.isCurrentFe(ipPort.first, ipPort.second)) {
+                    // skip current FE.
+                    continue;
+                }
                 String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
                 String responseJson = HttpUtils.doGet(url, header);
                 JsonObject jObj = JsonParser.parseString(responseJson).getAsJsonObject();
@@ -347,18 +360,12 @@ public class QueryProfileAction extends RestBaseController {
                     return jObj.get("data").getAsString();
                 }
                 LOG.warn("get query id by trace id error, resp: {}", responseJson);
-                throw new Exception(jObj.get("msg").getAsString());
+                // If the response code is not success, it means that the trace id is not found in this FE.
+                // Continue to try the next FE.
             }
-        } else {
-            ExecuteEnv env = ExecuteEnv.getInstance();
-            String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
-            if (Strings.isNullOrEmpty(queryId)) {
-                throw new Exception(String.format("trace id %s not found", traceId));
-            }
-
-            checkAuthByUserAndQueryId(queryId);
-            return queryId;
         }
+
+        // Not found in all FE.
         throw new Exception(String.format("trace id %s not found", traceId));
     }
 
