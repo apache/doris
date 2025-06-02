@@ -949,6 +949,8 @@ public class ConnectContext {
     }
 
     public void setTraceId(String traceId) {
+        // When traceId is set, we need to remove the old traceId from connectScheduler.
+        connectScheduler.removeOldTraceId(this.traceId);
         this.traceId = traceId;
     }
 
