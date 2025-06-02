@@ -396,7 +396,7 @@ public class ProfileManager extends MasterDaemon {
                 throw new Exception("Failed to get realtime query stats: " + e.getMessage());
             }
         }
-        Preconditions.checkState(queryStatisticsList.isEmpty() || queryStatisticsList.size() != futures.size(),
+        Preconditions.checkState(!queryStatisticsList.isEmpty() && queryStatisticsList.size() == futures.size(),
                 String.format("Failed to get real-time stats, id %s, "
                                 + "queryStatisticsList size %d != futures size %d",
                         queryId, queryStatisticsList.size(), futures.size()));
