@@ -1615,14 +1615,14 @@ struct TFetchBackendsRequest {
 }
 
 
-struct TBackendInfo {
+struct TBackendDetailInfo {
     1: optional i64 backend_id
     2: optional string host
-    3: optional i32 heartbeat_port
-    4: optional i32 be_port
-    5: optional i32 http_port
-    6: optional i32 brpc_port
-    7: optional i32 arrowflightsqlport
+    3: optional Types.TPort heartbeat_port
+    4: optional Types.TPort be_port
+    5: optional Types.TPort http_port
+    6: optional Types.TPort brpc_port
+    7: optional Types.TPort arrowflightsqlport
     8: optional string last_start_time
     9: optional string last_heartbeat
     10: optional bool alive
@@ -1646,7 +1646,7 @@ struct TBackendInfo {
 }
 
 struct TFetchBackendsResult {
-    1: optional list<TBackendInfo> backends
+    1: optional list<TBackendDetailInfo> backends
 }
 
 service FrontendService {

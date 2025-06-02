@@ -43,6 +43,8 @@ class TShowProcessListRequest;
 class TShowProcessListResult;
 class TShowUserRequest;
 class TShowUserResult;
+class TFetchBackendsRequest;
+class TFetchBackendsResult;
 
 // this class is a helper for getting schema info from FE
 class SchemaHelper {
@@ -96,6 +98,10 @@ public:
     static Status fetch_schema_table_data(const std::string& ip, const int32_t port,
                                           const TFetchSchemaTableDataRequest& request,
                                           TFetchSchemaTableDataResult* result);
+
+    static Status fetch_backends(const std::string& ip, const int32_t port,
+                                 const TFetchBackendsRequest& request,
+                                 TFetchBackendsResult* result);
 };
 
 } // namespace doris
