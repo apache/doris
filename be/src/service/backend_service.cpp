@@ -1325,13 +1325,14 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     std::string req_type = request.__isset.req_type ? request.req_type : "profile";
     Status st;
-    if (req_type == "progress") {
-        st = ExecEnv::GetInstance()->fragment_mgr()->get_query_progress(
-                request.id, query_stats.get());
+    if (req_type == "stats") {
+        st = ExecEnv::GetInstance()->fragment_mgr()->get_query_progress(request.id,
+                                                                        query_stats.get());
         if (st.ok()) {
             response.__set_query_stats(*query_stats);
         }
     } else {
+        // default is "profile"
         st = ExecEnv::GetInstance()->fragment_mgr()->get_realtime_exec_status(
                 request.id, report_exec_status_params.get());
         if (st.ok()) {
