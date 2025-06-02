@@ -30,10 +30,15 @@ import java.util.List;
 class IcebergPartitionsTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("partition", ScalarType.STRING),
+            new Column("spec_id", ScalarType.INT),
             new Column("record_count", ScalarType.BIGINT),
             new Column("file_count", ScalarType.BIGINT),
-            new Column("total_size", ScalarType.BIGINT)
-    );
+            new Column("total_data_file_size_in_bytes", ScalarType.BIGINT),
+            new Column("position_delete_record_count", ScalarType.BIGINT),
+            new Column("position_delete_file_count", ScalarType.BIGINT),
+            new Column("equality_delete_record_count", ScalarType.BIGINT),
+            new Column("equality_delete_file_count", ScalarType.BIGINT),
+            new Column("last_updated_at", ScalarType.BIGINT));
 
     public IcebergPartitionsTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.PARTITIONS);

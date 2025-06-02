@@ -29,10 +29,11 @@ import java.util.List;
 
 class IcebergMetadataLogEntriesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("timestamp_ms", ScalarType.BIGINT),
-            new Column("metadata_file_location", ScalarType.STRING),
-            new Column("metadata_log_entry_type", ScalarType.STRING)
-    );
+            new Column("timestamp", ScalarType.DATETIMEV2),
+            new Column("file", ScalarType.STRING),
+            new Column("latest_snapshot_id", ScalarType.BIGINT),
+            new Column("latest_schema_id", ScalarType.INT),
+            new Column("latest_partition_spec_id", ScalarType.BIGINT));
 
     public IcebergMetadataLogEntriesTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.METADATA_LOG_ENTRIES);

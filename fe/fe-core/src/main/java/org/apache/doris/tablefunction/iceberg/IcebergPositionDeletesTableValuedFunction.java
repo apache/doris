@@ -30,9 +30,11 @@ import java.util.List;
 class IcebergPositionDeletesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("file_path", ScalarType.STRING),
-            new Column("position", ScalarType.BIGINT),
-            new Column("row", ScalarType.STRING)
-    );
+            new Column("pos", ScalarType.BIGINT),
+            new Column("row", ScalarType.BIGINT),
+            new Column("partition", ScalarType.STRING),
+            new Column("spec_id", ScalarType.INT),
+            new Column("delete_file_path", ScalarType.STRING));
 
     public IcebergPositionDeletesTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.POSITION_DELETES);
