@@ -17,30 +17,22 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROCESSLIST statement.
 // Used to show connection belong to this user.
 public class ShowProcesslistStmt extends ShowStmt implements NotFallbackInParser {
-    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
-            .addColumn(new Column("CurrentConnected", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("User", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Host", ScalarType.createVarchar(16)))
-            .addColumn(new Column("LoginTime", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Catalog", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Db", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Command", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
-            .addColumn(new Column("State", ScalarType.createVarchar(64)))
-            .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
-            .addColumn(new Column("Info", ScalarType.STRING))
-            .addColumn(new Column("FE", ScalarType.createVarchar(16)))
-            .addColumn(new Column("CloudCluster", ScalarType.createVarchar(16))).build();
+    private static final ShowResultSetMetaData META_DATA;
+
+    static {
+        Table tbl = SchemaTable.TABLE_MAP.get("processlist");
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        tbl.getBaseSchema().stream().forEach(column -> builder.addColumn(column));
+        META_DATA = builder.build();
+    }
 
     private boolean isFull;
     private boolean isShowAllFe;
