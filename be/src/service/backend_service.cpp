@@ -1326,8 +1326,8 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
     std::string req_type = request.__isset.req_type ? request.req_type : "profile";
     Status st;
     if (req_type == "stats") {
-        st = ExecEnv::GetInstance()->fragment_mgr()->get_query_progress(request.id,
-                                                                        query_stats.get());
+        st = ExecEnv::GetInstance()->fragment_mgr()->get_query_statistics(request.id,
+                                                                          query_stats.get());
         if (st.ok()) {
             response.__set_query_stats(*query_stats);
         }
