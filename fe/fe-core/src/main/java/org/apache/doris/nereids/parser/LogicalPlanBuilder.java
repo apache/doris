@@ -7799,18 +7799,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowRoutineLoad(DorisParser.ShowRoutineLoadContext ctx) {
-        List<String> labelParts = visitMultipartIdentifier(ctx.label);
-        String jobName;
-        String dbName = null;
-        if (labelParts.size() == 1) {
-            jobName = labelParts.get(0);
-        } else if (labelParts.size() == 2) {
-            dbName = labelParts.get(0);
-            jobName = labelParts.get(1);
-        } else {
-            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+        LabelNameInfo labelNameInfo = null;
+        if (ctx.label != null) {
+            List<String> labelParts = visitMultipartIdentifier(ctx.label);
+            String jobName;
+            String dbName = null;
+            if (labelParts.size() == 1) {
+                jobName = labelParts.get(0);
+            } else if (labelParts.size() == 2) {
+                dbName = labelParts.get(0);
+                jobName = labelParts.get(1);
+            } else {
+                throw new ParseException("only support [<db>.]<job_name>", ctx.label);
+            }
+            labelNameInfo = new LabelNameInfo(dbName, jobName);
         }
-        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
 
         String pattern = null;
         if (ctx.wildWhere() != null && ctx.wildWhere().LIKE() != null) {
