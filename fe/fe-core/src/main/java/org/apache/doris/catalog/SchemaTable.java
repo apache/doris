@@ -536,9 +536,9 @@ public class SchemaTable extends Table {
                                     .column("TIME", ScalarType.createType(PrimitiveType.INT))
                                     .column("STATE", ScalarType.createVarchar(64))
                                     .column("QUERY_ID", ScalarType.createVarchar(256))
+                                    .column("TRACE_ID", ScalarType.createVarchar(256))
                                     .column("INFO", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
-                                    .column("FE",
-                                            ScalarType.createVarchar(64))
+                                    .column("FE", ScalarType.createVarchar(64))
                                     .column("CLOUD_CLUSTER", ScalarType.createVarchar(64)).build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
