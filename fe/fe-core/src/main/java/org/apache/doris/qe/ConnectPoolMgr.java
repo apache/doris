@@ -84,7 +84,9 @@ public class ConnectPoolMgr {
             if (conns != null) {
                 conns.decrementAndGet();
             }
-            traceId2QueryId.remove(ctx.traceId());
+            if (ctx.traceId() != null) {
+                traceId2QueryId.remove(ctx.traceId());
+            }
             numberConnection.decrementAndGet();
         }
     }
@@ -157,7 +159,9 @@ public class ConnectPoolMgr {
     }
 
     public void removeTraceId(String traceId) {
-        traceId2QueryId.remove(traceId);
+        if (traceId != null) {
+            traceId2QueryId.remove(traceId);
+        }
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {
