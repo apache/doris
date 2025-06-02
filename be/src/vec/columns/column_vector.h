@@ -139,7 +139,11 @@ public:
     using Container = PaddedPODArray<value_type>;
 
     ColumnVector() = default;
-    ColumnVector(const size_t n) : data(n) {}
+
+    // for column boolean, must have initial value!
+    ColumnVector(const size_t n)
+        requires requires { !std::is_same_v<T, UInt8>; }
+            : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
 
