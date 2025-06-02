@@ -31,6 +31,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -121,10 +122,10 @@ public class ShowRoutineLoadTaskCommand extends ShowCommand {
         }
 
         //check right child
-        if (!(expr.child(1) instanceof StringLiteral)) {
+        if (!(expr.child(1) instanceof StringLikeLiteral)) {
             return false;
         }
-        jobName = ((StringLiteral) expr.child(1)).getValue();
+        jobName = ((StringLikeLiteral) expr.child(1)).getValue();
         return true;
     }
 
