@@ -50,7 +50,7 @@ enum PrimitiveType : PrimitiveNative {
 
     TYPE_TIME [[deprecated]], /*TYPE_TIMEV2*/
 
-    TYPE_OBJECT,          /* 22, bitmap */
+    TYPE_BITMAP,          /* 22, bitmap */
     TYPE_STRING,          /* 23 */
     TYPE_QUANTILE_STATE,  /* 24 */
     TYPE_DATEV2,          /* 25 */

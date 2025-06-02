@@ -109,7 +109,7 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
     // Finally, the serialized type of some special functions is bitmap/array/map...
     if (type == PrimitiveType::TYPE_STRING) {
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
-    } else if (type == PrimitiveType::TYPE_OBJECT) {
+    } else if (type == PrimitiveType::TYPE_BITMAP) {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
     } else if (type == PrimitiveType::INVALID_TYPE) {
         // INVALID_TYPE means function's serialized type is fixed object
@@ -130,7 +130,7 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
     switch (column.type()) {
-    case FieldType::OLAP_FIELD_TYPE_OBJECT: {
+    case FieldType::OLAP_FIELD_TYPE_BITMAP: {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
     }
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <iterator>
 #include <random>
+#include <shared_mutex>
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
@@ -31,6 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/delete_bitmap_calculator.h"
 #include "olap/iterators.h"
 #include "olap/memtable.h"
@@ -199,6 +201,7 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
 }
 
 uint32_t BaseTablet::get_real_compaction_score() const {
+    std::shared_lock l(_meta_lock);
     const auto& rs_metas = _tablet_meta->all_rs_metas();
     return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
                            [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
@@ -2092,6 +2095,13 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
             LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
         }
     }
+}
+
+int32_t BaseTablet::max_version_config() {
+    int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
+                                  ? config::time_series_max_tablet_version_num
+                                  : config::max_tablet_version_num;
+    return max_version;
 }
 
 } // namespace doris
