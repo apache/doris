@@ -67,7 +67,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.servlet.http.HttpServletRequest;
@@ -552,11 +551,13 @@ public class QueryProfileAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest(e.getMessage());
         }
 
-        Optional<TQueryStatistics> statistic = ProfileManager.getInstance().getQueryStatistic(queryId);
-        if (!statistic.isPresent()) {
-            return ResponseEntityBuilder.badRequest("Failed to get query statistic");
+        try {
+            TQueryStatistics statistic = ProfileManager.getInstance().getQueryStatistic(queryId);
+            return ResponseEntityBuilder.ok(new QueryStatistics(statistic));
+        } catch (Exception e) {
+            LOG.warn("get query statistics error, queryId:{}", queryId, e);
+            return ResponseEntityBuilder.badRequest(e.getMessage());
         }
-        return ResponseEntityBuilder.ok(new QueryStatistics(statistic.get()));
     }
 
     /**
