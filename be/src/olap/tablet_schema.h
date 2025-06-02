@@ -99,7 +99,7 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
-               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
@@ -566,7 +566,7 @@ private:
     std::vector<TabletIndexPtr> _indexes;
     std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
-    std::unordered_map<int32_t, int32_t> _field_id_to_index;
+    std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
 
