@@ -540,7 +540,7 @@ public class QueryProfileAction extends RestBaseController {
      * @param traceId: The user specified trace id, eg, set session_context="trace_id:123456";
      * @return
      */
-    @RequestMapping(path = "/statistics/query/{trace_id}", method = RequestMethod.GET)
+    @RequestMapping(path = "/statistics/{trace_id}", method = RequestMethod.GET)
     public Object queryStatistics(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("trace_id") String traceId) {
         executeCheckPassword(request, response);
