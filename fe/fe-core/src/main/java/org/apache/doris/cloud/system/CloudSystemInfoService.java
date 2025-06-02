@@ -236,7 +236,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (be == null) {
                 be = new ArrayList<>();
                 clusterIdToBackend.put(clusterId, be);
-                MetricRepo.registerCloudMetrics(clusterId, clusterName);
             }
             Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
                     .collect(Collectors.toSet());
@@ -251,6 +250,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             sortBackends.add(b);
             Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
             clusterIdToBackend.put(clusterId, sortBackends);
+            MetricRepo.registerCloudMetrics(clusterId, clusterName);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, sortBackends.size(), sortBackends);
         }
