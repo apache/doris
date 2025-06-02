@@ -297,7 +297,7 @@ public class ProfileManager extends MasterDaemon {
         }
 
         if (!resp.isSetReportExecStatusParams() && !resp.isSetQueryStats()) {
-            LOG.warn("Invalid GetRealtimeExecStatusResponse, query {}",
+            LOG.warn("Invalid GetRealtimeExecStatusResponse, missing both exec status and query stats. query {}",
                     DebugUtil.printId(queryID));
             return null;
         }
@@ -379,9 +379,7 @@ public class ProfileManager extends MasterDaemon {
 
     public Optional<TQueryStatistics> getQueryStatistic(String queryId) {
         List<Future<TGetRealtimeExecStatusResponse>> futures = createFetchRealTimeProfileTasks(queryId,
-                "progress");
-        // beAddr of reportExecStatus of QeProcessorImpl is meaningless, so assign a dummy address
-        // to avoid compile failing.
+                "stats");
         List<TQueryStatistics> queryStatisticsList = Lists.newArrayList();
         for (Future<TGetRealtimeExecStatusResponse> future : futures) {
             try {
@@ -389,16 +387,16 @@ public class ProfileManager extends MasterDaemon {
                 if (resp != null && resp.getStatus().status_code == TStatusCode.OK && resp.isSetQueryStats()) {
                     queryStatisticsList.add(resp.getQueryStats());
                 } else {
-                    LOG.warn("Failed to get real-time profile, id {}, resp is {}",
+                    LOG.warn("Failed to get real-time query stats, id {}, resp is {}",
                             queryId, resp == null ? "null" : resp.toString());
                     break;
                 }
             } catch (Exception e) {
-                LOG.warn("Failed to get real-time profile, id {}, error: {}", queryId, e.getMessage(), e);
+                LOG.warn("Failed to get real-time query stats, id {}, error: {}", queryId, e.getMessage(), e);
             }
         }
         if (queryStatisticsList.size() != futures.size()) {
-            LOG.warn("Failed to get real-time profile, id {}, queryStatisticsList size {} != futures size {}",
+            LOG.warn("Failed to get real-time stats, id {}, queryStatisticsList size {} != futures size {}",
                     queryId, queryStatisticsList.size(), futures.size());
             return Optional.empty();
         }
