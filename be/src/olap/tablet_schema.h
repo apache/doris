@@ -99,7 +99,7 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
-               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
@@ -397,6 +397,15 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
+    bool has_global_row_id() const {
+        for (auto [col_name, _] : _field_name_to_index) {
+            if (col_name.start_with(StringRef(BeConsts::GLOBAL_ROWID_COL.data(),
+                                              BeConsts::GLOBAL_ROWID_COL.size()))) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
@@ -557,7 +566,7 @@ private:
     std::vector<TabletIndexPtr> _indexes;
     std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
-    std::unordered_map<int32_t, int32_t> _field_id_to_index;
+    std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
 

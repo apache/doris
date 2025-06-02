@@ -410,7 +410,7 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
             columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
             // Check column type and replace accordingly
             std::string replace_type = "not_replace";
-            if (type->get_primitive_type() == PrimitiveType::TYPE_OBJECT) {
+            if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
                 replace_type = "bitmap";
             } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
                 replace_type = "hll";
@@ -433,7 +433,7 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
         // Record required fields and column types
         std::string field = slot->col_name();
         std::string jni_type;
-        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_OBJECT ||
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP ||
             slot->type()->get_primitive_type() == PrimitiveType::TYPE_HLL ||
             slot->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
             jni_type = "string";
@@ -467,7 +467,7 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
             RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
         } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
             RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, column_index, num_rows));
-        } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_OBJECT) {
+        } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
             RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
         }
     }
