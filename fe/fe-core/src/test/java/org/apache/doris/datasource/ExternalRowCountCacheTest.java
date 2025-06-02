@@ -79,7 +79,7 @@ public class ExternalRowCountCacheTest {
             protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
                 counter.incrementAndGet();
                 try {
-                    Thread.sleep(1000000);
+                    Thread.sleep(2000);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
@@ -87,10 +87,10 @@ public class ExternalRowCountCacheTest {
             }
         };
         cachedRowCount = cache.getCachedRowCount(2, 2, 2);
-        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
+        Assertions.assertEquals(100, cachedRowCount);
         Thread.sleep(1000);
         cachedRowCount = cache.getCachedRowCount(2, 2, 2);
-        Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cachedRowCount);
+        Assertions.assertEquals(100, cachedRowCount);
         for (int i = 0; i < 60; i++) {
             if (counter.get() == 3) {
                 break;

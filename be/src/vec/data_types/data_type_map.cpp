@@ -49,9 +49,9 @@ Field DataTypeMap::get_default() const {
     Array key, val;
     key.push_back(key_type->get_default());
     val.push_back(value_type->get_default());
-    m.push_back(key);
-    m.push_back(val);
-    return m;
+    m.push_back(Field::create_field<TYPE_ARRAY>(key));
+    m.push_back(Field::create_field<TYPE_ARRAY>(val));
+    return Field::create_field<TYPE_MAP>(m);
 };
 
 std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const {
@@ -76,7 +76,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         }
         if (nested_keys_column.is_null_at(i)) {
             str += "null";
-        } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
+        } else if (is_string_type(key_type->get_primitive_type())) {
             str += "\"" + key_type->to_string(nested_keys_column, i) + "\"";
         } else {
             str += key_type->to_string(nested_keys_column, i);
@@ -84,7 +84,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         str += ":";
         if (nested_values_column.is_null_at(i)) {
             str += "null";
-        } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
+        } else if (is_string_type(value_type->get_primitive_type())) {
             str += "\"" + value_type->to_string(nested_values_column, i) + "\"";
         } else {
             str += value_type->to_string(nested_values_column, i);

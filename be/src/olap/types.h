@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "gutil/strings/numbers.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
@@ -758,7 +757,7 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT> {
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_BITMAP> {
     using CppType = Slice;
 };
 template <>
@@ -1499,7 +1498,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_HLL>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BITMAP>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>

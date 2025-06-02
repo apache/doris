@@ -46,7 +46,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
@@ -675,8 +674,8 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         size_t num_columns_without_result = block.columns();
-        block.insert({int_type->create_column_const(input_rows_count, to_field(1)), int_type,
-                      "const 1"});
+        block.insert({int_type->create_column_const(input_rows_count, to_field<TYPE_INT>(1)),
+                      int_type, "const 1"});
         ColumnNumbers temp_arguments(3);
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
@@ -710,14 +709,14 @@ public:
 
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
-
+        const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
         auto pos_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
         for (int i = 0; i < input_rows_count; ++i) {
-            strlen_data[i] = str_offset[i] - str_offset[i - 1];
+            auto str = str_column->get_data_at(i);
+            strlen_data[i] = simd::VStringFunctions::get_char_len(str.data, str.size);
         }
 
         for (int i = 0; i < input_rows_count; ++i) {
@@ -1804,24 +1803,42 @@ public:
 
         const auto* str_col = assert_cast<const ColumnString*>(content_column.get());
 
-        [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
+        // Handle both constant and non-constant delimiter parameters
+        ColumnPtr delimiter_column_ptr;
+        bool delimiter_const = false;
+        std::tie(delimiter_column_ptr, delimiter_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        auto delimiter = delimiter_col->get_data_at(0);
-        int32_t delimiter_size = delimiter.size;
+        const auto* delimiter_col = assert_cast<const ColumnString*>(delimiter_column_ptr.get());
 
-        [[maybe_unused]] const auto& [part_num_col, part_const] =
+        ColumnPtr part_num_column_ptr;
+        bool part_num_const = false;
+        std::tie(part_num_column_ptr, part_num_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
-        auto part_number = *((int*)part_num_col->get_data_at(0).data);
+        const ColumnVector<Int32>* part_num_col =
+                assert_cast<const ColumnVector<Int32>*>(part_num_column_ptr.get());
 
-        if (part_number == 0 || delimiter_size == 0) {
-            for (size_t i = 0; i < input_rows_count; ++i) {
+        // For constant multi-character delimiters, create StringRef and StringSearch only once
+        std::optional<StringRef> const_delimiter_ref;
+        std::optional<StringSearch> const_search;
+        if (delimiter_const && delimiter_col->get_data_at(0).size > 1) {
+            const_delimiter_ref.emplace(delimiter_col->get_data_at(0));
+            const_search.emplace(&const_delimiter_ref.value());
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto str = str_col->get_data_at(i);
+            auto delimiter = delimiter_col->get_data_at(delimiter_const ? 0 : i);
+            int32_t delimiter_size = delimiter.size;
+
+            auto part_number = part_num_col->get_element(part_num_const ? 0 : i);
+
+            if (part_number == 0 || delimiter_size == 0) {
                 StringOP::push_empty_string(i, res_chars, res_offsets);
+                continue;
             }
-        } else if (part_number > 0) {
-            if (delimiter_size == 1) {
-                // If delimiter is a char, use memchr to split
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    auto str = str_col->get_data_at(i);
+
+            if (part_number > 0) {
+                if (delimiter_size == 1) {
                     int32_t offset = -1;
                     int32_t num = 0;
                     while (num < part_number) {
@@ -1847,18 +1864,23 @@ public:
                         StringOP::push_value_string(std::string_view(str.data, str.size), i,
                                                     res_chars, res_offsets);
                     }
-                }
-            } else {
-                StringRef delimiter_ref(delimiter);
-                StringSearch search(&delimiter_ref);
-                for (size_t i = 0; i < input_rows_count; ++i) {
-                    auto str = str_col->get_data_at(i);
+                } else {
+                    // For multi-character delimiters
+                    // Use pre-created StringRef and StringSearch for constant delimiters
+                    StringRef delimiter_ref = const_delimiter_ref ? const_delimiter_ref.value()
+                                                                  : StringRef(delimiter);
+                    const StringSearch* search_ptr = const_search ? &const_search.value() : nullptr;
+                    StringSearch local_search(&delimiter_ref);
+                    if (!search_ptr) {
+                        search_ptr = &local_search;
+                    }
+
                     int32_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - delimiter_size;
                         // search first match delimter_ref index from src string among str_offset to end
-                        const char* pos = search.search(str.data + offset + delimiter_size, n);
+                        const char* pos = search_ptr->search(str.data + offset + delimiter_size, n);
                         if (pos < str.data + str.size) {
                             offset = pos - str.data;
                             num++;
@@ -1879,21 +1901,25 @@ public:
                                                     res_chars, res_offsets);
                     }
                 }
-            }
-        } else {
-            // if part_number is negative
-            part_number = -part_number;
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                auto str = str_col->get_data_at(i);
+            } else {
+                int neg_part_number = -part_number;
                 auto str_str = str.to_string();
                 int32_t offset = str.size;
                 int32_t pre_offset = offset;
                 int32_t num = 0;
                 auto substr = str_str;
-                while (num <= part_number && offset >= 0) {
-                    offset = (int)substr.rfind(delimiter, offset);
+
+                // Use pre-created StringRef for constant delimiters
+                StringRef delimiter_str =
+                        const_delimiter_ref
+                                ? const_delimiter_ref.value()
+                                : StringRef(reinterpret_cast<const char*>(delimiter.data),
+                                            delimiter.size);
+
+                while (num <= neg_part_number && offset >= 0) {
+                    offset = (int)substr.rfind(delimiter_str, offset);
                     if (offset != -1) {
-                        if (++num == part_number) {
+                        if (++num == neg_part_number) {
                             break;
                         }
                         pre_offset = offset;
@@ -1905,7 +1931,7 @@ public:
                 }
                 num = (offset == -1 && num != 0) ? num + 1 : num;
 
-                if (num == part_number) {
+                if (num == neg_part_number) {
                     if (offset == -1) {
                         StringOP::push_value_string(std::string_view(str.data, str.size), i,
                                                     res_chars, res_offsets);
@@ -1941,10 +1967,10 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+        DCHECK(is_string_type(arguments[0]->get_primitive_type()))
                 << "first argument for function: " << name << " should be string"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: " << name << " should be string"
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
@@ -2218,10 +2244,10 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string(arguments[0]))
+        DCHECK(is_string_type(arguments[0]->get_primitive_type()))
                 << "first argument for function: " << name << " should be string"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: " << name << " should be string"
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeInt32>();
@@ -4538,8 +4564,8 @@ private:
         return pattern_count;
     }
 
-    pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
-                                      std::vector<uint32_t>& restore_map) const {
+    std::pair<size_t, size_t> get_text_set(StringRef& text, int gram_num, NgramMap& pattern_map,
+                                           std::vector<uint32_t>& restore_map) const {
         restore_map.clear();
         //intersection_count indicates a substring both in pattern and text.
         size_t text_count = 0, intersection_count = 0;
@@ -4790,22 +4816,6 @@ public:
     }
 
 private:
-    // Build the text of the node and all its children.
-    static std::string get_text(const pugi::xml_node& node) {
-        std::string result;
-        build_text(node, result);
-        return result;
-    }
-
-    static void build_text(const pugi::xml_node& node, std::string& builder) {
-        if (node.type() == pugi::node_pcdata || node.type() == pugi::node_cdata) {
-            builder += node.value();
-        }
-        for (pugi::xml_node child : node.children()) {
-            build_text(child, builder);
-        }
-    }
-
     static Status parse_xml(const StringRef& xml_str, pugi::xml_document& xml_doc) {
         pugi::xml_parse_result result = xml_doc.load_buffer(xml_str.data, xml_str.size);
         if (!result) {
@@ -4815,19 +4825,32 @@ private:
         return Status::OK();
     }
 
+    static Status build_xpath_query(const StringRef& xpath_str, pugi::xpath_query& xpath_query) {
+        // xpath_query will throws xpath_exception on compilation errors.
+        try {
+            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
+            xpath_query = pugi::xpath_query(xpath_str.to_string().c_str());
+        } catch (const pugi::xpath_exception& e) {
+            return Status::InvalidArgument("Function {} failed to build XPath query: {}", name,
+                                           e.what());
+        }
+        return Status::OK();
+    }
+
     template <bool left_const, bool right_const>
     static Status execute_vector(const size_t input_rows_count, const ColumnString& xml_col,
                                  const ColumnString& xpath_col, ColumnNullable& res_col) {
         pugi::xml_document xml_doc;
-        StringRef xpath_str;
+        pugi::xpath_query xpath_query;
         // first check right_const, because we want to check empty input first
         if constexpr (right_const) {
-            xpath_str = xpath_col.get_data_at(0);
+            auto xpath_str = xpath_col.get_data_at(0);
             if (xpath_str.empty()) {
                 // should return null if xpath_str is empty
                 res_col.insert_many_defaults(input_rows_count);
                 return Status::OK();
             }
+            RETURN_IF_ERROR(build_xpath_query(xpath_str, xpath_query));
         }
         if constexpr (left_const) {
             auto xml_str = xml_col.get_data_at(0);
@@ -4841,12 +4864,13 @@ private:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!right_const) {
-                xpath_str = xpath_col.get_data_at(i);
+                auto xpath_str = xpath_col.get_data_at(i);
                 if (xpath_str.empty()) {
                     // should return null if xpath_str is empty
                     res_col.insert_default();
                     continue;
                 }
+                RETURN_IF_ERROR(build_xpath_query(xpath_str, xpath_query));
             }
             if constexpr (!left_const) {
                 auto xml_str = xml_col.get_data_at(i);
@@ -4857,15 +4881,13 @@ private:
                 }
                 RETURN_IF_ERROR(parse_xml(xml_str, xml_doc));
             }
-            // NOTE!!!: don't use to_string_view(), because xpath_str maybe not null-terminated
-            pugi::xpath_node node = xml_doc.select_node(xpath_str.to_string().c_str());
-            if (!node) {
-                // should return empty string if not found
-                auto empty_str = std::string("");
-                res_col.insert_data(empty_str.data(), empty_str.size());
-                continue;
+            std::string text;
+            try {
+                text = xpath_query.evaluate_string(xml_doc);
+            } catch (const pugi::xpath_exception& e) {
+                return Status::InvalidArgument("Function {} failed to query XPath string: {}", name,
+                                               e.what());
             }
-            auto text = get_text(node.node());
             res_col.insert_data(text.data(), text.size());
         }
         return Status::OK();

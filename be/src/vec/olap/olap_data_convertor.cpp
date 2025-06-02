@@ -103,13 +103,13 @@ OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
     auto data_type = DataTypeFactory::instance().create_data_type(column);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
-    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+    auto type = agg_state_type->get_serialized_type()->get_primitive_type();
 
     // Terialized type of most functions is string, and some of them are fixed object.
     // Finally, the serialized type of some special functions is bitmap/array/map...
     if (type == PrimitiveType::TYPE_STRING) {
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
-    } else if (type == PrimitiveType::TYPE_OBJECT) {
+    } else if (type == PrimitiveType::TYPE_BITMAP) {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
     } else if (type == PrimitiveType::INVALID_TYPE) {
         // INVALID_TYPE means function's serialized type is fixed object
@@ -130,7 +130,7 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
 OlapBlockDataConvertor::OlapColumnDataConvertorBaseUPtr
 OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& column) {
     switch (column.type()) {
-    case FieldType::OLAP_FIELD_TYPE_OBJECT: {
+    case FieldType::OLAP_FIELD_TYPE_BITMAP: {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
     }
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE: {
@@ -1121,19 +1121,19 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
     }
     const auto& variant =
             nullable_column == nullptr
-                    ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
-                    : assert_cast<const vectorized::ColumnObject&>(
+                    ? assert_cast<const vectorized::ColumnVariant&>(*typed_column.column)
+                    : assert_cast<const vectorized::ColumnVariant&>(
                               nullable_column->get_nested_column());
     if (variant.is_null_root()) {
-        auto root_type = make_nullable(std::make_shared<ColumnObject::MostCommonType>());
+        auto root_type = make_nullable(std::make_shared<ColumnVariant::MostCommonType>());
         auto root_col = root_type->create_column();
         root_col->insert_many_defaults(variant.rows());
-        const_cast<ColumnObject&>(variant).create_root(root_type, std::move(root_col));
+        const_cast<ColumnVariant&>(variant).create_root(root_type, std::move(root_col));
         variant.check_consistency();
     }
     // ensure data finalized
-    _source_column_ptr = &const_cast<ColumnObject&>(variant);
-    _source_column_ptr->finalize(ColumnObject::FinalizeMode::WRITE_MODE);
+    _source_column_ptr = &const_cast<ColumnVariant&>(variant);
+    _source_column_ptr->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
     _root_data_convertor->set_source_column(
             {_source_column_ptr->get_root()->get_ptr(), nullptr, ""}, row_pos, num_rows);

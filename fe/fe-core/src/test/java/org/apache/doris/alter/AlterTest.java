@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
@@ -30,16 +29,12 @@ import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
@@ -53,9 +48,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
@@ -92,7 +90,6 @@ public class AlterTest {
         Config.disable_balance = true;
         Config.schedule_batch_size = 400;
         Config.schedule_slot_num_per_hdd_path = 100;
-        Config.enable_odbc_mysql_broker_table = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
         List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
@@ -185,13 +182,6 @@ public class AlterTest {
                         + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                         + "PROPERTIES('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');");
 
-        createTable("create external table test.odbc_table\n" + "(  `k1` bigint(20) COMMENT \"\",\n"
-                + "  `k2` datetime COMMENT \"\",\n" + "  `k3` varchar(20) COMMENT \"\",\n"
-                + "  `k4` varchar(100) COMMENT \"\",\n" + "  `k5` float COMMENT \"\"\n" + ")ENGINE=ODBC\n"
-                + "PROPERTIES (\n" + "\"host\" = \"127.0.0.1\",\n" + "\"port\" = \"3306\",\n" + "\"user\" = \"root\",\n"
-                + "\"password\" = \"123\",\n" + "\"database\" = \"db1\",\n" + "\"table\" = \"tbl1\",\n"
-                + "\"driver\" = \"Oracle Driver\",\n" + "\"odbc_type\" = \"oracle\"\n" + ");");
-
         // s3 resource
         createRemoteStorageResource(
                 "create resource \"remote_s3\"\n" + "properties\n" + "(\n" + "   \"type\" = \"s3\", \n"
@@ -262,7 +252,6 @@ public class AlterTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        Config.enable_odbc_mysql_broker_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         try {
             Env.getCurrentEnv().createTable(createTableStmt);
@@ -278,8 +267,9 @@ public class AlterTest {
     }
 
     private static void createRemoteStoragePolicy(String sql) throws Exception {
-        CreatePolicyStmt stmt = (CreatePolicyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getPolicyMgr().createPolicy(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     private static void alterTable(String sql, boolean expectedException) {
@@ -1156,120 +1146,6 @@ public class AlterTest {
             }
         }
         return true;
-    }
-
-    @Test
-    public void testExternalTableAlterOperations() throws Exception {
-        // external table do not support partition operation
-        String stmt = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
-        alterTable(stmt, true);
-
-        // external table do not support rollup
-        stmt = "alter table test.odbc_table add rollup r1 (k1)";
-        alterTable(stmt, true);
-
-        // external table support add column
-        stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
-        alterTable(stmt, false);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        Table odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 7);
-        Assert.assertEquals(odbcTable.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
-        Assert.assertEquals(odbcTable.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
-
-        // external table support drop column
-        stmt = "alter table test.odbc_table drop column k7";
-        alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
-
-        // external table support modify column
-        stmt = "alter table test.odbc_table modify column k6 bigint after k5";
-        alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
-        Assert.assertEquals(odbcTable.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
-
-        // external table support reorder column
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbcTable.getBaseSchema().stream()
-                .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName), "k1k2k3k4k5k6");
-        stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
-        alterTable(stmt, false);
-        Assert.assertEquals(odbcTable.getBaseSchema().stream()
-                .map(column -> column.getName())
-                .reduce("", (totalName, columnName) -> totalName + columnName), "k6k5k4k3k2k1");
-
-        // external table support drop column
-        stmt = "alter table test.odbc_table drop column k6";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k5";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k4";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k3";
-        alterTable(stmt, false);
-        stmt = "alter table test.odbc_table drop column k2";
-        alterTable(stmt, false);
-        // do not allow drop last column
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
-        stmt = "alter table test.odbc_table drop column k1";
-        alterTable(stmt, true);
-        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
-
-        // external table support rename operation
-        stmt = "alter table test.odbc_table rename oracle_table";
-        alterTable(stmt, false);
-        db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
-        odbcTable = db.getTableNullable("oracle_table");
-        Assert.assertNotNull(odbcTable);
-        odbcTable = db.getTableNullable("odbc_table");
-        Assert.assertNull(odbcTable);
-    }
-
-    @Test
-    public void testModifyTableEngine() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.mysql_table (\n"
-                + "  `k1` date NULL COMMENT \"\",\n"
-                + "  `k2` int NULL COMMENT \"\",\n"
-                + "  `k3` smallint NULL COMMENT \"\",\n"
-                + "  `v1` varchar(2048) NULL COMMENT \"\",\n"
-                + "  `v2` datetime NULL COMMENT \"\"\n"
-                + ") ENGINE=MYSQL\n"
-                + "PROPERTIES (\n"
-                + "\"host\" = \"172.16.0.1\",\n"
-                + "\"port\" = \"3306\",\n"
-                + "\"user\" = \"cmy\",\n"
-                + "\"password\" = \"abc\",\n"
-                + "\"database\" = \"db1\",\n"
-                + "\"table\" = \"tbl1\""
-                + ");";
-        createTable(createOlapTblStmt);
-
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        MysqlTable mysqlTable = (MysqlTable) db.getTableOrMetaException("mysql_table", Table.TableType.MYSQL);
-
-        String alterEngineStmt = "alter table test.mysql_table modify engine to odbc";
-        alterTable(alterEngineStmt, true);
-
-        alterEngineStmt = "alter table test.mysql_table modify engine to odbc properties(\"driver\" = \"MySQL\")";
-        alterTable(alterEngineStmt, false);
-
-        OdbcTable odbcTable = (OdbcTable) db.getTableNullable(mysqlTable.getId());
-        Assert.assertEquals("mysql_table", odbcTable.getName());
-        List<Column> schema = odbcTable.getBaseSchema();
-        Assert.assertEquals(5, schema.size());
-        Assert.assertEquals("172.16.0.1", odbcTable.getHost());
-        Assert.assertEquals("3306", odbcTable.getPort());
-        Assert.assertEquals("cmy", odbcTable.getUserName());
-        Assert.assertEquals("abc", odbcTable.getPasswd());
-        Assert.assertEquals("db1", odbcTable.getOdbcDatabaseName());
-        Assert.assertEquals("tbl1", odbcTable.getOdbcTableName());
-        Assert.assertEquals("MySQL", odbcTable.getOdbcDriver());
     }
 
     @Test(expected = DdlException.class)

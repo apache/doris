@@ -74,14 +74,14 @@ public class AutoBucketUtils {
             ImmutableMap<String, DiskInfo> disks = backend.getDisks();
             for (DiskInfo diskInfo : disks.values()) {
                 if (diskInfo.getState() == DiskState.ONLINE && diskInfo.hasPathHash()) {
-                    buckets += (diskInfo.getAvailableCapacityB() - 1) / (50 * SIZE_1GB) + 1;
+                    buckets += (int) ((diskInfo.getAvailableCapacityB() - 1) / (50 * SIZE_1GB) + 1);
                 }
             }
         }
         return buckets;
     }
 
-    private static int convertParitionSizeToBucketsNum(long partitionSize) {
+    private static int convertPartitionSizeToBucketsNum(long partitionSize) {
         partitionSize /= 5; // for compression 5:1
 
         // <= 100MB, 1 bucket
@@ -92,12 +92,21 @@ public class AutoBucketUtils {
         } else if (partitionSize <= SIZE_1GB) {
             return 2;
         } else {
-            return (int) ((partitionSize - 1) / SIZE_1GB + 1);
+            if (Config.autobucket_partition_size_per_bucket_gb <= 0) {
+                if (Config.isCloudMode()) {
+                    Config.autobucket_partition_size_per_bucket_gb = 10;
+                } else {
+                    Config.autobucket_partition_size_per_bucket_gb = 1;
+                }
+                logger.debug("autobucket_partition_size_per_bucket_gb <= 0, use adaptive {}",
+                        Config.autobucket_partition_size_per_bucket_gb);
+            }
+            return  (int) ((partitionSize - 1) / (Config.autobucket_partition_size_per_bucket_gb * SIZE_1GB) + 1);
         }
     }
 
     public static int getBucketsNum(long partitionSize) {
-        int bucketsNumByPartitionSize = convertParitionSizeToBucketsNum(partitionSize);
+        int bucketsNumByPartitionSize = convertPartitionSizeToBucketsNum(partitionSize);
         int bucketsNumByBE = Config.isCloudMode() ? Integer.MAX_VALUE : getBucketsNumByBEDisks();
         int bucketsNum = Math.min(Config.autobucket_max_buckets, Math.min(bucketsNumByPartitionSize, bucketsNumByBE));
         int beNum = getBENum();

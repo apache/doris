@@ -82,7 +82,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<TableSample> tableSample,
             Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statistics);
+                groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots);
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
@@ -120,8 +120,28 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return preAggStatus;
     }
 
+    public String getQualifierWithRelationId() {
+        String fullQualifier = getTable().getNameWithFullQualifiers();
+        String relationId = getRelationId().toString();
+        return fullQualifier + "#" + relationId;
+    }
+
     public List<Slot> getBaseOutputs() {
         return baseOutputs;
+    }
+
+    @Override
+    public String getFingerprint() {
+        String partitions = "";
+        int partitionCount = this.table.getPartitionNames().size();
+        if (selectedPartitionIds.size() != partitionCount) {
+            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
+        }
+        // NOTE: embed version info avoid mismatching under data maintaining
+        // TODO: more efficient way to ignore the ignorable data maintaining
+        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
+                + "#" + getRelationId() + "@" + getTable().getVisibleVersion()
+                + "@" + getTable().getVisibleVersionTime());
     }
 
     @Override
@@ -227,5 +247,10 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
                 groupExpression, getLogicalProperties(), getPhysicalProperties(), statistics,
                 tableSample, operativeSlots);
+    }
+
+    @Override
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
     }
 }

@@ -83,9 +83,9 @@ public class IndexDef {
         }
     }
 
-    public IndexDef(String indexName, PartitionNames partitionNames, boolean isBuildDeferred) {
+    public IndexDef(String indexName, PartitionNames partitionNames, IndexType indexType, boolean isBuildDeferred) {
         this.indexName = indexName;
-        this.indexType = IndexType.INVERTED;
+        this.indexType = indexType;
         this.partitionNames = partitionNames;
         this.isBuildDeferred = isBuildDeferred;
     }
@@ -220,6 +220,9 @@ public class IndexDef {
     public boolean isSupportIdxType(Type colType) {
         if (colType.isArrayType()) {
             Type itemType = ((ArrayType) colType).getItemType();
+            if (itemType.isArrayType()) {
+                return false;
+            }
             return isSupportIdxType(itemType);
         }
         PrimitiveType primitiveType = colType.getPrimitiveType();

@@ -231,13 +231,13 @@ TEST_F(ColumnStringTest, field_test) {
             auto assert_col = source_column->clone_empty();
             for (size_t i = 0; i != src_size; ++i) {
                 JsonbField jsonbf;
-                Field f(std::move(jsonbf));
+                Field f = Field::create_field<TYPE_JSONB>(std::move(jsonbf));
                 source_column->get(i, f);
                 assert_col->insert(f);
             }
             for (size_t i = 0; i != src_size; ++i) {
                 JsonbField jsonbf;
-                Field f(std::move(jsonbf));
+                Field f = Field::create_field<TYPE_JSONB>((std::move(jsonbf)));
                 assert_col->get(i, f);
                 const auto& real_field = vectorized::get<const JsonbField&>(f);
                 ASSERT_EQ(StringRef(real_field.get_value(), real_field.get_size()),
@@ -938,7 +938,7 @@ TEST_F(ColumnStringTest, TestConcat) {
     ColumnNumbers arguments = {0, 1};
 
     FunctionStringConcat func_concat;
-    auto fn_ctx = FunctionContext::create_context(nullptr, TypeDescriptor {}, {});
+    auto fn_ctx = FunctionContext::create_context(nullptr, nullptr, {});
     {
         auto status =
                 func_concat.open(fn_ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);

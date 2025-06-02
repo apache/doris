@@ -24,18 +24,14 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "util/jsonb_parser_simd.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-
-#ifdef __AVX2__
-#include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -43,13 +39,13 @@ namespace vectorized {
 #include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
-Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
-                                                   MysqlRowBuffer<is_binary_format>& row_buffer,
-                                                   int64_t row_idx, bool col_const,
-                                                   const FormatOptions& options) const {
-    const auto& variant = assert_cast<const ColumnObject&>(column);
+Status DataTypeVariantSerDe::_write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<is_binary_format>& row_buffer,
+                                                    int64_t row_idx, bool col_const,
+                                                    const FormatOptions& options) const {
+    const auto& variant = assert_cast<const ColumnVariant&>(column);
     if (!variant.is_finalized()) {
-        const_cast<ColumnObject&>(variant).finalize();
+        const_cast<ColumnVariant&>(variant).finalize();
     }
     RETURN_IF_ERROR(variant.sanitize());
     if (variant.is_scalar_variant()) {
@@ -73,32 +69,32 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
-                                                  bool col_const,
-                                                  const FormatOptions& options) const {
+Status DataTypeVariantSerDe::write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<true>& row_buffer,
+                                                   int64_t row_idx, bool col_const,
+                                                   const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer,
-                                                  int64_t row_idx, bool col_const,
-                                                  const FormatOptions& options) const {
+Status DataTypeVariantSerDe::write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<false>& row_buffer,
+                                                   int64_t row_idx, bool col_const,
+                                                   const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
-Status DataTypeObjectSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
-                                                     int64_t end_idx, BufferWritable& bw,
-                                                     FormatOptions& options) const {
+Status DataTypeVariantSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                      int64_t end_idx, BufferWritable& bw,
+                                                      FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
-                                                  Arena* mem_pool, int32_t col_id,
-                                                  int64_t row_num) const {
-    const auto& variant = assert_cast<const ColumnObject&>(column);
+void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
+                                                   Arena* mem_pool, int32_t col_id,
+                                                   int64_t row_num) const {
+    const auto& variant = assert_cast<const ColumnVariant&>(column);
     if (!variant.is_finalized()) {
-        const_cast<ColumnObject&>(variant).finalize();
+        const_cast<ColumnVariant&>(variant).finalize();
     }
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
@@ -123,60 +119,63 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     }
 }
 
-void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    auto& variant = assert_cast<ColumnObject&>(column);
+void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& variant = assert_cast<ColumnVariant&>(column);
     Field field;
     if (arg->isBinary()) {
         const auto* blob = static_cast<const JsonbBlobVal*>(arg);
-        field = JsonbField(blob->getBlob(), blob->getBlobLen());
+        field = Field::create_field<TYPE_JSONB>(JsonbField(blob->getBlob(), blob->getBlobLen()));
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
         const auto* str = static_cast<const JsonbStringVal*>(arg);
-        field = Field(String(str->getBlob(), str->getBlobLen()));
+        field = Field::create_field<TYPE_STRING>(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
     }
     variant.insert(field);
 }
 
-Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
-                                                       BufferWritable& bw,
-                                                       FormatOptions& options) const {
-    const auto* var = check_and_get_column<ColumnObject>(column);
+Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
+                                                        BufferWritable& bw,
+                                                        FormatOptions& options) const {
+    const auto* var = check_and_get_column<ColumnVariant>(column);
     if (!var->serialize_one_row_to_string(row_num, bw)) {
         return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
     }
     return Status::OK();
 }
 
-void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
-    const auto* var = check_and_get_column<ColumnObject>(column);
+Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
+    const auto* var = check_and_get_column<ColumnVariant>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string serialized_value;
             if (!var->serialize_one_row_to_string(i, &serialized_value)) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
+                return Status::Error(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                                     var->dump_structure());
             }
-            checkArrowStatus(builder.Append(serialized_value.data(),
-                                            static_cast<int>(serialized_value.size())),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(builder.Append(serialized_value.data(),
+                                                    static_cast<int>(serialized_value.size())),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
-Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                const NullMap* null_map,
-                                                orc::ColumnVectorBatch* orc_col_batch,
-                                                int64_t start, int64_t end,
-                                                std::vector<StringRef>& buffer_list) const {
-    const auto* var = check_and_get_column<ColumnObject>(column);
+Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                                 const NullMap* null_map,
+                                                 orc::ColumnVectorBatch* orc_col_batch,
+                                                 int64_t start, int64_t end,
+                                                 std::vector<StringRef>& buffer_list) const {
+    const auto* var = check_and_get_column<ColumnVariant>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     INIT_MEMORY_FOR_ORC_WRITER()

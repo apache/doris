@@ -17,265 +17,217 @@
 
 #include "runtime/memory/memory_reclamation.h"
 
+#include <unordered_map>
+
 #include "runtime/exec_env.h"
+#include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/jemalloc_control.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group.h"
-#include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
-// step1: free resource groups memory that enable overcommit
-// step2: free global top overcommit query, if enable query memory overcommit
-// TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
-bool MemoryReclamation::process_minor_gc(std::string mem_info) {
-    MonotonicStopWatch watch;
-    watch.start();
-    int64_t freed_mem = 0;
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
+int64_t MemoryReclamation::revoke_tasks_memory(
+        int64_t need_free_mem, const std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs,
+        const std::string& revoke_reason, RuntimeProfile* profile, PriorityCmpFunc priority_cmp,
+        std::vector<FilterFunc> filters, ActionFunc action) {
+    if (need_free_mem <= 0) {
+        return 0;
+    }
+    auto process_mem_stat = GlobalMemoryArbitrator::process_mem_log_str();
+    auto process_mem_stat_to_client = fmt::format(
+            "os physical memory {}. {}, limit {}. {}, low water mark {}.",
+            PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
+            GlobalMemoryArbitrator::process_memory_used_str(), MemInfo::mem_limit_str(),
+            GlobalMemoryArbitrator::sys_mem_available_str(),
+            PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
+    RuntimeProfile::Counter* request_revoke_tasks_counter =
+            ADD_COUNTER(profile, "RequestRevokeTasksNum", TUnit::UNIT);
+    RuntimeProfile::Counter* revocable_tasks_counter =
+            ADD_COUNTER(profile, "RevocableTasksNum", TUnit::UNIT);
+    RuntimeProfile::Counter* this_time_revoked_tasks_counter =
+            ADD_COUNTER(profile, "ThisTimeRevokedTasksNum", TUnit::UNIT);
+    RuntimeProfile::Counter* skip_cancelling_tasks_counter =
+            ADD_COUNTER(profile, "SkipCancellingTasksNum", TUnit::UNIT);
+    RuntimeProfile::Counter* keep_wait_cancelling_tasks_counter =
+            ADD_COUNTER(profile, "KeepWaitCancellingTasksNum", TUnit::UNIT);
+    RuntimeProfile::Counter* freed_memory_counter =
+            ADD_COUNTER(profile, "FreedMemory", TUnit::BYTES);
+    RuntimeProfile::Counter* filter_cost_time = ADD_TIMER(profile, "FilterCostTime");
+    RuntimeProfile::Counter* revoke_cost_time = ADD_TIMER(profile, "revokeCostTime");
 
+    std::priority_queue<std::pair<int64_t, std::shared_ptr<ResourceContext>>>
+            revocable_resource_ctxs;
+    std::vector<std::string> this_time_revoked_tasks;
+    std::vector<std::string> skip_cancelling_tasks;
+    std::vector<std::string> keep_wait_cancelling_tasks;
+
+    auto config_str = fmt::format(
+            "need free memory: {}, request revoke tasks: {}, revoke reason: {}, priority compare "
+            "function: {}, filter function: {}, action function: {}. {}",
+            need_free_mem, resource_ctxs.size(), revoke_reason,
+            priority_cmp_func_string(priority_cmp), filter_func_string(filters),
+            action_func_string(action), process_mem_stat);
+    LOG(INFO) << fmt::format("[MemoryGC] start revoke_tasks_memory, {}.", config_str);
     Defer defer {[&]() {
-        std::stringstream ss;
-        profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
-                "[MemoryGC] end minor GC, free memory {}. cost(us): {}, details: {}",
-                PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
-                ss.str());
+                "[MemoryGC] end revoke_tasks_memory, {}. freed memory: {}, "
+                "revocable tasks: {}, this time revoked tasks: {}, consist of: [{}], call revoke "
+                "func cost(us): {}."
+                " some tasks is being canceled and has not been completed yet, among them, skip "
+                "canceling tasks: {}(cancel cost too long, not counted in freed memory), consist "
+                "of: [{}], keep wait canceling tasks: {}(counted in freed memory), consist of: "
+                "[{}], filter cost(us): {}.",
+                config_str, freed_memory_counter->value(), revocable_tasks_counter->value(),
+                this_time_revoked_tasks_counter->value(), join(this_time_revoked_tasks, " | "),
+                revoke_cost_time->value(), skip_cancelling_tasks_counter->value(),
+                join(skip_cancelling_tasks, " | "), keep_wait_cancelling_tasks_counter->value(),
+                join(keep_wait_cancelling_tasks, " | "), filter_cost_time->value());
     }};
 
-    if (config::enable_workload_group_memory_gc) {
-        RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-        freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_minor_gc_size() - freed_mem,
-                                                   tg_profile, true);
-        if (freed_mem > MemInfo::process_minor_gc_size()) {
-            return true;
+    {
+        SCOPED_TIMER(filter_cost_time);
+        for (auto resource_ctx : resource_ctxs) {
+            bool is_filtered = false;
+            for (auto filter : filters) {
+                if (!FilterFuncImpl[filter](resource_ctx.get())) {
+                    is_filtered = true;
+                    break;
+                }
+            }
+            if (is_filtered) {
+                continue;
+            }
+
+            // skip cancelling tasks
+            if (resource_ctx->task_controller()->is_cancelled()) {
+                // for the query being canceled,
+                // if (current time - cancel start time) < 3s (revoke_memory_max_tolerance_ms), the query memory is counted in `freed_memory`,
+                // and the query memory is expected to be released soon.
+                // if > 3s, the query memory will not be counted in `freed_memory`,
+                // and the query may be blocked during the cancel process. skip this query and continue to cancel other queries.
+                if (MonotonicMillis() - resource_ctx->task_controller()->cancelled_time() >
+                    config::revoke_memory_max_tolerance_ms) {
+                    skip_cancelling_tasks.push_back(
+                            resource_ctx->task_controller()->debug_string());
+                } else {
+                    keep_wait_cancelling_tasks.push_back(
+                            resource_ctx->task_controller()->debug_string());
+                    COUNTER_UPDATE(freed_memory_counter,
+                                   resource_ctx->memory_context()->current_memory_bytes());
+                }
+                is_filtered = true;
+            }
+
+            // TODO, if ActionFunc::SPILL, should skip spilling tasks.
+
+            if (is_filtered) {
+                continue;
+            }
+            int64_t weight = PriorityCmpFuncImpl[priority_cmp](resource_ctx.get());
+            if (weight != -1) {
+                revocable_resource_ctxs.emplace(weight, resource_ctx);
+            }
         }
     }
 
-    if (config::enable_query_memory_overcommit) {
-        if (config::crash_in_memory_tracker_inaccurate) {
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] before free top memory overcommit query in minor GC, Type:{}, "
-                    "Memory "
-                    "Tracker Summary: {}",
-                    MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
-                    MemTrackerLimiter::make_type_trackers_profile_str(
-                            MemTrackerLimiter::Type::QUERY));
-        }
-        RuntimeProfile* toq_profile =
-                profile->create_child("FreeTopOvercommitMemoryQuery", true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                MemInfo::process_minor_gc_size() - freed_mem, mem_info, toq_profile);
-        if (freed_mem > MemInfo::process_minor_gc_size()) {
-            return true;
+    COUNTER_UPDATE(request_revoke_tasks_counter, resource_ctxs.size());
+    COUNTER_UPDATE(revocable_tasks_counter, revocable_resource_ctxs.size());
+    COUNTER_UPDATE(skip_cancelling_tasks_counter, skip_cancelling_tasks.size());
+    COUNTER_UPDATE(keep_wait_cancelling_tasks_counter, keep_wait_cancelling_tasks.size());
+
+    if (revocable_resource_ctxs.empty()) {
+        return freed_memory_counter->value();
+    }
+
+    {
+        SCOPED_TIMER(revoke_cost_time);
+        while (!revocable_resource_ctxs.empty()) {
+            auto resource_ctx = revocable_resource_ctxs.top().second;
+            std::string task_revoke_reason = fmt::format(
+                    "{} {} task: {}. because {}. in backend {}, {} execute again after enough "
+                    "memory, details see be.INFO.",
+                    action_func_string(action), priority_cmp_func_string(priority_cmp),
+                    resource_ctx->memory_context()->debug_string(), revoke_reason,
+                    BackendOptions::get_localhost(), process_mem_stat_to_client);
+            if (ActionFuncImpl[action](resource_ctx.get(),
+                                       Status::MemoryLimitExceeded(task_revoke_reason))) {
+                this_time_revoked_tasks.push_back(resource_ctx->task_controller()->debug_string());
+                COUNTER_UPDATE(freed_memory_counter,
+                               resource_ctx->memory_context()->current_memory_bytes());
+                COUNTER_UPDATE(this_time_revoked_tasks_counter, 1);
+                if (freed_memory_counter->value() > need_free_mem) {
+                    break;
+                }
+            }
+            revocable_resource_ctxs.pop();
         }
     }
-    return false;
+    return freed_memory_counter->value();
 }
 
-// step1: free resource groups memory that enable overcommit
-// step2: free global top memory query
-// step3: free top overcommit load, load retries are more expensive, So cancel at the end.
-// step4: free top memory load
-bool MemoryReclamation::process_full_gc(std::string mem_info) {
+// step1: free process top memory query
+// step2: free process top memory load, load retries are more expensive, so revoke at the end.
+bool MemoryReclamation::revoke_process_memory(const std::string& revoke_reason) {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
+    std::unique_ptr<RuntimeProfile> profile =
+            std::make_unique<RuntimeProfile>("RevokeProcessMemory");
 
+    LOG(INFO) << fmt::format(
+            "[MemoryGC] start MemoryReclamation::revoke_process_memory, {}, need free size: {}.",
+            GlobalMemoryArbitrator::process_mem_log_str(),
+            PrettyPrinter::print_bytes(MemInfo::process_full_gc_size()));
     Defer defer {[&]() {
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
-                "[MemoryGC] end full GC, free Memory {}. cost(us): {}, details: {}",
-                PrettyPrinter::print(freed_mem, TUnit::BYTES), watch.elapsed_time() / 1000,
-                ss.str());
+                "[MemoryGC] end MemoryReclamation::revoke_process_memory, {}, need free size: {}, "
+                "free Memory {}. cost(us): {}, details: {}",
+                GlobalMemoryArbitrator::process_mem_log_str(),
+                PrettyPrinter::print_bytes(MemInfo::process_full_gc_size()),
+                PrettyPrinter::print_bytes(freed_mem), watch.elapsed_time() / 1000, ss.str());
     }};
 
-    if (config::enable_workload_group_memory_gc) {
-        RuntimeProfile* tg_profile = profile->create_child("WorkloadGroup", true, true);
-        freed_mem += tg_enable_overcommit_group_gc(MemInfo::process_full_gc_size() - freed_mem,
-                                                   tg_profile, false);
-        if (freed_mem > MemInfo::process_full_gc_size()) {
-            return true;
-        }
-    }
-
-    if (config::crash_in_memory_tracker_inaccurate) {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] before free top memory query in full GC, Type:{}, Memory Tracker "
-                "Summary: "
-                "{}",
-                MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
-                MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::QUERY));
-    }
-    RuntimeProfile* tmq_profile = profile->create_child("FreeTopMemoryQuery", true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_query(
-            MemInfo::process_full_gc_size() - freed_mem, mem_info, tmq_profile);
+    // step1: start canceling from the query with the largest memory usage until the memory of process_full_gc_size is freed.
+    VLOG_DEBUG << fmt::format(
+            "[MemoryGC] before free top memory query in revoke process memory, Type:{}, Memory "
+            "Tracker "
+            "Summary: {}",
+            MemTrackerLimiter::type_string(MemTrackerLimiter::Type::QUERY),
+            MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::QUERY));
+    RuntimeProfile* free_top_query_profile =
+            profile->create_child("FreeTopMemoryQuery", true, true);
+    std::vector<std::shared_ptr<ResourceContext>> resource_ctxs;
+    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_tasks_resource_context(
+            resource_ctxs);
+    freed_mem +=
+            revoke_tasks_memory(MemInfo::process_full_gc_size() - freed_mem, resource_ctxs,
+                                revoke_reason, free_top_query_profile, PriorityCmpFunc::TOP_MEMORY,
+                                {FilterFunc::IS_QUERY}, ActionFunc::CANCEL);
     if (freed_mem > MemInfo::process_full_gc_size()) {
         return true;
     }
 
-    if (config::enable_query_memory_overcommit) {
-        if (config::crash_in_memory_tracker_inaccurate) {
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] before free top memory overcommit load in full GC, Type:{}, Memory "
-                    "Tracker Summary: {}",
-                    MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
-                    MemTrackerLimiter::make_type_trackers_profile_str(
-                            MemTrackerLimiter::Type::LOAD));
-        }
-        RuntimeProfile* tol_profile =
-                profile->create_child("FreeTopMemoryOvercommitLoad", true, true);
-        freed_mem += MemTrackerLimiter::free_top_overcommit_load(
-                MemInfo::process_full_gc_size() - freed_mem, mem_info, tol_profile);
-        if (freed_mem > MemInfo::process_full_gc_size()) {
-            return true;
-        }
-    }
-
-    if (config::crash_in_memory_tracker_inaccurate) {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] before free top memory load in full GC, Type:{}, Memory Tracker "
-                "Summary: "
-                "{}",
-                MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
-                MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::LOAD));
-    }
-    RuntimeProfile* tml_profile = profile->create_child("FreeTopMemoryLoad", true, true);
-    freed_mem += MemTrackerLimiter::free_top_memory_load(
-            MemInfo::process_full_gc_size() - freed_mem, mem_info, tml_profile);
+    // step2: start canceling from the load with the largest memory usage until the memory of process_full_gc_size is freed.
+    VLOG_DEBUG << fmt::format(
+            "[MemoryGC] before free top memory load in revoke process memory, Type:{}, Memory "
+            "Tracker "
+            "Summary: {}",
+            MemTrackerLimiter::type_string(MemTrackerLimiter::Type::LOAD),
+            MemTrackerLimiter::make_type_trackers_profile_str(MemTrackerLimiter::Type::LOAD));
+    RuntimeProfile* free_top_load_profile = profile->create_child("FreeTopMemoryLoad", true, true);
+    freed_mem +=
+            revoke_tasks_memory(MemInfo::process_full_gc_size() - freed_mem, resource_ctxs,
+                                revoke_reason, free_top_load_profile, PriorityCmpFunc::TOP_MEMORY,
+                                {FilterFunc::IS_LOAD}, ActionFunc::CANCEL);
     return freed_mem > MemInfo::process_full_gc_size();
-}
-
-int64_t MemoryReclamation::tg_disable_overcommit_group_gc() {
-    MonotonicStopWatch watch;
-    watch.start();
-    std::vector<WorkloadGroupPtr> task_groups;
-    std::unique_ptr<RuntimeProfile> tg_profile = std::make_unique<RuntimeProfile>("WorkloadGroup");
-    int64_t total_free_memory = 0;
-
-    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
-            [](const WorkloadGroupPtr& workload_group) {
-                return workload_group->is_mem_limit_valid() &&
-                       !workload_group->enable_memory_overcommit();
-            },
-            &task_groups);
-    if (task_groups.empty()) {
-        return 0;
-    }
-
-    std::vector<WorkloadGroupPtr> task_groups_overcommit;
-    for (const auto& workload_group : task_groups) {
-        if (workload_group->memory_used() > workload_group->memory_limit()) {
-            task_groups_overcommit.push_back(workload_group);
-        }
-    }
-    if (task_groups_overcommit.empty()) {
-        return 0;
-    }
-
-    LOG(INFO) << fmt::format(
-            "[MemoryGC] start GC work load group that not enable overcommit, number of overcommit "
-            "group: {}, "
-            "if it exceeds the limit, try free size = (group used - group limit).",
-            task_groups_overcommit.size());
-
-    Defer defer {[&]() {
-        if (total_free_memory > 0) {
-            std::stringstream ss;
-            tg_profile->pretty_print(&ss);
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] end GC work load group that not enable overcommit, number of "
-                    "overcommit group: {}, free memory {}. cost(us): {}, details: {}",
-                    task_groups_overcommit.size(),
-                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
-                    watch.elapsed_time() / 1000, ss.str());
-        }
-    }};
-
-    for (const auto& workload_group : task_groups_overcommit) {
-        auto used = workload_group->memory_used();
-        total_free_memory += workload_group->gc_memory(used - workload_group->memory_limit(),
-                                                       tg_profile.get(), false);
-    }
-    return total_free_memory;
-}
-
-int64_t MemoryReclamation::tg_enable_overcommit_group_gc(int64_t request_free_memory,
-                                                         RuntimeProfile* profile,
-                                                         bool is_minor_gc) {
-    MonotonicStopWatch watch;
-    watch.start();
-    std::vector<WorkloadGroupPtr> task_groups;
-    ExecEnv::GetInstance()->workload_group_mgr()->get_related_workload_groups(
-            [](const WorkloadGroupPtr& workload_group) {
-                return workload_group->is_mem_limit_valid() &&
-                       workload_group->enable_memory_overcommit();
-            },
-            &task_groups);
-    if (task_groups.empty()) {
-        return 0;
-    }
-
-    int64_t total_exceeded_memory = 0;
-    std::vector<int64_t> used_memorys;
-    std::vector<int64_t> exceeded_memorys;
-    for (const auto& workload_group : task_groups) {
-        int64_t used_memory = workload_group->memory_used();
-        int64_t exceeded = used_memory - workload_group->memory_limit();
-        int64_t exceeded_memory = exceeded > 0 ? exceeded : 0;
-        total_exceeded_memory += exceeded_memory;
-        used_memorys.emplace_back(used_memory);
-        exceeded_memorys.emplace_back(exceeded_memory);
-    }
-
-    int64_t total_free_memory = 0;
-    bool gc_all_exceeded = request_free_memory >= total_exceeded_memory;
-    std::string log_prefix = fmt::format(
-            "workload group that enable overcommit, number of group: {}, request_free_memory:{}, "
-            "total_exceeded_memory:{}",
-            task_groups.size(), request_free_memory, total_exceeded_memory);
-    if (gc_all_exceeded) {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] start GC {}, request more than exceeded, try free size = (group used - "
-                "group limit).",
-                log_prefix);
-    } else {
-        LOG(INFO) << fmt::format(
-                "[MemoryGC] start GC {}, request less than exceeded, try free size = ((group used "
-                "- group limit) / all group total_exceeded_memory) * request_free_memory.",
-                log_prefix);
-    }
-
-    Defer defer {[&]() {
-        if (total_free_memory > 0) {
-            std::stringstream ss;
-            profile->pretty_print(&ss);
-            LOG(INFO) << fmt::format(
-                    "[MemoryGC] end GC {}, free memory {}. cost(us): {}, details: {}", log_prefix,
-                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
-                    watch.elapsed_time() / 1000, ss.str());
-        }
-    }};
-
-    for (int i = 0; i < task_groups.size(); ++i) {
-        if (exceeded_memorys[i] == 0) {
-            continue;
-        }
-
-        // todo: GC according to resource group priority
-        auto tg_need_free_memory = int64_t(
-                gc_all_exceeded ? exceeded_memorys[i]
-                                : static_cast<double>(exceeded_memorys[i]) / total_exceeded_memory *
-                                          request_free_memory); // exceeded memory as a weight
-        auto workload_group = task_groups[i];
-        total_free_memory += workload_group->gc_memory(tg_need_free_memory, profile, is_minor_gc);
-    }
-    return total_free_memory;
 }
 
 void MemoryReclamation::je_purge_dirty_pages() {
@@ -296,4 +248,5 @@ void MemoryReclamation::je_purge_dirty_pages() {
 #endif
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

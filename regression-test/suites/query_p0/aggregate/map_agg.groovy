@@ -345,12 +345,16 @@ suite("map_agg") {
             (    1 ,    1 , 'a'    , 'b'    ),
             (    1 ,    2 , 'a'    , 'b'    ),
             (    1 ,    3 , 'c'    , 'c'    ),
+            (    1 ,    3 , null   , '3'    ),
             (    2 ,    1 , 'e'    , 'f'    ),
             (    2 ,    2 , 'a'    , 'a2'   ),
             (    4 ,    2 , 'b'    , 'bddd' ),
-            (    4 ,    2 , 'a'    , 'a4'   );
+            (    4 ,    2 , null   , '2'    ),
+            (    6 ,    6 , null   , null   );
     """
 
     sql "set experimental_ignore_storage_data_distribution = 0;"
     qt_test_dumplicate "select k2, m['b'] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
+
+    qt_test_null "select k2, m[null] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
  }

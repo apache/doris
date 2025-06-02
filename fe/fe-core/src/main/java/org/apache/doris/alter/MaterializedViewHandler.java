@@ -59,6 +59,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
@@ -1517,6 +1518,60 @@ public class MaterializedViewHandler extends AlterHandler {
                 processBatchDropRollup(alterClauses, db, olapTable);
             } else {
                 Preconditions.checkState(false);
+            }
+        }
+    }
+
+    public void cancel(CancelAlterTableCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        String tableName = command.getTableName();
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
+        Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        List<AlterJobV2> rollupJobV2List = new ArrayList<>();
+        OlapTable olapTable;
+        try {
+            olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.writeLock();
+        try {
+            if (olapTable.getState() != OlapTableState.ROLLUP
+                    && olapTable.getState() != OlapTableState.WAITING_STABLE) {
+                throw new DdlException("Table[" + tableName + "] is not under ROLLUP. "
+                    + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
+            }
+
+            // find from new alter jobs first
+            if (command.getAlterJobIdList() != null) {
+                for (Long jobId : command.getAlterJobIdList()) {
+                    AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
+                    if (alterJobV2 == null) {
+                        continue;
+                    }
+                    rollupJobV2List.add(getUnfinishedAlterJobV2ByJobId(jobId));
+                }
+            } else {
+                rollupJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
+            }
+            if (rollupJobV2List.size() == 0) {
+                // Alter job v1 is not supported, delete related code
+                throw new DdlException("Table[" + tableName + "] is not under ROLLUP. Maybe it has old alter job");
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        // alter job v2's cancel must be called outside the table lock
+        if (rollupJobV2List.size() != 0) {
+            for (AlterJobV2 alterJobV2 : rollupJobV2List) {
+                alterJobV2.cancel("user cancelled");
+                if (alterJobV2.isDone()) {
+                    onJobDone(alterJobV2);
+                }
             }
         }
     }

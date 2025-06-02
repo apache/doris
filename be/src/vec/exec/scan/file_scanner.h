@@ -37,7 +37,8 @@
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/exec/scan/scanner.h"
+#include "vec/exec/format/orc/vorc_reader.h"
+#include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
@@ -51,7 +52,6 @@ class ShardedKVCache;
 class VExpr;
 class VExprContext;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -65,7 +65,7 @@ public:
     FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<vectorized::SplitSourceConnector> split_source,
                 RuntimeProfile* profile, ShardedKVCache* kv_cache,
-                std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+                const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status open(RuntimeState* state) override;
@@ -79,6 +79,22 @@ public:
     std::string get_name() override { return FileScanner::NAME; }
 
     std::string get_current_scan_range_name() override { return _current_range_path; }
+
+    //only used for read one line.
+    FileScanner(RuntimeState* state, RuntimeProfile* profile, const TFileScanRangeParams* params,
+                const std::unordered_map<std::string, int>* colname_to_slot_id,
+                TupleDescriptor* tuple_desc)
+            : Scanner(state, profile),
+              _params(params),
+              _col_name_to_slot_id(colname_to_slot_id),
+              _real_tuple_desc(tuple_desc) {};
+
+    Status read_one_line_from_range(const TFileRangeDesc& range, const segment_v2::rowid_t rowid,
+                                    Block* result_block,
+                                    const ExternalFileMappingInfo& external_info,
+                                    int64_t* init_reader_ms, int64_t* get_block_ms);
+
+    Status prepare_for_read_one_line(const TFileRangeDesc& range);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -104,7 +120,7 @@ protected:
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
@@ -133,15 +149,15 @@ protected:
     std::unordered_map<std::string, size_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
-    std::unordered_map<std::string, TypeDescriptor> _name_to_col_type;
+    std::unordered_map<std::string, DataTypePtr> _name_to_col_type;
     // Get from GenericReader, save columns that required by scan but not exist in file.
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
     //  The col names and types of source file, such as parquet, orc files.
     std::vector<std::string> _source_file_col_names;
-    std::vector<TypeDescriptor> _source_file_col_types;
-    std::map<std::string, TypeDescriptor*> _source_file_col_name_types;
+    std::vector<DataTypePtr> _source_file_col_types;
+    std::map<std::string, DataTypePtr> _source_file_col_name_types;
 
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
@@ -207,6 +223,9 @@ private:
     // otherwise, point to _output_tuple_desc
     const TupleDescriptor* _real_tuple_desc = nullptr;
 
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
+                                                                                           -1};
+
 private:
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
@@ -227,13 +246,33 @@ private:
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
+    Status _generate_truncate_columns(bool need_to_get_parsed_schema);
+    Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
+    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader);
+    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader);
+    Status _create_row_id_column_iterator(const int slot_id);
+
+    TFileFormatType::type _get_current_format_type() {
+        // for compatibility, if format_type is not set in range, use the format type of params
+        const TFileRangeDesc& range = _current_range;
+        return range.__isset.format_type ? range.format_type : _params->format_type;
+    };
+
+    Status _init_io_ctx() {
+        _io_ctx.reset(new io::IOContext());
+        _io_ctx->query_id = &_state->query_id();
+        return Status::OK();
+    };
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
     }
 
-    TPushAggOp::type _get_push_down_agg_type() { return _local_state->get_push_down_agg_type(); }
+    TPushAggOp::type _get_push_down_agg_type() {
+        return _local_state == nullptr ? TPushAggOp::type::NONE
+                                       : _local_state->get_push_down_agg_type();
+    }
 
     int64_t _get_push_down_count() { return _local_state->get_push_down_count(); }
 

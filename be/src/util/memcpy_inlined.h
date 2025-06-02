@@ -29,7 +29,6 @@
 #include <string.h>
 
 #include "common/compiler_util.h"
-#include "gutil/port.h"
 
 namespace doris {
 

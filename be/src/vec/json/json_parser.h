@@ -42,20 +42,20 @@ template <typename Element>
 Field getValueAsField(const Element& element) {
     // bool will convert to type FiledType::UInt64
     if (element.isBool()) {
-        return element.getBool();
+        return Field::create_field<TYPE_BOOLEAN>(element.getBool());
     }
     if (element.isInt64()) {
-        return element.getInt64();
+        return Field::create_field<TYPE_BIGINT>(element.getInt64());
     }
     // doris only support signed integers at present
     if (element.isUInt64()) {
-        return element.getInt64();
+        return Field::create_field<TYPE_BIGINT>(element.getInt64());
     }
     if (element.isDouble()) {
-        return element.getDouble();
+        return Field::create_field<TYPE_DOUBLE>(element.getDouble());
     }
     if (element.isString()) {
-        return element.getString();
+        return Field::create_field<TYPE_STRING>(String(element.getString()));
     }
     if (element.isNull()) {
         return Field();
