@@ -108,16 +108,17 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
     return Status::OK();
 }
 
-void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                    arrow::ArrayBuilder* array_builder,
-                                                    int64_t start, int64_t end,
-                                                    const cctz::time_zone& ctz) const {
+Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
+                                                      const NullMap* null_map,
+                                                      arrow::ArrayBuilder* array_builder,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             int64_t timestamp = 0;
             DateV2Value<DateTimeV2ValueType> datetime_val =
@@ -131,16 +132,17 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
                 uint32_t millisecond = datetime_val.microsecond() / 1000;
                 timestamp = (timestamp * 1000) + millisecond;
             }
-            checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
+                                             array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int64_t start,
-                                                     int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
+                                                       const arrow::Array* arrow_array,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
@@ -165,7 +167,8 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         }
         default: {
             LOG(WARNING) << "not support convert to datetimev2 from time_unit:" << type->unit();
-            return;
+            return Status::InvalidArgument("not support convert to datetimev2 from time_unit: {}",
+                                           type->unit());
         }
         }
         for (auto value_i = start; value_i < end; ++value_i) {
@@ -184,7 +187,10 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
                      << arrow_array->type()->id();
+        return Status::InternalError("not support convert to datetimev2 from arrow type: {}",
+                                     arrow_array->type()->id());
     }
+    return Status::OK();
 }
 
 template <bool is_binary_format>

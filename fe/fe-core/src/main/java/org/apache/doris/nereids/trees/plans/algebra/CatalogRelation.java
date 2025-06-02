@@ -34,6 +34,8 @@ public interface CatalogRelation extends Relation {
 
     DatabaseIf getDatabase() throws AnalysisException;
 
+    List<String> getQualifier();
+
     default CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
         return this;
     }

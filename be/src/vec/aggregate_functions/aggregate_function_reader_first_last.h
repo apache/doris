@@ -379,7 +379,7 @@ AggregateFunctionPtr create_function_single_value(const String& name,
                 FunctionData<ColumnVariant, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
-    case PrimitiveType::TYPE_OBJECT: {
+    case PrimitiveType::TYPE_BITMAP: {
         return std::make_shared<ReaderFunctionData<
                 FunctionData<ColumnBitmap, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);

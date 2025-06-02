@@ -38,17 +38,12 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "vec/io/io_helper.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
-#include "common/cast_set.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -70,6 +65,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/io/io_helper.h"
 #include "vec/utils/stringop_substring.h"
 #include "vec/utils/template_helpers.hpp"
 

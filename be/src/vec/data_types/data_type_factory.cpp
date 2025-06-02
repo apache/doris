@@ -177,7 +177,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_HLL:
         result = std::make_shared<vectorized::DataTypeHLL>();
         break;
-    case FieldType::OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
@@ -205,18 +205,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     switch (pcolumn.type()) {
     case PGenericType::UINT8:
         nested = std::make_shared<DataTypeUInt8>();
-        break;
-    case PGenericType::UINT16:
-        nested = std::make_shared<DataTypeUInt16>();
-        break;
-    case PGenericType::UINT32:
-        nested = std::make_shared<DataTypeUInt32>();
-        break;
-    case PGenericType::UINT64:
-        nested = std::make_shared<DataTypeUInt64>();
-        break;
-    case PGenericType::UINT128:
-        nested = std::make_shared<DataTypeUInt128>();
         break;
     case PGenericType::INT8:
         nested = std::make_shared<DataTypeInt8>();
@@ -462,7 +450,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_HLL:
         nested = std::make_shared<vectorized::DataTypeHLL>();
         break;
-    case TYPE_OBJECT:
+    case TYPE_BITMAP:
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:

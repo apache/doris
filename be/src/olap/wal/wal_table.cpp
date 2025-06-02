@@ -251,6 +251,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->group_commit = false;
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
+    ctx->max_filter_ratio = 1;
     auto st = _http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish
