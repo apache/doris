@@ -46,6 +46,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import lombok.Getter;
@@ -311,6 +312,21 @@ public class QueryProfileAction extends RestBaseController {
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
 
+        try {
+            String queryId = getQueryIdByTraceIdImpl(request, traceId, isAllNode);
+            return ResponseEntityBuilder.ok(queryId);
+        } catch (Exception e) {
+            return ResponseEntityBuilder.badRequest(e.getMessage());
+        }
+    }
+
+    /**
+     * Get query id by trace id.
+     * return a non-empty query id corresponding to the trace id.
+     * Will throw an exception if the trace id is not found, or query id is empty, or user does not have permission.
+     */
+    private String getQueryIdByTraceIdImpl(HttpServletRequest request, String traceId, boolean isAllNode)
+            throws Exception {
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/trace_id/" + traceId;
             ImmutableMap<String, String> arguments =
@@ -320,32 +336,30 @@ public class QueryProfileAction extends RestBaseController {
                     .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
             for (Pair<String, Integer> ipPort : frontends) {
                 String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
-                try {
-                    String responseJson = HttpUtils.doGet(url, header);
-                    int code = JsonParser.parseString(responseJson).getAsJsonObject().get("code").getAsInt();
-                    if (code == HttpUtils.REQUEST_SUCCESS_CODE) {
-                        return responseJson;
+                String responseJson = HttpUtils.doGet(url, header);
+                JsonObject jObj = JsonParser.parseString(responseJson).getAsJsonObject();
+                int code = jObj.get("code").getAsInt();
+                if (code == HttpUtils.REQUEST_SUCCESS_CODE) {
+                    if (!jObj.has("data") || jObj.get("data").isJsonNull() || Strings.isNullOrEmpty(
+                            jObj.get("data").getAsString())) {
+                        throw new Exception(String.format("trace id %s not found", traceId));
                     }
-                } catch (Exception e) {
-                    LOG.warn(e);
+                    return jObj.get("data").getAsString();
                 }
+                LOG.warn("get query id by trace id error, resp: {}", responseJson);
+                throw new Exception(jObj.get("msg").getAsString());
             }
         } else {
             ExecuteEnv env = ExecuteEnv.getInstance();
             String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
             if (Strings.isNullOrEmpty(queryId)) {
-                return ResponseEntityBuilder.badRequest("Not found");
+                throw new Exception(String.format("trace id %s not found", traceId));
             }
 
-            try {
-                checkAuthByUserAndQueryId(queryId);
-            } catch (AuthenticationException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
-            }
-
-            return ResponseEntityBuilder.ok(queryId);
+            checkAuthByUserAndQueryId(queryId);
+            return queryId;
         }
-        return ResponseEntityBuilder.badRequest("not found query id");
+        throw new Exception(String.format("trace id %s not found", traceId));
     }
 
     /**
@@ -524,15 +538,10 @@ public class QueryProfileAction extends RestBaseController {
             @PathVariable("trace_id") String traceId) {
         executeCheckPassword(request, response);
 
-        ExecuteEnv env = ExecuteEnv.getInstance();
-        String queryId = env.getScheduler().getQueryIdByTraceId(traceId);
-        if (Strings.isNullOrEmpty(queryId)) {
-            return ResponseEntityBuilder.badRequest("Not found");
-        }
-
+        String queryId = null;
         try {
-            checkAuthByUserAndQueryId(queryId);
-        } catch (AuthenticationException e) {
+            queryId = getQueryIdByTraceIdImpl(request, traceId, true);
+        } catch (Exception e) {
             return ResponseEntityBuilder.badRequest(e.getMessage());
         }
 
@@ -543,6 +552,9 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok(new QueryStatistics(statistic.get()));
     }
 
+    /**
+     * A class that represents the query runtime statistics.
+     */
     @Getter
     @Setter
     public static class QueryStatistics {
