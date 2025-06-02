@@ -510,8 +510,17 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntityBuilder.ok();
     }
 
-    @RequestMapping(path = "/progres/query/{trace_id}", method = RequestMethod.GET)
-    public Object queryProgress(HttpServletRequest request, HttpServletResponse response,
+    /**
+     * Get real-time query statistics for with given query id.
+     * This API is used for getting the runtime query progress
+     *
+     * @param request
+     * @param response
+     * @param traceId: The user specified trace id, eg, set session_context="trace_id:123456";
+     * @return
+     */
+    @RequestMapping(path = "/statistics/query/{trace_id}", method = RequestMethod.GET)
+    public Object queryStatistics(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("trace_id") String traceId) {
         executeCheckPassword(request, response);
 
@@ -531,12 +540,12 @@ public class QueryProfileAction extends RestBaseController {
         if (!statistic.isPresent()) {
             return ResponseEntityBuilder.badRequest("Failed to get query statistic");
         }
-        return ResponseEntityBuilder.ok(new QueryProgress(statistic.get()));
+        return ResponseEntityBuilder.ok(new QueryStatistics(statistic.get()));
     }
 
     @Getter
     @Setter
-    public static class QueryProgress {
+    public static class QueryStatistics {
         public long scanRows;
         public long scanBytes;
         public long returnedRows;
@@ -550,7 +559,7 @@ public class QueryProfileAction extends RestBaseController {
         public long spillWriteBytesToLocalStorage;
         public long spillReadBytesFromLocalStorage;
 
-        public QueryProgress(TQueryStatistics queryStatistics) {
+        public QueryStatistics(TQueryStatistics queryStatistics) {
             this.scanRows = queryStatistics.getScanRows();
             this.scanBytes = queryStatistics.getScanBytes();
             this.returnedRows = queryStatistics.getReturnedRows();
