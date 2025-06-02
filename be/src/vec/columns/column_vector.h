@@ -125,7 +125,9 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
  */
 template <typename T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
+#ifndef THREAD_SANITIZER
     static_assert(!IsDecimalNumber<T>);
+#endif
 
 private:
     using Self = ColumnVector;

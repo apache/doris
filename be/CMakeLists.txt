@@ -80,6 +80,9 @@ if (OS_MACOSX)
     set(USE_UNWIND OFF)
 endif()
 
+set(GLIBC_COMPATIBILITY OFF)
+
+
 if (DISPLAY_BUILD_TIME)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "time -f 'TimeUsage: real=%es, user=%Us, sys=%Ss'")
 endif()
@@ -407,7 +410,7 @@ set(CXX_FLAGS_UBSAN "-O0 -fno-wrapv -mcmodel=medium -fsanitize=undefined -DUNDEF
 # Turn on sanitizer and debug symbols to get stack traces:
 # Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
 # If use -O0 to compile, BE will stack overflow when start. https://github.com/apache/doris/issues/8868
-set(CXX_FLAGS_TSAN "-O1 -fsanitize=thread -DTHREAD_SANITIZER -Wno-missing-declarations")
+set(CXX_FLAGS_TSAN "-O1 -fsanitize=thread -fsanitize-recover=all -DTHREAD_SANITIZER -Wno-missing-declarations")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -824,6 +827,7 @@ if(NOT BUILD_BENCHMARK)
         ${BASE_DIR}/../conf/odbcinst.ini
         ${BASE_DIR}/../conf/asan_suppr.conf
         ${BASE_DIR}/../conf/lsan_suppr.conf
+        ${BASE_DIR}/../conf/tsan-suppressions.txt
         DESTINATION ${OUTPUT_DIR}/conf)
 endif()
 

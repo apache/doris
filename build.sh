@@ -382,8 +382,10 @@ fi
 if [[ -z "${STRIP_DEBUG_INFO}" ]]; then
     STRIP_DEBUG_INFO='OFF'
 fi
+# only test set BUILD_TYPE  TSAN
+BUILD_TYPE='TSAN'
 BUILD_TYPE_LOWWER=$(echo "${BUILD_TYPE}" | tr '[:upper:]' '[:lower:]')
-if [[ "${BUILD_TYPE_LOWWER}" == "asan" ]]; then
+if [[ "${BUILD_TYPE_LOWWER}" == "asan" || "${BUILD_TYPE_LOWWER}" == "tsan" ]]; then
     USE_JEMALLOC='OFF'
 elif [[ -z "${USE_JEMALLOC}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
