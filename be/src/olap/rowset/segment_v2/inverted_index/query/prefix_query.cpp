@@ -21,7 +21,7 @@ namespace doris::segment_v2 {
 
 PrefixQuery::PrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher) {}
+        : _searcher(searcher), _io_ctx(io_ctx) {}
 
 void PrefixQuery::add(const std::wstring& field_name, const std::vector<std::wstring>& terms) {
     if (terms.empty()) {
@@ -30,7 +30,7 @@ void PrefixQuery::add(const std::wstring& field_name, const std::vector<std::wst
 
     std::vector<TermPositionIterator> subs;
     for (const auto& ws_term : terms) {
-        auto* term_doc = TermPositionIterator::ensure_term_position(_searcher->getReader(),
+        auto* term_doc = TermPositionIterator::ensure_term_position(_io_ctx, _searcher->getReader(),
                                                                     field_name, ws_term);
         subs.emplace_back(term_doc);
     }
@@ -50,7 +50,7 @@ void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& fiel
     std::wstring ws_prefix = StringUtil::string_to_wstring(prefix);
 
     Term* prefix_term = _CLNEW Term(field_name.c_str(), ws_prefix.c_str());
-    TermEnum* enumerator = reader->terms(prefix_term);
+    TermEnum* enumerator = reader->terms(prefix_term, _io_ctx);
 
     int32_t count = 0;
     Term* lastTerm = nullptr;

@@ -23,7 +23,8 @@ ConjunctionQuery::ConjunctionQuery(const std::shared_ptr<lucene::search::IndexSe
                                    const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher),
           _index_version(_searcher->getReader()->getIndexVersion()),
-          _conjunction_ratio(query_options.inverted_index_conjunction_opt_threshold) {}
+          _conjunction_ratio(query_options.inverted_index_conjunction_opt_threshold),
+          _io_ctx(io_ctx) {}
 
 void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.terms.empty()) {
@@ -32,8 +33,8 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     std::vector<TermIterator> iterators;
     for (const auto& term : query_info.terms) {
-        auto* term_doc =
-                TermIterator::ensure_term_doc(_searcher->getReader(), query_info.field_name, term);
+        auto* term_doc = TermIterator::ensure_term_doc(_io_ctx, _searcher->getReader(),
+                                                       query_info.field_name, term);
         iterators.emplace_back(term_doc);
     }
 
