@@ -329,7 +329,7 @@ public:
         DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
             DCHECK_EQ(0, pos);
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, true>(
+            return Status::Error<ErrorCode::INTERNAL_ERROR, true>(
                     "seek pos {} is larger than total elements {}", pos, _num_elements);
         }
 
