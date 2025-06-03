@@ -1649,6 +1649,36 @@ struct TFetchBackendsResult {
     1: optional list<TBackendDetailInfo> backends
 }
 
+struct TFetchFrontendsRequest {
+}
+
+
+struct TFrontendDetailInfo {
+    1: optional string name
+    2: optional string host
+    3: optional Types.TPort edit_log_port
+    4: optional Types.TPort http_port
+    5: optional Types.TPort query_port
+    6: optional Types.TPort rpc_port
+    7: optional Types.TPort arrowflightsqlport
+    8: optional string role
+    9: optional bool is_master
+    10: optional i32 cluster_id
+    11: optional bool join
+    12: optional bool alive
+    13: optional i64 replayed_journal_id
+    14: optional string last_start_time
+    15: optional string last_heartbeat
+    16: optional bool is_helper
+    17: optional string err_msg
+    18: optional string version
+    19: optional bool current_connected
+}
+
+struct TFetchFrontendsResult {
+    1: optional list<TFrontendDetailInfo> frontends
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1753,4 +1783,6 @@ service FrontendService {
     TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
 
     TFetchBackendsResult fetchBackends(1: TFetchBackendsRequest request)
+
+    TFetchFrontendsResult fetchFrontends(1: TFetchFrontendsRequest request)
 }
