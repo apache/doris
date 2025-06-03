@@ -60,7 +60,7 @@ suite("test_calc_crc", "nonConcurrent") {
     sql """ INSERT INTO ${tableName} VALUES (3, "andy", 100); """
     sql """ INSERT INTO ${tableName} VALUES (3, "bason", 99); """
 
-    tablets = sql_return_maparray """ show tablets from ${tableName}; """
+    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
     String tablet_id = tablets[0].TabletId
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)
