@@ -213,7 +213,6 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
             // make use c++ lib equals to wrapper field from_string behavior
             DataTypeSerDe::FormatOptions formatOptions;
-            formatOptions.date_olap_format = true;
 
             Status st = serde->deserialize_one_cell_from_json(*col, min_rb, formatOptions);
             EXPECT_EQ(st.ok(), true);
