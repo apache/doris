@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'S'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = '4 yr Degree')]] and cd_education_status IN ('4 yr Degree', 'College', 'Unknown') and cd_marital_status IN ('D', 'M', 'S'))
+--------------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'S'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = '4 yr Degree')],AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Unknown')]] and cd_education_status IN ('4 yr Degree', 'College', 'Unknown') and cd_marital_status IN ('D', 'M', 'S'))
 ----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter(hd_dep_count IN (1, 3))

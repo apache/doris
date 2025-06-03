@@ -58,7 +58,8 @@ public:
     // Called after `State` is ready (e.g. signaled)
     Status acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs);
 
-    std::string debug_string() const override {
+    std::string debug_string() override {
+        std::unique_lock<std::recursive_mutex> l(_rmtx);
         return fmt::format("Consumer: ({}, state: {}, reached_timeout: {}, timeout_limit: {}ms)",
                            _debug_string(), to_string(_rf_state),
                            _reached_timeout ? "true" : "false", std::to_string(_rf_wait_time_ms));
@@ -112,7 +113,6 @@ private:
     }
 
     void _set_state(State rf_state, std::shared_ptr<RuntimeFilterWrapper> other = nullptr) {
-        std::unique_lock<std::mutex> l(_mtx);
         if (rf_state == State::TIMEOUT) {
             DorisMetrics::instance()->runtime_filter_consumer_timeout_num->increment(1);
             _reached_timeout = true;
@@ -154,9 +154,6 @@ private:
     const int64_t _registration_time;
 
     std::atomic<State> _rf_state;
-    // only used to lock _set_state() to make _wrapper and _rf_state is protected
-    // signal and acquire_expr may called in different threads at the same time
-    std::mutex _mtx;
 
     bool _reached_timeout = false;
 

@@ -49,10 +49,10 @@ inline void throw_if_division_leads_to_FPE(A a, B b) {
 
 template <typename A, typename B>
 struct ModuloImpl {
-    using ResultType = typename NumberTraits::ResultOfModulo<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfModulo<A, B>::Type;
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static void apply(const typename Traits::ArrayA& a, B b,
                       typename ColumnVector<Result>::Container& c,
                       typename Traits::ArrayNull& null_map) {
@@ -62,7 +62,7 @@ struct ModuloImpl {
 
         if (!is_null) {
             for (size_t i = 0; i < size; i++) {
-                if constexpr (std::is_floating_point_v<ResultType>) {
+                if constexpr (std::is_floating_point_v<Result>) {
                     c[i] = std::fmod((double)a[i], (double)b);
                 } else {
                     throw_if_division_leads_to_FPE(a[i], b);
@@ -72,7 +72,7 @@ struct ModuloImpl {
         }
     }
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static inline Result apply(A a, B b, UInt8& is_null) {
         is_null = b == 0;
         b += is_null;
@@ -94,10 +94,10 @@ struct ModuloImpl {
 
 template <typename A, typename B>
 struct PModuloImpl {
-    using ResultType = typename NumberTraits::ResultOfModulo<A, B>::Type;
+    static constexpr PrimitiveType ResultType = NumberTraits::ResultOfModulo<A, B>::Type;
     using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static void apply(const typename Traits::ArrayA& a, B b,
                       typename ColumnVector<Result>::Container& c,
                       typename Traits::ArrayNull& null_map) {
@@ -107,7 +107,7 @@ struct PModuloImpl {
 
         if (!is_null) {
             for (size_t i = 0; i < size; i++) {
-                if constexpr (std::is_floating_point_v<ResultType>) {
+                if constexpr (std::is_floating_point_v<Result>) {
                     c[i] = std::fmod(std::fmod((double)a[i], (double)b) + (double)b, double(b));
                 } else {
                     throw_if_division_leads_to_FPE(a[i], b);
@@ -117,7 +117,7 @@ struct PModuloImpl {
         }
     }
 
-    template <typename Result = ResultType>
+    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppNativeType>
     static inline Result apply(A a, B b, UInt8& is_null) {
         is_null = b == 0;
         b += is_null;

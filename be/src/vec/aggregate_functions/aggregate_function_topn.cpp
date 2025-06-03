@@ -41,45 +41,97 @@ AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
     return nullptr;
 }
 
-template <template <typename, bool> class AggregateFunctionTemplate, bool has_default_param,
+template <template <PrimitiveType, bool> class AggregateFunctionTemplate, bool has_default_param,
           bool is_weighted>
 AggregateFunctionPtr create_topn_array(const DataTypes& argument_types,
                                        const bool result_is_nullable) {
-    WhichDataType which(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE)                                                                   \
-    if (which.idx == TypeIndex::TYPE)                                                    \
-        return creator_without_type::create<AggregateFunctionTopNArray<                  \
-                AggregateFunctionTemplate<TYPE, has_default_param>, TYPE, is_weighted>>( \
-                argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-
-    if (which.is_string_or_fixed_string()) {
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
         return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<std::string, has_default_param>, std::string,
+                AggregateFunctionTemplate<TYPE_BOOLEAN, has_default_param>, TYPE_BOOLEAN,
                 is_weighted>>(argument_types, result_is_nullable);
-    }
-    if (which.is_date_or_datetime()) {
+    case PrimitiveType::TYPE_TINYINT:
         return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<Int64, has_default_param>, Int64, is_weighted>>(
-                argument_types, result_is_nullable);
-    }
-    if (which.is_date_v2()) {
+                AggregateFunctionTemplate<TYPE_TINYINT, has_default_param>, TYPE_TINYINT,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_SMALLINT:
         return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<UInt32, has_default_param>, UInt32, is_weighted>>(
-                argument_types, result_is_nullable);
-    }
-    if (which.is_date_time_v2()) {
+                AggregateFunctionTemplate<TYPE_SMALLINT, has_default_param>, TYPE_SMALLINT,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
         return creator_without_type::create<AggregateFunctionTopNArray<
-                AggregateFunctionTemplate<UInt64, has_default_param>, UInt64, is_weighted>>(
+                AggregateFunctionTemplate<TYPE_INT, has_default_param>, TYPE_INT, is_weighted>>(
                 argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_BIGINT, has_default_param>, TYPE_BIGINT,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_LARGEINT:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_LARGEINT, has_default_param>, TYPE_LARGEINT,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_FLOAT, has_default_param>, TYPE_FLOAT, is_weighted>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DOUBLE, has_default_param>, TYPE_DOUBLE,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DECIMAL32, has_default_param>, TYPE_DECIMAL32,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DECIMAL64, has_default_param>, TYPE_DECIMAL64,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DECIMAL128I, has_default_param>, TYPE_DECIMAL128I,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DECIMALV2, has_default_param>, TYPE_DECIMALV2,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DECIMAL256, has_default_param>, TYPE_DECIMAL256,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_STRING:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_STRING, has_default_param>, TYPE_STRING,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_CHAR:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_CHAR, has_default_param>, TYPE_CHAR, is_weighted>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_VARCHAR:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_VARCHAR, has_default_param>, TYPE_VARCHAR,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATE:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DATE, has_default_param>, TYPE_DATE, is_weighted>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATETIME:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DATETIME, has_default_param>, TYPE_DATETIME,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATEV2:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DATEV2, has_default_param>, TYPE_DATEV2,
+                is_weighted>>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return creator_without_type::create<AggregateFunctionTopNArray<
+                AggregateFunctionTemplate<TYPE_DATETIMEV2, has_default_param>, TYPE_DATETIMEV2,
+                is_weighted>>(argument_types, result_is_nullable);
+    default:
+        LOG(WARNING) << fmt::format(
+                "Illegal argument  type for aggregate function topn_array is: {}",
+                remove_nullable(argument_types[0])->get_name());
+        return nullptr;
     }
-
-    LOG(WARNING) << fmt::format("Illegal argument  type for aggregate function topn_array is: {}",
-                                remove_nullable(argument_types[0])->get_name());
-    return nullptr;
 }
 
 AggregateFunctionPtr create_aggregate_function_topn_array(const std::string& name,

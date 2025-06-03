@@ -34,16 +34,93 @@ namespace doris::vectorized {
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
         const AggregateFunctionAttr& attr) {
-    WhichDataType which(remove_nullable(argument_types[0]));
-
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                             \
-    if (which.idx == TypeIndex::TYPE)                                                           \
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<COLUMN_TYPE>>( \
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BOOLEAN>>(
                 argument_types, result_is_nullable);
-    TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-
-    return nullptr;
+    case PrimitiveType::TYPE_TINYINT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_TINYINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_SMALLINT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_SMALLINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_INT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BIGINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_LARGEINT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_LARGEINT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_FLOAT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DOUBLE>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL32>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL64>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL128I>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMALV2>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DECIMAL256>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_JSONB:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRING>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATE:
+    case PrimitiveType::TYPE_DATETIME:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIME>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATEV2:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATEV2>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIMEV2>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_IPV4:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV4>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_IPV6:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_IPV6>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_ARRAY:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_ARRAY>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_MAP:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_MAP>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_STRUCT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRUCT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_VARIANT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_OBJECT:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_OBJECT>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_HLL:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_HLL>>(
+                argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        return creator_without_type::create<
+                AggregateFunctionApproxCountDistinct<TYPE_QUANTILE_STATE>>(argument_types,
+                                                                           result_is_nullable);
+    default:
+        return nullptr;
+    }
 }
 
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory) {

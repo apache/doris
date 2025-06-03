@@ -54,7 +54,8 @@ public class IdStatisticsMapTest extends SqlTestBase {
         };
         new MockUp<MTMVRelationManager>() {
             @Mock
-            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid) {
+            public boolean isMVPartitionValid(MTMV mtmv, ConnectContext ctx, boolean isMVPartitionValid,
+                    Set<String> queryUsedRelatedTablePartitionsMap) {
                 return true;
             }
         };

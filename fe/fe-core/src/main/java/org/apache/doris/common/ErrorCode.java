@@ -41,7 +41,7 @@ public enum ErrorCode {
     ERR_DUP_FIELDNAME(1060, new byte[]{'4', '2', 'S', '2', '1'}, "Duplicate column name '%s'"),
     ERR_NONUNIQ_TABLE(1066, new byte[]{'4', '2', '0', '0', '0'}, "Not unique table/alias: '%s'"),
     ERR_NO_SUCH_THREAD(1094, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown thread id: %d"),
-    ERR_KILL_DENIED_ERROR(1095, new byte[]{'H', 'Y', '0', '0', '0'}, "You are not owner of thread %d"),
+    ERR_KILL_DENIED_ERROR(1095, new byte[] {'H', 'Y', '0', '0', '0'}, "You are not owner of thread or query: %d"),
     ERR_NO_TABLES_USED(1096, new byte[]{'H', 'Y', '0', '0', '0'}, "No tables used"),
     ERR_NO_SUCH_QUERY(1097, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown query id: %s"),
     ERR_WRONG_DB_NAME(1102, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect database name '%s'"),

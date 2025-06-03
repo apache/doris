@@ -370,7 +370,6 @@ public class ExportJob implements Writable {
         StatementContext statementContext = new StatementContext();
         ConnectContext connectContext = ConnectContext.get();
         if (connectContext != null) {
-            connectContext.setStatementContext(statementContext);
             statementContext.setConnectContext(connectContext);
         }
 
@@ -598,7 +597,7 @@ public class ExportJob implements Writable {
             outfileProperties.put(BROKER_PROPERTY_PREFIXES + "name", brokerDesc.getName());
             brokerDesc.getProperties().forEach((k, v) -> outfileProperties.put(BROKER_PROPERTY_PREFIXES + k, v));
         } else {
-            for (Entry<String, String> kv : brokerDesc.getProperties().entrySet()) {
+            for (Entry<String, String> kv : brokerDesc.getBackendConfigProperties().entrySet()) {
                 outfileProperties.put(kv.getKey(), kv.getValue());
             }
         }

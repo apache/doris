@@ -33,14 +33,14 @@ namespace pipeline {
 class DataQueue;
 
 class CacheSinkOperatorX;
-class CacheSinkLocalState final : public PipelineXSinkLocalState<CacheSharedState> {
+class CacheSinkLocalState final : public PipelineXSinkLocalState<DataQueueSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(CacheSinkLocalState);
     CacheSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     friend class CacheSinkOperatorX;
-    using Base = PipelineXSinkLocalState<CacheSharedState>;
+    using Base = PipelineXSinkLocalState<DataQueueSharedState>;
     using Parent = CacheSinkOperatorX;
 };
 
@@ -50,6 +50,9 @@ public:
 
     friend class CacheSinkLocalState;
     CacheSinkOperatorX(int sink_id, int child_id, int dest_id);
+#ifdef BE_TEST
+    CacheSinkOperatorX() = default;
+#endif
     ~CacheSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -59,7 +62,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
-        std::shared_ptr<BasicSharedState> ss = std::make_shared<CacheSharedState>();
+        std::shared_ptr<BasicSharedState> ss = std::make_shared<DataQueueSharedState>();
         ss->id = operator_id();
         for (auto& dest : dests_id()) {
             ss->related_op_ids.insert(dest);

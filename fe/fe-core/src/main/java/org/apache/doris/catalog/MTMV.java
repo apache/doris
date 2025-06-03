@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -294,14 +295,18 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<String> getExcludedTriggerTables() {
+    public Set<TableName> getExcludedTriggerTables() {
+        Set<TableName> res = Sets.newHashSet();
         readMvLock();
         try {
             if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-                return Sets.newHashSet();
+                return res;
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-            return Sets.newHashSet(split);
+            for (String alias : split) {
+                res.add(new TableName(alias));
+            }
+            return res;
         } finally {
             readMvUnlock();
         }
@@ -310,7 +315,8 @@ public class MTMV extends OlapTable {
     /**
      * Called when in query, Should use one connection context in query
      */
-    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
+            org.apache.doris.nereids.exceptions.AnalysisException {
         readMvLock();
         try {
             if (cache != null) {
@@ -556,7 +562,7 @@ public class MTMV extends OlapTable {
     public void compatible(CatalogMgr catalogMgr) {
         try {
             compatibleInternal(catalogMgr);
-            Env.getCurrentEnv().getMtmvService().deregisterMTMV(this);
+            Env.getCurrentEnv().getMtmvService().unregisterMTMV(this);
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
         } catch (Throwable e) {
             LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());

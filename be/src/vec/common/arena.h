@@ -21,18 +21,15 @@
 #pragma once
 
 #include <common/compiler_util.h>
+#include <sanitizer/asan_interface.h>
 #include <string.h>
 
 #include <boost/noncopyable.hpp>
 #include <memory>
 #include <vector>
-#if __has_include(<sanitizer/asan_interface.h>)
-#include <sanitizer/asan_interface.h>
-#endif
-#include "gutil/dynamic_annotations.h"
+
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
-#include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
 
@@ -135,10 +132,6 @@ private:
             size_in_bytes += head->size();
         }
     }
-
-    friend class ArenaAllocator;
-    template <size_t>
-    friend class AlignedArenaAllocator;
 
 public:
     Arena(size_t initial_size_ = 4096, size_t growth_factor_ = 2,

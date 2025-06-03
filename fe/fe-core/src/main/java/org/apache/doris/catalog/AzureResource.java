@@ -27,6 +27,7 @@ import org.apache.doris.fs.obj.ObjStorage;
 import org.apache.doris.fs.obj.RemoteObjects;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -52,32 +53,32 @@ public class AzureResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> newProperties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
+        this.properties = Maps.newHashMap(newProperties);
         // check properties
-        S3Properties.requiredS3PingProperties(newProperties);
+        S3Properties.requiredS3PingProperties(this.properties);
         // default need check resource conf valid, so need fix ut and regression case
-        boolean needCheck = isNeedCheck(newProperties);
+        boolean needCheck = isNeedCheck(this.properties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("azure info need check validity : {}", needCheck);
         }
 
         // the endpoint for ping need add uri scheme.
-        String pingEndpoint = newProperties.get(S3Properties.ENDPOINT);
+        String pingEndpoint = this.properties.get(S3Properties.ENDPOINT);
         if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + newProperties.get(S3Properties.ENDPOINT);
-            newProperties.put(S3Properties.ENDPOINT, pingEndpoint);
-            newProperties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
+            pingEndpoint = "http://" + this.properties.get(S3Properties.ENDPOINT);
+            this.properties.put(S3Properties.ENDPOINT, pingEndpoint);
+            this.properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }
 
         if (needCheck) {
-            String bucketName = newProperties.get(S3Properties.BUCKET);
-            String rootPath = newProperties.get(S3Properties.ROOT_PATH);
-            pingAzure(bucketName, rootPath, newProperties);
+            String bucketName = this.properties.get(S3Properties.BUCKET);
+            String rootPath = this.properties.get(S3Properties.ROOT_PATH);
+            pingAzure(bucketName, rootPath, this.properties);
         }
         // optional
-        S3Properties.optionalS3Property(newProperties);
-        this.properties = newProperties;
+        S3Properties.optionalS3Property(this.properties);
     }
 
     protected static void pingAzure(String bucketName, String rootPath,

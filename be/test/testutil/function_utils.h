@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "runtime/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -28,8 +29,8 @@ class FunctionContext;
 class FunctionUtils {
 public:
     FunctionUtils();
-    FunctionUtils(const doris::TypeDescriptor& return_type,
-                  const std::vector<doris::TypeDescriptor>& arg_types, int varargs_buffer_size);
+    FunctionUtils(const vectorized::DataTypePtr& return_type,
+                  const std::vector<vectorized::DataTypePtr>& arg_types, int varargs_buffer_size);
     ~FunctionUtils();
 
     doris::FunctionContext* get_fn_ctx() { return _fn_ctx.get(); }

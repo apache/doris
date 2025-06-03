@@ -33,11 +33,7 @@
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_error.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -64,6 +60,7 @@
 #include "vec/functions/like.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/json/simd_json_parser.h"
+#include "vec/utils/stringop_substring.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {

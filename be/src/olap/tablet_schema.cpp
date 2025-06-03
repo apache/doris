@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
@@ -49,6 +50,8 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -460,6 +463,22 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     }
 }
 
+bool TabletColumn::has_char_type() const {
+    switch (_type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR: {
+        return true;
+    }
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+    case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+        return std::any_of(_sub_columns.begin(), _sub_columns.end(),
+                           [&](const auto& sub) -> bool { return sub->has_char_type(); });
+    }
+    default:
+        return false;
+    }
+}
+
 TabletColumn::TabletColumn() : _aggregation(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {}
 
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
@@ -682,7 +701,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
     vectorized::AggregateFunctionPtr function = nullptr;
 
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
-    if (type && type->get_type_as_type_descriptor().type == PrimitiveType::TYPE_AGG_STATE) {
+    if (type && type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE) {
         function = get_aggregate_function_union(type, current_be_exec_version);
     } else {
         std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
@@ -748,10 +767,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
             // if column unique id not found by column name, find by column unique id
-            // column unique id can not bigger than tablet schema column size, if bigger than column size means
-            // this column is a new column added by light schema change
-            if (index.__isset.column_unique_ids &&
-                index.column_unique_ids[i] < tablet_schema.num_columns()) {
+            // column unique id can not found means this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids && !index.column_unique_ids.empty() &&
+                tablet_schema.has_column_unique_id(index.column_unique_ids[i])) {
                 col_unique_ids[i] = index.column_unique_ids[i];
             } else {
                 col_unique_ids[i] = -1;

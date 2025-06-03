@@ -20,15 +20,17 @@
 
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
 
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-/// min, max, any
+/// min, max
 template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
                                                             const DataTypes& argument_types,
@@ -48,44 +50,71 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     if (res) {
         return res;
     }
-    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
-    WhichDataType which(argument_type);
-
-    if (which.idx == TypeIndex::String) {
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_JSONB:
         return creator_without_type::create<
                 AggregateFunctionsSingleValue<Data<SingleValueDataString>>>(argument_types,
                                                                             result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTime || which.idx == TypeIndex::Date) {
+    case PrimitiveType::TYPE_DATE:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Int64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATE>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateV2) {
+    case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt32>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIME>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::DateTimeV2) {
+    case PrimitiveType::TYPE_DATEV2:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<UInt64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATEV2>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::Time || which.idx == TypeIndex::TimeV2) {
+    case PrimitiveType::TYPE_DATETIMEV2:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<Float64>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::IPv4) {
+    case PrimitiveType::TYPE_TIME:
+    case PrimitiveType::TYPE_TIMEV2:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv4>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMEV2>>>>(
                 argument_types, result_is_nullable);
-    }
-    if (which.idx == TypeIndex::IPv6) {
+    case PrimitiveType::TYPE_IPV4:
         return creator_without_type::create<
-                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<IPv6>>>>(
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_IPV4>>>>(
                 argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_IPV6:
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_IPV6>>>>(
+                argument_types, result_is_nullable);
+    default:
+        return nullptr;
     }
+}
+
+// any_value
+template <template <typename> class Data>
+AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
+        const String& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    AggregateFunctionPtr res = create_aggregate_function_single_value<Data>(
+            name, argument_types, result_is_nullable, attr);
+    if (res) {
+        return res;
+    }
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
+    if (argument_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_AGG_STATE ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_OBJECT ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_HLL ||
+        argument_type->get_primitive_type() == PrimitiveType::TYPE_QUANTILE_STATE) {
+        return creator_without_type::create<
+                AggregateFunctionsSingleValue<SingleValueDataComplexType>>(argument_types,
+                                                                           result_is_nullable);
+    }
+
     return nullptr;
 }
 
@@ -95,7 +124,8 @@ void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory)
     factory.register_function_both(
             "min", create_aggregate_function_single_value<AggregateFunctionMinData>);
     factory.register_function_both(
-            "any", create_aggregate_function_single_value<AggregateFunctionAnyData>);
+            "any",
+            create_aggregate_function_single_value_any_value_function<AggregateFunctionAnyData>);
     factory.register_alias("any", "any_value");
 }
 

@@ -36,6 +36,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/id_manager.h"
 #include "olap/storage_engine.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
@@ -76,18 +77,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
-    if (query_mem_tracker != nullptr) {
-        _query_mem_tracker = query_mem_tracker;
-    } else {
-        DCHECK(ctx != nullptr);
-        _query_mem_tracker = ctx->query_mem_tracker();
-    }
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
+    _query_mem_tracker = query_mem_tracker;
+    DCHECK(_query_mem_tracker != nullptr);
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -112,12 +103,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
@@ -143,12 +128,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
-#ifdef BE_TEST
-    if (_query_mem_tracker == nullptr) {
-        init_mem_trackers();
-    }
-#endif
-    DCHECK(_query_mem_tracker != nullptr && _query_mem_tracker->label() != "Orphan");
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -328,7 +307,7 @@ Status RuntimeState::create_error_log_file() {
             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
             // shorten the path as much as possible to prevent the length of the presigned URL from
             // exceeding the MySQL error packet size limit
-            ss << "error_log/" << std::hex << _query_id.hi;
+            ss << "error_log/" << std::hex << _fragment_instance_id.lo;
             _s3_error_log_file_path = ss.str();
         }
     }
@@ -495,14 +474,13 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 }
 
 Status RuntimeState::register_producer_runtime_filter(
-        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-        RuntimeProfile* parent_profile) {
+        const TRuntimeFilterDesc& desc, std::shared_ptr<RuntimeFilterProducer>* producer_filter) {
     // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
     // When RF is published, consumers in both global and local RF mgr will be found.
-    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
-            _query_ctx, desc, producer_filter, parent_profile));
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(_query_ctx, desc,
+                                                                         producer_filter));
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
-            _query_ctx, desc, *producer_filter, &_profile));
+            _query_ctx, desc, *producer_filter));
     return Status::OK();
 }
 
@@ -551,5 +529,8 @@ bool RuntimeState::low_memory_mode() const {
     return _query_ctx->low_memory_mode();
 }
 
+void RuntimeState::set_id_file_map() {
+    _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
+}
 #include "common/compile_check_end.h"
 } // end namespace doris

@@ -155,12 +155,12 @@ MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
 }
 
 Field ColumnNullable::operator[](size_t n) const {
-    return is_null_at(n) ? Null() : get_nested_column()[n];
+    return is_null_at(n) ? Field::create_field<TYPE_NULL>(Null()) : get_nested_column()[n];
 }
 
 void ColumnNullable::get(size_t n, Field& res) const {
     if (is_null_at(n)) {
-        res = Null();
+        res = Field();
     } else {
         get_nested_column().get(n, res);
     }
@@ -342,22 +342,10 @@ void ColumnNullable::append_data_by_selector(IColumn::MutablePtr& res,
     this->get_null_map_column().append_data_by_selector(res_null_map, selector, begin, end);
 }
 
-void ColumnNullable::insert_from_not_nullable(const IColumn& src, size_t n) {
-    get_nested_column().insert_from(src, n);
-    _push_false_to_nullmap(1);
-}
-
 void ColumnNullable::insert_range_from_not_nullable(const IColumn& src, size_t start,
                                                     size_t length) {
     get_nested_column().insert_range_from(src, start, length);
     _push_false_to_nullmap(length);
-}
-
-void ColumnNullable::insert_many_from_not_nullable(const IColumn& src, size_t position,
-                                                   size_t length) {
-    for (size_t i = 0; i < length; ++i) {
-        insert_from_not_nullable(src, position);
-    }
 }
 
 void ColumnNullable::pop_back(size_t n) {
@@ -573,8 +561,8 @@ void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
 
     if (arr1.size() != arr2.size()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Inconsistent sizes of ColumnNullable objects");
-        __builtin_unreachable();
+                               "Inconsistent sizes of ColumnNullable objects. Self: {}. Expect: {}",
+                               arr1.size(), arr2.size());
     }
 
     for (size_t i = 0, size = arr1.size(); i < size; ++i) {

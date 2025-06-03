@@ -126,7 +126,6 @@ public class PlanChecker {
         this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
-        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         return this;
     }
 
@@ -256,6 +255,8 @@ public class PlanChecker {
 
     public PlanChecker rewrite() {
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+        cascadesContext.newTablePartitionCollector().execute();
+        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         cascadesContext.toMemo();
         return this;
     }
@@ -575,8 +576,10 @@ public class PlanChecker {
 
     public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+                statementContext);
+        connectContext.setStatementContext(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         nereidsPlanner.plan(adapter);
@@ -586,8 +589,9 @@ public class PlanChecker {
 
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        connectContext.setStatementContext(statementContext);
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;

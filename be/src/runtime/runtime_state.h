@@ -69,6 +69,7 @@ class Dependency;
 class DescriptorTbl;
 class ObjectPool;
 class ExecEnv;
+class IdFileMap;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
@@ -472,7 +473,7 @@ public:
     [[nodiscard]] bool low_memory_mode() const;
 
     std::weak_ptr<QueryContext> get_query_ctx_weak();
-    WorkloadGroupPtr workload_group();
+    MOCK_FUNCTION WorkloadGroupPtr workload_group();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -490,7 +491,7 @@ public:
                        : 0;
     }
 
-    bool enable_share_hash_table_for_broadcast_join() const {
+    MOCK_FUNCTION bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
@@ -561,9 +562,9 @@ public:
         return _task_execution_context;
     }
 
-    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-                                            RuntimeProfile* parent_profile);
+    Status register_producer_runtime_filter(
+            const doris::TRuntimeFilterDesc& desc,
+            std::shared_ptr<RuntimeFilterProducer>* producer_filter);
 
     Status register_consumer_runtime_filter(
             const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
@@ -656,6 +657,10 @@ public:
     int task_num() const { return _task_num; }
 
     int profile_level() const { return _profile_level; }
+
+    std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
+
+    void set_id_file_map();
 
 private:
     Status create_error_log_file();
@@ -783,6 +788,9 @@ private:
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     std::mutex _s3_error_log_file_lock;
+
+    // used for encoding the global lazy materialize
+    std::shared_ptr<IdFileMap> _id_file_map = nullptr;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

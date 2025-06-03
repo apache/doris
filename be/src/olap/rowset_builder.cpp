@@ -31,7 +31,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
@@ -258,7 +257,7 @@ Status BaseRowsetBuilder::build_rowset() {
 }
 
 Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
-    if (!_tablet->enable_unique_key_merge_on_write()) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _rowset->num_segments() == 0) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -279,16 +278,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
-                                                                     _delete_bitmap));
-    }
-
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
+        if (config::enable_calc_delete_bitmap_between_segments_concurrently) {
+            RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(_tablet, _rowset->rowset_id(),
+                                                              segments, _delete_bitmap));
+        } else {
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(),
+                                                                         segments, _delete_bitmap));
+        }
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation

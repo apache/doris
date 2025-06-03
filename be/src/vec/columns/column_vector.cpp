@@ -177,6 +177,48 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 }
 
 template <typename T>
+Field ColumnVector<T>::operator[](size_t n) const {
+    // Doris does not support uint8 at present, use uint8 as boolean type
+    if constexpr (std::is_same_v<T, UInt8>) {
+        return Field::create_field<TYPE_BOOLEAN>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Int8>) {
+        return Field::create_field<TYPE_TINYINT>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Int16>) {
+        return Field::create_field<TYPE_SMALLINT>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Int32>) {
+        return Field::create_field<TYPE_INT>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Int64>) {
+        return Field::create_field<TYPE_BIGINT>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Int128>) {
+        return Field::create_field<TYPE_LARGEINT>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Float32>) {
+        return Field::create_field<TYPE_FLOAT>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, Float64>) {
+        return Field::create_field<TYPE_DOUBLE>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, UInt32>) {
+        return Field::create_field<TYPE_DATEV2>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, UInt64>) {
+        return Field::create_field<TYPE_DATETIMEV2>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, uint32_t>) {
+        return Field::create_field<TYPE_IPV4>(data[n]);
+    }
+    if constexpr (std::is_same_v<T, uint128_t>) {
+        return Field::create_field<TYPE_IPV6>(data[n]);
+    }
+    throw Exception(Status::FatalError("__builtin_unreachable"));
+}
+
+template <typename T>
 void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
                                              uint32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
@@ -482,7 +524,7 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
     }
 
     for (size_t i = 0; i < size; ++i) {
-        res_data.add_num_element_without_reserve(data[i], counts[i]);
+        res_data.resize_fill(res_data.size() + counts[i], data[i]);
     }
 
     return res;

@@ -195,11 +195,13 @@ public:
                             const ColumnWithTypeAndName& then_col,
                             const ColumnWithTypeAndName& else_col, uint32_t result,
                             Status& status) const {
-        if (then_col.type->get_type_id() != else_col.type->get_type_id()) {
+        if (then_col.type->get_primitive_type() != else_col.type->get_primitive_type()) {
             status = Status::InternalError("then and else column type must be same");
             return;
         }
-        DCHECK(WhichDataType {then_col.type}.is_int() || WhichDataType {then_col.type}.is_float());
+        DCHECK(is_int(then_col.type->get_primitive_type()) ||
+               is_float_or_double(then_col.type->get_primitive_type()))
+                << then_col.type->get_name();
         auto valid = cast_type_to_either<DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
                                          DataTypeInt128, DataTypeFloat32, DataTypeFloat64>(
                 then_col.type.get(), [&](const auto& type) -> bool {
@@ -425,7 +427,8 @@ public:
         }
 
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
-            DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
+            DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() ==
+                   PrimitiveType::TYPE_BOOLEAN);
 
             // update nested column by null map
             const auto* __restrict null_map = nullable->get_null_map_data().data();
@@ -524,8 +527,8 @@ public:
             return Status::OK();
         }
 
-        WhichDataType which_type(arg_then.type);
-        if (which_type.is_int() || which_type.is_float()) {
+        if (is_int(arg_then.type->get_primitive_type()) ||
+            is_float_or_double(arg_then.type->get_primitive_type())) {
             Status status;
             execute_basic_type(block, cond_col, arg_then, arg_else, result, status);
             return status;

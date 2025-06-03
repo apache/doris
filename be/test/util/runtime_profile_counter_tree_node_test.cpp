@@ -345,4 +345,27 @@ TEST_F(RuntimeProfileCounterTreeNodeTest, DescriptionCounter) {
     ASSERT_EQ(*child_counter_map["root"].begin(), "description_entry");
 }
 
+TEST_F(RuntimeProfileCounterTreeNodeTest, ConditionCounterTest) {
+    auto min_counter = std::make_unique<RuntimeProfile::ConditionCounter>(
+            TUnit::UNIT, [](int64_t _c, int64_t c) { return c < _c; }, 100000, 1000000);
+
+    min_counter->conditional_update(100, 1);
+    ASSERT_EQ(min_counter->value(), 1);
+    min_counter->conditional_update(200, 2);
+    ASSERT_EQ(min_counter->value(), 1);
+    min_counter->conditional_update(10, 3);
+    ASSERT_EQ(min_counter->value(), 3);
+
+    auto max_counter = std::make_unique<RuntimeProfile::ConditionCounter>(
+            TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; });
+
+    max_counter->conditional_update(10, 4);
+    ASSERT_EQ(max_counter->value(), 4);
+    max_counter->conditional_update(1, 5);
+    ASSERT_EQ(max_counter->value(), 4);
+    max_counter->conditional_update(100, 6);
+    ASSERT_EQ(max_counter->value(), 6);
+    max_counter->conditional_update(10, 7);
+    ASSERT_EQ(max_counter->value(), 6);
+}
 } // namespace doris

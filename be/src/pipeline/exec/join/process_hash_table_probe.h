@@ -22,6 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace vectorized {
@@ -46,9 +47,9 @@ struct ProcessHashTableProbe {
     ~ProcessHashTableProbe() = default;
 
     // output build side result column
-    void build_side_output_column(vectorized::MutableColumns& mcol, int size, bool is_mark_join);
+    void build_side_output_column(vectorized::MutableColumns& mcol, bool is_mark_join);
 
-    void probe_side_output_column(vectorized::MutableColumns& mcol, int size, bool all_match_one);
+    void probe_side_output_column(vectorized::MutableColumns& mcol);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
@@ -62,8 +63,7 @@ struct ProcessHashTableProbe {
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
     // The output result is determined by the other join conjunct result and same_to_prev struct
-    Status do_other_join_conjuncts(vectorized::Block* output_block, DorisVector<uint8_t>& visited,
-                                   bool has_null_in_build_side);
+    Status do_other_join_conjuncts(vectorized::Block* output_block, DorisVector<uint8_t>& visited);
 
     Status do_mark_join_conjuncts(vectorized::Block* output_block, const uint8_t* null_map);
 
@@ -120,8 +120,15 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
-    size_t _right_col_idx;
+    // See `HashJoinProbeOperatorX::_right_col_idx`
+    const size_t _right_col_idx;
+
     size_t _right_col_len;
+
+    // For right semi with mark join conjunct, we need to store the mark join flags
+    // in the hash table.
+    // -1 means null, 0 means false, 1 means true
+    DorisVector<int8_t> mark_join_flags;
 };
 
 } // namespace pipeline

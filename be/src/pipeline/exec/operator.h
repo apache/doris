@@ -104,6 +104,7 @@ public:
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
+    [[nodiscard]] virtual int node_id() const = 0;
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -273,6 +274,10 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+
+    virtual bool must_set_shared_state() const {
+        return !std::is_same_v<SharedStateArg, FakeSharedState>;
+    }
 
 protected:
     Dependency* _dependency = nullptr;
@@ -527,6 +532,10 @@ public:
     }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
+    virtual bool must_set_shared_state() const {
+        return !std::is_same_v<SharedStateArg, FakeSharedState>;
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     std::shared_ptr<Dependency> _spill_dependency;
@@ -625,7 +634,7 @@ public:
 
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
@@ -887,7 +896,7 @@ public:
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
@@ -1131,12 +1140,20 @@ public:
         _terminated = true;
         return Status::OK();
     }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : OperatorX<DummyOperatorLocalState>::get_reserve_mem_size(state);
+    }
 
 private:
     friend class AssertNumRowsLocalState;
     bool _eos = false;
     bool _low_memory_mode = false;
     bool _terminated = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
@@ -1176,11 +1193,19 @@ public:
         _terminated = true;
         return Status::OK();
     }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : DataSinkOperatorX<DummySinkLocalState>::get_reserve_mem_size(state, eos);
+    }
 
 private:
     bool _low_memory_mode = false;
     bool _terminated = false;
     std::atomic_bool _return_eof = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
 };
 #endif
 
