@@ -20,16 +20,21 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
 /**
  * Time v2 type in Nereids.
  */
-public class TimeV2Type extends PrimitiveType implements RangeScalable {
+public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTimeType {
 
     public static final int MAX_SCALE = 6;
-    public static final TimeV2Type INSTANCE = new TimeV2Type();
+    public static final TimeV2Type INSTANCE = new TimeV2Type(0);
+    public static final TimeV2Type MAX = new TimeV2Type(MAX_SCALE);
 
     private static final int WIDTH = 8;
     private final int scale;
@@ -66,10 +71,46 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable {
     }
 
     @Override
+    public ScaleTimeType forTypeFromString(StringLikeLiteral str) {
+        return forTypeFromString(str.getStringValue());
+    }
+
+    /**
+     * return proper type of timev2 for string
+     * if the string is not a valid timev2, return MAX
+     */
+    public static TimeV2Type forTypeFromString(String s) {
+        try {
+            new TimeV2Literal(INSTANCE, s);
+        } catch (AnalysisException e) {
+            return MAX;
+        }
+        return TimeV2Type.of(TimeV2Literal.determineScale(s));
+    }
+
+    /**
+     * return proper type of timev2 for other type
+     */
+    public static TimeV2Type forType(DataType dataType) {
+        if (dataType instanceof TimeV2Type) {
+            return (TimeV2Type) dataType;
+        }
+        if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
+                || dataType instanceof DateTimeType) {
+            return INSTANCE;
+        }
+        if (dataType instanceof DateTimeV2Type) {
+            return TimeV2Type.of(((DateTimeV2Type) dataType).getScale());
+        }
+        return MAX;
+    }
+
+    @Override
     public int width() {
         return WIDTH;
     }
 
+    @Override
     public int getScale() {
         return scale;
     }

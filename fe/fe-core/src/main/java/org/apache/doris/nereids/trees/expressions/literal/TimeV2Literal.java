@@ -82,15 +82,12 @@ public class TimeV2Literal extends Literal {
         }
     }
 
-    protected String normalize(String s) {
+    // will set this.negative
+    protected static String normalize(String s) {
         // remove suffix/prefix ' '
         s = s.trim();
-        if (s.charAt(0) == '-') {
+        if (s.charAt(0) == '-' || s.charAt(0) == '+') {
             s = s.substring(1);
-            negative = true;
-        } else if (s.charAt(0) == '+') {
-            s = s.substring(1);
-            negative = false;
         }
         // just a number
         if (!s.contains(":")) {
@@ -123,6 +120,12 @@ public class TimeV2Literal extends Literal {
     // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
     protected void init(String s) throws AnalysisException {
         s = normalize(s);
+        if (s.charAt(0) == '-') {
+            negative = true;
+            s = s.substring(1);
+        } else if (s.charAt(0) == '+') {
+            s = s.substring(1);
+        }
         // start parse string
         String[] parts = s.split(":");
         if (parts.length != 3) {
@@ -176,6 +179,21 @@ public class TimeV2Literal extends Literal {
     protected static boolean checkRange(double hour, int minute, int second, int microsecond) {
         return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
                 || microsecond < 0;
+    }
+
+    /**
+     * determine scale by time string. didn't check if the string is valid.
+     */
+    public static int determineScale(String s) {
+        s = normalize(s);
+        int scale = 0;
+        if (s.length() > 8 && s.charAt(s.length() - 8) == '.') {
+            scale = s.length() - 9; // 00:00:00.xxxxxx
+            while (scale > 0 && s.charAt(9 + scale) == '0') {
+                scale--;
+            }
+        }
+        return scale;
     }
 
     public int getHour() {

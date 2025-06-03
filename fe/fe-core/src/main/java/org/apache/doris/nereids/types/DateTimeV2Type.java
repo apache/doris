@@ -21,9 +21,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
 import com.google.common.base.Preconditions;
 
@@ -35,7 +37,7 @@ import java.util.Objects;
 /**
  * Datetime type in Nereids.
  */
-public class DateTimeV2Type extends DateLikeType {
+public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
     public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
@@ -76,11 +78,20 @@ public class DateTimeV2Type extends DateLikeType {
         if (dataType instanceof DateTimeV2Type) {
             return (DateTimeV2Type) dataType;
         }
+        //TODO: boolean type?
         if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
                 || dataType instanceof DateTimeType || dataType instanceof DateType || dataType instanceof DateV2Type) {
             return SYSTEM_DEFAULT;
         }
+        if (dataType instanceof TimeV2Type) {
+            return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
+        }
         return MAX;
+    }
+
+    @Override
+    public ScaleTimeType forTypeFromString(StringLikeLiteral str) {
+        return forTypeFromString(str.getStringValue());
     }
 
     /**
@@ -137,6 +148,7 @@ public class DateTimeV2Type extends DateLikeType {
         return WIDTH;
     }
 
+    @Override
     public int getScale() {
         return scale;
     }
