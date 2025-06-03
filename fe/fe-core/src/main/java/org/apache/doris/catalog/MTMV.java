@@ -110,6 +110,7 @@ public class MTMV extends OlapTable {
         this.querySql = params.querySql;
         this.refreshInfo = params.refreshInfo;
         this.status = new MTMVStatus();
+        this.status.init();
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
         this.mvProperties = params.mvProperties;
         this.mvPartitionInfo = params.mvPartitionInfo;

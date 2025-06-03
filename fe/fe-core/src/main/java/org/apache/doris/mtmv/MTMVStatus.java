@@ -33,13 +33,16 @@ public class MTMVStatus {
     private MTMVRefreshState refreshState;
 
     public MTMVStatus() {
-        this.state = MTMVState.INIT;
-        this.refreshState = MTMVRefreshState.INIT;
     }
 
     public MTMVStatus(MTMVState state, String schemaChangeDetail) {
         this.state = state;
         this.schemaChangeDetail = schemaChangeDetail;
+    }
+
+    public void init() {
+        this.state = MTMVState.INIT;
+        this.refreshState = MTMVRefreshState.INIT;
     }
 
     public MTMVStatus(MTMVRefreshState refreshState) {
