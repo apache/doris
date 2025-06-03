@@ -22,6 +22,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -91,7 +93,8 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         if (children.size() == 1) {
             Preconditions.checkState(op == Operator.NOT);
             return "NOT " + getChild(0).toSql();
@@ -283,7 +286,7 @@ public class CompoundPredicate extends Predicate {
 
     @Override
     public String toString() {
-        return toSqlImpl();
+        return toSqlImpl(false, false, null, null);
     }
 
     @Override

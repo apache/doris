@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
@@ -79,7 +81,8 @@ public class BitmapFilterPredicate extends Predicate {
     }
 
     @Override
-    protected String toSqlImpl() {
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return (notIn ? "not " : "") + "BitmapFilterPredicate(" + children.get(0).toSql() + ", " + children.get(1)
                 .toSql() + ")";
     }

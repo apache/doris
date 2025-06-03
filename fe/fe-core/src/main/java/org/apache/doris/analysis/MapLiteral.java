@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -188,10 +190,13 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
-    protected String toSqlImpl() {
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            list.add(children.get(i).toSqlImpl() + ":" + children.get(i + 1).toSqlImpl());
+            list.add(
+                    children.get(i).toSqlImpl(disableTableName, needExternalSql, tableType, table) + ":" + children.get(
+                            i + 1).toSqlImpl(disableTableName, needExternalSql, tableType, table));
         }
         return "MAP{" + StringUtils.join(list, ", ") + "}";
     }

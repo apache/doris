@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Preconditions;
@@ -59,7 +61,8 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder strBuilder = new StringBuilder();
         if (notExists) {
             strBuilder.append("NOT ");

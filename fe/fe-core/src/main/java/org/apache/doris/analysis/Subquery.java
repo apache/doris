@@ -23,6 +23,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
@@ -57,7 +59,8 @@ public class Subquery extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return "(" + stmt.toSql() + ")";
     }
 

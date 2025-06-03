@@ -918,12 +918,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toSql() {
-        return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
+        return (printSqlInParens) ? "(" + toSqlImpl(false, false, null, null) + ")"
+                : toSqlImpl(false, false, null, null);
     }
 
     public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
         return (printSqlInParens) ? "(" + toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")"
-                : toSqlImpl();
+                : toSqlImpl(disableTableName, needExternalSql, tableType, table);
     }
 
     public String toSqlWithoutTbl() {
@@ -938,11 +939,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Returns a SQL string representing this expr. Subclasses should override this method
      * instead of toSql() to ensure that parenthesis are properly added around the toSql().
      */
-    protected abstract String toSqlImpl();
-
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
-        return toSqlImpl();
-    }
+    protected abstract String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table);
 
     /**
      * !!!!!! Important !!!!!!
@@ -950,11 +948,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * sql digest should be represented different from tosqlImpl().
      */
     protected String toDigestImpl() {
-        return toSqlImpl();
+        return toSqlImpl(false, false, null, null);
     }
 
     public String toExternalSql(TableType tableType, TableIf table) {
-        return toSql(false,true,tableType, table);
+        return toSql(false, true, tableType, table);
     }
 
     /**

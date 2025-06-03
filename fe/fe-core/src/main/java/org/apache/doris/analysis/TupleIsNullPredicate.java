@@ -20,6 +20,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
@@ -188,7 +190,8 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return "TupleIsNull(" + Joiner.on(",").join(tupleIds) + ")";
     }
 

@@ -241,12 +241,8 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return toSqlImpl(false, false, null, null);
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql,TableType tableType, TableIf inputTable) {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf inputTable) {
         if (needExternalSql) {
             return toExternalSqlImpl(tableType, table);
         }

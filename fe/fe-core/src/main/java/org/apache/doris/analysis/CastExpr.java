@@ -221,11 +221,6 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return toSqlImpl(false, false, null, null);
-    }
-
-    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
         if (needExternalSql) {
             return getChild(0).toSql();

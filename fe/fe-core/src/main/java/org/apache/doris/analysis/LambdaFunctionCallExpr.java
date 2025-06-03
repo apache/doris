@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -280,7 +282,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }
         if (fn == null) {
-            LOG.warn("fn {} not exists", this.toSqlImpl());
+            LOG.warn("fn {} not exists", this.toSqlImpl(false, false, null, null));
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
         if (LOG.isDebugEnabled()) {
@@ -309,7 +311,8 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder sb = new StringBuilder();
 
         String fnName = getFnName().getFunction();

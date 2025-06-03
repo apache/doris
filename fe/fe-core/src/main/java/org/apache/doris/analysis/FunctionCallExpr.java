@@ -35,6 +35,8 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -670,7 +672,8 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         Expr expr;
         if (originStmtFnExpr != null) {
             expr = originStmtFnExpr;
@@ -1252,7 +1255,7 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl());
+                LOG.warn("fn {} not exists", this.toSqlImpl(false, false, null, null));
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(getChild(0).getType());
@@ -1691,7 +1694,7 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fn == null) {
-            LOG.warn("fn {} not exists", this.toSqlImpl());
+            LOG.warn("fn {} not exists", this.toSqlImpl(false, false, null, null));
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
@@ -2456,7 +2459,7 @@ public class FunctionCallExpr extends Expr {
         if (!analyzer.isUDFAllowed()) {
             throw new AnalysisException(
                     "Does not support non-builtin functions, or function does not exist: "
-                            + this.toSqlImpl());
+                            + this.toSqlImpl(false, false, null, null));
         }
 
         Function fn = null;

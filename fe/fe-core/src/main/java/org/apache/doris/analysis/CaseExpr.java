@@ -20,6 +20,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TCaseExpr;
@@ -135,7 +137,8 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder output = new StringBuilder("CASE");
         int childIdx = 0;
         if (hasCaseExpr) {

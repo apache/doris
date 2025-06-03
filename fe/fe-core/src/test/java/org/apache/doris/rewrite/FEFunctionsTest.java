@@ -708,8 +708,9 @@ public class FEFunctionsTest {
 
     @Test
     public void timeNowTest() throws AnalysisException {
-        String curTimeString = FEFunctions.curTime().toSqlImpl().replace("'", "");
-        String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
+        String curTimeString = FEFunctions.curTime().toSqlImpl(false, false, null, null).replace("'", "");
+        String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl(false, false, null, null)
+                .replace("'", "");
 
         ZonedDateTime zonedDateTime = ZonedDateTime.now(TimeUtils.getTimeZone().toZoneId());
         DateTimeFormatter formatter = null;
