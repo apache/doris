@@ -55,6 +55,7 @@ class ColumnVector;
 template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    static constexpr PrimitiveType ResultPType = T;
     typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
     UInt64 count = 0;
 
@@ -115,7 +116,7 @@ public:
             std::conditional_t<is_decimal(T), typename Data::ResultType, Float64>>;
     using ResultDataType = std::conditional_t<
             T == TYPE_DECIMALV2, DataTypeDecimalV2,
-            std::conditional_t<is_decimal(T), DataTypeDecimal<T>, DataTypeFloat64>>;
+            std::conditional_t<is_decimal(T), DataTypeDecimal<ResultPType>, DataTypeFloat64>>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = std::conditional_t<
             T == TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>,
