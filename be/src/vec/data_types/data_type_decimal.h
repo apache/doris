@@ -216,7 +216,7 @@ public:
         return true;
     }
     bool have_maximum_size_of_value() const override { return true; }
-    size_t get_size_of_value_in_memory() const override { return sizeof(T); }
+    size_t get_size_of_value_in_memory() const override { return sizeof(FieldType); }
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
