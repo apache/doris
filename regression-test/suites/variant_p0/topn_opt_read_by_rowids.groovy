@@ -84,7 +84,7 @@ PROPERTIES (
             ts  >= '1712480940849' 
              AND ts  <= '1712805483291'
             ORDER BY
-             ts DESC 
+             ts DESC ,timestampkey
              LIMIT 10"""
     sql """
         INSERT INTO `test_web_log` VALUES ('2024-04-09 09:02:31', '', '', '', '', '1712624495211', '004.00', '740lp', 'sit-iniwork-lcd-designer.qm.cn', '', NULL, NULL, '', '630beed604d0513c', '0000.0', NULL, '', '', '', '', 'https://sit-iniwork-lcd-designer.qm.cn/designer', '1544512389907021826', 'https://sit-iniwork-lcd-designer.qm.cn/designer?caseName=44&caseCode=d4&appId=3fec598d32b10d26958d1d9119519c64&token=eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiI3NDBscCIsImNyZWF0ZWQiOjE3MTI1NDEzMTU0MzUsImlkbWlkIjpudWxsLCJleHAiOjE3MTMxNDYxMTUsInVwa2lkIjoiMTU0NDUxMjM4OTkwNzAyMTgyNiJ9.j8sJbrgrJzwPh5Ee1AoodqIJ7KsMT_qfUhZlyon6rRsMClRI5WpUYpSWkC7P-axolUUnWJi2Llw89hO_KyL_gg&formId=8f4f75e0c0aa93fcd0a4eae843114527&tenantId=YQJT&systemId=202203A-015&subType=0', '', '', '', '202203A-015_APP_DES', '20240409090114952', '未知', '{\"browser1\":\"Chrome 123.0.0.0\",\"browserFlag1\":\"a8ba48f1849c2423\",\"browserName4\":\"Chrome\",\"browserVersion7\":\"123.0.0.0\",\"clientStr\":\"10.133.53.99\",\"headerClient\":\"{X-Original-Forwarded-For=10.033.53.19, X-Forwarded-For=10.140.199.9, RemoteAddr=10.133.53.99, X-Real-IP=10.140.199.9}\",\"os\":\"Windows 10\",\"osName\":\"Windows\",\"osVersion\":\"10\",\"res\":\"1920x1080\",\"type\":\"Computer\"}', '1712624474952', '1712624475992', NULL, NULL);
@@ -99,6 +99,6 @@ PROPERTIES (
             * FROM
              test_web_log 
             ORDER BY
-             ts DESC 
+             ts DESC, timestampkey 
              LIMIT 10"""
 } 
