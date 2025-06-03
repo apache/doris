@@ -121,7 +121,7 @@ suite("test_show_index_data", "p1") {
         for (def tablet in tablets) {
             int beforeSegmentCount = 0
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -135,8 +135,8 @@ suite("test_show_index_data", "p1") {
         // trigger compactions for all tablets in ${tableName}
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            def backend_id = tablet.BackendId
+            def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def compactJson = parseJson(out.trim())
@@ -148,8 +148,8 @@ suite("test_show_index_data", "p1") {
             Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
                 Thread.sleep(30000)
                 String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                def backend_id = tablet.BackendId
+                def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
@@ -161,7 +161,7 @@ suite("test_show_index_data", "p1") {
         for (def tablet in tablets) {
             int afterSegmentCount = 0
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -228,7 +228,7 @@ suite("test_show_index_data", "p1") {
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -249,7 +249,7 @@ suite("test_show_index_data", "p1") {
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
-                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
@@ -273,7 +273,7 @@ suite("test_show_index_data", "p1") {
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -297,7 +297,7 @@ suite("test_show_index_data", "p1") {
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
-                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
@@ -320,7 +320,7 @@ suite("test_show_index_data", "p1") {
         Set<String> rowsetids = new HashSet<>();
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            (code, out, err) = curl("GET", tablet.CompactionStatus)
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
@@ -341,7 +341,7 @@ suite("test_show_index_data", "p1") {
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
-                (code, out, err) = curl("GET", tablet.CompactionStatus)
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
                 logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def tabletJson = parseJson(out.trim())
