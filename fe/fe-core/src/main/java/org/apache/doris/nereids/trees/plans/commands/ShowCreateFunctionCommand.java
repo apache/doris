@@ -183,7 +183,7 @@ public class ShowCreateFunctionCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
+        return RedirectStatus.NO_FORWARD;
     }
 
     @Override
