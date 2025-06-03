@@ -184,8 +184,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
 
         // get all node which are joined in bdb group
-        List<InetSocketAddress> allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
-        allFe.addAll(env.getHaProtocol().getObserverNodes());
+        List<InetSocketAddress> allFe = null;
+        if (env.getHaProtocol() != null) {
+            allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
+            allFe.addAll(env.getHaProtocol().getObserverNodes());
+        }
         List<HostInfo> helperNodes = env.getHelperNodes();
 
         // Because the `show frontend` stmt maybe forwarded from other FE.
@@ -278,6 +281,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
+        if (allFeHosts == null) {
+            return false;
+        }
         for (InetSocketAddress addr : allFeHosts) {
             if (fe.getEditLogPort() != addr.getPort()) {
                 continue;
