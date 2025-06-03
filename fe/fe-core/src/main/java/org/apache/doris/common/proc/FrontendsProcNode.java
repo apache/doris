@@ -26,6 +26,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.thrift.TFrontendDetailInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -171,6 +172,74 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             infos.add(info);
         }
+    }
+
+    public static List<TFrontendDetailInfo> getFrontendsInfo(Env env) {
+        InetSocketAddress master = null;
+        try {
+            master = env.getHaProtocol().getLeader();
+        } catch (Exception e) {
+            // this may happen when majority of FOLLOWERS are down and no MASTER right now.
+            LOG.warn("failed to get leader: {}", e.getMessage());
+        }
+
+        // get all node which are joined in bdb group
+        List<InetSocketAddress> allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
+        allFe.addAll(env.getHaProtocol().getObserverNodes());
+        List<HostInfo> helperNodes = env.getHelperNodes();
+
+        // Because the `show frontend` stmt maybe forwarded from other FE.
+        // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            selfNode = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+
+        List<Frontend> envFes = env.getFrontends(null /* all */);
+        LOG.info("bdbje fes {}, env fes {}", allFe, envFes);
+        List<TFrontendDetailInfo> frontendDetailInfoList = Lists.newArrayList();
+        for (Frontend fe : envFes) {
+            TFrontendDetailInfo frontendDetail = new TFrontendDetailInfo();
+            frontendDetail.setName(fe.getNodeName());
+            frontendDetail.setHost(fe.getHost());
+            frontendDetail.setEditLogPort(fe.getEditLogPort());
+            frontendDetail.setHttpPort(Config.http_port);
+
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+                frontendDetail.setQueryPort(Config.query_port);
+                frontendDetail.setRpcPort(Config.rpc_port);
+                frontendDetail.setArrowflightsqlport(Config.arrow_flight_sql_port);
+            } else {
+                frontendDetail.setQueryPort(fe.getQueryPort());
+                frontendDetail.setRpcPort(fe.getRpcPort());
+                frontendDetail.setArrowflightsqlport(fe.getArrowFlightSqlPort());
+            }
+
+            frontendDetail.setRole(fe.getRole().name());
+            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
+            frontendDetail.setIsMaster(socketAddress.equals(master));
+
+            frontendDetail.setClusterId(env.getClusterId());
+            frontendDetail.setJoin(isJoin(allFe, fe));
+
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
+                frontendDetail.setAlive(true);
+                frontendDetail.setReplayedJournalId(env.getEditLog().getMaxJournalId());
+            } else {
+                frontendDetail.setAlive(fe.isAlive());
+                frontendDetail.setReplayedJournalId(fe.getReplayedJournalId());
+            }
+
+            frontendDetail.setLastStartTime(TimeUtils.longToTimeString(fe.getLastStartupTime()));
+            frontendDetail.setLastHeartbeat(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
+            frontendDetail.setIsHelper(isHelperNode(helperNodes, fe));
+            frontendDetail.setErrMsg(fe.getHeartbeatErrMsg());
+            frontendDetail.setVersion(fe.getVersion());
+            frontendDetail.setCurrentConnected(fe.getHost().equals(selfNode));
+
+            frontendDetailInfoList.add(frontendDetail);
+        }
+        return frontendDetailInfoList;
     }
 
     public static Frontend getCurrentFrontendVersion(Env env) {

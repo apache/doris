@@ -31,6 +31,10 @@ import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
+import org.apache.doris.thrift.TFetchBackendsRequest;
+import org.apache.doris.thrift.TFetchBackendsResult;
+import org.apache.doris.thrift.TFetchFrontendsRequest;
+import org.apache.doris.thrift.TFetchFrontendsResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
 import org.apache.doris.thrift.TGetDbsParams;
@@ -232,5 +236,23 @@ public class FrontendServiceImplTest {
         TShowUserRequest request = new TShowUserRequest();
         TShowUserResult result = impl.showUser(request);
         System.out.println(result);
+    }
+
+    @Test
+    public void testFetchBackends() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TFetchBackendsRequest request = new TFetchBackendsRequest();
+        TFetchBackendsResult result = impl.fetchBackends(request);
+        System.out.println(result);
+        Assert.assertEquals(result.getBackends().size(), 1);
+    }
+
+    @Test
+    public void testFetchFrontends() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TFetchFrontendsRequest request = new TFetchFrontendsRequest();
+        TFetchFrontendsResult result = impl.fetchFrontends(request);
+        System.out.println(result);
+        Assert.assertEquals(result.getFrontends().size(), 1);
     }
 }

@@ -710,6 +710,29 @@ public class SchemaTable extends Table {
                                     .column("MEMORY", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
+            .put("frontends",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "frontends", TableType.SCHEMA,
+                            builder().column("NAME", ScalarType.createStringType())
+                                    .column("HOST", ScalarType.createStringType())
+                                    .column("EDITLOGPORT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("HTTPPORT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("QUERYPORT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("RPCPORT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ARROWFLIGHTSQLPORT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ROLE", ScalarType.createStringType())
+                                    .column("ISMASTER", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("CLUSTERID", ScalarType.createType(PrimitiveType.INT))
+                                    .column("JOIN", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("ALIVE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("REPLAYEDJOURNALID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LASTSTARTTIME", ScalarType.createStringType())
+                                    .column("LASTHEARTBEAT", ScalarType.createStringType())
+                                    .column("ISHELPER", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("ERRMSG", ScalarType.createStringType())
+                                    .column("VERSION", ScalarType.createStringType())
+                                    .column("CURRENTCONNECTED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;
