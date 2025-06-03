@@ -49,9 +49,8 @@ private:
 
     Status _fill_block_impl(vectorized::Block* block);
 
-    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
     int64_t _backend_id {};
-    size_t _tablets_idx {};
     std::vector<BaseTabletSPtr> _tablets;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 } // namespace doris

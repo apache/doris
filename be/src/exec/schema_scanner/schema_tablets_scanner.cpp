@@ -64,8 +64,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTabletsScanner::_s_tbls_columns = {
         {"COMPRESS_KIND", TYPE_STRING, sizeof(StringRef), true},
         {"IS_USED", TYPE_BOOLEAN, sizeof(bool), true},
         {"IS_ALTER_FAILED", TYPE_BOOLEAN, sizeof(bool), true},
-        {"CREATE_TIME", TYPE_BIGINT, sizeof(int64_t), true},
-        {"UPDATE_TIME", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CREATE_TIME", TYPE_DATETIME, sizeof(int64_t), true},
+        {"UPDATE_TIME", TYPE_DATETIME, sizeof(int64_t), true},
         {"IS_OVERLAP", TYPE_BOOLEAN, sizeof(bool), true},
 };
 
@@ -108,11 +108,7 @@ Status SchemaTabletsScanner::get_next_block_internal(vectorized::Block* block, b
     if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    if (_tablets_idx >= _tablets.size()) {
-        *eos = true;
-        return Status::OK();
-    }
-    *eos = false;
+    *eos = true;
     return _fill_block_impl(block);
 }
 
@@ -124,28 +120,26 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
         return Status::OK();
     }
 
-    size_t fill_tablets_num = std::min(1000UL, _tablets.size() - _tablets_idx);
-    size_t fill_idx_begin = _tablets_idx;
-    size_t fill_idx_end = _tablets_idx + fill_tablets_num;
+    size_t fill_tablets_num = _tablets.size();
     std::vector<void*> datas(fill_tablets_num);
 
     auto fill_column = [&](auto&& get_value, size_t column_index) {
         using ValueType = std::decay_t<decltype(get_value(std::declval<BaseTabletSPtr>()))>;
         std::vector<ValueType> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = 0; i < _tablets.size(); ++i) {
             BaseTabletSPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = get_value(tablet);
-            datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
+            srcs[i] = get_value(tablet);
+            datas[i] = &srcs[i];
         }
         return fill_dest_column_for_range(block, column_index, datas);
     };
 
     auto fill_boolean_column = [&](auto&& get_value, size_t column_index) {
         std::vector<int8_t> srcs(fill_tablets_num);
-        for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
+        for (size_t i = 0; i < _tablets.size(); ++i) {
             BaseTabletSPtr tablet = _tablets[i];
-            srcs[i - fill_idx_begin] = get_value(tablet);
-            datas[i - fill_idx_begin] = &srcs[i - fill_idx_begin];
+            srcs[i] = get_value(tablet);
+            datas[i] = &srcs[i];
         }
         return fill_dest_column_for_range(block, column_index, datas);
     };
@@ -196,11 +190,19 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
     RETURN_IF_ERROR(fill_boolean_column(
             [](BaseTabletSPtr tablet) { return tablet->is_alter_failed(); }, 14));
     RETURN_IF_ERROR(fill_column(
-            [](BaseTabletSPtr tablet) { return tablet->tablet_meta()->creation_time(); }, 15));
+            [this](BaseTabletSPtr tablet) {
+                VecDateTimeValue value;
+                value.from_unixtime(tablet->tablet_meta()->creation_time(), _timezone_obj);
+                return value;
+            },
+            15));
     RETURN_IF_ERROR(fill_column(
-            [](BaseTabletSPtr tablet) {
+            [this](BaseTabletSPtr tablet) {
                 auto rowset = tablet->get_rowset_with_max_version();
-                return rowset == nullptr ? 0 : rowset->newest_write_timestamp();
+                VecDateTimeValue value;
+                value.from_unixtime(rowset == nullptr ? 0 : rowset->newest_write_timestamp(),
+                                    _timezone_obj);
+                return value;
             },
             16));
     RETURN_IF_ERROR(fill_boolean_column(
@@ -213,7 +215,6 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
             },
             17));
 
-    _tablets_idx += fill_tablets_num;
     return Status::OK();
 }
 } // namespace doris
