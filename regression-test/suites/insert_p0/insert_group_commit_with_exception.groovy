@@ -102,7 +102,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                 //}
             }
 
-            result = sql """ insert into ${table} values(3, 'c', 30)  """
+            def result = sql """ insert into ${table} values(3, 'c', 30)  """
             logger.info("insert result: " + result)
 
             // insert into with column
