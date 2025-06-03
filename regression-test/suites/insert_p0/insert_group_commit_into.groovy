@@ -66,7 +66,7 @@ suite("insert_group_commit_into") {
             } catch (Exception e) {
                 logger.warn("group_commit_insert failed, retry: " + retry + ", error: " + e.getMessage())
                 retry++
-                if (e.getMessage().contains("is blocked on schema change") && retry < 20) {
+                if ((e.getMessage().contains("is blocked on schema change") || e.getMessage().contains("can not get a block queue")) && retry < 20) {
                     sleep(1500)
                     continue
                 } else {
