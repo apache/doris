@@ -216,7 +216,9 @@ class StreamLoadAction implements SuiteAction {
             throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
         }
 
-        return resp.getEntity().getContent()
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        resp.getEntity().writeTo(buffer); // 完整读取数据
+        return new ByteArrayInputStream(buffer.toByteArray());
     }
 
     private RequestBuilder prepareRequestHeader(RequestBuilder requestBuilder) {
