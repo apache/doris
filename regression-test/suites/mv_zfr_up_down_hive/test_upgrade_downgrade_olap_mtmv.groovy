@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
+suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
     def waitingMTMVTaskByMvName = { mvName, dbName ->
         Thread.sleep(2000);
@@ -38,10 +38,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
         }
-//        if (status != "SUCCESS") {
-//            logger.info("status is not success")
-//        }
-//        Assert.assertEquals("SUCCESS", status)
     }
 
     String suiteName = "mtmv_up_down_olap"
@@ -113,6 +109,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
 
 
     // mtmv5: normal situation, the base table and mtmv remain unchanged
+    // success
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
     assertTrue(state_mtmv5[0][0] == "NORMAL")
     assertTrue(state_mtmv5[0][1] == "SUCCESS")
@@ -128,6 +125,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
         compare_res(test_sql5 + " order by 1,2,3")
     }
+    // fail
+//    def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+//    assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
+//    assertTrue(state_mtmv5[0][2] == false)
+//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql5, mtmvName5)
+//    }
+//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql5, mtmvName5)
+//    }
+
 
     // mtmv3: insert data
     sql """insert into ${tableName3} values(1,"2017-01-15",1);"""
@@ -149,6 +159,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
         compare_res(test_sql3 + " order by 1,2,3")
     }
+
+    // fail
+//    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+//    assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+//    assertTrue(state_mtmv3[0][2] == false)
+//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql3, mtmvName3)
+//    }
+//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql3, mtmvName3)
+//    }
 
     sql """refresh MATERIALIZED VIEW ${mtmvName3} auto"""
     waitingMTMVTaskFinishedByMvName(mtmvName3)
@@ -180,6 +203,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         sql """use ${dbName}"""
         mv_not_part_in(test_sql1, mtmvName1)
     }
+
+    //fail
+//    def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+//    assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
+//    assertTrue(state_mtmv1[0][2] == false)
+//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql1, mtmvName1)
+//    }
+//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql1, mtmvName1)
+//    }
 
     // After deleting the table, you can create a new MTMV
     def cur_mtmvName3 = mtmvName3 + UUID.randomUUID().toString().replaceAll("-", "")
@@ -243,6 +279,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
         logger.info(e.getMessage())
     }
+
+    // fail
+//    def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+//    assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+//    assertTrue(state_mtmv2[0][2] == false)
+//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(sql2, mtmvName2)
+//    }
+//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(sql2, mtmvName2)
+//    }
 
     // When refreshing the entire MTMV, the partition will be deleted.
     sql """refresh MATERIALIZED VIEW ${mtmvName2} auto"""
@@ -308,6 +357,21 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
+
+        // fail
+//        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+//        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
+//        assertTrue(state_mtmv4[0][2] == false)
+//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            sql """use ${dbName}"""
+//            mv_not_part_in(test_sql4, mtmvName4)
+//        }
+//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//            sql """use ${dbName}"""
+//            mv_not_part_in(test_sql4, mtmvName4)
+//        }
+
+
         sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
         waitingMTMVTaskByMvName(mtmvName4, dbName)
         state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
@@ -325,6 +389,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
             compare_res(test_sql4 + " order by 1,2,3")
         }
+
+
 
     } else {
         def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4_rn} b on a.user_id=b.user_id"""
@@ -344,6 +410,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
+        // fail
+//        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+//        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
+//        assertTrue(state_mtmv4[0][2] == false)
+//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            sql """use ${dbName}"""
+//            mv_not_part_in(test_sql4, mtmvName4)
+//        }
+//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//            sql """use ${dbName}"""
+//            mv_not_part_in(test_sql4, mtmvName4)
+//        }
+
         sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
         waitingMTMVTaskByMvName(mtmvName4, dbName)
         state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
@@ -351,6 +430,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         assertTrue(state_mtmv4[0][1] == "FAIL")
         assertTrue(state_mtmv4[0][2] == false)
     }
+
+
+
 
     // mtmv6: drop table of dependent table
     sql """drop table if exists ${tableName7}"""
@@ -376,6 +458,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         sql """use ${dbName}"""
         mv_not_part_in(test_sql6, mtmvName6)
     }
+
+    // fail
+//    def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+//    assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
+//    assertTrue(state_mtmv5[0][2] == false)
+//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql6, mtmvName6)
+//    }
+//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//        sql """use ${dbName}"""
+//        mv_not_part_in(test_sql6, mtmvName6)
+//    }
 
     // After deleting the table, you can create a new MTMV
     def cur_mtmvName6 = mtmvName6 + UUID.randomUUID().toString().replaceAll("-", "")
