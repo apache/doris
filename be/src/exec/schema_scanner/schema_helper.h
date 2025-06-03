@@ -102,6 +102,10 @@ public:
     static Status fetch_backends(const std::string& ip, const int32_t port,
                                  const TFetchBackendsRequest& request,
                                  TFetchBackendsResult* result);
+
+    static Status fetch_frontends(const std::string& ip, const int32_t port,
+                                 const TFetchFrontendsRequest& request,
+                                 TFetchFrontendsResult* result);
 };
 
 } // namespace doris
