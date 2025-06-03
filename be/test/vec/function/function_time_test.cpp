@@ -199,8 +199,8 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
         DataSet data_set = {
                 {{std::string("2022-05-24 12:34:56.789")}, DECIMAL64(1653366896, 789, 3)},
                 {{Null()}, Null()}};
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 3, 13>(
-                func_name, input_types, data_set));
+        static_cast<void>(
+                check_function<DataTypeDecimal64, true, 3, 13>(func_name, input_types, data_set));
     }
 
     {
@@ -208,8 +208,8 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
         DataSet data_set = {
                 {{std::string("2022-05-24 12:34:56.789123")}, DECIMAL64(1653366896, 789123, 6)},
                 {{Null()}, Null()}};
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 6, 16>(
-                func_name, input_types, data_set));
+        static_cast<void>(
+                check_function<DataTypeDecimal64, true, 6, 16>(func_name, input_types, data_set));
     }
 
     // test out of range
@@ -220,8 +220,8 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("9022-05-24 12:34:56.789123")}, DECIMAL64(0, 0, 0)},
                 {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 0, 0)},
         };
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 0, 1>(
-                func_name, input_types, data_set));
+        static_cast<void>(
+                check_function<DataTypeDecimal64, true, 0, 1>(func_name, input_types, data_set));
     }
     // negative case
     {
@@ -230,8 +230,8 @@ TEST(VTimestampFunctionsTest, unix_timestamp_test) {
                 {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
                 {{std::string("9999-12-30 23:59:59.999")}, DECIMAL64(0, 999, 3)},
         };
-        static_cast<void>(check_function<DataTypeDecimal<Decimal64>, true, 0, 1>(
-                func_name, input_types, data_set, false, true));
+        static_cast<void>(check_function<DataTypeDecimal64, true, 0, 1>(func_name, input_types,
+                                                                        data_set, false, true));
     }
 }
 

@@ -178,9 +178,9 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
 
     typename DecimalType::NativeType value;
     if constexpr (IsMin) {
-        value = vectorized::min_decimal_value<DecimalType>(type->get_precision());
+        value = vectorized::min_decimal_value<DecimalType::PType>(type->get_precision());
     } else {
-        value = vectorized::max_decimal_value<DecimalType>(type->get_precision());
+        value = vectorized::max_decimal_value<DecimalType::PType>(type->get_precision());
     }
     pmap->emplace(type->get_precision(), value);
     return DecimalType(value);

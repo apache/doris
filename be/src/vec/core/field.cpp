@@ -35,7 +35,7 @@ class BufferWritable;
 
 template <>
 Decimal128V3 DecimalField<Decimal128V3>::get_scale_multiplier() const {
-    return DataTypeDecimal<Decimal128V3>::get_scale_multiplier(scale);
+    return DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(scale);
 }
 
 template <PrimitiveType T>
@@ -75,7 +75,7 @@ bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
     }                                                                  \
     template <>                                                        \
     TYPE DecimalField<TYPE>::get_scale_multiplier() const {            \
-        return DataTypeDecimal<TYPE>::get_scale_multiplier(scale);     \
+        return DataTypeDecimal<PTYPE>::get_scale_multiplier(scale);    \
     }
 
 DECLARE_DECIMAL_COMPARISON(Decimal32, TYPE_DECIMAL32)

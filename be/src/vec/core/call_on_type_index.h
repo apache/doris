@@ -58,15 +58,15 @@ bool call_on_basic_type(PrimitiveType number, F&& f) {
     if constexpr (_decimal) {
         switch (number) {
         case PrimitiveType::TYPE_DECIMAL32:
-            return f(TypePair<DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal32>>());
+            return f(TypePair<DataTypeDecimal32, DataTypeDecimal32>());
         case PrimitiveType::TYPE_DECIMAL64:
-            return f(TypePair<DataTypeDecimal<Decimal64>, DataTypeDecimal<Decimal64>>());
+            return f(TypePair<DataTypeDecimal64, DataTypeDecimal64>());
         case PrimitiveType::TYPE_DECIMALV2:
-            return f(TypePair<DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V2>>());
+            return f(TypePair<DataTypeDecimalV2, DataTypeDecimalV2>());
         case PrimitiveType::TYPE_DECIMAL128I:
-            return f(TypePair<DataTypeDecimal<Decimal128V3>, DataTypeDecimal<Decimal128V3>>());
+            return f(TypePair<DataTypeDecimal128, DataTypeDecimal128>());
         case PrimitiveType::TYPE_DECIMAL256:
-            return f(TypePair<DataTypeDecimal<Decimal256>, DataTypeDecimal<Decimal256>>());
+            return f(TypePair<DataTypeDecimal256, DataTypeDecimal256>());
         default:
             break;
         }
@@ -163,7 +163,7 @@ template <typename T>
 class DataTypeEnum;
 template <PrimitiveType T>
 class DataTypeNumber;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeDecimal;
 
 template <typename T, typename F>
@@ -191,15 +191,15 @@ bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
     case PrimitiveType::TYPE_TIMEV2:
         return f(TypePair<DataTypeTimeV2, T>());
     case PrimitiveType::TYPE_DECIMAL32:
-        return f(TypePair<DataTypeDecimal<Decimal32>, T>());
+        return f(TypePair<DataTypeDecimal32, T>());
     case PrimitiveType::TYPE_DECIMAL64:
-        return f(TypePair<DataTypeDecimal<Decimal64>, T>());
+        return f(TypePair<DataTypeDecimal64, T>());
     case PrimitiveType::TYPE_DECIMALV2:
-        return f(TypePair<DataTypeDecimal<Decimal128V2>, T>());
+        return f(TypePair<DataTypeDecimalV2, T>());
     case PrimitiveType::TYPE_DECIMAL128I:
-        return f(TypePair<DataTypeDecimal<Decimal128V3>, T>());
+        return f(TypePair<DataTypeDecimal128, T>());
     case PrimitiveType::TYPE_DECIMAL256:
-        return f(TypePair<DataTypeDecimal<Decimal256>, T>());
+        return f(TypePair<DataTypeDecimal256, T>());
 
     case PrimitiveType::TYPE_DATE:
         return f(TypePair<DataTypeDate, T>());
@@ -248,15 +248,15 @@ bool call_on_index_and_number_data_type(PrimitiveType number, F&& f) {
     case PrimitiveType::TYPE_TIMEV2:
         return f(TypePair<DataTypeTimeV2, T>());
     case PrimitiveType::TYPE_DECIMAL32:
-        return f(TypePair<DataTypeDecimal<Decimal32>, T>());
+        return f(TypePair<DataTypeDecimal32, T>());
     case PrimitiveType::TYPE_DECIMAL64:
-        return f(TypePair<DataTypeDecimal<Decimal64>, T>());
+        return f(TypePair<DataTypeDecimal64, T>());
     case PrimitiveType::TYPE_DECIMALV2:
-        return f(TypePair<DataTypeDecimal<Decimal128V2>, T>());
+        return f(TypePair<DataTypeDecimalV2, T>());
     case PrimitiveType::TYPE_DECIMAL128I:
-        return f(TypePair<DataTypeDecimal<Decimal128V3>, T>());
+        return f(TypePair<DataTypeDecimal128, T>());
     case PrimitiveType::TYPE_DECIMAL256:
-        return f(TypePair<DataTypeDecimal<Decimal256>, T>());
+        return f(TypePair<DataTypeDecimal256, T>());
     default:
         break;
     }

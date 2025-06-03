@@ -39,21 +39,6 @@
 
 class SipHash;
 
-#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                                       \
-    if (null_data == nullptr) {                                                                    \
-        for (size_t i = 0; i < s; i++) {                                                           \
-            hashes[i] = HashUtil::zlib_crc_hash(                                                   \
-                    &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType), hashes[i]); \
-        }                                                                                          \
-    } else {                                                                                       \
-        for (size_t i = 0; i < s; i++) {                                                           \
-            if (null_data[i] == 0)                                                                 \
-                hashes[i] = HashUtil::zlib_crc_hash(                                               \
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),         \
-                        hashes[i]);                                                                \
-        }                                                                                          \
-    }
-
 namespace doris::vectorized {
 
 class Arena;
