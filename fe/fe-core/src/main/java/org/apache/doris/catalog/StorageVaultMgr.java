@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -67,6 +68,22 @@ public class StorageVaultMgr {
                 break;
             case S3:
                 createS3Vault(StorageVault.fromStmt(stmt));
+                break;
+            case UNKNOWN:
+            default:
+                throw new DdlException("Only support S3, HDFS storage vault.");
+        }
+        // Make BE eagerly fetch the storage vault info from Meta Service
+        ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
+    }
+
+    public void createStorageVaultResource(CreateStorageVaultCommand command) throws Exception {
+        switch (command.getVaultType()) {
+            case HDFS:
+                createHdfsVault(StorageVault.fromCommand(command));
+                break;
+            case S3:
+                createS3Vault(StorageVault.fromCommand(command));
                 break;
             case UNKNOWN:
             default:

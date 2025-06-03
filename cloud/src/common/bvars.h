@@ -253,3 +253,4 @@ extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version;

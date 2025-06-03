@@ -402,15 +402,17 @@ public:
             return execute_get_when_null<ColumnString>(data_type, block, arguments, result,
                                                        input_rows_count);
         case PrimitiveType::TYPE_DATE:
+            return execute_get_when_null<ColumnDate>(data_type, block, arguments, result,
+                                                     input_rows_count);
         case PrimitiveType::TYPE_DATETIME:
-            return execute_get_when_null<ColumnInt64>(data_type, block, arguments, result,
-                                                      input_rows_count);
+            return execute_get_when_null<ColumnDateTime>(data_type, block, arguments, result,
+                                                         input_rows_count);
         case PrimitiveType::TYPE_DATEV2:
-            return execute_get_when_null<ColumnUInt32>(data_type, block, arguments, result,
+            return execute_get_when_null<ColumnDateV2>(data_type, block, arguments, result,
                                                        input_rows_count);
         case PrimitiveType::TYPE_DATETIMEV2:
-            return execute_get_when_null<ColumnUInt64>(data_type, block, arguments, result,
-                                                       input_rows_count);
+            return execute_get_when_null<ColumnDateTimeV2>(data_type, block, arguments, result,
+                                                           input_rows_count);
         case PrimitiveType::TYPE_IPV6:
             return execute_get_when_null<ColumnIPv6>(data_type, block, arguments, result,
                                                      input_rows_count);
@@ -429,7 +431,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             return execute_get_when_null<ColumnVariant>(data_type, block, arguments, result,
                                                         input_rows_count);
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             return execute_get_when_null<ColumnBitmap>(data_type, block, arguments, result,
                                                        input_rows_count);
         case PrimitiveType::TYPE_HLL:

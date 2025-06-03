@@ -266,7 +266,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
-            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
                                 to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
                                         std::string::npos)) {
                 BitmapValue v = BitmapValue {};

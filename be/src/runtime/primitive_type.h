@@ -25,11 +25,9 @@
 #include <string>
 
 #include "olap/decimal12.h"
+#include "olap/uint24.h"
 #include "runtime/define_primitive_type.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/template_helpers.hpp"
@@ -44,8 +42,6 @@ class ColumnVariant;
 class ColumnStruct;
 using ColumnString = ColumnStr<UInt32>;
 class JsonbField;
-struct Array;
-struct Map;
 template <typename T>
 class DecimalField;
 template <DecimalNativeTypeConcept T>
@@ -84,6 +80,30 @@ class DataTypeVariant;
 class DataTypeStruct;
 class DataTypeBitMap;
 class DataTypeQuantileState;
+template <PrimitiveType T>
+class ColumnVector;
+using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;
+using ColumnInt8 = ColumnVector<TYPE_TINYINT>;
+using ColumnInt16 = ColumnVector<TYPE_SMALLINT>;
+using ColumnInt32 = ColumnVector<TYPE_INT>;
+using ColumnInt64 = ColumnVector<TYPE_BIGINT>;
+using ColumnInt128 = ColumnVector<TYPE_LARGEINT>;
+using ColumnBool = ColumnUInt8;
+using ColumnDate = ColumnVector<TYPE_DATE>;
+using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
+using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
+using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
+using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
+using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
+using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
+using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
+using ColumnTime = ColumnVector<TYPE_TIME>;
+using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
+using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
+using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
+template <typename T>
+class ColumnDecimal;
+class ColumnArray;
 } // namespace vectorized
 
 class DecimalV2Value;
@@ -153,7 +173,7 @@ constexpr bool is_string_type(PrimitiveType type) {
 }
 
 constexpr bool is_var_len_object(PrimitiveType type) {
-    return type == TYPE_HLL || type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE;
+    return type == TYPE_HLL || type == TYPE_BITMAP || type == TYPE_QUANTILE_STATE;
 }
 
 constexpr bool is_complex_type(PrimitiveType type) {
@@ -352,7 +372,7 @@ struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using CppNativeType = CppType;
     using ColumnItemType = CppType;
     using DataType = vectorized::DataTypeTimeV2;
-    using ColumnType = vectorized::ColumnFloat64;
+    using ColumnType = vectorized::ColumnTimeV2;
     using NearestFieldType = vectorized::Float64;
     using AvgNearestFieldType = vectorized::Float64;
     using AvgNearestFieldType256 = vectorized::Float64;
@@ -367,7 +387,7 @@ struct PrimitiveTypeTraits<TYPE_TIME> {
     using CppNativeType = CppType;
     using ColumnItemType = CppType;
     using DataType = vectorized::DataTypeTimeV2;
-    using ColumnType = vectorized::ColumnFloat64;
+    using ColumnType = vectorized::ColumnTime;
     using NearestFieldType = vectorized::Float64;
     using AvgNearestFieldType = vectorized::Float64;
     using AvgNearestFieldType256 = vectorized::Float64;
@@ -383,7 +403,7 @@ struct PrimitiveTypeTraits<TYPE_DATE> {
     using CppNativeType = vectorized::Int64;
     using ColumnItemType = vectorized::Int64;
     using DataType = vectorized::DataTypeDate;
-    using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
+    using ColumnType = vectorized::ColumnDate;
     using NearestFieldType = vectorized::Int64;
     using AvgNearestFieldType = vectorized::Int64;
     using AvgNearestFieldType256 = vectorized::Int64;
@@ -398,7 +418,7 @@ struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using CppNativeType = vectorized::Int64;
     using ColumnItemType = vectorized::Int64;
     using DataType = vectorized::DataTypeDateTime;
-    using ColumnType = vectorized::ColumnVector<vectorized::Int64>;
+    using ColumnType = vectorized::ColumnDateTime;
     using NearestFieldType = vectorized::Int64;
     using AvgNearestFieldType = vectorized::Int64;
     using AvgNearestFieldType256 = vectorized::Int64;
@@ -413,7 +433,7 @@ struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using CppNativeType = uint64_t;
     using ColumnItemType = vectorized::UInt64;
     using DataType = vectorized::DataTypeDateTimeV2;
-    using ColumnType = vectorized::ColumnVector<vectorized::UInt64>;
+    using ColumnType = vectorized::ColumnDateTimeV2;
     using NearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType256 = vectorized::UInt64;
@@ -428,7 +448,7 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using CppNativeType = uint32_t;
     using ColumnItemType = vectorized::UInt32;
     using DataType = vectorized::DataTypeDateV2;
-    using ColumnType = vectorized::ColumnVector<vectorized::UInt32>;
+    using ColumnType = vectorized::ColumnDateV2;
     using NearestFieldType = vectorized::UInt64;
     using AvgNearestFieldType = vectorized::UInt32;
     using AvgNearestFieldType256 = vectorized::UInt32;
@@ -678,7 +698,7 @@ struct PrimitiveTypeTraits<TYPE_VARIANT> {
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_VARIANT;
 };
 template <>
-struct PrimitiveTypeTraits<TYPE_OBJECT> {
+struct PrimitiveTypeTraits<TYPE_BITMAP> {
     using CppType = BitmapValue;
     using StorageFieldType = CppType;
     using CppNativeType = CppType;
@@ -688,9 +708,9 @@ struct PrimitiveTypeTraits<TYPE_OBJECT> {
     using NearestFieldType = BitmapValue;
     using AvgNearestFieldType = BitmapValue;
     using AvgNearestFieldType256 = BitmapValue;
-    static constexpr PrimitiveType NearestPrimitiveType = TYPE_OBJECT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_OBJECT;
-    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_OBJECT;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_BITMAP;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_BITMAP;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_BITMAP;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {
@@ -706,6 +726,36 @@ struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {
     static constexpr PrimitiveType NearestPrimitiveType = TYPE_QUANTILE_STATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_QUANTILE_STATE;
     static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_QUANTILE_STATE;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_UINT32> {
+    using CppType = vectorized::UInt32;
+    using StorageFieldType = CppType;
+    using CppNativeType = CppType;
+    using ColumnItemType = CppType;
+    using DataType = vectorized::DataTypeNothing;
+    using ColumnType = vectorized::ColumnOffset32;
+    using NearestFieldType = vectorized::UInt64;
+    using AvgNearestFieldType = vectorized::UInt64;
+    using AvgNearestFieldType256 = vectorized::UInt64;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_UINT32;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_UINT32;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_UINT32;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_UINT64> {
+    using CppType = vectorized::UInt64;
+    using StorageFieldType = CppType;
+    using CppNativeType = CppType;
+    using ColumnItemType = CppType;
+    using DataType = vectorized::DataTypeNothing;
+    using ColumnType = vectorized::ColumnOffset64;
+    using NearestFieldType = vectorized::UInt64;
+    using AvgNearestFieldType = vectorized::Float64;
+    using AvgNearestFieldType256 = vectorized::Float64;
+    static constexpr PrimitiveType NearestPrimitiveType = TYPE_UINT64;
+    static constexpr PrimitiveType AvgNearestPrimitiveType = TYPE_DOUBLE;
+    static constexpr PrimitiveType AvgNearestPrimitiveType256 = TYPE_DOUBLE;
 };
 
 template <PrimitiveType PT>

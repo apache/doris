@@ -62,7 +62,7 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(size);
 
-        auto null_column = ColumnVector<UInt8>::create();
+        auto null_column = ColumnUInt8::create();
         auto& null_map = null_column->get_data();
         null_map.resize(size);
 

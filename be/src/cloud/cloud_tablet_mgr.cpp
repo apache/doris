@@ -264,6 +264,52 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("finish vacuum stale rowsets")
             .tag("num_vacuumed", num_vacuumed)
             .tag("num_tablets", tablets_to_vacuum.size());
+
+    {
+        LOG_INFO("begin to remove pre rowsets delete bitmap");
+        std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_delete_bitmap;
+        tablets_to_remove_delete_bitmap.reserve(_tablet_map->size());
+        _tablet_map->traverse([&tablets_to_remove_delete_bitmap](auto&& t) {
+            if (t->need_remove_pre_rowset_delete_bitmap()) {
+                tablets_to_remove_delete_bitmap.push_back(t);
+            }
+        });
+        for (auto& t : tablets_to_remove_delete_bitmap) {
+            t->remove_pre_rowset_delete_bitmap();
+        }
+        LOG_INFO("finish remove pre rowsets delete bitmap")
+                .tag("num_tablets", tablets_to_remove_delete_bitmap.size());
+        if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
+            int64_t max_useless_rowset_count = 0;
+            int64_t tablet_id_with_max_useless_rowset_count = 0;
+            int64_t max_useless_rowset_version_count = 0;
+            int64_t tablet_id_with_max_useless_rowset_version_count = 0;
+            OlapStopWatch watch;
+            _tablet_map->traverse([&](auto&& tablet) {
+                int64_t useless_rowset_count = 0;
+                int64_t useless_rowset_version_count = 0;
+                tablet->check_agg_delete_bitmap_for_stale_rowsets(useless_rowset_count,
+                                                                  useless_rowset_version_count);
+                if (useless_rowset_count > max_useless_rowset_count) {
+                    max_useless_rowset_count = useless_rowset_count;
+                    tablet_id_with_max_useless_rowset_count = tablet->tablet_id();
+                }
+                if (useless_rowset_version_count > max_useless_rowset_version_count) {
+                    max_useless_rowset_version_count = useless_rowset_version_count;
+                    tablet_id_with_max_useless_rowset_version_count = tablet->tablet_id();
+                }
+            });
+            g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
+            g_max_rowsets_with_useless_delete_bitmap_version.set_value(
+                    max_useless_rowset_version_count);
+            LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+                      << watch.get_elapse_time_us()
+                      << ". max useless rowset count=" << max_useless_rowset_count
+                      << ", tablet_id=" << tablet_id_with_max_useless_rowset_count
+                      << ", max useless rowset version count=" << max_useless_rowset_version_count
+                      << ", tablet_id=" << tablet_id_with_max_useless_rowset_version_count;
+        }
+    }
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
@@ -347,11 +393,13 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         }
         // If tablet has too many rowsets but not be compacted for a long time, compaction should be performed
         // regardless of whether there is a load job recently.
+
+        int32_t max_version_config = t->max_version_config();
         return now - t->last_cumu_compaction_failure_time() < config::min_compaction_failure_interval_ms ||
                now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms ||
                (now - t->last_load_time_ms > config::cu_compaction_freeze_interval_s * 1000
                && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000
-               && t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num / 2);
+               && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
     };
     // We don't schedule tablets that are disabled for compaction
     auto disable = [](CloudTablet* t) { return t->tablet_meta()->tablet_schema()->disable_auto_compaction(); };
@@ -481,17 +529,17 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
     }
     std::stringstream ss;
     for (auto& i : buf) {
-        ss << i.first->tablet_id() << ":" << i.second << ",";
+        ss << i.first->tablet_id() << ": " << i.second << ", ";
     }
     LOG(INFO) << "get_topn_tablet_delete_bitmap_score, n=" << n
-              << ",tablet size=" << weak_tablets.size()
-              << ",total_delete_map_count=" << total_delete_map_count
-              << ",cost(us)=" << watch.get_elapse_time_us()
-              << ",max_delete_bitmap_score=" << *max_delete_bitmap_score
-              << ",max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
-              << ",max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
-              << ",max_base_rowset_delete_bitmap_score_tablet_id="
-              << max_base_rowset_delete_bitmap_score_tablet_id << ",tablets=[" << ss.str() << "]";
+              << ", tablet size=" << weak_tablets.size()
+              << ", total_delete_map_count=" << total_delete_map_count
+              << ", cost(us)=" << watch.get_elapse_time_us()
+              << ", max_delete_bitmap_score=" << *max_delete_bitmap_score
+              << ", max_delete_bitmap_score_tablet_id=" << max_delete_bitmap_score_tablet_id
+              << ", max_base_rowset_delete_bitmap_score=" << *max_base_rowset_delete_bitmap_score
+              << ", max_base_rowset_delete_bitmap_score_tablet_id="
+              << max_base_rowset_delete_bitmap_score_tablet_id << ", tablets=[" << ss.str() << "]";
 }
 
 void CloudTabletMgr::put_tablet_for_UT(std::shared_ptr<CloudTablet> tablet) {

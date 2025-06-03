@@ -1687,8 +1687,9 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             if (version != max_version + 1) {
+                int32_t max_version_config = tablet->max_version_config();
                 // Keep only the most recent versions
-                while (tablet_iter->second.size() > config::max_tablet_version_num) {
+                while (tablet_iter->second.size() > max_version_config) {
                     need_removed_tasks.emplace_back(tablet, version);
                     task_iter = tablet_iter->second.erase(task_iter);
                     version = task_iter->first;
@@ -1727,9 +1728,8 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<CloudTabletSPtr> tablets;
-        _tablet_manager.get()->get_topn_tablet_delete_bitmap_score(
-                &max_delete_bitmap_score, &max_base_rowset_delete_bitmap_score);
+        _tablet_manager->get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
+                                                             &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
             _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
         }
