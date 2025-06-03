@@ -90,12 +90,14 @@ struct AtanhName {
 using FunctionAtanh =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct Atan2Impl {
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
     static const constexpr bool allow_decimal = false;
 
-    template <typename type>
+    template <PrimitiveType type>
     static inline double apply(A a, B b) {
         return std::atan2((double)a, (double)b);
     }
@@ -136,17 +138,19 @@ struct LogName {
     static constexpr auto name = "log";
 };
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct LogImpl {
+    using A = typename PrimitiveTypeTraits<AType>::CppNativeType;
+    using B = typename PrimitiveTypeTraits<BType>::CppNativeType;
     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
-    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+    using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
 
     static const constexpr bool allow_decimal = false;
     static constexpr double EPSILON = 1e-9;
 
-    template <typename Result = typename PrimitiveTypeTraits<ResultType>::CppType>
+    template <PrimitiveType Result = ResultType>
     static void apply(const typename Traits::ArrayA& a, B b,
-                      typename ColumnVector<Result>::Container& c,
+                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
                       typename Traits::ArrayNull& null_map) {
         size_t size = c.size();
         UInt8 is_null = b <= 0;
@@ -164,8 +168,9 @@ struct LogImpl {
         }
     }
 
-    template <typename Result>
-    static inline Result apply(A a, B b, UInt8& is_null) {
+    template <PrimitiveType Result>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b,
+                                                                            UInt8& is_null) {
         is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
         return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
                                     std::log(static_cast<Float64>(a)));
@@ -433,12 +438,14 @@ struct BinImpl {
 
 using FunctionBin = FunctionUnaryToType<BinImpl, NameBin>;
 
-template <typename A, typename B>
+template <PrimitiveType AType, PrimitiveType BType>
 struct PowImpl {
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
     static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
     static const constexpr bool allow_decimal = false;
 
-    template <typename type>
+    template <PrimitiveType type>
     static inline double apply(A a, B b) {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
         return std::pow((double)a, (double)b);

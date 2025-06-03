@@ -254,7 +254,7 @@ struct MakeDateImpl {
     static DataTypes get_variadic_argument_types() { return {}; }
 
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return make_nullable(std::make_shared<DataTypeDateTime>());
+        return make_nullable(std::make_shared<DataTypeDate>());
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -277,18 +277,14 @@ struct MakeDateImpl {
             res = ColumnDateV2::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDateV2>(
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())
-                                ->get_data(),
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                ->get_element(0),
+                        static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
+                        static_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
                         static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateV2>(
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())
-                                ->get_data(),
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                ->get_data(),
+                        static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
+                        static_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
                         static_cast<ColumnDateV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
@@ -298,40 +294,32 @@ struct MakeDateImpl {
             res = ColumnDateTimeV2::create();
             if (col_const[1]) {
                 execute_impl_right_const<DataTypeDateTimeV2>(
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())
-                                ->get_data(),
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                ->get_element(0),
+                        static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
+                        static_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
                         static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
                 execute_impl<DataTypeDateTimeV2>(
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())
-                                ->get_data(),
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                ->get_data(),
+                        static_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
+                        static_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
                         static_cast<ColumnDateTimeV2*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
             break;
         }
         default: {
-            res = ColumnDateTime::create();
+            res = ColumnDate::create();
             if (col_const[1]) {
-                execute_impl_right_const<DataTypeDateTime>(
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())
-                                ->get_data(),
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                ->get_element(0),
-                        static_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
+                execute_impl_right_const<DataTypeDate>(
+                        assert_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
+                        assert_cast<const ColumnInt32*>(argument_columns[1].get())->get_element(0),
+                        assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             } else {
-                execute_impl<DataTypeDateTime>(
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[0].get())
-                                ->get_data(),
-                        static_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                ->get_data(),
-                        static_cast<ColumnDateTime*>(res->assume_mutable().get())->get_data(),
+                execute_impl<DataTypeDate>(
+                        assert_cast<const ColumnInt32*>(argument_columns[0].get())->get_data(),
+                        assert_cast<const ColumnInt32*>(argument_columns[1].get())->get_data(),
+                        assert_cast<ColumnDate*>(res->assume_mutable().get())->get_data(),
                         null_map->get_data());
             }
         }
@@ -520,11 +508,11 @@ public:
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
-        auto data_col = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
+        auto data_col = assert_cast<const ColumnInt32*>(argument_column.get());
 
         ColumnPtr res_column;
         if (block.get_by_position(result).type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
-            res_column = ColumnInt64::create(input_rows_count);
+            res_column = ColumnDate::create(input_rows_count);
             execute_straight<VecDateTimeValue, Int64>(
                     input_rows_count, null_map->get_data(), data_col->get_data(),
                     static_cast<ColumnDateTime*>(res_column->assume_mutable().get())->get_data());
@@ -587,7 +575,7 @@ struct UnixTimeStampImpl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-        auto col_result = ColumnVector<Int32>::create();
+        auto col_result = ColumnInt32::create();
         col_result->resize(1);
         col_result->get_data()[0] = context->state()->timestamp_ms() / 1000;
         auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
@@ -628,7 +616,7 @@ struct UnixTimeStampDateImpl {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
             const auto* col_source = assert_cast<const ColumnDate*>(col.get());
-            auto col_result = ColumnVector<Int32>::create();
+            auto col_result = ColumnInt32::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
 
@@ -642,7 +630,7 @@ struct UnixTimeStampDateImpl {
             block.replace_by_position(result, std::move(col_result));
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             const auto* col_source = assert_cast<const ColumnDateV2*>(col.get());
-            auto col_result = ColumnVector<Int32>::create();
+            auto col_result = ColumnInt32::create();
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
 
@@ -713,7 +701,7 @@ struct UnixTimeStampStrImpl {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 6);
-        auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+        auto null_map = ColumnUInt8::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();
 
@@ -813,7 +801,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
-        const auto& column_data = assert_cast<const ColumnUInt64&>(*arg_col);
+        const auto& column_data = assert_cast<const ColumnDateTimeV2&>(*arg_col);
         auto res_col = ColumnInt64::create();
         auto& res_data = res_col->get_data();
         res_col->get_data().resize_fill(input_rows_count, 0);

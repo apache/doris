@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -78,6 +79,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergScanNode extends FileQueryScanNode {
 
@@ -229,19 +231,21 @@ public class IcebergScanNode extends FileQueryScanNode {
     public void doStartSplit() {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
+            AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
             try {
                 preExecutionAuthenticator.execute(
                         () -> {
                             CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
+                            taskRef.set(fileScanTasks);
 
-                            // 1. this task should stop when all splits are assigned
-                            // 2. if we want to stop this plan, we can close the fileScanTasks to stop
-                            splitAssignment.addCloseable(fileScanTasks);
-
-                            fileScanTasks.forEach(fileScanTask ->
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(fileScanTask))));
-
-                            return null;
+                            CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
+                            while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
+                                try {
+                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
+                                } catch (UserException e) {
+                                    throw new RuntimeException(e);
+                                }
+                            }
                         }
                 );
                 splitAssignment.finishSchedule();
@@ -252,8 +256,16 @@ public class IcebergScanNode extends FileQueryScanNode {
                 } else {
                     splitAssignment.setException(new UserException(e.getMessage(), e));
                 }
+            } finally {
+                if (taskRef.get() != null) {
+                    try {
+                        taskRef.get().close();
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                }
             }
-        });
+        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
     }
 
     @VisibleForTesting

@@ -196,8 +196,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
             auto type = remove_nullable(_right_table_data_types[i]);
             auto column = type->create_column();
             column->resize(block_rows);
-            auto null_map_column =
-                    vectorized::ColumnVector<vectorized::UInt8>::create(block_rows, 1);
+            auto null_map_column = vectorized::ColumnUInt8::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));
             local_state._probe_block.insert({std::move(nullable_column), make_nullable(type),
