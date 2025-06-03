@@ -102,5 +102,10 @@ public class ShowExportCommandTest extends TestWithFeService {
         se = new ShowExportCommand("", "test", where10, null, -1);
         ShowExportCommand finalSe6 = se;
         Assertions.assertThrows(AnalysisException.class, () -> finalSe6.validate(connectContext));
+
+        Expression where11 = new EqualTo(new UnboundSlot(Lists.newArrayList("JobId")),
+                new IntegerLiteral(123));
+        se = new ShowExportCommand("", "test", where11, null, -1);
+        se.validate(connectContext);
     }
 }
