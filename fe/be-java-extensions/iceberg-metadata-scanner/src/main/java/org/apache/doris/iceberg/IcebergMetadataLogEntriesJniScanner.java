@@ -31,6 +31,7 @@ import java.util.Map;
 class IcebergMetadataLogEntriesJniScanner extends IcebergMetadataJniScanner {
     private static final String NAME = "metadata_log_entries";
     private static final Map<String, String> METADATA_LOG_ENTRIES_SCHEMA = new HashMap<>();
+
     static {
         METADATA_LOG_ENTRIES_SCHEMA.put("timestamp", "datetime");
         METADATA_LOG_ENTRIES_SCHEMA.put("file", "string");
