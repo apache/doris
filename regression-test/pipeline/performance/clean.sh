@@ -45,3 +45,9 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-uti
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 stop_doris
+
+if [[ "${target_branch}" == "branch30" ]]; then
+    # branch-3.0 also use master data
+    target_branch="master"
+fi
+if [[ -n ${meta_changed_suffix} ]]; then rm -rf "/data/doris-meta-${target_branch}${meta_changed_suffix}"; fi
