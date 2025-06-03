@@ -69,7 +69,7 @@ struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
@@ -339,7 +339,7 @@ private:
                                        const orc::Type* orc_column_type,
                                        const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    template <typename CppType, typename OrcColumnType>
+    template <PrimitiveType PType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
@@ -349,11 +349,12 @@ private:
                                          cvb->toString());
         }
         auto* cvb_data = data->data.data();
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnVector<PType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
-            column_data[origin_size + i] = (CppType)cvb_data[i];
+            column_data[origin_size + i] =
+                    (typename PrimitiveTypeTraits<PType>::CppType)cvb_data[i];
         }
         return Status::OK();
     }
@@ -479,7 +480,8 @@ private:
         }
     }
 
-    template <typename CppType, typename DorisColumnType, typename OrcColumnType, bool is_filter>
+    template <typename CppType, PrimitiveType DorisColumnType, typename OrcColumnType,
+              bool is_filter>
     Status _decode_time_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);

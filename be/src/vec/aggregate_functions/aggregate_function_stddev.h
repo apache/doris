@@ -40,7 +40,7 @@ class BufferReadable;
 class BufferWritable;
 template <typename T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
 template <PrimitiveType T, bool is_stddev>

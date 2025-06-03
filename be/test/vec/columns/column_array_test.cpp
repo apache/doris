@@ -616,11 +616,6 @@ TEST_F(ColumnArrayTest, ConvertDictCodesIfNecessaryTest) {
     assert_convert_dict_codes_if_necessary_callback(array_columns, callback);
 }
 
-// test assert_copy_date_types_callback
-TEST_F(ColumnArrayTest, CopyDateTypesTest) {
-    assert_copy_date_types_callback(array_columns);
-}
-
 // test assert_column_nullable_funcs
 TEST_F(ColumnArrayTest, ColumnNullableFuncsTest) {
     assert_column_nullable_funcs(array_columns, nullptr);
@@ -658,18 +653,11 @@ TEST_F(ColumnArrayTest, CreateArrayTest) {
         LOG(INFO) << "column_type: " << column->get_name();
         // test create_array
         // test create expect exception case
-        // 1.offsets is not ColumnUInt64
+        // 1.offsets is not ColumnOffset64
         auto tmp_data_col = column->get_data_ptr()->clone_resized(1);
         MutableColumnPtr tmp_offsets_col =
                 assert_cast<const ColumnArray::ColumnOffsets&>(column->get_offsets_column())
                         .clone_resized(1);
-        UInt64 off = tmp_offsets_col->operator[](0).get<UInt64>();
-        // make offsets_col into column_int32
-        auto wrong_type_offsets_col = vectorized::ColumnVector<vectorized::UInt128>::create(1, off);
-        EXPECT_ANY_THROW({
-            auto new_array_column = ColumnArray::create(tmp_data_col->assume_mutable(),
-                                                        wrong_type_offsets_col->assume_mutable());
-        });
         // 2.offsets size is not equal to data size
         auto tmp_data_col1 = column->get_data_ptr()->clone_resized(2);
         EXPECT_ANY_THROW({
@@ -871,7 +859,7 @@ TEST_F(ColumnArrayTest, HasEqualOffsetsTest) {
 }
 
 TEST_F(ColumnArrayTest, String64ArrayTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto str64_column = ColumnString64::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
     std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -917,8 +905,8 @@ TEST_F(ColumnArrayTest, String64ArrayTest) {
 }
 
 TEST_F(ColumnArrayTest, IntArrayPermuteTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto data_column = ColumnVector<int32_t>::create();
+    auto off_column = ColumnOffset64::create();
+    auto data_column = ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
     std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
@@ -1014,8 +1002,8 @@ TEST_F(ColumnArrayTest, ArrayTypeTesterase) {
     // std::cout << tmp2.dump_data(0, tmp2.rows());
     auto* column_result = assert_cast<ColumnArray*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
     auto& column_data_res = assert_cast<ColumnInt32&>(
             assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
     auto& column_data_origin = assert_cast<ColumnInt32&>(
@@ -1079,8 +1067,8 @@ TEST_F(ColumnArrayTest, ArrayTypeTest2erase) {
 
     auto* column_result = assert_cast<ColumnArray*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
     auto& column_data_res = assert_cast<ColumnInt32&>(
             assert_cast<ColumnNullable&>(column_result->get_data()).get_nested_column());
     auto& column_data_origin = assert_cast<ColumnInt32&>(

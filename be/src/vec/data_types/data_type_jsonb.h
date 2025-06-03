@@ -48,6 +48,7 @@ class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = JsonbField;
+    static constexpr PrimitiveType PType = TYPE_JSONB;
     static constexpr bool is_parametric = false;
 
     const char* get_family_name() const override { return "JSONB"; }

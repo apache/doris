@@ -57,9 +57,6 @@ static ColumnInt32::MutablePtr column_int32;
 static ColumnInt64::MutablePtr column_int64;
 static ColumnInt128::MutablePtr column_int128;
 static ColumnUInt8::MutablePtr column_uint8;
-static ColumnUInt16::MutablePtr column_uint16;
-static ColumnUInt32::MutablePtr column_uint32;
-static ColumnUInt64::MutablePtr column_uint64;
 
 class DataTypeNumberSerDeTest : public ::testing::Test {
 public:
@@ -77,9 +74,6 @@ public:
         column_int128 = ColumnInt128::create();
 
         column_uint8 = ColumnUInt8::create();
-        column_uint16 = ColumnUInt16::create();
-        column_uint32 = ColumnUInt32::create();
-        column_uint64 = ColumnUInt64::create();
 
         load_columns_data();
     }
