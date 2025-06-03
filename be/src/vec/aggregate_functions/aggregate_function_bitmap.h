@@ -37,18 +37,13 @@
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
-
 struct AggregateFunctionBitmapUnionOp {
     static constexpr auto name = "bitmap_union";
 
@@ -319,7 +314,7 @@ class AggregateFunctionBitmapCount final
                   AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
 public:
     // using ColVecType = ColumnBitmap;
-    using ColVecResult = ColumnVector<Int64>;
+    using ColVecResult = ColumnInt64;
     using AggFunctionData = AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>;
 
     AggregateFunctionBitmapCount(const DataTypes& argument_types_)

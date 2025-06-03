@@ -32,17 +32,13 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
-class IColumn;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
+class IColumn;
 class DataTypeFixedLengthObject final : public IDataType {
 public:
     using ColumnType = ColumnFixedLengthObject;
+    static constexpr PrimitiveType PType = INVALID_TYPE;
 
     DataTypeFixedLengthObject() = default;
 
@@ -50,17 +46,13 @@ public:
 
     const char* get_family_name() const override { return "DataTypeFixedLengthObject"; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::FixedLengthObject; }
-
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(INVALID_TYPE);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
-    Field get_default() const override { return Field(String()); }
+    Field get_default() const override { return Field::create_field<TYPE_STRING>(String()); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -84,6 +76,7 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeFixedLengthObjectSerDe>(nesting_level);
     };
+    bool is_fixed_length_object() const override { return true; }
 };
 
 } // namespace doris::vectorized

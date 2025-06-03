@@ -53,11 +53,11 @@ namespace doris::vectorized {
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
 
-    using ReturnType = DataTypeNumber<Int64>;
+    using ReturnType = DataTypeInt64;
 
     static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -67,8 +67,8 @@ struct HLLCardinality {
 
     static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -265,7 +265,7 @@ struct NameHllToBase64 {
 
 struct HllToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::HLL;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_HLL;
     using Type = DataTypeHLL::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;

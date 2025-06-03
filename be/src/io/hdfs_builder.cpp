@@ -227,9 +227,11 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         builder->kerberos_login = true;
         builder->hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;
         builder->hdfs_kerberos_keytab = hdfsParams.hdfs_kerberos_keytab;
-        hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
         hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
+#ifdef USE_HADOOP_HDFS
+        hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
         hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
+#endif
         hdfsBuilderConfSetStr(builder->get(), "hadoop.kerberos.keytab.login.autorenewal.enabled",
                               "true");
         // RETURN_IF_ERROR(builder->set_kerberos_ticket_cache());

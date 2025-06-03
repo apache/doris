@@ -101,6 +101,19 @@ private:
     IPv4 _value;
 };
 
+namespace vectorized {
+void inline map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+    unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+    unaligned_store<UInt64>(buf + 8, 0);
+}
+
+IPv6 inline ipv4_to_ipv6(IPv4 ipv4) {
+    IPv6 ipv6;
+    map_ipv4_to_ipv6(ipv4, reinterpret_cast<UInt8*>(&ipv6));
+    return ipv6;
+}
+} // namespace vectorized
+
 } // namespace doris
 
 #include "common/compile_check_end.h"

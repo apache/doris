@@ -50,6 +50,7 @@ class ClusterOptions {
     // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
         'heartbeat_interval_second=5',
+        'workload_group_check_interval_ms=1000',
     ]
 
     // don't add whitespace in beConfigs items,
@@ -63,6 +64,10 @@ class ClusterOptions {
     List<String> msConfigs = []
 
     List<String> recycleConfigs = []
+
+    // host mapping(host:IP), for example: myhost:192.168.10.10
+    // just as `docker run --add-host myhost:192.168.10.10` do.
+    List<String> extraHosts = []
 
     boolean connectToFollower = false
 
@@ -306,25 +311,29 @@ class SuiteCluster {
             cmd += ['--add-ms-num', String.valueOf(options.msNum)]
         }
         // TODO: need escape white space in config
-        if (options.feConfigs != null && options.feConfigs.size() > 0) {
+        if (!options.feConfigs.isEmpty()) {
             cmd += ['--fe-config']
             cmd += options.feConfigs
         }
-        if (options.beConfigs != null && options.beConfigs.size() > 0) {
+        if (!options.beConfigs.isEmpty()) {
             cmd += ['--be-config']
             cmd += options.beConfigs
         }
-        if (options.msConfigs != null && options.msConfigs.size() > 0) {
+        if (!options.msConfigs.isEmpty()) {
             cmd += ['--ms-config']
             cmd += options.msConfigs
         }
-        if (options.recycleConfigs != null && options.recycleConfigs.size() > 0) {
+        if (!options.recycleConfigs.isEmpty()) {
             cmd += ['--recycle-config']
             cmd += options.recycleConfigs
         }
         if (options.beDisks != null) {
             cmd += ['--be-disks']
             cmd += options.beDisks
+        }
+        if (!options.extraHosts.isEmpty()) {
+            cmd += ['--extra-hosts']
+            cmd += options.extraHosts
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
             cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
@@ -544,6 +553,7 @@ class SuiteCluster {
     }
 
     int START_WAIT_TIMEOUT = 120
+    int STOP_WAIT_TIMEOUT = 60
 
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
@@ -557,13 +567,13 @@ class SuiteCluster {
 
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
-        runFrontendsCmd(60, 'stop', indices)
+        runFrontendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
-        runBackendsCmd(60, 'stop', indices)
+        runBackendsCmd(STOP_WAIT_TIMEOUT + 5, "stop --wait-timeout ${STOP_WAIT_TIMEOUT}".toString(), indices)
         waitHbChanged()
     }
 
@@ -580,7 +590,7 @@ class SuiteCluster {
     // if not specific ms indices, then restart all ms
     void restartMs(int... indices) {
         runMsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
-    } 
+    }
 
     // if not specific recycler indices, then restart all recyclers
     void restartRecyclers(int... indices) {
@@ -588,7 +598,7 @@ class SuiteCluster {
     }
 
     // if not specific fe indices, then drop all frontends
-    void dropFrontends(boolean clean=false, int... indices) {
+    void dropFrontends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -597,7 +607,7 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then decommission all backends
-    void decommissionBackends(boolean clean=false, int... indices) {
+    void decommissionBackends(boolean clean, int... indices) {
         def cmd = 'down'
         if (clean) {
             cmd += ' --clean'
@@ -606,7 +616,7 @@ class SuiteCluster {
     }
 
     // if not specific be indices, then drop force all backends
-    void dropForceBackends(boolean clean=false, int... indices) {
+    void dropForceBackends(boolean clean, int... indices) {
         def cmd = 'down --drop-force'
         if (clean) {
             cmd += ' --clean'

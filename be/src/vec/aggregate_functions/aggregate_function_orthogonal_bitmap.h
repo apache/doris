@@ -48,10 +48,12 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitmapBaseData {
 public:
-    using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
+    using ColVecData =
+            std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
+                               typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
 
     void reset() {
         bitmap = {};
@@ -65,10 +67,9 @@ public:
                 assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
 
-        if constexpr (IsNumber<T>) {
+        if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
             bitmap.update(data_col.get_element(row_num), bitmap_value);
-        }
-        if constexpr (std::is_same_v<T, std::string_view>) {
+        } else {
             // TODO: rethink here we really need to do a virtual function call
             auto sr = data_col.get_data_at(row_num);
             bitmap.update(std::string_view {sr.data, sr.size}, bitmap_value);
@@ -81,10 +82,9 @@ public:
             for (int idx = 2; idx < argument_size; ++idx) {
                 const auto& col =
                         assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[idx]);
-                if constexpr (IsNumber<T>) {
+                if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
                     bitmap.add_key(col.get_element(row_num));
-                }
-                if constexpr (std::is_same_v<T, std::string_view>) {
+                } else {
                     auto sr = col.get_data_at(row_num);
                     bitmap.add_key(std::string_view {sr.data, sr.size});
                 }
@@ -94,11 +94,14 @@ public:
     }
 
 protected:
-    doris::BitmapIntersect<T> bitmap;
+    doris::BitmapIntersect<
+            std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
+                               typename PrimitiveTypeTraits<T>::CppType, std::string_view>>
+            bitmap;
     bool first_init = true;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapIntersect : public AggOrthBitmapBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_intersect";
@@ -139,7 +142,7 @@ private:
     BitmapValue result;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggIntersectCount : public AggOrthBitmapBaseData<T> {
 public:
     static constexpr auto name = "intersect_count";
@@ -170,12 +173,12 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapIntersectCount : public AggOrthBitmapBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_intersect_count";
@@ -207,7 +210,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
                                               : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
@@ -216,10 +219,12 @@ private:
     Int64 result = 0;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitmapExprCalBaseData {
 public:
-    using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
+    using ColVecData =
+            std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
+                               typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col =
@@ -252,7 +257,7 @@ protected:
     bool first_init = true;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapExprCal : public AggOrthBitmapExprCalBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_expr_calculate";
@@ -294,7 +299,7 @@ private:
     BitmapValue result;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapExprCalCount : public AggOrthBitmapExprCalBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_expr_calculate_count";
@@ -320,7 +325,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
                                               : const_cast<AggOrthBitMapExprCalCount*>(this)
                                                         ->bitmap_expr_cal.bitmap_calculate_count());
@@ -335,7 +340,7 @@ private:
     int64_t result = 0;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct OrthBitmapUnionCountData {
     static constexpr auto name = "orthogonal_bitmap_union_count";
 
@@ -358,7 +363,7 @@ struct OrthBitmapUnionCountData {
     void read(BufferReadable& buf) { read_binary(result, buf); }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
     }
 

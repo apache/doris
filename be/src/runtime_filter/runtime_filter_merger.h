@@ -35,20 +35,18 @@ public:
         READY // Collecting all products(_received_producer_num == _expected_producer_num) will transfer to this state, and filter is already available
     };
 
-    static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                         std::shared_ptr<RuntimeFilterMerger>* res,
-                         RuntimeProfile* parent_profile) {
-        *res = std::shared_ptr<RuntimeFilterMerger>(
-                new RuntimeFilterMerger(state, desc, parent_profile));
+    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
+                         std::shared_ptr<RuntimeFilterMerger>* res) {
+        *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(query_ctx, desc));
         vectorized::VExprContextSPtr build_ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
         (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
-                build_ctx->root()->type().type, (*res)->_runtime_filter_type, desc->filter_id,
-                RuntimeFilterWrapper::State::IGNORED);
+                build_ctx->root()->data_type()->get_primitive_type(), (*res)->_runtime_filter_type,
+                desc->filter_id, RuntimeFilterWrapper::State::UNINITED);
         return Status::OK();
     }
 
-    std::string debug_string() const override {
+    std::string debug_string() override {
         return fmt::format(
                 "Merger: ({}, expected_producer_num: {}, received_producer_num: {}, "
                 "received_rf_size_num: {}, received_sum_size: {})",
@@ -57,8 +55,6 @@ public:
     }
 
     // If input is a disabled predicate, the final result is a disabled predicate.
-    // If input is a ignored predicate, then we will skip this predicate.
-    // If all inputs are ignored predicate, the final result is a ignored predicate.
     Status merge_from(const RuntimeFilter* other) {
         _received_producer_num++;
         if (_expected_producer_num < _received_producer_num) {
@@ -68,13 +64,11 @@ public:
         if (_received_producer_num == _expected_producer_num) {
             _rf_state = State::READY;
         }
-        if (_wrapper->get_state() == RuntimeFilterWrapper::State::IGNORED) {
+        if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
             _wrapper = other->_wrapper;
-            _profile->add_info_string("Info", debug_string());
             return Status::OK();
         }
         auto st = _wrapper->merge(other->_wrapper.get());
-        _profile->add_info_string("Info", debug_string());
         return st;
     }
 
@@ -82,7 +76,6 @@ public:
         DCHECK_EQ(_received_producer_num, 0);
         DCHECK_EQ(_received_rf_size_num, 0);
         _expected_producer_num = num;
-        _profile->add_info_string("Info", debug_string());
     }
 
     bool add_rf_size(uint64_t size) {
@@ -93,7 +86,6 @@ public:
                             debug_string());
         }
         _received_sum_size += size;
-        _profile->add_info_string("Info", debug_string());
         return (_received_rf_size_num == _expected_producer_num);
     }
 
@@ -102,14 +94,8 @@ public:
     bool ready() const { return _rf_state == State::READY; }
 
 private:
-    RuntimeFilterMerger(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                        RuntimeProfile* parent_profile)
-            : RuntimeFilter(state, desc),
-              _rf_state(State::WAITING_FOR_PRODUCT),
-              _profile(new RuntimeProfile(fmt::format("RF{}", desc->filter_id))) {
-        parent_profile->add_child(_profile.get(), true, nullptr);
-        _profile->add_info_string("Info", debug_string());
-    }
+    RuntimeFilterMerger(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc)
+            : RuntimeFilter(desc), _rf_state(State::WAITING_FOR_PRODUCT) {}
 
     std::atomic<State> _rf_state;
 
@@ -118,8 +104,6 @@ private:
 
     uint64_t _received_sum_size = 0;
     int _received_rf_size_num = 0;
-
-    std::unique_ptr<RuntimeProfile> _profile;
 
     friend class RuntimeFilterProducer;
 };

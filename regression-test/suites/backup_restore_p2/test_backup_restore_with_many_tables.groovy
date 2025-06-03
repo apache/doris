@@ -18,7 +18,7 @@
 suite("test_backup_restore_with_huge_tables") {
     String dbName = "test_backup_restore_with_huge_tables_db"
     String suiteName = "test_backup_restore_with_huge_tables"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}"
 
@@ -84,7 +84,7 @@ suite("test_backup_restore_with_huge_tables") {
     syncer.waitAllRestoreFinish(dbName)
 
     for (def tableName in tables) {
-        result = sql "SELECT * FROM ${dbName}.${tableName}"
+        def result = sql "SELECT * FROM ${dbName}.${tableName}"
         assertEquals(result.size(), numRows);
         sql "DROP TABLE ${dbName}.${tableName} FORCE"
     }

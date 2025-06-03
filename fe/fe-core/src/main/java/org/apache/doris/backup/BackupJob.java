@@ -39,7 +39,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -350,7 +349,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     @Override
     public synchronized void replayRun() {
-        // nothing to do
+        if (state == BackupJobState.SAVE_META) {
+            saveMetaInfo(true);
+        }
     }
 
     @Override
@@ -386,7 +387,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -446,7 +447,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 waitingAllUploadingFinished();
                 break;
             case SAVE_META:
-                saveMetaInfo();
+                saveMetaInfo(false);
                 break;
             case UPLOAD_INFO:
                 uploadMetaAndJobInfoFile();
@@ -781,7 +782,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
@@ -816,7 +817,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void saveMetaInfo() {
+    private void saveMetaInfo(boolean replay) {
         String createTimeStr = TimeUtils.longToTimeString(createTime,
                 TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
@@ -874,6 +875,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
+            return;
+        }
+
+        if (replay) {
             return;
         }
 

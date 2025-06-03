@@ -385,13 +385,13 @@ public class MaterializedViewUtils {
             Set<Column> leftColumnSet = left.getOutputSet().stream()
                     .filter(slot -> slot instanceof SlotReference
                             && slot.isColumnFromTable())
-                    .map(slot -> ((SlotReference) slot).getColumn().get())
+                    .map(slot -> ((SlotReference) slot).getOriginalColumn().get())
                     .collect(Collectors.toSet());
             SlotReference contextPartitionColumn = getContextPartitionColumn(context);
             if (contextPartitionColumn == null) {
                 return null;
             }
-            boolean useLeft = leftColumnSet.contains(contextPartitionColumn.getColumn().get());
+            boolean useLeft = leftColumnSet.contains(contextPartitionColumn.getOriginalColumn().get());
             JoinType joinType = join.getJoinType();
             if (joinType.isInnerJoin() || joinType.isCrossJoin()) {
                 return visit(join, context);
@@ -424,7 +424,8 @@ public class MaterializedViewUtils {
             }
             // Check the table which mv partition column belonged to is same as the current check relation or not
             if (!((LogicalCatalogRelation) relation).getTable().getFullQualifiers().equals(
-                    contextPartitionColumn.getTable().map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
+                    contextPartitionColumn.getOriginalTable()
+                            .map(TableIf::getFullQualifiers).orElse(ImmutableList.of()))) {
                 context.addFailReason(String.format("mv partition column name is not belonged to current check , "
                                 + "table, current table is %s",
                         ((LogicalCatalogRelation) relation).getTable().getFullQualifiers()));
@@ -459,7 +460,7 @@ public class MaterializedViewUtils {
             }
             Set<Column> partitionColumnSet = new HashSet<>(
                     relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable)));
-            Column mvReferenceColumn = contextPartitionColumn.getColumn().get();
+            Column mvReferenceColumn = contextPartitionColumn.getOriginalColumn().get();
             Expr definExpr = mvReferenceColumn.getDefineExpr();
             if (definExpr instanceof SlotRef) {
                 Column referenceRollupColumn = ((SlotRef) definExpr).getColumn();
@@ -534,14 +535,14 @@ public class MaterializedViewUtils {
                 Set<Column> originalPartitionbyExprSet = new HashSet<>();
                 partitionKeys.forEach(groupExpr -> {
                     if (groupExpr instanceof SlotReference && groupExpr.isColumnFromTable()) {
-                        originalPartitionbyExprSet.add(((SlotReference) groupExpr).getColumn().get());
+                        originalPartitionbyExprSet.add(((SlotReference) groupExpr).getOriginalColumn().get());
                     }
                 });
                 SlotReference contextPartitionColumn = getContextPartitionColumn(context);
                 if (contextPartitionColumn == null) {
                     return false;
                 }
-                if (!originalPartitionbyExprSet.contains(contextPartitionColumn.getColumn().get())) {
+                if (!originalPartitionbyExprSet.contains(contextPartitionColumn.getOriginalColumn().get())) {
                     return false;
                 }
             }

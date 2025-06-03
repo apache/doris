@@ -24,6 +24,7 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/string_ref.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -111,6 +112,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     char quote_char = 0;
 
     auto elem_size = elem_serdes_ptrs.size();
+    DCHECK_EQ(elem_size, elem_names.size());
     int field_pos = 0;
 
     for (; idx < slice_size; ++idx) {
@@ -138,6 +140,15 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             next.trim_prefix();
             next.trim_quote();
             // check field_name
+            if (field_pos >= elem_size) {
+                // we should do column revert if error
+                for (size_t j = 0; j < field_pos; j++) {
+                    struct_column.get_column(j).pop_back(1);
+                }
+                return Status::InvalidArgument(
+                        "Actual struct field number is more than schema field number {}.",
+                        field_pos, elem_size);
+            }
             if (elem_names[field_pos] != next) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
@@ -158,7 +169,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
             }
             Slice next(slice.data + start_pos, idx - start_pos);
             next.trim_prefix();
-            if (field_pos > elem_size) {
+            // field_pos should always less than elem_size, if not, we should return error
+            if (field_pos >= elem_size) {
                 // we should do column revert if error
                 for (size_t j = 0; j < field_pos; j++) {
                     struct_column.get_column(j).pop_back(1);
@@ -188,7 +200,8 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
         (key_added || !is_explicit_names)) {
         Slice next(slice.data + start_pos, idx - start_pos);
         next.trim_prefix();
-        if (field_pos > elem_size) {
+        /// field_pos should always less than elem_size, if not, we should return error
+        if (field_pos >= elem_size) {
             // we should do column revert if error
             for (size_t j = 0; j < field_pos; j++) {
                 struct_column.get_column(j).pop_back(1);
@@ -258,6 +271,12 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_hive_text(
         }
     }
     auto& struct_column = static_cast<ColumnStruct&>(column);
+
+    for (auto i = slices.size(); i < struct_column.get_columns().size(); ++i) {
+        // Hive schema change will cause the number of sub-columns in the file to
+        // be inconsistent with the number of sub-columns of the column in the table.
+        slices.emplace_back(options.null_format, options.null_len);
+    }
     for (size_t loc = 0; loc < struct_column.get_columns().size(); loc++) {
         Status st = elem_serdes_ptrs[loc]->deserialize_one_cell_from_hive_text(
                 struct_column.get_column(loc), slices[loc], options,
@@ -303,36 +322,39 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
     for (auto r = start; r < end; ++r) {
         if (null_map != nullptr && (*null_map)[r]) {
-            checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
-                             builder.type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
+                                             builder.type()->name()));
             continue;
         }
-        checkArrowStatus(builder.Append(), struct_column.get_name(), builder.type()->name());
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column.get_name(),
+                                         builder.type()->name()));
         for (auto ei = 0; ei < struct_column.tuple_size(); ++ei) {
             auto* elem_builder = builder.field_builder(ei);
-            elem_serdes_ptrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
-                                                        elem_builder, r, r + 1, ctz);
+            RETURN_IF_ERROR(elem_serdes_ptrs[ei]->write_column_to_arrow(
+                    struct_column.get_column(ei), nullptr, elem_builder, r, r + 1, ctz));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int64_t start, int64_t end,
-                                                 const cctz::time_zone& ctz) const {
+Status DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& struct_column = static_cast<ColumnStruct&>(column);
     const auto* concrete_struct = dynamic_cast<const arrow::StructArray*>(arrow_array);
     DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
     for (auto i = 0; i < struct_column.tuple_size(); ++i) {
-        elem_serdes_ptrs[i]->read_column_from_arrow(
-                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz);
+        RETURN_IF_ERROR(elem_serdes_ptrs[i]->read_column_from_arrow(
+                struct_column.get_column(i), concrete_struct->field(i).get(), start, end, ctz));
     }
+    return Status::OK();
 }
 
 template <bool is_binary_format>
@@ -349,7 +371,8 @@ Status DataTypeStructSerDe::_write_column_to_mysql(const IColumn& column,
     bool begin = true;
     for (size_t j = 0; j < elem_serdes_ptrs.size(); ++j) {
         if (!begin) {
-            if (0 != result.push_string(", ", 2)) {
+            if (0 != result.push_string(options.mysql_collection_delim.c_str(),
+                                        options.mysql_collection_delim.size())) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }

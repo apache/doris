@@ -142,29 +142,32 @@ public:
         col_dcm->insert_value(7.89);
 
         col_arr = ColumnArray::create(ColumnInt64::create(), ColumnArray::ColumnOffsets::create());
-        Array array1 = {1, 2, 3};
-        Array array2 = {4};
-        col_arr->insert(array1);
-        col_arr->insert(Array());
-        col_arr->insert(array2);
+        Array array1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                        Field::create_field<TYPE_BIGINT>(3)};
+        Array array2 = {Field::create_field<TYPE_BIGINT>(4)};
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(array1));
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(Array()));
+        col_arr->insert(Field::create_field<TYPE_ARRAY>(array2));
 
         col_map = ColumnMap::create(ColumnString::create(), ColumnInt64::create(),
                                     ColumnArray::ColumnOffsets::create());
-        Array k1 = {"a", "b", "c"};
-        Array v1 = {1, 2, 3};
-        Array k2 = {"d"};
-        Array v2 = {4};
+        Array k1 = {Field::create_field<TYPE_STRING>("a"), Field::create_field<TYPE_STRING>("b"),
+                    Field::create_field<TYPE_STRING>("c")};
+        Array v1 = {Field::create_field<TYPE_BIGINT>(1), Field::create_field<TYPE_BIGINT>(2),
+                    Field::create_field<TYPE_BIGINT>(3)};
+        Array k2 = {Field::create_field<TYPE_STRING>("d")};
+        Array v2 = {Field::create_field<TYPE_BIGINT>(4)};
         Array a = Array();
         Map map1, map2, map3;
-        map1.push_back(k1);
-        map1.push_back(v1);
-        col_map->insert(map1);
-        map3.push_back(a);
-        map3.push_back(a);
-        col_map->insert(map3);
-        map2.push_back(k2);
-        map2.push_back(v2);
-        col_map->insert(map2);
+        map1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        map1.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        col_map->insert(Field::create_field<TYPE_MAP>(map1));
+        map3.push_back(Field::create_field<TYPE_ARRAY>(a));
+        map3.push_back(Field::create_field<TYPE_ARRAY>(a));
+        col_map->insert(Field::create_field<TYPE_MAP>(map3));
+        map2.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        map2.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        col_map->insert(Field::create_field<TYPE_MAP>(map2));
     }
 
     ColumnString::MutablePtr col_str;
@@ -910,7 +913,7 @@ public:
     //virtual StringRef
     //get_raw_data () const which is continues memory layout of the data,
     // we can use this to check the data is stored in the column
-    template <class T>
+    template <PrimitiveType T>
     static void assert_get_raw_data_callback(MutableColumns& load_cols,
                                              DataTypeSerDeSPtrs serders) {
         // just check cols get_raw_data is the same as assert_res
@@ -923,11 +926,13 @@ public:
         auto option = DataTypeSerDe::FormatOptions();
         for (size_t i = 0; i < load_cols.size(); ++i) {
             auto& source_column = load_cols[i];
-            const T* rd = (T*)source_column->get_raw_data().data;
+            const typename PrimitiveTypeTraits<T>::ColumnItemType* rd =
+                    (typename PrimitiveTypeTraits<T>::ColumnItemType*)source_column->get_raw_data()
+                            .data;
             for (size_t j = 0; j < source_column->size(); j++) {
                 Field f;
                 source_column->get(j, f);
-                ASSERT_EQ(f, Field(rd[j]));
+                ASSERT_EQ(f, Field::create_field<T>(rd[j]));
                 // insert field to assert column
                 assert_cols[i]->insert(f);
             }
@@ -2132,26 +2137,6 @@ public:
     }
 
     ////////// =================== column data other interface assert =================== //////////
-    // column date or datetime has some weird function which should be deleted in the future
-    //copy_date_types (const IColumn &col) now we can not delete, just used in ColumnVector to judge the column type is the date or datetime
-    // which in update_crc_with_value_without_null, called from update_crc_with_value used in situation Crc32HashPartitioner::do_hash
-    // but it should be deleted in the future, we should not use the column type to judge the column data type and also do not need to set a sign
-    // for column to present the column belong to datatime or date type
-    static void assert_copy_date_types_callback(MutableColumns& load_cols) {
-        //Create an empty column to verify `copy_date_types` functionality
-        auto option = DataTypeSerDe::FormatOptions();
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
-            auto assert_column = source_column->clone_empty();
-            LOG(INFO) << "now we are in copy_date_types column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size();
-            source_column->copy_date_types(*source_column);
-            // check after copy_date_types: the column type is the same as the source column
-            EXPECT_EQ(source_column->is_date_type(), assert_column->is_date_type());
-            EXPECT_EQ(source_column->is_datetime_type(), assert_column->is_datetime_type());
-        }
-    }
-
     // column_nullable functions
     // only_null ; is_null_at ; is_nullable ; has_null ; has_null(size_t) ;
     static void assert_column_nullable_funcs(MutableColumns& load_cols,
@@ -2346,8 +2331,20 @@ auto check_permute = [](const IColumn& column, const IColumn::Permutation& permu
                         size_t limit, size_t expected_size) {
     auto res_col = column.permute(permutation, limit);
     EXPECT_EQ(res_col->size(), expected_size);
-    for (size_t j = 0; j < expected_size; ++j) {
-        EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+    try {
+        for (size_t j = 0; j < expected_size; ++j) {
+            EXPECT_EQ(res_col->compare_at(j, permutation[j], column, -1), 0);
+        }
+    } catch (doris::Exception& e) {
+        LOG(ERROR) << "Exception: " << e.what();
+        // using field check
+        for (size_t j = 0; j < expected_size; ++j) {
+            Field r;
+            Field l;
+            column.get(permutation[j], r);
+            res_col->get(j, l);
+            EXPECT_EQ(r, l);
+        }
     }
 };
 auto assert_column_vector_permute = [](MutableColumns& cols, size_t num_rows) {
@@ -2369,18 +2366,21 @@ auto assert_column_vector_permute = [](MutableColumns& cols, size_t num_rows) {
         }
     }
 };
-auto assert_column_vector_has_enough_capacity_callback = [](auto x,
-                                                            const MutableColumnPtr& source_column) {
-    auto src_size = source_column->size();
-    auto assert_col = source_column->clone_empty();
-    ASSERT_FALSE(assert_col->has_enough_capacity(*source_column));
-    assert_col->reserve(src_size);
-    ASSERT_TRUE(assert_col->has_enough_capacity(*source_column));
-};
+template <PrimitiveType PType>
+auto assert_column_vector_has_enough_capacity_callback =
+        [](auto x, const MutableColumnPtr& source_column) {
+            auto src_size = source_column->size();
+            auto assert_col = source_column->clone_empty();
+            ASSERT_FALSE(assert_col->has_enough_capacity(*source_column));
+            assert_col->reserve(src_size);
+            ASSERT_TRUE(assert_col->has_enough_capacity(*source_column));
+        };
 
+template <PrimitiveType PType>
 auto assert_column_vector_field_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
-    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColumnVecType =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     auto src_size = source_column->size();
     auto assert_col = source_column->clone_empty();
@@ -2392,13 +2392,15 @@ auto assert_column_vector_field_callback = [](auto x, const MutableColumnPtr& so
     for (size_t i = 0; i != src_size; ++i) {
         Field f;
         assert_col->get(i, f);
-        ASSERT_EQ(f.get<T>(), col_vec_src->get_element(i));
+        ASSERT_EQ(f.get<T>(), col_vec_src->get_element(i)) << f.get_type_name();
     }
 };
 
+template <PrimitiveType PType>
 auto assert_column_vector_get_data_at_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
-    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColumnVecType =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& col_raw_data = col_vec_src->get_data().data();
     auto src_size = source_column->size();
@@ -2407,18 +2409,19 @@ auto assert_column_vector_get_data_at_callback = [](auto x, const MutableColumnP
         ASSERT_EQ(str_value, std::string((const char*)(col_raw_data + i), sizeof(T)));
     }
 };
+
+template <PrimitiveType PType>
 auto assert_column_vector_insert_many_vals_callback = [](auto x,
                                                          const MutableColumnPtr& source_column) {
-    using T = decltype(x);
     std::vector<size_t> insert_vals_count = {0, 10, 1000};
-    auto* col_vec_src = assert_cast<ColumnVector<T>*>(source_column.get());
+    auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
     auto src_size = source_column->size();
     std::vector<size_t> src_data_indices = {0, src_size, src_size - 1, (src_size + 1) >> 1};
 
     auto test_func = [&](size_t clone_count) {
         size_t actual_clone_count = std::min(clone_count, src_size);
         auto target_column = source_column->clone_resized(actual_clone_count);
-        auto* col_vec_target = assert_cast<ColumnVector<T>*>(target_column.get());
+        auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
         for (auto pos = src_data_indices.begin(); pos < src_data_indices.end(); ++pos) {
             if (*pos >= src_size) {
                 continue;
@@ -2440,7 +2443,7 @@ auto assert_column_vector_insert_many_vals_callback = [](auto x,
     test_func(0);
     test_func(10);
 };
-
+template <PrimitiveType PType>
 auto assert_column_vector_insert_from_callback = [](auto x, const MutableColumnPtr& source_column) {
     auto target_column = source_column->clone_empty();
     for (size_t j = 0; j < source_column->size(); ++j) {
@@ -2451,6 +2454,7 @@ auto assert_column_vector_insert_from_callback = [](auto x, const MutableColumnP
         ASSERT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
     }
 };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_data_callback = [](auto x, const MutableColumnPtr& source_column) {
     auto target_column = source_column->clone_empty();
     for (size_t j = 0; j < source_column->size(); ++j) {
@@ -2462,6 +2466,8 @@ auto assert_column_vector_insert_data_callback = [](auto x, const MutableColumnP
         ASSERT_EQ(target_column->get_data_at(j), source_column->get_data_at(j));
     }
 };
+
+template <PrimitiveType PType>
 auto assert_column_vector_insert_many_from_callback = [](auto x,
                                                          const MutableColumnPtr& source_column) {
     using T = decltype(x);
@@ -2469,7 +2475,7 @@ auto assert_column_vector_insert_many_from_callback = [](auto x,
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     std::vector<size_t> insert_vals_count = {0, 3, 10};
     auto* col_vec_src = assert_cast<ColumnType*>(source_column.get());
     auto src_size = source_column->size();
@@ -2517,7 +2523,7 @@ auto assert_column_vector_insert_many_from_callback = [](auto x,
     test_func(0);
     test_func(10);
 };
-
+template <PrimitiveType PType>
 auto assert_column_vector_insert_indices_from_callback = [](auto x,
                                                             const MutableColumnPtr& source_column) {
     // Test case 1: Empty source column
@@ -2597,16 +2603,17 @@ auto assert_column_vector_insert_indices_from_callback = [](auto x,
     test_func(10);
 };
 
+template <PrimitiveType PType>
 auto assert_column_vector_insert_range_of_integer_callback =
         [](auto x, const MutableColumnPtr& source_column) {
             using T = decltype(x);
             auto target_column = source_column->clone();
             auto src_size = source_column->size();
-            auto* col_vec_target = assert_cast<ColumnVector<T>*>(target_column.get());
-            auto* col_vec_src = assert_cast<ColumnVector<T>*>(source_column.get());
+            auto* col_vec_target = assert_cast<ColumnVector<PType>*>(target_column.get());
+            auto* col_vec_src = assert_cast<ColumnVector<PType>*>(source_column.get());
             if constexpr (std::is_same_v<T, Float32> || std::is_same_v<T, Float64>) {
-                float begin {0};
-                float end {11};
+                typename PrimitiveTypeTraits<PType>::ColumnItemType begin {0};
+                typename PrimitiveTypeTraits<PType>::ColumnItemType end {11};
                 EXPECT_THROW(col_vec_target->insert_range_of_integer(begin, end), Exception);
             } else {
                 T begin {0};
@@ -2621,11 +2628,12 @@ auto assert_column_vector_insert_range_of_integer_callback =
                 }
             }
         };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_many_fix_len_data_callback =
         [](auto x, const MutableColumnPtr& source_column) {
             using T = decltype(x);
             using ColumnVecType =
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
             std::vector<size_t> insert_vals_count = {0, 10, 1000};
             auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
             auto src_size = source_column->size();
@@ -2651,7 +2659,8 @@ auto assert_column_vector_insert_many_fix_len_data_callback =
                             EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
                         }
                         for (size_t j = *pos; i < target_size; ++i, ++j) {
-                            EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j));
+                            EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(j))
+                                    << col_vec_src->get_name() << ' ' << col_vec_target->get_name();
                         }
                     }
                 }
@@ -2659,11 +2668,12 @@ auto assert_column_vector_insert_many_fix_len_data_callback =
             test_func(0);
             test_func(10);
         };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_many_raw_data_callback =
         [](auto x, const MutableColumnPtr& source_column) {
             using T = decltype(x);
             using ColumnVecType =
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
             std::vector<size_t> insert_vals_count = {0, 10, 1000};
             auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
             auto src_size = source_column->size();
@@ -2697,6 +2707,7 @@ auto assert_column_vector_insert_many_raw_data_callback =
             test_func(0);
             test_func(10);
         };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_default_callback = [](auto x,
                                                        const MutableColumnPtr& source_column) {
     using T = decltype(x);
@@ -2704,7 +2715,7 @@ auto assert_column_vector_insert_default_callback = [](auto x,
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     auto src_size = source_column->size();
 
@@ -2732,6 +2743,7 @@ auto assert_column_vector_insert_default_callback = [](auto x,
     test_func(0);
     test_func(10);
 };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_many_defaults_callback =
         [](auto x, const MutableColumnPtr& source_column) {
             using T = decltype(x);
@@ -2739,7 +2751,7 @@ auto assert_column_vector_insert_many_defaults_callback =
                     std::is_same_v<T, ColumnString>, ColumnString,
                     std::conditional_t<std::is_same_v<T, ColumnString64>, ColumnString64,
                                        std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>,
-                                                          ColumnVector<T>>>>;
+                                                          ColumnVector<PType>>>>;
             std::vector<size_t> insert_vals_count = {0, 10, 1000};
             auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
             auto src_size = source_column->size();
@@ -2774,9 +2786,11 @@ auto assert_column_vector_insert_many_defaults_callback =
             test_func(0);
             test_func(10);
         };
+template <PrimitiveType PType>
 auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
-    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColumnVecType =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
     auto src_size = source_column->size();
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
@@ -2784,9 +2798,11 @@ auto assert_column_vector_get_bool_callback = [](auto x, const MutableColumnPtr&
         EXPECT_EQ(col_vec_src->get_bool(i), (bool)data[i]);
     }
 };
+template <PrimitiveType PType>
 auto assert_column_vector_get_int64_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
-    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using ColumnVecType =
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
     auto src_size = source_column->size();
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     const auto& data = col_vec_src->get_data();
@@ -2798,6 +2814,7 @@ auto assert_column_vector_get_int64_callback = [](auto x, const MutableColumnPtr
         }
     }
 };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_range_from_common = [](auto x,
                                                         const MutableColumnPtr& source_column,
                                                         bool ignore_overflow = false) {
@@ -2806,7 +2823,7 @@ auto assert_column_vector_insert_range_from_common = [](auto x,
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     std::vector<size_t> insert_vals_count = {0, 10, 1000};
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     auto src_size = source_column->size();
@@ -2863,22 +2880,26 @@ auto assert_column_vector_insert_range_from_common = [](auto x,
         EXPECT_THROW(target_column->insert_range_from(*source_column, 0, src_size + 1), Exception);
     }
 };
-auto assert_column_vector_insert_range_from_callback = [](auto x,
-                                                          const MutableColumnPtr& source_column) {
-    assert_column_vector_insert_range_from_common(std::forward<decltype(x)>(x), source_column);
-};
+template <PrimitiveType PType>
+auto assert_column_vector_insert_range_from_callback =
+        [](auto x, const MutableColumnPtr& source_column) {
+            assert_column_vector_insert_range_from_common<PType>(std::forward<decltype(x)>(x),
+                                                                 source_column);
+        };
+template <PrimitiveType PType>
 auto assert_column_vector_insert_range_from_ignore_overflow_callback =
         [](auto x, const MutableColumnPtr& source_column) {
-            assert_column_vector_insert_range_from_common(std::forward<decltype(x)>(x),
-                                                          source_column, true);
+            assert_column_vector_insert_range_from_common<PType>(std::forward<decltype(x)>(x),
+                                                                 source_column, true);
         };
+template <PrimitiveType PType>
 auto assert_column_vector_pop_back_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
     using ColumnType = std::conditional_t<
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     auto src_size = source_column->size();
     auto* col_vec_src = assert_cast<ColumnType*>(source_column.get());
     std::vector<size_t> pop_back_count = {0, src_size - 1, (src_size + 1) >> 1};
@@ -2902,13 +2923,14 @@ auto assert_column_vector_pop_back_callback = [](auto x, const MutableColumnPtr&
         }
     }
 };
+template <PrimitiveType PType>
 auto assert_column_vector_filter_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
     using ColumnVecType = std::conditional_t<
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     auto source_size = source_column->size();
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     IColumn::Filter all_filtered(source_size, 0);
@@ -2973,13 +2995,14 @@ auto assert_column_vector_filter_callback = [](auto x, const MutableColumnPtr& s
         test_func(filter);
     }
 };
+template <PrimitiveType PType>
 auto assert_column_vector_replicate_callback = [](auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
     using ColumnVecType = std::conditional_t<
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     std::vector<size_t> insert_vals_count = {0, 10, 1000};
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     auto src_size = source_column->size();
@@ -3012,47 +3035,50 @@ auto assert_column_vector_replicate_callback = [](auto x, const MutableColumnPtr
         }
     }
 };
-auto assert_column_vector_replace_column_data_callback = [](auto x,
-                                                            const MutableColumnPtr& source_column) {
-    using T = decltype(x);
-    using ColumnVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
-    auto src_size = source_column->size();
-    std::vector<size_t> self_data_indices = {0, src_size - 1};
-    std::vector<size_t> other_data_indices = {src_size - 1, 0};
+template <PrimitiveType PType>
+auto assert_column_vector_replace_column_data_callback =
+        [](auto x, const MutableColumnPtr& source_column) {
+            using T = decltype(x);
+            using ColumnVecType =
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
+            auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
+            auto src_size = source_column->size();
+            std::vector<size_t> self_data_indices = {0, src_size - 1};
+            std::vector<size_t> other_data_indices = {src_size - 1, 0};
 
-    auto target_column = source_column->clone();
-    auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
-    for (size_t i = 0; i < self_data_indices.size(); ++i) {
-        if (self_data_indices[i] >= src_size || other_data_indices[i] >= src_size) {
-            continue;
-        }
-        target_column->replace_column_data(*source_column, other_data_indices[i],
-                                           self_data_indices[i]);
-    }
-    for (size_t i = 0; i < src_size; ++i) {
-        bool is_replaced = false;
-        for (size_t j = 0; j < self_data_indices.size(); ++j) {
-            if (self_data_indices[j] >= src_size || other_data_indices[j] >= src_size) {
-                continue;
+            auto target_column = source_column->clone();
+            auto* col_vec_target = assert_cast<ColumnVecType*>(target_column.get());
+            for (size_t i = 0; i < self_data_indices.size(); ++i) {
+                if (self_data_indices[i] >= src_size || other_data_indices[i] >= src_size) {
+                    continue;
+                }
+                target_column->replace_column_data(*source_column, other_data_indices[i],
+                                                   self_data_indices[i]);
             }
-            if (i == self_data_indices[j]) {
-                EXPECT_EQ(col_vec_target->get_element(i),
-                          col_vec_src->get_element(other_data_indices[j]));
-                is_replaced = true;
-                break;
+            for (size_t i = 0; i < src_size; ++i) {
+                bool is_replaced = false;
+                for (size_t j = 0; j < self_data_indices.size(); ++j) {
+                    if (self_data_indices[j] >= src_size || other_data_indices[j] >= src_size) {
+                        continue;
+                    }
+                    if (i == self_data_indices[j]) {
+                        EXPECT_EQ(col_vec_target->get_element(i),
+                                  col_vec_src->get_element(other_data_indices[j]));
+                        is_replaced = true;
+                        break;
+                    }
+                }
+                if (!is_replaced) {
+                    EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
+                }
             }
-        }
-        if (!is_replaced) {
-            EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
-        }
-    }
-};
+        };
+template <PrimitiveType PType>
 auto assert_column_vector_replace_column_null_data_callback =
         [](auto x, const MutableColumnPtr& source_column) {
             using T = decltype(x);
             using ColumnVecType =
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>;
             auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
             auto src_size = source_column->size();
 
@@ -3076,6 +3102,7 @@ auto assert_column_vector_replace_column_null_data_callback =
                 EXPECT_EQ(col_vec_target->get_element(i), col_vec_src->get_element(i));
             }
         };
+template <PrimitiveType PType>
 auto assert_column_vector_compare_internal_callback = [](auto x,
                                                          const MutableColumnPtr& source_column) {
     auto col_cloned = source_column->clone();
@@ -3131,11 +3158,13 @@ auto assert_column_vector_compare_internal_callback = [](auto x,
     test_func(1);
     test_func(-1);
 };
+template <PrimitiveType PType>
 auto assert_column_vector_get_max_row_byte_size_callback =
         [](auto x, const MutableColumnPtr& source_column) {
             using T = decltype(x);
             EXPECT_EQ(source_column->get_max_row_byte_size(), sizeof(T));
         };
+template <PrimitiveType PType>
 auto assert_column_vector_clone_resized_callback = [](auto x,
                                                       const MutableColumnPtr& source_column) {
     using T = decltype(x);
@@ -3143,7 +3172,7 @@ auto assert_column_vector_clone_resized_callback = [](auto x,
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     auto* col_vec_src = assert_cast<ColumnVecType*>(source_column.get());
     auto src_size = source_column->size();
 
@@ -3173,6 +3202,7 @@ auto assert_column_vector_clone_resized_callback = [](auto x,
     test_func(src_size);
     test_func(src_size + 10);
 };
+template <PrimitiveType PType>
 auto assert_column_vector_serialize_vec_callback = [](auto x,
                                                       const MutableColumnPtr& source_column) {
     using T = decltype(x);
@@ -3180,7 +3210,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
             std::is_same_v<T, ColumnString>, ColumnString,
             std::conditional_t<
                     std::is_same_v<T, ColumnString64>, ColumnString64,
-                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>>>;
+                    std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<PType>>>>;
     size_t rows = source_column->size();
     {
         // test with null map, but no null values
@@ -3302,6 +3332,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
     test_func(true);
     test_func(false);
 };
+template <PrimitiveType PType>
 auto assert_sort_column_callback = [](auto x, const MutableColumnPtr& source_column) {
     std::vector<UInt64> limits = {0, 10, 100, 1000, 10000, 100000};
     std::vector<MutableColumnPtr> cloned_columns;
@@ -3354,7 +3385,6 @@ auto assert_sort_column_callback = [](auto x, const MutableColumnPtr& source_col
         }
     }
 };
-
 auto assert_column_vector_update_hashes_with_value_callback = [](const MutableColumns& load_cols,
                                                                  DataTypeSerDeSPtrs serders,
                                                                  const std::string& res_file_path) {
@@ -3397,7 +3427,6 @@ auto assert_column_vector_update_hashes_with_value_callback = [](const MutableCo
     test_func(false);
     test_func(true);
 };
-
 auto assert_column_vector_update_crc_hashes_callback = [](const MutableColumns& load_cols,
                                                           DataTypeSerDeSPtrs serders,
                                                           std::vector<PrimitiveType> pts,
@@ -3505,7 +3534,6 @@ auto assert_update_xxHash_with_value_callback = [](const MutableColumns& load_co
     test_func(false);
     test_func(true);
 };
-
 auto assert_update_crc_with_value_callback = [](const MutableColumns& load_cols,
                                                 DataTypeSerDeSPtrs serders,
                                                 const std::string& res_file_path) {

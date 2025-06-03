@@ -85,6 +85,14 @@ inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_agg_pipe
     return {source_pipeline, sink_pipeline};
 }
 
+inline std::pair<pipeline::PipelinePtr, pipeline::PipelinePtr> generate_sort_pipeline(
+        std::shared_ptr<OperatorXBase> source_operator,
+        pipeline::DataSinkOperatorPtr source_side_sink_operator, DataSinkOperatorPtr sink_operator,
+        std::shared_ptr<OperatorXBase> sink_side_source) {
+    return generate_agg_pipeline(source_operator, source_side_sink_operator, sink_operator,
+                                 sink_side_source);
+}
+
 inline std::unique_ptr<SpillPartitionerType> create_spill_partitioner(
         RuntimeState* state, const int32_t partition_count, const std::vector<TExpr>& exprs,
         const RowDescriptor& row_desc) {

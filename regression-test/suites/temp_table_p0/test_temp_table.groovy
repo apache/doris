@@ -170,7 +170,7 @@ suite('test_temp_table', 'p0') {
 
     // truncate
     sql "truncate table t_test_temp_table2"
-    select_result3 = sql "select * from t_test_temp_table2"
+    def select_result3 = sql "select * from t_test_temp_table2"
     assertEquals(select_result3.size(), 0)
     sql "truncate table t_test_temp_table1"
     select_result3 = sql "select * from t_test_temp_table1"
@@ -428,7 +428,7 @@ suite('test_temp_table', 'p0') {
         assertEquals(show_result3.size(), 1)
         assertFalse(show_result3[0][1].contains("CREATE TEMPORARY TABLE"))
 
-        def select_result3 = sql "select * from t_test_temp_table1"
+        select_result3 = sql "select * from t_test_temp_table1"
         assertEquals(select_result3.size(), 0)
 
         // can create a temp table which have same name with other temp table which is created in another session in the same db

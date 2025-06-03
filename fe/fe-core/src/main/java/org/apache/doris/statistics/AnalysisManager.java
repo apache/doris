@@ -60,7 +60,9 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
@@ -499,7 +501,13 @@ public class AnalysisManager implements Writable {
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames).stream()
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
+                .collect(Collectors.toSet());
         infoBuilder.setJobColumns(jobColumns);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
@@ -572,7 +580,13 @@ public class AnalysisManager implements Writable {
 
         long periodTimeInMs = command.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        Set<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames).stream()
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
+                .collect(Collectors.toSet());
         infoBuilder.setJobColumns(jobColumns);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {
@@ -1166,6 +1180,23 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
+        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
+        if (analysisTaskMap == null) {
+            throw new DdlException("Job not exists or already finished");
+        }
+        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
+        if (anyTask == null) {
+            return;
+        }
+        checkPriv(anyTask);
+        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
+        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
+            taskInfo.cancel();
+            logKilled(taskInfo.info);
+        }
+    }
+
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
         Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
         if (analysisTaskMap == null) {
@@ -1333,6 +1364,19 @@ public class AnalysisManager implements Writable {
                 analysisTaskInfoMap.remove(analysisInfo.taskId);
             }
         }
+    }
+
+    public void dropAnalyzeJob(DropAnalyzeJobCommand analyzeJobCommand) throws DdlException {
+        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobCommand.getJobId());
+        if (jobInfo == null) {
+            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobCommand.getJobId()));
+        }
+        checkPriv(jobInfo);
+        long jobId = analyzeJobCommand.getJobId();
+        AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
+        Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
+        replayDeleteAnalysisJob(analyzeDeletionLog);
+        removeAll(findTasks(jobId));
     }
 
     public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
@@ -1705,8 +1749,8 @@ public class AnalysisManager implements Writable {
             if (!(s instanceof SlotReference)) {
                 return;
             }
-            Optional<Column> optionalColumn = ((SlotReference) s).getColumn();
-            Optional<TableIf> optionalTable = ((SlotReference) s).getTable();
+            Optional<Column> optionalColumn = ((SlotReference) s).getOriginalColumn();
+            Optional<TableIf> optionalTable = ((SlotReference) s).getOriginalTable();
             if (optionalColumn.isPresent() && optionalTable.isPresent()
                     && !StatisticsUtil.isUnsupportedType(optionalColumn.get().getType())) {
                 TableIf table = optionalTable.get();

@@ -17,6 +17,7 @@
 
 #include "service/backend_service.h"
 
+#include <absl/strings/str_split.h>
 #include <arrow/record_batch.h>
 #include <fmt/format.h>
 #include <gen_cpp/BackendService.h>
@@ -37,17 +38,17 @@
 #include <map>
 #include <memory>
 #include <ostream>
+#include <ranges>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_client.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -75,6 +76,7 @@
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
+#include "vec/functions/dictionary_factory.h"
 
 namespace apache {
 namespace thrift {
@@ -134,8 +136,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
     int64_t total_download_files = 0;
     TStatus tstatus;
     std::vector<std::string> download_success_files;
+    std::unordered_map<std::string_view, uint64_t> elapsed_time_map;
     Defer defer {[=, &engine, &tstatus, ingest_binlog_tstatus = arg->tstatus, &watch,
-                  &total_download_bytes, &total_download_files]() {
+                  &total_download_bytes, &total_download_files, &elapsed_time_map]() {
         g_ingest_binlog_latency << watch.elapsed_time_microseconds();
         auto elapsed_time_ms = static_cast<int64_t>(watch.elapsed_time_milliseconds());
         double copy_rate = 0.0;
@@ -146,6 +149,16 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                   << total_download_files << " files, total " << total_download_bytes
                   << " bytes, avg rate " << copy_rate
                   << " MB/s. result: " << apache::thrift::ThriftDebugString(tstatus);
+        if (config::ingest_binlog_elapsed_threshold_ms >= 0 &&
+            elapsed_time_ms > config::ingest_binlog_elapsed_threshold_ms) {
+            auto elapsed_details_view =
+                    elapsed_time_map | std::views::transform([](const auto& pair) {
+                        return fmt::format("{}:{}", pair.first, pair.second);
+                    });
+            std::string elapsed_details = fmt::format("{}", fmt::join(elapsed_details_view, ", "));
+            LOG(WARNING) << "ingest binlog elapsed " << elapsed_time_ms << " ms, "
+                         << elapsed_details;
+        }
         if (tstatus.status_code != TStatusCode::OK) {
             // abort txn
             engine.txn_manager()->abort_txn(partition_id, txn_id, local_tablet_id,
@@ -201,8 +214,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    elapsed_time_map.emplace("get_binlog_info", watch.elapsed_time_microseconds());
 
-    std::vector<std::string> binlog_info_parts = strings::Split(binlog_info, ":");
+    std::vector<std::string> binlog_info_parts = absl::StrSplit(binlog_info, ":");
     if (binlog_info_parts.size() != 2) {
         status = Status::RuntimeError("failed to parse binlog info into 2 parts: {}", binlog_info);
         LOG(WARNING) << "failed to get binlog info from " << get_binlog_info_url
@@ -240,6 +254,8 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         status.to_thrift(&tstatus);
         return;
     }
+    elapsed_time_map.emplace("get_rowset_meta", watch.elapsed_time_microseconds());
+
     RowsetMetaPB rowset_meta_pb;
     if (!rowset_meta_pb.ParseFromString(rowset_meta_str)) {
         LOG(WARNING) << "failed to parse rowset meta from " << get_rowset_meta_url;
@@ -298,6 +314,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         segment_file_sizes.push_back(segment_file_size);
         segment_file_urls.push_back(std::move(get_segment_file_size_url));
     }
+    elapsed_time_map.emplace("get_segment_file_size", watch.elapsed_time_microseconds());
 
     // Step 5.2: check data capacity
     uint64_t total_size = std::accumulate(segment_file_sizes.begin(), segment_file_sizes.end(),
@@ -384,6 +401,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             return;
         }
     }
+    elapsed_time_map.emplace("get_segment_files", watch.elapsed_time_microseconds());
 
     // Step 6: get all segment index files
     // Step 6.1: get all segment index files size
@@ -467,6 +485,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             }
         }
     }
+    elapsed_time_map.emplace("get_segment_index_file_size", watch.elapsed_time_microseconds());
 
     // Step 6.2: check data capacity
     uint64_t total_index_size =
@@ -558,6 +577,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             return;
         }
     }
+    elapsed_time_map.emplace("get_segment_index_files", watch.elapsed_time_microseconds());
 
     // Step 7: create rowset && calculate delete bitmap && commit
     // Step 7.1: create rowset
@@ -589,6 +609,7 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             status.to_thrift(&tstatus);
             return;
         }
+        elapsed_time_map.emplace("load_segments", watch.elapsed_time_microseconds());
         if (segments.size() > 1) {
             // calculate delete bitmap between segments
             status = local_tablet->calc_delete_bitmap_between_segments(rowset->rowset_id(),
@@ -601,12 +622,16 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
                 status.to_thrift(&tstatus);
                 return;
             }
+            elapsed_time_map.emplace("calc_delete_bitmap", watch.elapsed_time_microseconds());
         }
 
         static_cast<void>(BaseTablet::commit_phase_update_delete_bitmap(
                 local_tablet, rowset, pre_rowset_ids, delete_bitmap, segments, txn_id,
                 calc_delete_bitmap_token.get(), nullptr));
+        elapsed_time_map.emplace("commit_phase_update_delete_bitmap",
+                                 watch.elapsed_time_microseconds());
         static_cast<void>(calc_delete_bitmap_token->wait());
+        elapsed_time_map.emplace("wait_delete_bitmap", watch.elapsed_time_microseconds());
     }
 
     // Step 7.3: commit txn
@@ -624,11 +649,14 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
         set_tstatus(TStatusCode::RUNTIME_ERROR, std::move(err_msg));
         return;
     }
+    elapsed_time_map.emplace("commit_txn", watch.elapsed_time_microseconds());
 
     if (local_tablet->enable_unique_key_merge_on_write()) {
         engine.txn_manager()->set_txn_related_delete_bitmap(partition_id, txn_id, local_tablet_id,
                                                             local_tablet->tablet_uid(), true,
                                                             delete_bitmap, pre_rowset_ids, nullptr);
+        elapsed_time_map.emplace("set_txn_related_delete_bitmap",
+                                 watch.elapsed_time_microseconds());
     }
 
     tstatus.__set_status_code(TStatusCode::OK);
@@ -878,8 +906,8 @@ void BaseBackendService::get_next(TScanBatchResult& result_, const TScanNextBatc
         // invalid offset
         t_status.status_code = TStatusCode::NOT_FOUND;
         t_status.error_msgs.push_back(
-                strings::Substitute("context_id=$0, send_offset=$1, context_offset=$2", context_id,
-                                    offset, context->offset));
+                absl::Substitute("context_id=$0, send_offset=$1, context_offset=$2", context_id,
+                                 offset, context->offset));
         result_.status = t_status;
     } else {
         // during accessing, should disabled last_access_time
@@ -1055,13 +1083,18 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     PUniqueId p_load_id;
     p_load_id.set_hi(load_id.hi);
     p_load_id.set_lo(load_id.lo);
-    auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id, p_load_id,
-                                                     is_ingrest);
-    if (!status.ok()) {
-        LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
-                     << ", status=" << status.to_string();
-        status.to_thrift(&tstatus);
-        return;
+
+    {
+        // See RowsetBuilder::prepare_txn for details
+        std::shared_lock base_migration_lock(local_tablet->get_migration_lock());
+        auto status = _engine.txn_manager()->prepare_txn(partition_id, *local_tablet, txn_id,
+                                                         p_load_id, is_ingrest);
+        if (!status.ok()) {
+            LOG(WARNING) << "prepare txn failed. txn_id=" << txn_id
+                         << ", status=" << status.to_string();
+            status.to_thrift(&tstatus);
+            return;
+        }
     }
 
     bool is_async = (_ingest_binlog_workers != nullptr);
@@ -1082,7 +1115,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     };
 
     if (is_async) {
-        status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
+        auto status = _ingest_binlog_workers->submit_func(std::move(ingest_binlog_func));
         if (!status.ok()) {
             status.to_thrift(&tstatus);
             return;
@@ -1301,6 +1334,16 @@ void BaseBackendService::get_realtime_exec_status(TGetRealtimeExecStatusResponse
 
     response.__set_status(Status::OK().to_thrift());
     response.__set_report_exec_status_params(*report_exec_status_params);
+}
+
+void BaseBackendService::get_dictionary_status(TDictionaryStatusList& result,
+                                               const std::vector<int64_t>& dictionary_ids) {
+    std::vector<TDictionaryStatus> dictionary_status;
+    ExecEnv::GetInstance()->dict_factory()->get_dictionary_status(dictionary_status,
+                                                                  dictionary_ids);
+    result.__set_dictionary_status_list(dictionary_status);
+    LOG(INFO) << "query for dictionary status, return " << result.dictionary_status_list.size()
+              << " rows";
 }
 
 } // namespace doris

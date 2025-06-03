@@ -16,6 +16,6 @@
 
 -- !master_sql --
 k	int	Yes	true	\N	
-c0	varchar(6)	Yes	true	\N	
-c1	varchar(6)	Yes	true	\N	
+c0	varchar(6)	Yes	false	\N	NONE
+c1	varchar(6)	Yes	false	\N	NONE
 

@@ -47,7 +47,7 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename>
+template <PrimitiveType>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris
@@ -56,11 +56,12 @@ struct DefaultHash;
 
 namespace doris::vectorized {
 
-template <typename T, bool stable>
+template <PrimitiveType T, bool stable>
 struct AggregateFunctionDistinctSingleNumericData {
     /// When creating, the hash table must be small.
-    using Container =
-            std::conditional_t<stable, phmap::flat_hash_map<T, uint32_t>, phmap::flat_hash_set<T>>;
+    using Container = std::conditional_t<
+            stable, phmap::flat_hash_map<typename PrimitiveTypeTraits<T>::CppType, uint32_t>,
+            phmap::flat_hash_set<typename PrimitiveTypeTraits<T>::CppType>>;
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
 
@@ -97,7 +98,7 @@ struct AggregateFunctionDistinctSingleNumericData {
         if constexpr (!stable) {
             uint64_t new_size = 0;
             read_var_uint(new_size, buf);
-            T x;
+            typename PrimitiveTypeTraits<T>::CppType x;
             for (size_t i = 0; i < new_size; ++i) {
                 read_binary(x, buf);
                 data.insert(x);
@@ -111,13 +112,14 @@ struct AggregateFunctionDistinctSingleNumericData {
 
         if constexpr (stable) {
             argument_columns[0]->resize(data.size());
-            auto ptr = (T*)const_cast<char*>(argument_columns[0]->get_raw_data().data);
+            auto ptr = (typename PrimitiveTypeTraits<T>::CppType*)const_cast<char*>(
+                    argument_columns[0]->get_raw_data().data);
             for (auto it : data) {
                 ptr[it.second] = it.first;
             }
         } else {
             for (const auto& elem : data) {
-                argument_columns[0]->insert(elem);
+                argument_columns[0]->insert(Field::create_field<T>(elem));
             }
         }
 

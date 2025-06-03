@@ -199,6 +199,7 @@ public class JdbcExternalTable extends ExternalTable {
 
     @Override
     public long fetchRowCount() {
+        makeSureInitialized();
         Map<String, String> params = new HashMap<>();
         params.put("ctlName", catalog.getName());
         params.put("dbName", this.db.getRemoteName());

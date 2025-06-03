@@ -278,6 +278,48 @@ public:
         DerivedCounterFunction _counter_fn;
     };
 
+    using ConditionCounterFunction = std::function<bool(int64_t, int64_t)>;
+
+    // ConditionCounter is a specialized counter that only updates its value when a specific condition is met.
+    // It uses a condition function (condition_func) to determine when the counter's value should be updated.
+    // This type of counter is particularly useful for tracking maximum values, minimum values, or other metrics
+    // that should only be updated when they meet certain criteria.
+    // For example, it can be used to record the maximum value of a specific metric during query execution,
+    // or to update the counter only when a new value exceeds some threshold.
+    class ConditionCounter : public Counter {
+    public:
+        ConditionCounter(TUnit::type type, const ConditionCounterFunction& condition_func,
+                         int64_t level = 2, int64_t condition = 0, int64_t value = 0)
+                : Counter(type, value, level),
+                  _condition(condition),
+                  _value(value),
+                  _condition_func(condition_func) {}
+
+        Counter* clone() const override {
+            std::lock_guard<std::mutex> l(_mutex);
+            return new ConditionCounter(type(), _condition_func, _condition, value(), level());
+        }
+
+        int64_t value() const override {
+            std::lock_guard<std::mutex> l(_mutex);
+            return _value;
+        }
+
+        void conditional_update(int64_t c, int64_t v) {
+            std::lock_guard<std::mutex> l(_mutex);
+            if (_condition_func(_condition, c)) {
+                _value = v;
+                _condition = c;
+            }
+        }
+
+    private:
+        mutable std::mutex _mutex;
+        int64_t _condition;
+        int64_t _value;
+        ConditionCounterFunction _condition_func;
+    };
+
     // NonZeroCounter will not be converted to Thrift if the value is 0.
     class NonZeroCounter : public Counter {
     public:
@@ -293,6 +335,38 @@ public:
 
     private:
         const std::string _parent_name;
+    };
+
+    class DescriptionEntry : public Counter {
+    public:
+        DescriptionEntry(const std::string& name, const std::string& description)
+                : Counter(TUnit::NONE, 0, 2), _description(description), _name(name) {}
+
+        virtual Counter* clone() const override {
+            return new DescriptionEntry(_name, _description);
+        }
+
+        void set(int64_t value) override {
+            // Do nothing
+        }
+        void set(double value) override {
+            // Do nothing
+        }
+        void update(int64_t delta) override {
+            // Do nothing
+        }
+
+        TCounter to_thrift(const std::string& name) const override {
+            TCounter counter;
+            counter.name = name;
+            counter.__set_level(2);
+            counter.__set_description(_description);
+            return counter;
+        }
+
+    private:
+        const std::string _description;
+        const std::string _name;
     };
 
     // Create a runtime profile object with 'name'.
@@ -348,6 +422,9 @@ public:
             const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
             int64_t level = 2);
 
+    // Add a description entry under target counter.
+    void add_description(const std::string& name, const std::string& description,
+                         std::string parent_counter_name);
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
@@ -356,6 +433,11 @@ public:
     DerivedCounter* add_derived_counter(const std::string& name, TUnit::type type,
                                         const DerivedCounterFunction& counter_fn,
                                         const std::string& parent_counter_name);
+
+    ConditionCounter* add_conditition_counter(const std::string& name, TUnit::type type,
+                                              const ConditionCounterFunction& counter_fn,
+                                              const std::string& parent_counter_name,
+                                              int64_t level = 2);
 
     // Gets the counter object with 'name'.  Returns nullptr if there is no counter with
     // that name.

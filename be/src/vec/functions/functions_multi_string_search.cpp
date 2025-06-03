@@ -104,7 +104,7 @@ public:
                     name);
         }
 
-        auto col_res = ColumnVector<ResultType>::create();
+        auto col_res = ColumnVector<Impl::ResultPType>::create();
         auto col_offsets = ColumnArray::ColumnOffsets::create();
 
         auto& vec_res = col_res->get_data();
@@ -163,16 +163,19 @@ struct MultiMatchTraits {
     enum class Find { Any, AnyIndex };
 };
 
-template <typename ResultType_, MultiMatchTraits::Find Find, bool WithEditDistance>
+template <PrimitiveType PType, MultiMatchTraits::Find Find, bool WithEditDistance>
 struct FunctionMultiMatchAnyImpl {
-    using ResultType = ResultType_;
+    using ResultType = typename PrimitiveTypeTraits<PType>::CppType;
+    static constexpr PrimitiveType ResultPType = PType;
 
     static constexpr bool FindAny = (Find == MultiMatchTraits::Find::Any);
     static constexpr bool FindAnyIndex = (Find == MultiMatchTraits::Find::AnyIndex);
 
     static constexpr auto name = "multi_match_any";
 
-    static auto get_return_type() { return std::make_shared<DataTypeNumber<ResultType>>(); }
+    static auto get_return_type() {
+        return std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>();
+    }
 
     /**
      * Prepares the regular expressions and scratch space for Hyperscan.
@@ -339,8 +342,8 @@ struct FunctionMultiMatchAnyImpl {
     }
 };
 
-using FunctionMultiMatchAny = FunctionsMultiStringSearch<
-        FunctionMultiMatchAnyImpl<Int8, MultiMatchTraits::Find::Any, /*WithEditDistance*/ false>>;
+using FunctionMultiMatchAny = FunctionsMultiStringSearch<FunctionMultiMatchAnyImpl<
+        TYPE_TINYINT, MultiMatchTraits::Find::Any, /*WithEditDistance*/ false>>;
 
 void register_function_multi_string_search(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiMatchAny>();

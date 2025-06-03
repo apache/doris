@@ -66,7 +66,7 @@ struct LocalMergeSOrtSourceOperatorTest : public testing::Test {
             LocalStateInfo info {.parent_profile = &profile,
                                  .scan_ranges = {},
                                  .shared_state = shared_states[i].get(),
-                                 .le_state_map = {},
+                                 .shared_state_map = {},
                                  .task_idx = i};
             EXPECT_TRUE(local_state->init(runtime_states[i].get(), info));
             runtime_states[i]->resize_op_id_to_local_state(-100);

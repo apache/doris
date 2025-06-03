@@ -40,27 +40,22 @@
 #include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 template <typename T>
 class ColumnDecimal;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionAvgData {
-    using ResultType = T;
-    T sum {};
+    using ResultType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -83,15 +78,16 @@ struct AggregateFunctionAvgData {
             return static_cast<ResultT>(sum);
         }
         // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
-        if constexpr (IsDecimalV2<T> && IsDecimalV2<ResultT>) {
+        if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
             Decimal128V2 ret(cal_ret.value());
             return ret;
         } else {
-            if constexpr (IsDecimal256<T>) {
-                return static_cast<ResultT>(sum / T(count));
+            if constexpr (T == TYPE_DECIMAL256) {
+                return static_cast<ResultT>(sum /
+                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
             } else {
                 return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
             }
@@ -110,21 +106,21 @@ struct AggregateFunctionAvgData {
 };
 
 /// Calculates arithmetic mean of numbers.
-template <typename T, typename Data>
+template <PrimitiveType T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
     using ResultType = std::conditional_t<
-            IsDecimalV2<T>, Decimal128V2,
-            std::conditional_t<IsDecimalNumber<T>, typename Data::ResultType, Float64>>;
+            T == TYPE_DECIMALV2, Decimal128V2,
+            std::conditional_t<is_decimal(T), typename Data::ResultType, Float64>>;
     using ResultDataType = std::conditional_t<
-            IsDecimalV2<T>, DataTypeDecimal<Decimal128V2>,
-            std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<typename Data::ResultType>,
-                               DataTypeNumber<Float64>>>;
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+            T == TYPE_DECIMALV2, DataTypeDecimal<Decimal128V2>,
+            std::conditional_t<is_decimal(T), DataTypeDecimal<typename Data::ResultType>,
+                               DataTypeFloat64>>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = std::conditional_t<
-            IsDecimalV2<T>, ColumnDecimal<Decimal128V2>,
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
+            T == TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>,
+            std::conditional_t<is_decimal(T), ColumnDecimal<typename Data::ResultType>,
                                ColumnFloat64>>;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
@@ -139,7 +135,7 @@ public:
     String get_name() const override { return "avg"; }
 
     DataTypePtr get_return_type() const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
         } else {
             return std::make_shared<ResultDataType>();
@@ -153,7 +149,7 @@ public:
 #endif
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             this->data(place).sum += (DataType)column.get_data()[row_num].value;
         } else {
             this->data(place).sum += (DataType)column.get_data()[row_num];
@@ -168,7 +164,7 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        if constexpr (IsDecimalNumber<T>) {
+        if constexpr (is_decimal(T)) {
             this->data(place).sum += this->data(rhs).sum.value;
         } else {
             this->data(place).sum += this->data(rhs).sum;

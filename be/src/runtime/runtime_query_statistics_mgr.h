@@ -30,7 +30,6 @@
 #include <thread>
 #include <unordered_map>
 
-#include "gutil/integral_types.h"
 #include "runtime/workload_management/resource_context.h"
 #include "runtime/workload_management/workload_condition.h"
 
@@ -58,6 +57,9 @@ public:
 
     // used for backend_active_tasks
     void get_active_be_tasks_block(vectorized::Block* block);
+
+    // used for MemoryReclamation
+    void get_tasks_resource_context(std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs);
 
     void start_report_thread();
     void report_query_profiles_thread();

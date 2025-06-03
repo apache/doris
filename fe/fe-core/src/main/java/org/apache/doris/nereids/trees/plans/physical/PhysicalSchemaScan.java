@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -44,7 +46,8 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
     public PhysicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
-        super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
+        super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties,
+                ImmutableList.of());
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;
@@ -55,7 +58,7 @@ public class PhysicalSchemaScan extends PhysicalCatalogRelation {
             PhysicalProperties physicalProperties, Statistics statistics,
             Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable) {
         super(id, PlanType.PHYSICAL_SCHEMA_SCAN, table, qualifier, groupExpression,
-                logicalProperties, physicalProperties, statistics);
+                logicalProperties, physicalProperties, statistics, ImmutableList.of());
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
         this.schemaTable = schemaTable;

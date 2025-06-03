@@ -81,7 +81,7 @@ inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
 inline void serialize_and_deserialize_pb_test() {
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -180,7 +180,7 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // int with 1024 batch size
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -196,7 +196,7 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // ipv4
     {
-        auto vec = vectorized::ColumnVector<IPv4>::create();
+        auto vec = vectorized::ColumnIPv4 ::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -206,7 +206,7 @@ inline void serialize_and_deserialize_pb_test() {
     }
     // ipv6
     {
-        auto vec = vectorized::ColumnVector<IPv6>::create();
+        auto vec = vectorized::ColumnIPv6::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -224,10 +224,10 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
     // ipv6
     {
         std::string ip = "5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b";
-        auto vec = vectorized::ColumnVector<IPv6>::create();
+        auto vec = vectorized::ColumnIPv6::create();
         IPv6Value ipv6;
         EXPECT_TRUE(ipv6.from_string(ip));
-        vec->insert(ipv6.value());
+        vec->insert(Field::create_field<TYPE_IPV6>(ipv6.value()));
 
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
         auto serde = data_type->get_serde(0);
@@ -254,10 +254,10 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
     // ipv4
     {
         std::string ip = "192.0.0.1";
-        auto vec = vectorized::ColumnVector<IPv4>::create();
+        auto vec = vectorized::ColumnIPv4::create();
         IPv4Value ipv4;
         EXPECT_TRUE(ipv4.from_string(ip));
-        vec->insert(ipv4.value());
+        vec->insert(Field::create_field<TYPE_IPV4>(ipv4.value()));
 
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
         auto serde = data_type->get_serde(0);

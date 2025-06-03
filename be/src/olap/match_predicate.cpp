@@ -59,21 +59,34 @@ Status MatchPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& nam
     const std::string& name = name_with_type.first;
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     auto inverted_index_query_type = _to_inverted_index_query_type(_match_type);
-    TypeDescriptor column_desc = type->get_type_as_type_descriptor();
-    if (is_string_type(column_desc.type) ||
-        (column_desc.type == TYPE_ARRAY && is_string_type(column_desc.children[0].type))) {
+    auto primitive_type = type->get_primitive_type();
+    if (is_string_type(primitive_type) ||
+        (primitive_type == TYPE_ARRAY &&
+         is_string_type(assert_cast<const vectorized::DataTypeArray*>(
+                                vectorized::remove_nullable(type).get())
+                                ->get_nested_type()
+                                ->get_primitive_type()))) {
         StringRef match_value;
         auto length = _value.length();
         char* buffer = const_cast<char*>(_value.c_str());
         match_value.replace(buffer, int32_t(length)); //is it safe?
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
                 name, &match_value, inverted_index_query_type, num_rows, roaring));
-    } else if (column_desc.type == TYPE_ARRAY &&
-               is_numeric_type(
-                       TabletColumn::get_field_type_by_type(column_desc.children[0].type))) {
-        std::vector<char> buf(column_desc.children[0].len);
-        const TypeInfo* type_info = get_scalar_type_info(
-                TabletColumn::get_field_type_by_type(column_desc.children[0].type));
+    } else if (primitive_type == TYPE_ARRAY &&
+               is_numeric_type(TabletColumn::get_field_type_by_type(
+                       assert_cast<const vectorized::DataTypeArray*>(
+                               vectorized::remove_nullable(type).get())
+                               ->get_nested_type()
+                               ->get_primitive_type()))) {
+        std::vector<char> buf(assert_cast<const vectorized::DataTypeArray*>(
+                                      vectorized::remove_nullable(type).get())
+                                      ->get_nested_type()
+                                      ->get_size_of_value_in_memory());
+        const TypeInfo* type_info = get_scalar_type_info(TabletColumn::get_field_type_by_type(
+                assert_cast<const vectorized::DataTypeArray*>(
+                        vectorized::remove_nullable(type).get())
+                        ->get_nested_type()
+                        ->get_primitive_type()));
         RETURN_IF_ERROR(type_info->from_string(buf.data(), _value));
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
                 name, buf.data(), inverted_index_query_type, num_rows, roaring, true));

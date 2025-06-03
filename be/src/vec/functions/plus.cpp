@@ -28,15 +28,18 @@
 
 namespace doris::vectorized {
 
-template <typename A, typename B>
+template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct PlusImpl {
-    using ResultType = typename NumberTraits::ResultOfAdditionMultiplication<A, B>::Type;
+    using A = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
+    using B = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfAdditionMultiplication<A, B>::Type;
     static const constexpr bool allow_decimal = true;
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b) {
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b) {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Result>(a) + b;
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) + b;
     }
 
     template <typename Result = DecimalV2Value>
@@ -45,9 +48,10 @@ struct PlusImpl {
     }
 
     /// Apply operation and check overflow. It's used for Decimal operations. @returns true if overflowed, false otherwise.
-    template <typename Result = ResultType>
-    static inline bool apply(A a, B b, Result& c) {
-        return common::add_overflow(static_cast<Result>(a), b, c);
+    template <PrimitiveType Result = ResultType>
+    static inline bool apply(A a, B b, typename PrimitiveTypeTraits<Result>::CppNativeType& c) {
+        return common::add_overflow(
+                static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a), b, c);
     }
 };
 

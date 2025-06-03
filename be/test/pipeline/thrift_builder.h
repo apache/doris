@@ -75,6 +75,10 @@ public:
         _query_options.__set_enable_local_shuffle(enable_local_shuffle);
         return *this;
     }
+    TQueryOptionsBuilder& set_enable_reserve_memory(bool enable_reserve_memory) {
+        _query_options.__set_enable_reserve_memory(enable_reserve_memory);
+        return *this;
+    }
     TQueryOptionsBuilder& set_runtime_filter_wait_infinitely(bool runtime_filter_wait_infinitely) {
         _query_options.__set_runtime_filter_wait_infinitely(runtime_filter_wait_infinitely);
         return *this;

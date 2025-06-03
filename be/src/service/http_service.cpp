@@ -43,6 +43,7 @@
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
 #include "http/action/delete_bitmap_action.h"
+#include "http/action/dictionary_status_action.h"
 #include "http/action/download_action.h"
 #include "http/action/download_binlog_action.h"
 #include "http/action/file_cache_action.h"
@@ -219,6 +220,11 @@ Status HttpService::start() {
             _pool.add(new DumpJeHeapProfileActions(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump_only",
                                       dump_jeheap_profile_action);
+
+    // register dictionary status action
+    DictionaryStatusAction* dict_status_action = _pool.add(new DictionaryStatusAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/dictionary_status",
+                                      dict_status_action);
 
     // register metrics
     {

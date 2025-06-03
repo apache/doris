@@ -123,7 +123,7 @@ public class ShowStagesCommand extends ShowCommand {
                 result.add(stage.getArn());
                 results.add(result);
             }
-            return new ShowResultSet(META_DATA, results);
+            return new ShowResultSet(getMetaData(), results);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -132,6 +132,11 @@ public class ShowStagesCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowStagesCommand(this, context);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     @Override

@@ -229,7 +229,7 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaCatalogMetaCacheStatsScanner::create_unique();
     case TSchemaTableType::SCH_BACKEND_KERBEROS_TICKET_CACHE:
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
-    case TSchemaTableType::SCH_ROUTINE_LOAD_JOB:
+    case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
@@ -240,8 +240,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
 void SchemaScanner::_init_block(vectorized::Block* src_block) {
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(get_column_desc());
     for (int i = 0; i < columns_desc.size(); ++i) {
-        TypeDescriptor descriptor(columns_desc[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                columns_desc[i].type, true);
         src_block->insert(vectorized::ColumnWithTypeAndName(data_type->create_column(), data_type,
                                                             columns_desc[i].name));
     }
@@ -285,55 +285,55 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
 
         case TYPE_BOOLEAN: {
             uint8_t num = *reinterpret_cast<bool*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnBool*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_TINYINT: {
             int8_t num = *reinterpret_cast<int8_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt8*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_SMALLINT: {
             int16_t num = *reinterpret_cast<int16_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt16*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_INT: {
             int32_t num = *reinterpret_cast<int32_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_BIGINT: {
             int64_t num = *reinterpret_cast<int64_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_LARGEINT: {
             __int128 num;
             memcpy(&num, data, sizeof(__int128));
-            assert_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt128*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_FLOAT: {
             float num = *reinterpret_cast<float*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnFloat32*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_DOUBLE: {
             double num = *reinterpret_cast<double*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnFloat64*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_DATE: {
-            assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+            assert_cast<vectorized::ColumnDate*>(col_ptr)->insert_data(
                     reinterpret_cast<char*>(data), 0);
             break;
         }
@@ -345,7 +345,7 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATETIME: {
-            assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+            assert_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(
                     reinterpret_cast<char*>(data), 0);
             break;
         }
@@ -412,20 +412,17 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
 
     switch (type) {
     case TYPE_BIGINT: {
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                cell.longVal);
+        reinterpret_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(cell.longVal);
         break;
     }
 
     case TYPE_INT: {
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(
-                cell.intVal);
+        reinterpret_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(cell.intVal);
         break;
     }
 
     case TYPE_BOOLEAN: {
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(
-                cell.boolVal);
+        reinterpret_cast<vectorized::ColumnUInt8*>(col_ptr)->insert_value(cell.boolVal);
         break;
     }
 
@@ -443,7 +440,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
         datas[0] = src;
         auto data = datas[0];
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+        reinterpret_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(
                 reinterpret_cast<char*>(data), 0);
         break;
     }

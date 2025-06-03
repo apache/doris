@@ -65,93 +65,97 @@ suite("test_variant_arrayInvertedIdx_profile", "nonConcurrent"){
     sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
     sql """ set enable_profile = true;"""
     sql """ set profile_level = 2;"""
-    sql "set disable_inverted_index_v1_for_variant = false"
+    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
 
-    sql "DROP TABLE IF EXISTS ${indexTblName}"
-    def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
-    // create 1 replica table
-    sql """
-	CREATE TABLE IF NOT EXISTS `${indexTblName}` (
-      `apply_date` date NULL COMMENT '',
-      `id` varchar(60) NOT NULL COMMENT '',
-      `inventors` variant NULL COMMENT '',
-      INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`apply_date`, `id`)
-    COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`id`) BUCKETS 1
-    PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1",
-    "is_being_synced" = "false",
-    "storage_format" = "V2",
-    "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
-    "inverted_index_storage_format" = "$storageFormat"
-    );
-    """
+        sql "DROP TABLE IF EXISTS ${indexTblName}"
+        def storageFormat = new Random().nextBoolean() ? "V1" : "V2"
+        if (storageFormat == "V1" && isCloudMode()) {
+            return;
+        }
+        // create 1 replica table
+        sql """
+        CREATE TABLE IF NOT EXISTS `${indexTblName}` (
+        `apply_date` date NULL COMMENT '',
+        `id` varchar(60) NOT NULL COMMENT '',
+        `inventors` variant NULL COMMENT '',
+        INDEX index_inverted_inventors(inventors) USING INVERTED  COMMENT ''
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`apply_date`, `id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false",
+        "inverted_index_storage_format" = "$storageFormat"
+        );
+        """
 
-    sql """ INSERT INTO `var_arr_idx` (`apply_date`, `id`, `inventors`) VALUES
-        ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '{"inventors":["a", "b", "c"]}'),
-        ('2017-01-01', '8fcb57ae675f0af4d613d9e6c0e8a2a3', '{"inventors":[]}'),
-        ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', '{"inventors": ["d", "e", "f", "g", "h", "i", "j", "k", "l"]}'),
-        ('2017-01-01', '8fcb57ae675f0af4d613d9e6c0e8a2a4', NULL),
-         ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332e', '{"inventors": ["m", "n", "o", "p", "q", "r", "s", "t", "u"]}'),
-         ('2017-01-01', '8fcb57ae675f0af4d613d9e6c0e8a2a6', '{"inventors": [null,null,null]}'),
-         ('2019-01-01', 'd93d942d985a8fb7547c72dada8d332f', '{"inventors": ["v", "w", "x", "y", "z"]}'); """
+        sql """ INSERT INTO `var_arr_idx` (`apply_date`, `id`, `inventors`) VALUES
+            ('2017-01-01', '6afef581285b6608bf80d5a4e46cf839', '{"inventors":["a", "b", "c"]}'),
+            ('2017-01-01', '8fcb57ae675f0af4d613d9e6c0e8a2a3', '{"inventors":[]}'),
+            ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332d', '{"inventors": ["d", "e", "f", "g", "h", "i", "j", "k", "l"]}'),
+            ('2017-01-01', '8fcb57ae675f0af4d613d9e6c0e8a2a4', NULL),
+            ('2017-01-01', 'd93d942d985a8fb7547c72dada8d332e', '{"inventors": ["m", "n", "o", "p", "q", "r", "s", "t", "u"]}'),
+            ('2017-01-01', '8fcb57ae675f0af4d613d9e6c0e8a2a6', '{"inventors": [null,null,null]}'),
+            ('2019-01-01', 'd93d942d985a8fb7547c72dada8d332f', '{"inventors": ["v", "w", "x", "y", "z"]}'); """
 
 
-    qt_sql1 """ select count() from ${indexTblName}"""
-    def checkpoints_name = "array_func.array_contains"
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])
-        order_qt_sql2 "select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id;"
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
-    }
+        qt_sql1 """ select count() from ${indexTblName}"""
+        def checkpoints_name = "array_func.array_contains"
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])
+            order_qt_sql2 "select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id;"
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
+        }
 
-    int randomInt = new Random().nextInt(10)
+        int randomInt = new Random().nextInt(10)
 
-    if (randomInt % 2) {
-        profile("test_profile_time_${randomInt}") {
-            run {
-                sql "/* test_profile_time_${randomInt} */ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id"
+        if (randomInt % 2) {
+            profile("test_profile_time_${randomInt}") {
+                run {
+                    sql "/* test_profile_time_${randomInt} */ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id"
+                }
+
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("RowsInvertedIndexFiltered:  6"))
+                }
             }
+        } else {
+            profile("test_profile_time_${randomInt}") {
+                run {
+                    sql "/* test_profile_time_${randomInt} */ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id"
+                }
 
-            check { profileString, exception ->
-                log.info(profileString)
-                assertTrue(profileString.contains("RowsInvertedIndexFiltered:  6"))
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("RowsInvertedIndexFiltered:  5"))
+                }
             }
         }
-    } else {
-        profile("test_profile_time_${randomInt}") {
-            run {
-                sql "/* test_profile_time_${randomInt} */ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id"
-            }
+    
 
-            check { profileString, exception ->
-                log.info(profileString)
-                assertTrue(profileString.contains("RowsInvertedIndexFiltered:  5"))
-            }
+        // checkRowsInvertedIndexFilter.call("select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id;", 6)
+
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])
+            order_qt_sql3 """ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id; """
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
         }
+        // and apply_date will be vectorized filter left is 6 rows for inverted index
+        order_qt_sql4 """ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2019-01-01' order by id; """
+
+        order_qt_sql5 """ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') or apply_date = '2017-01-01' order by id; """
+        order_qt_sql6 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') order by id; """
+        order_qt_sql7 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id; """
+        order_qt_sql8 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2019-01-01' order by id; """
+        order_qt_sql9 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') or apply_date = '2017-01-01' order by id; """
+        order_qt_sql10 """ select apply_date,id, inventors['inventors'] from var_arr_idx where (array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
     }
-   
-
-    // checkRowsInvertedIndexFilter.call("select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 'w') order by id;", 6)
-
-    try {
-        GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [result_bitmap: 1])
-         order_qt_sql3 """ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id; """
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
-    }
-    // and apply_date will be vectorized filter left is 6 rows for inverted index
-    order_qt_sql4 """ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2019-01-01' order by id; """
-
-    order_qt_sql5 """ select apply_date,id, inventors['inventors'] from var_arr_idx where array_contains(cast(inventors['inventors'] as array<text>), 's') or apply_date = '2017-01-01' order by id; """
-    order_qt_sql6 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') order by id; """
-    order_qt_sql7 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01' order by id; """
-    order_qt_sql8 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2019-01-01' order by id; """
-    order_qt_sql9 """ select apply_date,id, inventors['inventors'] from var_arr_idx where !array_contains(cast(inventors['inventors'] as array<text>), 's') or apply_date = '2017-01-01' order by id; """
-    order_qt_sql10 """ select apply_date,id, inventors['inventors'] from var_arr_idx where (array_contains(cast(inventors['inventors'] as array<text>), 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
 }

@@ -22,7 +22,7 @@ DIR=$(
 
 source $DIR/common.sh
 
-REGISTER_FILE=$DORIS_HOME/status/be-$MY_IP-register
+REGISTER_FILE="${DORIS_HOME}/status/be-${MY_ID}-register"
 
 add_local_be() {
     wait_master_fe_ready

@@ -43,7 +43,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
@@ -70,6 +69,7 @@ class Dependency;
 class DescriptorTbl;
 class ObjectPool;
 class ExecEnv;
+class IdFileMap;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
@@ -437,9 +437,25 @@ public:
                                    std::make_move_iterator(tablet_infos.end()));
     }
 
-    std::vector<THivePartitionUpdate>& hive_partition_updates() { return _hive_partition_updates; }
+    std::vector<THivePartitionUpdate> hive_partition_updates() const {
+        std::lock_guard<std::mutex> lock(_hive_partition_updates_mutex);
+        return _hive_partition_updates;
+    }
 
-    std::vector<TIcebergCommitData>& iceberg_commit_datas() { return _iceberg_commit_datas; }
+    void add_hive_partition_updates(const THivePartitionUpdate& hive_partition_update) {
+        std::lock_guard<std::mutex> lock(_hive_partition_updates_mutex);
+        _hive_partition_updates.emplace_back(hive_partition_update);
+    }
+
+    std::vector<TIcebergCommitData> iceberg_commit_datas() const {
+        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+        return _iceberg_commit_datas;
+    }
+
+    void add_iceberg_commit_datas(const TIcebergCommitData& iceberg_commit_data) {
+        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
+        _iceberg_commit_datas.emplace_back(iceberg_commit_data);
+    }
 
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
@@ -457,7 +473,7 @@ public:
     [[nodiscard]] bool low_memory_mode() const;
 
     std::weak_ptr<QueryContext> get_query_ctx_weak();
-    WorkloadGroupPtr workload_group();
+    MOCK_FUNCTION WorkloadGroupPtr workload_group();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -475,7 +491,7 @@ public:
                        : 0;
     }
 
-    bool enable_share_hash_table_for_broadcast_join() const {
+    MOCK_FUNCTION bool enable_share_hash_table_for_broadcast_join() const {
         return _query_options.__isset.enable_share_hash_table_for_broadcast_join &&
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
@@ -546,14 +562,13 @@ public:
         return _task_execution_context;
     }
 
-    Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            std::shared_ptr<RuntimeFilterProducer>* producer_filter,
-                                            RuntimeProfile* parent_profile);
+    Status register_producer_runtime_filter(
+            const doris::TRuntimeFilterDesc& desc,
+            std::shared_ptr<RuntimeFilterProducer>* producer_filter);
 
-    Status register_consumer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge, int node_id,
-                                            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter,
-                                            RuntimeProfile* parent_profile);
+    Status register_consumer_runtime_filter(
+            const doris::TRuntimeFilterDesc& desc, bool need_local_merge, int node_id,
+            std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
     bool is_nereids() const;
 
@@ -635,10 +650,6 @@ public:
 
     void set_task_id(int id) { _task_id = id; }
 
-    void set_task(pipeline::PipelineTask* task) { _task = task; }
-
-    pipeline::PipelineTask* get_task() const { return _task; }
-
     int task_id() const { return _task_id; }
 
     void set_task_num(int task_num) { _task_num = task_num; }
@@ -646,6 +657,10 @@ public:
     int task_num() const { return _task_num; }
 
     int profile_level() const { return _profile_level; }
+
+    std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
+
+    void set_id_file_map();
 
 private:
     Status create_error_log_file();
@@ -746,8 +761,10 @@ private:
     int _task_id = -1;
     int _task_num = 0;
 
+    mutable std::mutex _hive_partition_updates_mutex;
     std::vector<THivePartitionUpdate> _hive_partition_updates;
 
+    mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
@@ -771,6 +788,9 @@ private:
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     std::mutex _s3_error_log_file_lock;
+
+    // used for encoding the global lazy materialize
+    std::shared_ptr<IdFileMap> _id_file_map = nullptr;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

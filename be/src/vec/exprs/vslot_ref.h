@@ -59,6 +59,10 @@ public:
 
     size_t estimate_memory(const size_t rows) override { return 0; }
 
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
 private:
     int _slot_id;
     int _column_id;

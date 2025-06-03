@@ -22,7 +22,6 @@
 
 #include <cstddef>
 #include <iostream>
-#include <limits>
 #include <type_traits>
 
 #include "testutil/test_util.h"
@@ -35,6 +34,7 @@
 #include "vec/data_types/common_data_type_serder_test.h"
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_decimal_serde.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -155,6 +155,7 @@ public:
     void SetUp() override { helper = std::make_unique<CommonDataTypeTest>(); }
     std::unique_ptr<CommonDataTypeTest> helper;
 };
+
 TEST_F(DataTypeDecimalSerDeTest, serdes) {
     auto test_func = [](const auto& serde, const auto& source_column) {
         using SerdeType = decltype(serde);

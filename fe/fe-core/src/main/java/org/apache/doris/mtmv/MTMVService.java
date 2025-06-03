@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public class MTMVService implements EventListener {
@@ -75,23 +77,23 @@ public class MTMVService implements EventListener {
     }
 
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        Objects.requireNonNull(mtmv);
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
         LOG.info("registerMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.registerMTMV(mtmv, dbId);
         }
     }
 
-    public void deregisterMTMV(MTMV mtmv) {
-        Objects.requireNonNull(mtmv);
+    public void unregisterMTMV(MTMV mtmv) {
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
         LOG.info("deregisterMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.deregisterMTMV(mtmv);
+            mtmvHookService.unregisterMTMV(mtmv);
         }
     }
 
     public void createMTMV(MTMV mtmv) throws DdlException, AnalysisException {
-        Objects.requireNonNull(mtmv);
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
         LOG.info("createMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.createMTMV(mtmv);
@@ -99,7 +101,7 @@ public class MTMVService implements EventListener {
     }
 
     public void dropMTMV(MTMV mtmv) throws DdlException {
-        Objects.requireNonNull(mtmv);
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
         LOG.info("dropMTMV: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.dropMTMV(mtmv);
@@ -107,8 +109,8 @@ public class MTMVService implements EventListener {
     }
 
     public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
-        Objects.requireNonNull(mtmv);
-        Objects.requireNonNull(alterMTMV);
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
+        Objects.requireNonNull(alterMTMV, "alterMTMV can not be null");
         LOG.info("alterMTMV, mtmvName: {}, AlterMTMV: {}", mtmv.getName(), alterMTMV);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.alterMTMV(mtmv, alterMTMV);
@@ -116,7 +118,7 @@ public class MTMVService implements EventListener {
     }
 
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
-        Objects.requireNonNull(info);
+        Objects.requireNonNull(info, "info can not be null");
         LOG.info("refreshMTMV, RefreshMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.refreshMTMV(info);
@@ -124,24 +126,26 @@ public class MTMVService implements EventListener {
     }
 
     public void dropTable(Table table) {
-        Objects.requireNonNull(table);
+        Objects.requireNonNull(table, "table can not be null");
         LOG.info("dropTable, tableName: {}", table.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.dropTable(table);
         }
     }
 
-    public void alterTable(Table table, String oldTableName) {
-        Objects.requireNonNull(table);
-        LOG.info("alterTable, tableName: {}", table.getName());
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+        Objects.requireNonNull(oldTableInfo, "oldTableInfo can not be null");
+        Objects.requireNonNull(newTableInfo, "newTableInfo can not be null");
+        LOG.info("alterTable, oldTableInfo: {}, newTableInfo: {}, isReplace: {}", oldTableInfo, newTableInfo,
+                isReplace);
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterTable(table, oldTableName);
+            mtmvHookService.alterTable(oldTableInfo, newTableInfo, isReplace);
         }
     }
 
     public void refreshComplete(MTMV mtmv, MTMVRelation cache, MTMVTask task) {
-        Objects.requireNonNull(mtmv);
-        Objects.requireNonNull(task);
+        Objects.requireNonNull(mtmv, "mtmv can not be null");
+        Objects.requireNonNull(task, "task can not be null");
         LOG.info("refreshComplete: " + mtmv.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.refreshComplete(mtmv, cache, task);
@@ -149,7 +153,7 @@ public class MTMVService implements EventListener {
     }
 
     public void pauseMTMV(PauseMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
-        Objects.requireNonNull(info);
+        Objects.requireNonNull(info, "info can not be null");
         LOG.info("pauseMTMV, PauseMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.pauseMTMV(info);
@@ -157,7 +161,7 @@ public class MTMVService implements EventListener {
     }
 
     public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
-        Objects.requireNonNull(info);
+        Objects.requireNonNull(info, "info can not be null");
         LOG.info("resumeMTMV, ResumeMTMVInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.resumeMTMV(info);
@@ -165,7 +169,7 @@ public class MTMVService implements EventListener {
     }
 
     public void cancelMTMVTask(CancelMTMVTaskInfo info) throws MetaNotFoundException, DdlException, JobException {
-        Objects.requireNonNull(info);
+        Objects.requireNonNull(info, "info can not be null");
         LOG.info("cancelMTMVTask, CancelMTMVTaskInfo: {}", info);
         for (MTMVHookService mtmvHookService : hooks.values()) {
             mtmvHookService.cancelMTMVTask(info);
@@ -174,7 +178,7 @@ public class MTMVService implements EventListener {
 
     @Override
     public void processEvent(Event event) throws EventException {
-        Objects.requireNonNull(event);
+        Objects.requireNonNull(event, "event can not be null");
         if (!(event instanceof TableEvent)) {
             return;
         }
@@ -198,7 +202,7 @@ public class MTMVService implements EventListener {
             try {
                 // check if mtmv should trigger by event
                 MTMV mtmv = (MTMV) MTMVUtil.getTable(baseTableInfo);
-                if (canRefresh(mtmv, table)) {
+                if (shouldRefreshOnBaseTableDataChange(mtmv, table)) {
                     jobManager.onCommit(mtmv);
                 }
             } catch (Exception e) {
@@ -207,8 +211,16 @@ public class MTMVService implements EventListener {
         }
     }
 
-    private boolean canRefresh(MTMV mtmv, TableIf table)   {
-        if (mtmv.getExcludedTriggerTables().contains(table.getName())) {
+    private boolean shouldRefreshOnBaseTableDataChange(MTMV mtmv, TableIf table) {
+        TableName tableName = null;
+        try {
+            tableName = new TableName(table);
+        } catch (AnalysisException e) {
+            LOG.warn("skip refresh mtmv: {}, because get TableName failed: {}",
+                    mtmv.getName(), table.getName());
+            return false;
+        }
+        if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), tableName)) {
             LOG.info("skip refresh mtmv: {}, because exclude trigger table: {}",
                     mtmv.getName(), table.getName());
             return false;

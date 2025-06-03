@@ -49,14 +49,13 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/binlog.h"
 #include "olap/data_dir.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
@@ -72,7 +71,6 @@
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -92,6 +90,10 @@ using namespace ErrorCode;
 extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
+bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap(
+        "max_rowsets_with_useless_delete_bitmap", 0);
+bvar::Status<int64_t> g_max_rowsets_with_useless_delete_bitmap_version(
+        "max_rowsets_with_useless_delete_bitmap_version", 0);
 
 namespace {
 bvar::Adder<uint64_t> unused_rowsets_counter("ununsed_rowsets_counter");
@@ -246,6 +248,7 @@ static Status load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
     for (auto* data_dir : data_dirs) {
         st = pool->submit_func([&, data_dir] {
+            SCOPED_INIT_THREAD_CONTEXT();
             {
                 std::lock_guard lock(result_mtx);
                 if (!result.ok()) { // Some data dir has failed
@@ -300,16 +303,17 @@ Status StorageEngine::_open() {
 
 Status StorageEngine::_init_store_map() {
     std::vector<std::thread> threads;
-    SpinLock error_msg_lock;
+    std::mutex error_msg_lock;
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         auto store = std::make_unique<DataDir>(*this, path.path, path.capacity_bytes,
                                                path.storage_medium);
         threads.emplace_back([store = store.get(), &error_msg_lock, &error_msg]() {
+            SCOPED_INIT_THREAD_CONTEXT();
             auto st = store->init();
             if (!st.ok()) {
                 {
-                    std::lock_guard<SpinLock> l(error_msg_lock);
+                    std::lock_guard<std::mutex> l(error_msg_lock);
                     error_msg.append(st.to_string() + ";");
                 }
                 LOG(WARNING) << "Store load failed, status=" << st.to_string()
@@ -949,6 +953,11 @@ void StorageEngine::_clean_unused_rowset_metas() {
         for (auto& rowset_meta : invalid_rowset_metas) {
             static_cast<void>(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
+            if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
+                tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(
+                        rowset_meta->rowset_id());
+            }
         }
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
@@ -1183,12 +1192,14 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size();
+    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size()
+              << ", unused delete bitmap size: " << _unused_delete_bitmap.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
     auto due_to_use_count = 0;
     auto due_to_not_delete_file = 0;
     auto due_to_delayed_expired_ts = 0;
+    std::set<int64_t> tablets_to_save_meta;
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
@@ -1210,11 +1221,47 @@ void StorageEngine::start_delete_unused_rowset() {
                 ++it;
             }
         }
+        // check remove delete bitmaps
+        for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
+            auto tablet_id = std::get<0>(*it);
+            auto tablet = _tablet_manager->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                it = _unused_delete_bitmap.erase(it);
+                continue;
+            }
+            auto& rowset_ids = std::get<1>(*it);
+            auto& key_ranges = std::get<2>(*it);
+            bool find_unused_rowset = false;
+            for (const auto& rowset_id : rowset_ids) {
+                if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
+                    VLOG_DEBUG << "can not remove pre rowset delete bitmap because rowset is in use"
+                               << ", tablet_id=" << tablet_id
+                               << ", rowset_id=" << rowset_id.to_string();
+                    find_unused_rowset = true;
+                    break;
+                }
+            }
+            if (find_unused_rowset) {
+                ++it;
+                continue;
+            }
+            tablet->tablet_meta()->delete_bitmap().remove(key_ranges);
+            tablets_to_save_meta.emplace(tablet_id);
+            it = _unused_delete_bitmap.erase(it);
+        }
+    }
+    for (const auto& tablet_id : tablets_to_save_meta) {
+        auto tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet) {
+            std::shared_lock rlock(tablet->get_header_lock());
+            tablet->save_meta();
+        }
     }
     LOG(INFO) << "collected " << unused_rowsets_copy.size() << " unused rowsets to remove, skipped "
               << due_to_use_count << " rowsets due to use count > 1, skipped "
               << due_to_not_delete_file << " rowsets due to don't need to delete file, skipped "
-              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp.";
+              << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp. left "
+              << _unused_delete_bitmap.size() << " unused delete bitmap.";
     for (auto&& rs : unused_rowsets_copy) {
         VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
                     << ", version:" << rs->version();
@@ -1223,6 +1270,7 @@ void StorageEngine::start_delete_unused_rowset() {
             tablet && tablet->enable_unique_key_merge_on_write()) {
             tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
                                                           {rs->rowset_id(), UINT32_MAX, 0});
+            tablet->tablet_meta()->delete_bitmap().remove_rowset_cache_version(rs->rowset_id());
         }
         Status status = rs->remove();
         unused_rowsets_counter << -1;
@@ -1247,6 +1295,14 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     }
 }
 
+void StorageEngine::add_unused_delete_bitmap_key_ranges(int64_t tablet_id,
+                                                        const std::vector<RowsetId>& rowsets,
+                                                        const DeleteBitmapKeyRanges& key_ranges) {
+    VLOG_NOTICE << "add unused delete bitmap key ranges, tablet id:" << tablet_id;
+    std::lock_guard<std::mutex> lock(_gc_mutex);
+    _unused_delete_bitmap.push_back(std::make_tuple(tablet_id, rowsets, key_ranges));
+}
+
 // TODO(zc): refactor this funciton
 Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProfile* profile) {
     // Get all available stores, use ref_root_path if the caller specified
@@ -1262,7 +1318,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request, RuntimeProf
     return _tablet_manager->create_tablet(request, stores, profile);
 }
 
-Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id) {
+Result<BaseTabletSPtr> StorageEngine::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
+                                                 bool force_use_cache) {
     BaseTabletSPtr tablet;
     std::string err;
     tablet = _tablet_manager->get_tablet(tablet_id, true, &err);
@@ -1491,6 +1548,27 @@ void BaseStorageEngine::_evict_querying_rowset() {
             }
         }
     }
+
+    uint64_t now = UnixSeconds();
+    ExecEnv::GetInstance()->get_id_manager()->gc_expired_id_file_map(now);
+}
+
+bool BaseStorageEngine::_should_delay_large_task() {
+    DCHECK_GE(_cumu_compaction_thread_pool->max_threads(),
+              _cumu_compaction_thread_pool_used_threads);
+    DCHECK_GE(_cumu_compaction_thread_pool_small_tasks_running, 0);
+    // Case 1: Multiple threads available => accept large task
+    if (_cumu_compaction_thread_pool->max_threads() - _cumu_compaction_thread_pool_used_threads >
+        0) {
+        return false; // No delay needed
+    }
+    // Case 2: Only one thread left => accept large task only if another small task is already running
+    if (_cumu_compaction_thread_pool_small_tasks_running > 0) {
+        return false; // No delay needed
+    }
+    // Case 3: Only one thread left, this is a large task, and no small tasks are running
+    // Delay this task to reserve capacity for potential small tasks
+    return true; // Delay this large task
 }
 
 bool StorageEngine::add_broken_path(std::string path) {
@@ -1519,7 +1597,7 @@ Status StorageEngine::_persist_broken_paths() {
 
     if (config_value.length() > 0) {
         auto st = config::set_config("broken_storage_path", config_value, true);
-        LOG(INFO) << "persist broken_storae_path " << config_value << st;
+        LOG(INFO) << "persist broken_storage_path " << config_value << st;
         return st;
     }
 

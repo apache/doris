@@ -43,6 +43,24 @@ struct OperatorHelper {
         LocalStateInfo info {&ctx.profile, scan_ranges, 0, {}, 0};
         EXPECT_TRUE(op.setup_local_state(&ctx.state, info).ok());
     }
+
+    static bool is_block(std::vector<Dependency*> deps) {
+        for (auto* dep : deps) {
+            if (!dep->ready()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool is_ready(std::vector<Dependency*> deps) {
+        for (auto* dep : deps) {
+            if (!dep->ready()) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 } // namespace doris::pipeline

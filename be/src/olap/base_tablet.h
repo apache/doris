@@ -82,6 +82,8 @@ public:
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 
+    int32 max_version_config();
+
     // FIXME(plat1ko): It is not appropriate to expose this lock
     std::shared_mutex& get_header_lock() { return _meta_lock; }
 
@@ -241,11 +243,10 @@ public:
     static Status update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInfo* txn_info,
                                        int64_t txn_id, int64_t txn_expiration = 0,
                                        DeleteBitmapPtr tablet_delete_bitmap = nullptr);
-
     virtual Status save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t txn_id,
                                       DeleteBitmapPtr delete_bitmap, RowsetWriter* rowset_writer,
                                       const RowsetIdUnorderedSet& cur_rowset_ids,
-                                      int64_t lock_id = -1) = 0;
+                                      int64_t lock_id = -1, int64_t next_visible_version = -1) = 0;
     virtual CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() = 0;
 
     void calc_compaction_output_rowset_delete_bitmap(
@@ -264,6 +265,12 @@ public:
             const BaseTabletSPtr& self, const RowsetSharedPtr& rowset,
             const std::vector<RowsetSharedPtr>* specified_base_rowsets = nullptr);
 
+    using DeleteBitmapKeyRanges =
+            std::vector<std::tuple<DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>;
+    void agg_delete_bitmap_for_stale_rowsets(
+            Version version, DeleteBitmapKeyRanges& remove_delete_bitmap_key_ranges);
+    void check_agg_delete_bitmap_for_stale_rowsets(int64_t& useless_rowset_count,
+                                                   int64_t& useless_rowset_version_count);
     ////////////////////////////////////////////////////////////////////////////
     // end MoW functions
     ////////////////////////////////////////////////////////////////////////////

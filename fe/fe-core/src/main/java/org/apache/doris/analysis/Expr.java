@@ -70,6 +70,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
@@ -2185,21 +2186,33 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return "";
     }
 
-    public String getStringValueInFe(FormatOptions options) {
+    /**
+     * This method is used for constant fold of query in FE,
+     * for different serde dialect(hive, presto, doris).
+     */
+    public String getStringValueForQuery(FormatOptions options) {
         return getStringValue();
     }
 
+    /**
+     * This method is to return the string value of this expr in a complex type for query
+     * It is only used for "getStringValueForQuery()"
+     * For most of the integer types, it is same as getStringValueForQuery().
+     * But for others like StringLiteral and DateLiteral, it should be wrapped with quotations.
+     * eg: 1,2,abc,[1,2,3],["abc","def"],{10:20},{"abc":20}
+     */
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return getStringValueForQuery(options);
+    }
+
+    /**
+     * This method is to return the string value of this expr for stream load.
+     * so there is a little different from "getStringValueForQuery()".
+     * eg, for NullLiteral, it should be "\N" for stream load, but "null" for FE constant
+     * for StructLiteral, the value should not contain sub column's name.
+     */
     public String getStringValueForStreamLoad(FormatOptions options) {
-        return getStringValue();
-    }
-
-    // A special method only for array literal, all primitive type in array
-    // will be wrapped by double quote. eg:
-    // ["1", "2", "3"]
-    // ["a", "b", "c"]
-    // [["1", "2", "3"], ["1"], ["3"]]
-    public String getStringValueForArray(FormatOptions options) {
-        return null;
+        return getStringValueForQuery(options);
     }
 
     public final TExpr normalize(Normalizer normalizer) {
@@ -2603,6 +2616,23 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public void setNullableFromNereids(boolean nullable) {
         nullableFromNereids = Optional.of(nullable);
+    }
+
+    public void clearNullableFromNereids() {
+        nullableFromNereids = Optional.empty();
+    }
+
+    public Set<SlotRef> getInputSlotRef() {
+        Set<SlotRef> slots = new HashSet<>();
+        if (this instanceof SlotRef) {
+            slots.add((SlotRef) this);
+            return slots;
+        } else {
+            for (Expr expr : children) {
+                slots.addAll(expr.getInputSlotRef());
+            }
+        }
+        return slots;
     }
 }
 

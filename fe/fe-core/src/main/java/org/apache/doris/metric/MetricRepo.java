@@ -163,10 +163,30 @@ public final class MetricRepo {
 
     public static Histogram HISTO_COMMIT_AND_PUBLISH_LATENCY;
 
+    public static Histogram HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY;
+    public static Histogram HISTO_GET_COMMIT_LOCK_LATENCY;
+    public static Histogram HISTO_CALCULATE_DELETE_BITMAP_LATENCY;
+    public static Histogram HISTO_COMMIT_TO_MS_LATENCY;
+
     // Catlaog/Database/Table num
     public static GaugeMetric<Integer> GAUGE_CATALOG_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_DATABASE_NUM;
     public static GaugeMetric<Integer> GAUGE_INTERNAL_TABLE_NUM;
+    // Table/Partition/Tablet DataSize
+    public static GaugeMetricImpl<Long> GAUGE_MAX_TABLE_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_MAX_PARTITION_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_MIN_TABLE_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_MIN_PARTITION_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_MIN_TABLET_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_AVG_TABLE_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_AVG_PARTITION_SIZE_BYTES;
+    public static GaugeMetricImpl<Long> GAUGE_AVG_TABLET_SIZE_BYTES;
+
+    // Agent task
+    public static LongCounterMetric COUNTER_AGENT_TASK_REQUEST_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
+    public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_RESEND_TOTAL;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -580,6 +600,24 @@ public final class MetricRepo {
         HISTO_COMMIT_AND_PUBLISH_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("txn_commit_and_publish", "latency", "ms"));
 
+        GaugeMetric<Integer> commitQueueLength = new GaugeMetric<Integer>("commit_queue_length",
+                MetricUnit.NOUNIT, "commit queue length") {
+            @Override
+            public Integer getValue() {
+                return Env.getCurrentEnv().getGlobalTransactionMgr().getQueueLength();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(commitQueueLength);
+
+        HISTO_GET_DELETE_BITMAP_UPDATE_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_delete_bitmap_update_lock", "latency", "ms"));
+        HISTO_GET_COMMIT_LOCK_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("get_commit_lock", "latency", "ms"));
+        HISTO_CALCULATE_DELETE_BITMAP_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("calculate_delete_bitmap", "latency", "ms"));
+        HISTO_COMMIT_TO_MS_LATENCY = METRIC_REGISTER.histogram(
+                MetricRegistry.name("commit_to_ms", "latency", "ms"));
+
         GAUGE_CATALOG_NUM = new GaugeMetric<Integer>("catalog_num",
                 MetricUnit.NOUNIT, "total catalog num") {
             @Override
@@ -607,6 +645,41 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_INTERNAL_TABLE_NUM);
+
+        GAUGE_MAX_TABLE_SIZE_BYTES = new GaugeMetricImpl<>("max_table_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLE_SIZE_BYTES);
+
+        GAUGE_MAX_PARTITION_SIZE_BYTES = new GaugeMetricImpl<>("max_partition_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_PARTITION_SIZE_BYTES);
+
+        GAUGE_MAX_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("max_tablet_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLET_SIZE_BYTES);
+
+        GAUGE_MIN_TABLE_SIZE_BYTES = new GaugeMetricImpl<>("min_table_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MIN_TABLE_SIZE_BYTES);
+
+        GAUGE_MIN_PARTITION_SIZE_BYTES = new GaugeMetricImpl<>("min_partition_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MIN_PARTITION_SIZE_BYTES);
+
+        GAUGE_MIN_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("min_tablet_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_MIN_TABLET_SIZE_BYTES);
+
+        GAUGE_AVG_TABLE_SIZE_BYTES = new GaugeMetricImpl<>("avg_table_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_TABLE_SIZE_BYTES);
+
+        GAUGE_AVG_PARTITION_SIZE_BYTES = new GaugeMetricImpl<>("avg_partition_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_PARTITION_SIZE_BYTES);
+
+        GAUGE_AVG_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("avg_tablet_size_bytes", MetricUnit.BYTES, "", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_TABLET_SIZE_BYTES);
+
+        COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
+                "total agent batch task request send to BE");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_AGENT_TASK_REQUEST_TOTAL);
+        COUNTER_AGENT_TASK_TOTAL = addLabeledMetrics("task", () ->
+                new LongCounterMetric("agent_task_total", MetricUnit.NOUNIT, "total agent task"));
+        COUNTER_AGENT_TASK_RESEND_TOTAL = addLabeledMetrics("task", () ->
+                new LongCounterMetric("agent_task_resend_total", MetricUnit.NOUNIT, "total agent task resend"));
 
         // init system metrics
         initSystemMetrics();

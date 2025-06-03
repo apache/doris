@@ -70,7 +70,7 @@ public class CreateRepositoryStmt extends DdlStmt implements NotFallbackInParser
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        FeNameFormat.checkCommonName("repository", name);
+        FeNameFormat.checkRepositoryName(name);
     }
 
     @Override

@@ -49,17 +49,16 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionHistogramData {
-    using ColVecType =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnVector<T>>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     const static size_t DEFAULT_BUCKET_NUM = 128;
     const static size_t BUCKET_NUM_INIT_VALUE = 0;
 
@@ -77,7 +76,8 @@ struct AggregateFunctionHistogramData {
         }
     }
 
-    void add(const T& value, const UInt64& number = 1) {
+    void add(const typename PrimitiveTypeTraits<T>::ColumnItemType& value,
+             const UInt64& number = 1) {
         auto it = ordered_map.find(value);
         if (it != ordered_map.end()) {
             it->second = it->second + number;
@@ -126,7 +126,7 @@ struct AggregateFunctionHistogramData {
         read_binary(element_number, buf);
 
         ordered_map.clear();
-        std::pair<T, size_t> element;
+        std::pair<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> element;
         for (auto i = 0; i < element_number; i++) {
             read_binary(element.first, buf);
             read_binary(element.second, buf);
@@ -138,7 +138,7 @@ struct AggregateFunctionHistogramData {
         auto pair_vector = map_to_vector();
         for (auto i = 0; i < pair_vector.size(); i++) {
             const auto& element = pair_vector[i];
-            if constexpr (std::is_same_v<T, std::string>) {
+            if constexpr (is_string_type(T)) {
                 assert_cast<ColumnString&>(to).insert_data(element.second.c_str(),
                                                            element.second.length());
             } else {
@@ -148,7 +148,7 @@ struct AggregateFunctionHistogramData {
     }
 
     std::string get(const DataTypePtr& data_type) const {
-        std::vector<Bucket<T>> buckets;
+        std::vector<Bucket<typename PrimitiveTypeTraits<T>::ColumnItemType>> buckets;
         rapidjson::StringBuffer buffer;
         // NOTE: We need an extral branch for to handle max_num_buckets == 0,
         // when target column is nullable, and input block is all null,
@@ -161,8 +161,9 @@ struct AggregateFunctionHistogramData {
         return std::string(buffer.GetString());
     }
 
-    std::vector<std::pair<size_t, T>> map_to_vector() const {
-        std::vector<std::pair<size_t, T>> pair_vector;
+    std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::ColumnItemType>> map_to_vector()
+            const {
+        std::vector<std::pair<size_t, typename PrimitiveTypeTraits<T>::ColumnItemType>> pair_vector;
         for (auto it : ordered_map) {
             pair_vector.emplace_back(it.second, it.first);
         }
@@ -171,15 +172,15 @@ struct AggregateFunctionHistogramData {
 
 private:
     size_t max_num_buckets = BUCKET_NUM_INIT_VALUE;
-    std::map<T, size_t> ordered_map;
+    std::map<typename PrimitiveTypeTraits<T>::ColumnItemType, size_t> ordered_map;
 };
 
-template <typename Data, typename T, bool has_input_param>
+template <typename Data, PrimitiveType T, bool has_input_param>
 class AggregateFunctionHistogram final
         : public IAggregateFunctionDataHelper<
                   Data, AggregateFunctionHistogram<Data, T, has_input_param>> {
 public:
-    using ColVecType = ColumnVectorOrDecimal<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
 
     AggregateFunctionHistogram() = default;
     AggregateFunctionHistogram(const DataTypes& argument_types_)
@@ -207,7 +208,7 @@ public:
             this->data(place).set_parameters(Data::DEFAULT_BUCKET_NUM);
         }
 
-        if constexpr (std::is_same_v<T, std::string>) {
+        if constexpr (is_string_type(T)) {
             this->data(place).add(
                     assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data_at(row_num));

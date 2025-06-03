@@ -25,7 +25,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -115,7 +114,7 @@ public:
     void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
-    using ColumnOffsets = ColumnVector<Offset64>;
+    using ColumnOffsets = ColumnOffset64;
 
     std::string get_name() const override;
     bool is_variable_length() const override { return true; }
@@ -224,6 +223,8 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
+    void erase(size_t start, size_t length) override;
+
 private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
@@ -231,7 +232,7 @@ private:
     WrappedPtr offsets;
 
     /// Multiply values if the nested column is ColumnVector<T>.
-    template <typename T>
+    template <PrimitiveType T>
     ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
 
     /// Multiply the values if the nested column is ColumnString. The code is too complicated.
@@ -250,10 +251,10 @@ private:
     ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
 
     /// Specializations for the filter function.
-    template <typename T>
+    template <PrimitiveType T>
     ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
 
-    template <typename T>
+    template <PrimitiveType T>
     size_t filter_number(const Filter& filter);
 
     ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;

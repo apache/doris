@@ -140,7 +140,7 @@ enum TSchemaTableType {
     SCH_FILE_CACHE_STATISTICS = 51,
     SCH_CATALOG_META_CACHE_STATISTICS = 52,
     SCH_BACKEND_KERBEROS_TICKET_CACHE = 53,
-    SCH_ROUTINE_LOAD_JOB = 54;
+    SCH_ROUTINE_LOAD_JOBS = 54;
 }
 
 enum THdfsCompression {
@@ -382,6 +382,9 @@ struct TLakeSoulTable {
   3: optional map<string, string> properties
 }
 
+struct TDictionaryTable {
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -407,6 +410,7 @@ struct TTableDescriptor {
   21: optional TMCTable mcTable
   22: optional TTrinoConnectorTable trinoConnectorTable
   23: optional TLakeSoulTable lakesoulTable
+  24: optional TDictionaryTable dictionaryTable
 }
 
 struct TDescriptorTable {

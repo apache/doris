@@ -35,7 +35,6 @@
 #include "cloud/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
@@ -93,6 +92,8 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
+    // insert delete sign column id
+    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
     if (target_rs_column_id == -1) {
         // no row store columns
         return;
@@ -149,8 +150,12 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
+    bool has_delete_sign = false;
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
         auto* slot = tuple_desc()->slots()[i];
+        if (slot->col_name() == DELETE_SIGN) {
+            has_delete_sign = true;
+        }
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -162,7 +167,9 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
 
     // get the delete sign idx in block
-    _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    if (has_delete_sign) {
+        _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    }
 
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
         const auto& column = *DORIS_TRY(schema.column(BeConsts::ROW_STORE_COL));
@@ -402,7 +409,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     Status st;
     if (_version >= 0) {
         CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+        SyncOptions options;
+        options.query_version = _version;
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -508,9 +517,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 vectorized::MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
-                        column, _read_stats, iter));
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                row_id, column, _read_stats, iter));
+                if (_tablet->tablet_schema()
+                            ->column_by_uid(slot->col_unique_id())
+                            .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
             }
         }
     }

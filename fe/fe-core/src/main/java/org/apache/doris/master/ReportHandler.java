@@ -91,6 +91,7 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
@@ -508,7 +509,7 @@ public class ReportHandler extends Daemon {
 
         // dbid -> txn id -> [partition info]
         Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
-        ListMultimap<Long, Long> transactionsToClear = LinkedListMultimap.create();
+        SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
@@ -641,22 +642,15 @@ public class ReportHandler extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask(Config.report_resend_batch_task_num_per_rpc);
         long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
-            // these tasks no need to do diff
-            // 1. CREATE
-            // 2. SYNC DELETE
-            // 3. CHECK_CONSISTENCY
-            // 4. STORAGE_MDEIUM_MIGRATE
-            if (task.getTaskType() == TTaskType.CREATE
-                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY
-                    || task.getTaskType() == TTaskType.STORAGE_MEDIUM_MIGRATE) {
+            if (!task.isNeedResendType()) {
                 continue;
             }
 
             // to escape sending duplicate agent task to be
             if (task.shouldResend(taskReportTime)) {
+                MetricRepo.COUNTER_AGENT_TASK_RESEND_TOTAL.getOrAdd(task.getTaskType().toString()).increase(1L);
                 batchTask.addTask(task);
             }
-
         }
 
         if (LOG.isDebugEnabled()) {
@@ -1297,11 +1291,11 @@ public class ReportHandler extends Daemon {
         AgentTaskExecutor.submit(batchTask);
     }
 
-    private static void handleClearTransactions(ListMultimap<Long, Long> transactionsToClear, long backendId) {
+    private static void handleClearTransactions(SetMultimap<Long, Long> transactionsToClear, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Long transactionId : transactionsToClear.keySet()) {
             ClearTransactionTask clearTransactionTask = new ClearTransactionTask(backendId,
-                    transactionId, transactionsToClear.get(transactionId));
+                    transactionId, Lists.newArrayList(transactionsToClear.get(transactionId)));
             batchTask.addTask(clearTransactionTask);
         }
         AgentTaskExecutor.submit(batchTask);

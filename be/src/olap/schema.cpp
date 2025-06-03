@@ -174,7 +174,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
-            ptr = doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(type);
+            ptr = doris::vectorized::ColumnDictI32::create(type);
         } else {
             ptr = doris::vectorized::PredicateColumnType<TYPE_CHAR>::create();
         }
@@ -183,7 +183,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const FieldType
     case FieldType::OLAP_FIELD_TYPE_STRING:
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
-            ptr = doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(type);
+            ptr = doris::vectorized::ColumnDictI32::create(type);
         } else {
             ptr = doris::vectorized::PredicateColumnType<TYPE_STRING>::create();
         }

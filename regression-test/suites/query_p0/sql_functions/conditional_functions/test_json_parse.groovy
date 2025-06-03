@@ -49,5 +49,26 @@ suite("test_json_parse") {
     check_fold_consistency "json_parse_error_to_null('null')"
     check_fold_consistency "json_parse_error_to_null('123')"
     check_fold_consistency "json_parse_error_to_null('[1, 2, 3]')"
+
+
+    sql """DROP TABLE IF EXISTS `test_invalid_path_tbl`;"""
+    sql """
+        CREATE TABLE `test_invalid_path_tbl` (
+            `id` int NULL,
+            `v` json NULL,
+            `s` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY RANDOM BUCKETS AUTO
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1");
+    """
+
+    sql """ insert into test_invalid_path_tbl values (1, '{"key": "value"}', '\$.\$.'); """
+
+    test {
+        sql "SELECT id, json_exists_path(v, s) FROM test_invalid_path_tbl;"
+        exception "Json path error: Invalid Json Path for value: \$.\$."
+    }
 }
 

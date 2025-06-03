@@ -236,7 +236,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (be == null) {
                 be = new ArrayList<>();
                 clusterIdToBackend.put(clusterId, be);
-                MetricRepo.registerCloudMetrics(clusterId, clusterName);
             }
             Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
                     .collect(Collectors.toSet());
@@ -251,6 +250,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             sortBackends.add(b);
             Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
             clusterIdToBackend.put(clusterId, sortBackends);
+            MetricRepo.registerCloudMetrics(clusterId, clusterName);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, sortBackends.size(), sortBackends);
         }
@@ -539,7 +539,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         try {
-            String cluster = ctx.getCurrentCloudCluster();
+            String cluster = ctx.getCloudCluster();
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }
@@ -1036,7 +1036,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
             // root ? see StatisticsUtil.buildConnectContext
-            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
+            if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
                 LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
                 return null;
             }

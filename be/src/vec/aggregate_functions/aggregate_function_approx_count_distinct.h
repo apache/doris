@@ -81,24 +81,26 @@ struct AggregateFunctionApproxCountDistinctData {
     void reset() { hll_data.clear(); }
 };
 
-template <typename ColumnDataType>
+template <PrimitiveType type>
 class AggregateFunctionApproxCountDistinct final
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionApproxCountDistinctData,
-                  AggregateFunctionApproxCountDistinct<ColumnDataType>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
+                                              AggregateFunctionApproxCountDistinct<type>> {
 public:
+    using ColumnDataType = typename PrimitiveTypeTraits<type>::ColumnType;
     String get_name() const override { return "approx_count_distinct"; }
 
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
-                                           AggregateFunctionApproxCountDistinct<ColumnDataType>>(
+                                           AggregateFunctionApproxCountDistinct<type>>(
                       argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
+        if constexpr (is_decimal(type) || is_int_or_bool(type) || is_ip(type) ||
+                      is_date_type(type) || is_float_or_double(type) || type == TYPE_TIME ||
+                      type == TYPE_TIMEV2) {
             auto column =
                     assert_cast<const ColumnDataType*, TypeCheckOnRelease::DISABLE>(columns[0]);
             auto value = column->get_element(row_num);

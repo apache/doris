@@ -180,6 +180,21 @@ public:
         const char* nested_string_wrapper;
         int wrapper_len;
 
+        /**
+         * mysql_collection_delim is used to separate elements in collection, such as array, map, struct
+         * It is used to write to mysql.
+         */
+        std::string mysql_collection_delim = ", ";
+
+        /**
+         * is_bool_value_num is used to display bool value in collection, such as array, map, struct
+         * eg, if set to true, the array<true> will be:
+         *      [1]
+         *     if set to false, the array<true> will be:
+         *      [true]
+         */
+        bool is_bool_value_num = true;
+
         [[nodiscard]] char get_collection_delimiter(
                 int hive_text_complex_type_delimiter_level) const {
             CHECK(0 <= hive_text_complex_type_delimiter_level &&
@@ -329,12 +344,12 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                       arrow::ArrayBuilder* array_builder, int64_t start,
-                                       int64_t end, const cctz::time_zone& ctz) const = 0;
-    virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                        int64_t start, int64_t end,
-                                        const cctz::time_zone& ctz) const = 0;
+    virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz) const = 0;
+    virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                          int64_t start, int64_t end,
+                                          const cctz::time_zone& ctz) const = 0;
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -390,13 +405,13 @@ inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start,
     return res;
 }
 
-inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
-                             const std::string& format_name) {
+inline Status checkArrowStatus(const arrow::Status& status, const std::string& column,
+                               const std::string& format_name) {
     if (!status.ok()) {
-        throw Exception(
-                Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
-                                   format_name, column, status.ToString()));
+        return Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
+                                  format_name, column, status.ToString());
     }
+    return Status::OK();
 }
 
 DataTypeSerDeSPtrs create_data_type_serdes(

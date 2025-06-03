@@ -54,9 +54,16 @@ CONF_Int32(log_verbose_level, "5");
 // Only works when starting Cloud with --console.
 CONF_Bool(enable_file_logger, "true");
 
-// Custom conf path is default the same as conf path, and configs will be append to it.
-// Otherwise, will a new custom conf file will be created.
-CONF_String(custom_conf_path, "./conf/doris_cloud.conf");
+// Custom conf path is default empty.
+// All mutable configs' modification needed to be persisted will be appended to conf path
+// specified when started.
+//
+// If it is set to equivalent value of conf path specified when started,
+// mutable configs' modification behavior will be the same as the description above.
+//
+// Otherwise, a new custom conf file will be created when mutable configs are modified
+// and persisted, with all modification written to it.
+CONF_String(custom_conf_path, "");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
@@ -83,6 +90,8 @@ CONF_Bool(enable_delete_bitmap_inverted_check, "false");
 // checks if https://github.com/apache/doris/pull/40204 works as expected
 CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
 CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
+CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
@@ -96,6 +105,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // force recycler to recycle all useless object.
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
+
+CONF_mBool(enable_mow_compaction_key_check, "false");
+CONF_mInt64(compaction_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -254,6 +266,8 @@ CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
+CONF_Bool(enable_cloud_txn_lazy_commit_fuzzy_test, "false");
+
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
 
@@ -261,7 +275,41 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+
+// delete_bitmap_lock version config
+// here is some examples:
+// 1. If instance1,instance2 use v2, config should be
+// delete_bitmap_lock_v2_white_list = instance1;instance2
+// 2. If all instance use v2, config should be
+// delete_bitmap_lock_v2_white_list = *
+CONF_mString(delete_bitmap_lock_v2_white_list, "");
+// FOR DEBUGGING
+CONF_mBool(use_delete_bitmap_lock_random_version, "false");
+
 // Which vaults should be recycled. If empty, recycle all vaults.
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
+
+// for test only
+CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
+
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
+
+// aws sdk log level
+//    Off = 0,
+//    Fatal = 1,
+//    Error = 2,
+//    Warn = 3,
+//    Info = 4,
+//    Debug = 5,
+//    Trace = 6
+CONF_Int32(aws_log_level, "2");
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+CONF_mString(ca_cert_file_paths,
+             "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+             "/etc/ssl/ca-bundle.pem");
+
 } // namespace doris::cloud::config

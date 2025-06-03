@@ -25,6 +25,7 @@
 #include "util/mem_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static bvar::PassiveStatus<int64_t> memory_process_memory_usage(
         "meminfo_process_memory_usage",
@@ -52,10 +53,13 @@ std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
 std::mutex GlobalMemoryArbitrator::cache_adjust_capacity_lock;
 std::condition_variable GlobalMemoryArbitrator::cache_adjust_capacity_cv;
 std::atomic<bool> GlobalMemoryArbitrator::cache_adjust_capacity_notify {false};
-// This capacity is set by gc thread, it is running periodicity.
-std::atomic<double> GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted {1};
-// This capacity is set by workload group spill disk thread
-std::atomic<double> GlobalMemoryArbitrator::last_wg_trigger_cache_capacity_adjust_weighted {1};
+// This capacity is set by `refresh_cache_capacity`, it is running periodicity.
+// modified when process memory changes.
+std::atomic<double> GlobalMemoryArbitrator::last_periodic_refreshed_cache_capacity_adjust_weighted {
+        1};
+// This capacity is set by workload group mgr `handle_paused_queries`,
+// modified when a query enters paused state due to insufficient process memory.
+std::atomic<double> GlobalMemoryArbitrator::last_memory_exceeded_cache_capacity_adjust_weighted {1};
 // The value that take affect
 std::atomic<double> GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted {1};
 std::atomic<bool> GlobalMemoryArbitrator::any_workload_group_exceed_limit {false};
@@ -92,6 +96,16 @@ void GlobalMemoryArbitrator::refresh_memory_bvar() {
                        memory_arbitrator_refresh_interval_growth_bytes.get_value();
 }
 
+bool GlobalMemoryArbitrator::reserve_process_memory(int64_t bytes) {
+    int64_t old_reserved_mem = _process_reserved_memory.load(std::memory_order_relaxed);
+    int64_t new_reserved_mem = 0;
+    do {
+        new_reserved_mem = old_reserved_mem + bytes;
+    } while (!_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
+                                                             std::memory_order_relaxed));
+    return true;
+}
+
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
         doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
@@ -118,11 +132,8 @@ void GlobalMemoryArbitrator::shrink_process_reserved(int64_t bytes) {
 }
 
 int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {
-    doris::ThreadContext* thread_context = doris::thread_context(true);
-    if (thread_context) {
-        return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
-    }
-    return bytes;
+    return bytes - doris::thread_context()->thread_mem_tracker_mgr->reserved_mem();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

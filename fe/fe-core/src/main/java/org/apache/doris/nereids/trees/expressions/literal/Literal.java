@@ -30,6 +30,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -37,8 +38,12 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -261,8 +266,20 @@ public abstract class Literal extends Expression implements LeafExpression {
                 return new CharLiteral(desc, ((CharType) targetType).getLen());
             }
         } else if (targetType.isVarcharType()) {
+            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
+                int pointZeroIndex = findPointZeroIndex(desc);
+                if (pointZeroIndex > -1) {
+                    return new VarcharLiteral(desc.substring(0, pointZeroIndex), ((VarcharType) targetType).getLen());
+                }
+            }
             return new VarcharLiteral(desc, ((VarcharType) targetType).getLen());
         } else if (targetType instanceof StringType) {
+            if (this.dataType.isDoubleType() || this.dataType.isFloatType()) {
+                int pointZeroIndex = findPointZeroIndex(desc);
+                if (pointZeroIndex > -1) {
+                    return new StringLiteral(desc.substring(0, pointZeroIndex));
+                }
+            }
             return new StringLiteral(desc);
         } else if (targetType.isDateType()) {
             return new DateLiteral(desc);
@@ -284,6 +301,19 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new IPv6Literal(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
+    }
+
+    private static int findPointZeroIndex(String str) {
+        int pointIndex = -1;
+        for (int i = 0; i < str.length(); ++i) {
+            char c = str.charAt(i);
+            if (pointIndex > 0 && c != '0') {
+                return -1;
+            } else if (pointIndex == -1 && c == '.') {
+                pointIndex = i;
+            }
+        }
+        return pointIndex;
     }
 
     /** fromLegacyLiteral */
@@ -413,6 +443,11 @@ public abstract class Literal extends Expression implements LeafExpression {
     @Override
     public String toString() {
         return String.valueOf(getValue());
+    }
+
+    @Override
+    public String getFingerprint() {
+        return "?";
     }
 
     public abstract LiteralExpr toLegacyLiteral();
@@ -641,5 +676,22 @@ public abstract class Literal extends Expression implements LeafExpression {
         // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
         // different environment
         return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    /**convertToTypedLiteral*/
+    public static Literal convertToTypedLiteral(Object value, DataType dataType) {
+        Number number = (Number) value;
+        if (dataType.equals(TinyIntType.INSTANCE)) {
+            return new TinyIntLiteral(number.byteValue());
+        } else if (dataType.equals(SmallIntType.INSTANCE)) {
+            return new SmallIntLiteral(number.shortValue());
+        } else if (dataType.equals(IntegerType.INSTANCE)) {
+            return new IntegerLiteral(number.intValue());
+        } else if (dataType.equals(BigIntType.INSTANCE)) {
+            return new BigIntLiteral(number.longValue());
+        } else if (dataType.equals(DoubleType.INSTANCE)) {
+            return new DoubleLiteral(number.doubleValue());
+        }
+        return null;
     }
 }

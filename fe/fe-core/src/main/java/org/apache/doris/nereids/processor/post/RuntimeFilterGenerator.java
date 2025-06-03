@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -262,7 +263,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
-                .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
+                .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
                 .collect(Collectors.toList());
 
         List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
@@ -451,11 +452,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
 
-        if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
+        if (ctx.getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.BITMAP)) {
             generateBitMapRuntimeFilterForNLJ(join, ctx);
         }
 
-        if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.MIN_MAX.getValue()) != 0) {
+        if (ctx.getSessionVariable().allowedRuntimeFilterType(TRuntimeFilterType.MIN_MAX)) {
             generateMinMaxRuntimeFilter(join, ctx);
         }
 
@@ -500,6 +501,13 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         relation.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(relation, slot)));
         return relation;
+    }
+
+    @Override
+    public Plan visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan scan, CascadesContext context) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        scan.getOutput().forEach(slot -> ctx.aliasTransferMapPut(slot, Pair.of(scan, slot)));
+        return scan;
     }
 
     @Override
@@ -684,6 +692,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public static void getAllScanInfo(Plan root, Set<PhysicalRelation> scans) {
         if (root instanceof PhysicalRelation) {
             scans.add((PhysicalRelation) root);
+            // if (root instanceof PhysicalLazyMaterializeOlapScan) {
+            //     scans.add(((PhysicalLazyMaterializeOlapScan) root).getScan());
+            // } else {
+            //     scans.add((PhysicalRelation) root);
+            // }
         } else {
             for (Plan child : root.children()) {
                 getAllScanInfo(child, scans);

@@ -164,9 +164,8 @@ public:
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
                             .mutate();
-            auto& res_map =
-                    assert_cast<ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(res_column.get())
-                            ->get_data();
+            auto& res_map = assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(res_column.get())
+                                    ->get_data();
             auto* __restrict res = res_map.data();
 
             // Here it's SIMD thought the compiler automatically
@@ -275,25 +274,64 @@ public:
                                               UInt8* __restrict null_map_data,
                                               UInt8* __restrict filled_flag,
                                               const size_t input_rows_count) const {
-        WhichDataType which(data_type->is_nullable()
-                                    ? reinterpret_cast<const DataTypeNullable*>(data_type.get())
-                                              ->get_nested_type()
-                                    : data_type);
-#define DISPATCH(TYPE, COLUMN_TYPE)                                                           \
-    if (which.idx == TypeIndex::TYPE)                                                         \
-        return insert_result_data<COLUMN_TYPE>(result_column, argument_column, null_map_data, \
-                                               filled_flag, input_rows_count);
-        NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
-        DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
-        TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
-#undef DISPATCH
-
-        if (which.idx == TypeIndex::BitMap) {
+        switch (data_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_BOOLEAN:
+            return insert_result_data<ColumnUInt8>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_TINYINT:
+            return insert_result_data<ColumnInt8>(result_column, argument_column, null_map_data,
+                                                  filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_SMALLINT:
+            return insert_result_data<ColumnInt16>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_INT:
+            return insert_result_data<ColumnInt32>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_BIGINT:
+            return insert_result_data<ColumnInt64>(result_column, argument_column, null_map_data,
+                                                   filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_LARGEINT:
+            return insert_result_data<ColumnInt128>(result_column, argument_column, null_map_data,
+                                                    filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_FLOAT:
+            return insert_result_data<ColumnFloat32>(result_column, argument_column, null_map_data,
+                                                     filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DOUBLE:
+            return insert_result_data<ColumnFloat64>(result_column, argument_column, null_map_data,
+                                                     filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL32:
+            return insert_result_data<ColumnDecimal<Decimal32>>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL64:
+            return insert_result_data<ColumnDecimal<Decimal64>>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL256:
+            return insert_result_data<ColumnDecimal<Decimal256>>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMALV2:
+            return insert_result_data<ColumnDecimal<Decimal128V2>>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DECIMAL128I:
+            return insert_result_data<ColumnDecimal<Decimal128V3>>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATETIME:
+            return insert_result_data<ColumnDateTime>(result_column, argument_column, null_map_data,
+                                                      filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATE:
+            return insert_result_data<ColumnDate>(result_column, argument_column, null_map_data,
+                                                  filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATEV2:
+            return insert_result_data<ColumnDateV2>(result_column, argument_column, null_map_data,
+                                                    filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_DATETIMEV2:
+            return insert_result_data<ColumnDateTimeV2>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
+        case PrimitiveType::TYPE_BITMAP:
             return insert_result_data_bitmap(result_column, argument_column, null_map_data,
                                              filled_flag, input_rows_count);
+        default:
+            return Status::NotSupported("argument_type {} not supported", data_type->get_name());
         }
-
-        return Status::NotSupported("argument_type {} not supported", data_type->get_name());
     }
 };
 

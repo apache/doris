@@ -27,6 +27,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -42,9 +43,12 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
+#include "pipeline/exec/materialization_sink_operator.h"
+#include "pipeline/exec/materialization_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/mock_operator.h"
+#include "pipeline/exec/mock_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
@@ -118,6 +122,15 @@ std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
         }
         return " , nereids_id=" + std::to_string(_parent->nereids_id());
     }() + ")";
+}
+
+template <typename SharedStateArg>
+Status PipelineXSinkLocalState<SharedStateArg>::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    _terminated = true;
+    return Status::OK();
 }
 
 DataDistribution OperatorBase::required_data_distribution() const {
@@ -235,6 +248,17 @@ Status OperatorXBase::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(_child->prepare(state));
     }
     return Status::OK();
+}
+
+Status OperatorXBase::terminate(RuntimeState* state) {
+    if (_child && !is_source()) {
+        RETURN_IF_ERROR(_child->terminate(state));
+    }
+    auto result = state->get_local_state_result(operator_id());
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->terminate(state);
 }
 
 Status OperatorXBase::close(RuntimeState* state) {
@@ -388,6 +412,14 @@ void PipelineXLocalStateBase::reached_limit(vectorized::Block* block, bool* eos)
     }
 }
 
+Status DataSinkOperatorXBase::terminate(RuntimeState* state) {
+    auto result = state->get_sink_local_state_result();
+    if (!result) {
+        return result.error();
+    }
+    return result.value()->terminate(state);
+}
+
 std::string DataSinkOperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
 
@@ -470,14 +502,18 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     info.parent_profile->add_child(_runtime_profile.get(), /*indent=*/false, nullptr);
     constexpr auto is_fake_shared = std::is_same_v<SharedStateArg, FakeSharedState>;
     if constexpr (!is_fake_shared) {
-        if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
-            DCHECK(info.le_state_map.find(_parent->operator_id()) != info.le_state_map.end());
-            _shared_state = info.le_state_map.at(_parent->operator_id()).first.get();
+        if (info.shared_state_map.find(_parent->operator_id()) != info.shared_state_map.end()) {
+            _shared_state = info.shared_state_map.at(_parent->operator_id())
+                                    .first.get()
+                                    ->template cast<SharedStateArg>();
 
             _dependency = _shared_state->get_dep_by_channel_id(info.task_idx).front().get();
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         } else if (info.shared_state) {
+            if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
+                DCHECK(false);
+            }
             // For UnionSourceOperator without children, there is no shared state.
             _shared_state = info.shared_state->template cast<SharedStateArg>();
 
@@ -485,7 +521,15 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
                     _parent->operator_id(), _parent->node_id(), _parent->get_name());
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+        } else {
+            if constexpr (std::is_same_v<LocalExchangeSharedState, SharedStateArg>) {
+                DCHECK(false);
+            }
         }
+    }
+
+    if (must_set_shared_state() && _shared_state == nullptr) {
+        return Status::InternalError("must set shared state, in {}", _parent->get_name());
     }
 
     _rows_returned_counter =
@@ -524,6 +568,15 @@ Status PipelineXLocalState<SharedStateArg>::open(RuntimeState* state) {
 }
 
 template <typename SharedStateArg>
+Status PipelineXLocalState<SharedStateArg>::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    _terminated = true;
+    return Status::OK();
+}
+
+template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
@@ -543,17 +596,31 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
     constexpr auto is_fake_shared = std::is_same_v<SharedState, FakeSharedState>;
     if constexpr (!is_fake_shared) {
-        if constexpr (std::is_same_v<LocalExchangeSharedState, SharedState>) {
-            DCHECK(info.le_state_map.find(_parent->dests_id().front()) != info.le_state_map.end());
-            _dependency = info.le_state_map.at(_parent->dests_id().front()).second.get();
+        if (info.shared_state_map.find(_parent->dests_id().front()) !=
+            info.shared_state_map.end()) {
+            if constexpr (std::is_same_v<LocalExchangeSharedState, SharedState>) {
+                DCHECK(info.shared_state_map.at(_parent->dests_id().front()).second.size() == 1);
+            }
+            _dependency = info.shared_state_map.at(_parent->dests_id().front())
+                                  .second[std::is_same_v<LocalExchangeSharedState, SharedState>
+                                                  ? 0
+                                                  : info.task_idx]
+                                  .get();
             _shared_state = _dependency->shared_state()->template cast<SharedState>();
         } else {
+            if constexpr (std::is_same_v<LocalExchangeSharedState, SharedState>) {
+                DCHECK(false);
+            }
             _shared_state = info.shared_state->template cast<SharedState>();
             _dependency = _shared_state->create_sink_dependency(
                     _parent->dests_id().front(), _parent->node_id(), _parent->get_name());
         }
         _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                 _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
+    }
+
+    if (must_set_shared_state() && _shared_state == nullptr) {
+        return Status::InternalError("must set shared state, in {}", _parent->get_name());
     }
 
     _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_profile, "InputRows", TUnit::UNIT, 1);
@@ -707,6 +774,8 @@ DECLARE_OPERATOR(SetSinkLocalState<false>)
 DECLARE_OPERATOR(PartitionedHashJoinSinkLocalState)
 DECLARE_OPERATOR(GroupCommitBlockSinkLocalState)
 DECLARE_OPERATOR(CacheSinkLocalState)
+DECLARE_OPERATOR(DictSinkLocalState)
+DECLARE_OPERATOR(MaterializationSinkLocalState)
 
 #undef DECLARE_OPERATOR
 
@@ -740,9 +809,11 @@ DECLARE_OPERATOR(MetaScanLocalState)
 DECLARE_OPERATOR(LocalExchangeSourceLocalState)
 DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
+DECLARE_OPERATOR(MaterializationSourceLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
+DECLARE_OPERATOR(MockScanLocalState)
 #endif
 #undef DECLARE_OPERATOR
 
@@ -772,7 +843,7 @@ template class PipelineXSinkLocalState<MultiCastSharedState>;
 template class PipelineXSinkLocalState<SetSharedState>;
 template class PipelineXSinkLocalState<LocalExchangeSharedState>;
 template class PipelineXSinkLocalState<BasicSharedState>;
-template class PipelineXSinkLocalState<CacheSharedState>;
+template class PipelineXSinkLocalState<DataQueueSharedState>;
 
 template class PipelineXLocalState<HashJoinSharedState>;
 template class PipelineXLocalState<PartitionedHashJoinSharedState>;
@@ -784,7 +855,7 @@ template class PipelineXLocalState<AggSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
-template class PipelineXLocalState<CacheSharedState>;
+template class PipelineXLocalState<DataQueueSharedState>;
 template class PipelineXLocalState<MultiCastSharedState>;
 template class PipelineXLocalState<PartitionSortNodeSharedState>;
 template class PipelineXLocalState<SetSharedState>;
@@ -797,6 +868,11 @@ template class AsyncWriterSink<doris::vectorized::VTabletWriter, OlapTableSinkOp
 template class AsyncWriterSink<doris::vectorized::VTabletWriterV2, OlapTableSinkV2OperatorX>;
 template class AsyncWriterSink<doris::vectorized::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VIcebergTableWriter, IcebergTableSinkOperatorX>;
+
+#ifdef BE_TEST
+template class OperatorX<DummyOperatorLocalState>;
+template class DataSinkOperatorX<DummySinkLocalState>;
+#endif
 
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

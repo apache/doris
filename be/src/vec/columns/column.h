@@ -20,24 +20,17 @@
 
 #pragma once
 
-#include <fmt/format.h>
-#include <glog/logging.h>
-#include <sys/types.h>
-
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
-#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -46,16 +39,19 @@
 
 class SipHash;
 
-#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
-    if (null_data == nullptr) {                                                      \
-        for (size_t i = 0; i < s; i++) {                                             \
-            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
-        }                                                                            \
-    } else {                                                                         \
-        for (size_t i = 0; i < s; i++) {                                             \
-            if (null_data[i] == 0)                                                   \
-                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
-        }                                                                            \
+#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                                       \
+    if (null_data == nullptr) {                                                                    \
+        for (size_t i = 0; i < s; i++) {                                                           \
+            hashes[i] = HashUtil::zlib_crc_hash(                                                   \
+                    &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType), hashes[i]); \
+        }                                                                                          \
+    } else {                                                                                       \
+        for (size_t i = 0; i < s; i++) {                                                           \
+            if (null_data[i] == 0)                                                                 \
+                hashes[i] = HashUtil::zlib_crc_hash(                                               \
+                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),         \
+                        hashes[i]);                                                                \
+        }                                                                                          \
     }
 
 namespace doris::vectorized {
@@ -181,6 +177,18 @@ public:
         MutablePtr res = clone_empty();
         res->insert_range_from(*this, start, length);
         return res;
+    }
+
+    /**
+    * erase data from 'start' and length elements from the column.
+    * @param length The number of elements to remove from the start position of the column
+    * @throws doris::Exception with NOT_IMPLEMENTED_ERROR if the operation is not supported
+    *         for this column type
+    * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
+    */
+    virtual void erase(size_t start, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method erase is not supported for " + get_name());
     }
 
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
@@ -657,25 +665,6 @@ public:
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
-
-    virtual bool is_date_type() const { return is_date; }
-    virtual bool is_datetime_type() const { return is_date_time; }
-
-    virtual void set_date_type() { is_date = true; }
-    virtual void set_datetime_type() { is_date_time = true; }
-
-    void copy_date_types(const IColumn& col) {
-        if (col.is_date_type()) {
-            set_date_type();
-        }
-        if (col.is_datetime_type()) {
-            set_datetime_type();
-        }
-    }
-
-    // todo(wb): a temporary implemention, need re-abstract here
-    bool is_date = false;
-    bool is_date_time = false;
 
 protected:
     template <typename Derived>
