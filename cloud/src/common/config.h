@@ -39,6 +39,8 @@ CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 
+CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
+
 // logging
 CONF_String(log_dir, "./log/");
 CONF_String(log_level, "info"); // info warn error fatal
