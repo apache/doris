@@ -38,58 +38,62 @@ Decimal128V3 DecimalField<Decimal128V3>::get_scale_multiplier() const {
     return DataTypeDecimal<Decimal128V3>::get_scale_multiplier(scale);
 }
 
-template <typename T>
-bool dec_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+template <PrimitiveType T>
+bool dec_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
+               typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, EqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
-template <typename T>
-bool dec_less(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+template <PrimitiveType T>
+bool dec_less(typename PrimitiveTypeTraits<T>::ColumnItemType x,
+              typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale, UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
-template <typename T>
-bool dec_less_or_equal(T x, T y, UInt32 x_scale, UInt32 y_scale) {
+template <PrimitiveType T>
+bool dec_less_or_equal(typename PrimitiveTypeTraits<T>::ColumnItemType x,
+                       typename PrimitiveTypeTraits<T>::ColumnItemType y, UInt32 x_scale,
+                       UInt32 y_scale) {
     using Comparator = DecimalComparison<T, T, LessOrEqualsOp>;
     return Comparator::compare(x, y, x_scale, y_scale);
 }
 
-#define DECLARE_DECIMAL_COMPARISON(TYPE)                               \
+#define DECLARE_DECIMAL_COMPARISON(TYPE, PTYPE)                        \
     template <>                                                        \
     bool decimal_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) {         \
-        return dec_equal(x, y, xs, ys);                                \
+        return dec_equal<PTYPE>(x, y, xs, ys);                         \
     }                                                                  \
     template <>                                                        \
     bool decimal_less(TYPE x, TYPE y, UInt32 xs, UInt32 ys) {          \
-        return dec_less(x, y, xs, ys);                                 \
+        return dec_less<PTYPE>(x, y, xs, ys);                          \
     }                                                                  \
     template <>                                                        \
     bool decimal_less_or_equal(TYPE x, TYPE y, UInt32 xs, UInt32 ys) { \
-        return dec_less_or_equal(x, y, xs, ys);                        \
+        return dec_less_or_equal<PTYPE>(x, y, xs, ys);                 \
     }                                                                  \
     template <>                                                        \
     TYPE DecimalField<TYPE>::get_scale_multiplier() const {            \
         return DataTypeDecimal<TYPE>::get_scale_multiplier(scale);     \
     }
 
-DECLARE_DECIMAL_COMPARISON(Decimal32)
-DECLARE_DECIMAL_COMPARISON(Decimal64)
-DECLARE_DECIMAL_COMPARISON(Decimal128V2)
-DECLARE_DECIMAL_COMPARISON(Decimal256)
+DECLARE_DECIMAL_COMPARISON(Decimal32, TYPE_DECIMAL32)
+DECLARE_DECIMAL_COMPARISON(Decimal64, TYPE_DECIMAL64)
+DECLARE_DECIMAL_COMPARISON(Decimal128V2, TYPE_DECIMALV2)
+DECLARE_DECIMAL_COMPARISON(Decimal256, TYPE_DECIMAL256)
 
 template <>
 bool decimal_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
-    return dec_equal(x, y, xs, ys);
+    return dec_equal<TYPE_DECIMAL128I>(x, y, xs, ys);
 }
 template <>
 bool decimal_less(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
-    return dec_less(x, y, xs, ys);
+    return dec_less<TYPE_DECIMAL128I>(x, y, xs, ys);
 }
 template <>
 bool decimal_less_or_equal(Decimal128V3 x, Decimal128V3 y, UInt32 xs, UInt32 ys) {
-    return dec_less_or_equal(x, y, xs, ys);
+    return dec_less_or_equal<TYPE_DECIMAL128I>(x, y, xs, ys);
 }
 
 template <PrimitiveType Type>
@@ -219,9 +223,9 @@ void Field::create(const Field& field) {
         create_concrete<TYPE_VARIANT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
         return;
-    case PrimitiveType::TYPE_OBJECT:
-        create_concrete<TYPE_OBJECT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>());
+    case PrimitiveType::TYPE_BITMAP:
+        create_concrete<TYPE_BITMAP>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_HLL:
         create_concrete<TYPE_HLL>(
@@ -231,6 +235,14 @@ void Field::create(const Field& field) {
         create_concrete<TYPE_QUANTILE_STATE>(
                 field.template get<
                         typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>());
+        return;
+    case PrimitiveType::TYPE_UINT32:
+        create_concrete<TYPE_UINT32>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType>());
+        return;
+    case PrimitiveType::TYPE_UINT64:
+        create_concrete<TYPE_UINT64>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -263,8 +275,8 @@ void Field::destroy() {
     case PrimitiveType::TYPE_VARIANT:
         destroy<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>();
         break;
-    case PrimitiveType::TYPE_OBJECT:
-        destroy<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>();
+    case PrimitiveType::TYPE_BITMAP:
+        destroy<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>();
         break;
     case PrimitiveType::TYPE_HLL:
         destroy<typename PrimitiveTypeTraits<TYPE_HLL>::NearestFieldType>();
@@ -386,9 +398,9 @@ void Field::assign(const Field& field) {
         assign_concrete<TYPE_VARIANT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_VARIANT>::NearestFieldType>());
         return;
-    case PrimitiveType::TYPE_OBJECT:
-        assign_concrete<TYPE_OBJECT>(
-                field.template get<typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType>());
+    case PrimitiveType::TYPE_BITMAP:
+        assign_concrete<TYPE_BITMAP>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType>());
         return;
     case PrimitiveType::TYPE_HLL:
         assign_concrete<TYPE_HLL>(
@@ -398,6 +410,14 @@ void Field::assign(const Field& field) {
         assign_concrete<TYPE_QUANTILE_STATE>(
                 field.template get<
                         typename PrimitiveTypeTraits<TYPE_QUANTILE_STATE>::NearestFieldType>());
+        return;
+    case PrimitiveType::TYPE_UINT32:
+        assign_concrete<TYPE_UINT32>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType>());
+        return;
+    case PrimitiveType::TYPE_UINT64:
+        assign_concrete<TYPE_UINT64>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType>());
         return;
     default:
         throw Exception(Status::FatalError("type not supported, type={}", field.get_type_name()));
@@ -544,14 +564,22 @@ std::string Field::get_type_name() const {
             typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType && rhs);                \
     template void Field::FUNC_NAME<TYPE_MAP>(                                                \
             const typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType& rhs);            \
-    template void Field::FUNC_NAME<TYPE_OBJECT>(                                             \
-            typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType && rhs);             \
-    template void Field::FUNC_NAME<TYPE_OBJECT>(                                             \
-            const typename PrimitiveTypeTraits<TYPE_OBJECT>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_BITMAP>(                                             \
+            typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_BITMAP>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_BITMAP>::NearestFieldType& rhs);         \
     template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
             const typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType& rhs);         \
     template void Field::FUNC_NAME<TYPE_TIMEV2>(                                             \
-            typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType && rhs);
+            typename PrimitiveTypeTraits<TYPE_TIMEV2>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_UINT32>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_UINT32>(                                             \
+            typename PrimitiveTypeTraits<TYPE_UINT32>::NearestFieldType && rhs);             \
+    template void Field::FUNC_NAME<TYPE_UINT64>(                                             \
+            const typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType& rhs);         \
+    template void Field::FUNC_NAME<TYPE_UINT64>(                                             \
+            typename PrimitiveTypeTraits<TYPE_UINT64>::NearestFieldType && rhs);
 DECLARE_FUNCTION(create_concrete)
 DECLARE_FUNCTION(assign_concrete)
 

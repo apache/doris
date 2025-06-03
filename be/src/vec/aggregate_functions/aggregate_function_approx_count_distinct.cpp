@@ -81,6 +81,8 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_STRING>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATE:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATE>>(
+                argument_types, result_is_nullable);
     case PrimitiveType::TYPE_DATETIME:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_DATETIME>>(
                 argument_types, result_is_nullable);
@@ -108,8 +110,8 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
     case PrimitiveType::TYPE_VARIANT:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_VARIANT>>(
                 argument_types, result_is_nullable);
-    case PrimitiveType::TYPE_OBJECT:
-        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_OBJECT>>(
+    case PrimitiveType::TYPE_BITMAP:
+        return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_BITMAP>>(
                 argument_types, result_is_nullable);
     case PrimitiveType::TYPE_HLL:
         return creator_without_type::create<AggregateFunctionApproxCountDistinct<TYPE_HLL>>(

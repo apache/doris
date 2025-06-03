@@ -578,6 +578,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = "huge_table_lower_bound_size_in_bytes";
     public static final String PARTITION_SAMPLE_COUNT = "partition_sample_count";
     public static final String PARTITION_SAMPLE_ROW_COUNT = "partition_sample_row_count";
+    public static final String FETCH_HIVE_ROW_COUNT_SYNC = "fetch_hive_row_count_sync";
 
     // for spill to disk
     public static final String ENABLE_SPILL = "enable_spill";
@@ -736,6 +737,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
+
+    public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
 
     public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
 
@@ -1331,6 +1334,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
+
+    @VariableMgr.VarAttr(name = "enable_topn_lazy_materialization", needForward = true,
+            fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public boolean enableTopnLazyMaterialization = true;
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
@@ -2180,6 +2188,10 @@ public class SessionVariable implements Serializable, Writable {
                     "The upper limit of the number of rows for sampling large partitioned tables.\n"})
     public long partitionSampleRowCount = 3_000_000_000L;
 
+    @VariableMgr.VarAttr(name = FETCH_HIVE_ROW_COUNT_SYNC,
+            description = {"同步获取Hive外表行数", "Fetch Hive external table row count synchronously"})
+    public boolean fetchHiveRowCountSync = true;
+
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_REWRITE, needForward = true,
             description = {"是否开启基于结构信息的物化视图透明改写",
                     "Whether to enable materialized view rewriting based on struct info"})
@@ -2600,6 +2612,16 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String enableSqlConvertorFeatures = "";
 
+    // The default value is true,
+    // which throughs reducing rpc call from follower node to meta service to improve query performance
+    // for getting version is memory operation in master node,
+    // but it will slightly increase the pressure on the FE master.
+    @VariableMgr.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = {
+            "在follower节点查询时, 是否允许从master节点扫描information_schema.tables的结果",
+            "Whether to allow scanning information_schema.tables from the master node"
+    })
+    public boolean enableSchemaScanFromMasterFe = true;
+
     @VariableMgr.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
             description = {
                     "是否在 DESCRIBE TABLE 语句中显示列注释",
@@ -2641,12 +2663,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // This will cause be dead loop, disable it first
-        // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.enableParallelResultSink = random.nextBoolean();
 
         // 4KB = 4 * 1024 bytes
         int minBytes = 4 * 1024;

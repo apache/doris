@@ -156,9 +156,10 @@ struct ConvertImpl {
 
         using ColVecFrom =
                 std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+                                   ColumnVector<FromDataType::PType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
@@ -374,14 +375,14 @@ struct ConvertImplToTimeType {
 
         using ColVecFrom =
                 std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
+                                   ColumnVector<FromDataType::PType>>;
 
         using DateValueType = std::conditional_t<
                 IsDatelikeV2Types<ToDataType>,
                 std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value<DateV2ValueType>,
                                    DateV2Value<DateTimeV2ValueType>>,
                 VecDateTimeValue>;
-        using ColVecTo = ColumnVector<ToFieldType>;
+        using ColVecTo = ColumnVector<ToDataType::PType>;
 
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
@@ -1240,8 +1241,9 @@ struct StringParsing {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
@@ -2236,7 +2238,7 @@ private:
         case PrimitiveType::TYPE_HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             return create_bitmap_wrapper(context, from_type,
                                          static_cast<const DataTypeBitMap&>(*to_type));
         case PrimitiveType::TYPE_JSONB:

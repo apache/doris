@@ -38,6 +38,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "orc/Reader.hh"
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
@@ -59,13 +60,16 @@ namespace doris {
 class RuntimeState;
 class TFileRangeDesc;
 class TFileScanRangeParams;
+namespace segment_v2 {
+class RowIdColumnIteratorV2;
+}
 namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
@@ -209,6 +213,12 @@ public:
     static DataTypePtr convert_to_doris_type(const orc::Type* orc_type);
     static std::string get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
+    void set_row_id_column_iterator(
+            const std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>&
+                    iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
+    }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -329,7 +339,7 @@ private:
                                        const orc::Type* orc_column_type,
                                        const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    template <typename CppType, typename OrcColumnType>
+    template <PrimitiveType PType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
@@ -339,11 +349,12 @@ private:
                                          cvb->toString());
         }
         auto* cvb_data = data->data.data();
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnVector<PType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
-            column_data[origin_size + i] = (CppType)cvb_data[i];
+            column_data[origin_size + i] =
+                    (typename PrimitiveTypeTraits<PType>::CppType)cvb_data[i];
         }
         return Status::OK();
     }
@@ -469,7 +480,8 @@ private:
         }
     }
 
-    template <typename CppType, typename DorisColumnType, typename OrcColumnType, bool is_filter>
+    template <typename CppType, PrimitiveType DorisColumnType, typename OrcColumnType,
+              bool is_filter>
     Status _decode_time_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
@@ -576,6 +588,24 @@ private:
         return true;
     }
 
+    Status _fill_row_id_columns(Block* block);
+
+    bool _seek_to_read_one_line() {
+        if (_read_line_mode_mode) {
+            if (_read_lines.empty()) {
+                return false;
+            }
+            _row_reader->seekToRow(_read_lines.front());
+            _read_lines.pop_front();
+        }
+        return true;
+    }
+
+    Status _set_read_one_line_impl() override {
+        _batch_size = 1;
+        return Status::OK();
+    }
+
 private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
@@ -673,6 +703,9 @@ private:
     int64_t _orc_tiny_stripe_threshold_bytes = 8L * 1024L * 1024L;
     int64_t _orc_once_max_read_bytes = 8L * 1024L * 1024L;
     int64_t _orc_max_merge_distance_bytes = 1L * 1024L * 1024L;
+
+    std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
+            _row_id_column_iterator_pair = {nullptr, -1};
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

@@ -41,6 +41,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/hdfs_builder.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/pending_rowset_helper.h"
@@ -165,13 +166,15 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         }
     }
 
+    int32_t max_version_config = tablet->max_version_config();
     // check if version number exceed limit
-    if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
+    if (tablet->exceed_version_limit(max_version_config)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
                 "failed to push data. version count: {}, exceed limit: {}, tablet: {}. Please "
-                "reduce the frequency of loading data or adjust the max_tablet_version_num in "
+                "reduce the frequency of loading data or adjust the max_tablet_version_num or "
+                "time_series_max_tablet_version_num in "
                 "be.conf to a larger value.",
-                tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
+                tablet->version_count(), max_version_config, tablet->tablet_id());
     }
 
     int version_count = tablet->version_count() + tablet->stale_version_count();
@@ -492,7 +495,7 @@ Status PushBrokerReader::_cast_to_input_block() {
         auto return_type = slot_desc->get_data_type_ptr();
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         // bitmap convert：src -> to_base64 -> bitmap_from_base64
-        if (slot_desc->type()->get_primitive_type() == TYPE_OBJECT) {
+        if (slot_desc->type()->get_primitive_type() == TYPE_BITMAP) {
             auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
                     PrimitiveType::TYPE_STRING, slot_desc->is_nullable());
             auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
