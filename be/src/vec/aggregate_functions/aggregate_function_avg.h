@@ -49,7 +49,7 @@ template <typename T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
 template <PrimitiveType T>

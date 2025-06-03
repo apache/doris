@@ -84,6 +84,7 @@ public class ExternalMetaCacheMgr {
     private ExecutorService rowCountRefreshExecutor;
     private ExecutorService commonRefreshExecutor;
     private ExecutorService fileListingExecutor;
+    // This executor is used to schedule the getting split tasks
     private ExecutorService scheduleExecutor;
 
     // catalog id -> HiveMetaStoreCache

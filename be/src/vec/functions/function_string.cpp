@@ -53,7 +53,7 @@ struct StringASCII {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -99,7 +99,7 @@ struct StringLengthImpl {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
@@ -121,7 +121,7 @@ struct Crc32Impl {
     using ReturnType = DataTypeInt64;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int64>;
+    using ReturnColumnType = ColumnInt64;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int64>& res) {
@@ -143,7 +143,7 @@ struct StringUtf8LengthImpl {
     using ReturnType = DataTypeInt32;
     static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
     using Type = String;
-    using ReturnColumnType = ColumnVector<Int32>;
+    using ReturnColumnType = ColumnInt32;
 
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          PaddedPODArray<Int32>& res) {
