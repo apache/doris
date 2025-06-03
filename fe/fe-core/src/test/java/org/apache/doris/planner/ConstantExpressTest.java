@@ -146,6 +146,10 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select cast ('2020-01-20 00:00:00' as datetime(0));",
                 "'2020-01-20 00:00:00'");
+
+        testConstantExpressResult(
+                "select cast ('12:12:12' as time);",
+                "\"12:12:12\"");
     }
 
     @Test
