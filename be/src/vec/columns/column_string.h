@@ -502,6 +502,8 @@ public:
         return typeid(rhs) == typeid(ColumnStr<T>);
     }
 
+    bool is_ascii() const;
+
     Chars& get_chars() { return chars; }
     const Chars& get_chars() const { return chars; }
 

@@ -496,9 +496,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         auto id_file_map =
                 ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
+        // if id_file_map is null, means the BE not have scan range, just return ok
         if (!id_file_map) {
-            return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
-                                         BackendOptions::get_localhost(), print_id(tquery_id));
+            // padding empty block to response
+            for (int i = 0; i < request.request_block_descs_size(); ++i) {
+                response->add_blocks();
+            }
+            return Status::OK();
         }
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
