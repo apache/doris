@@ -21,6 +21,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -65,6 +66,198 @@ struct FourParamTypes {
     }
 };
 
+struct TwoParamTypes {
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+};
+
+struct RegexpPositionImpl {
+    static constexpr auto name = "regexp_position";
+
+    static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
+                             size_t argument_size, size_t input_rows_count,
+                             ColumnInt64::Container& result_data, NullMap& null_map) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const ColumnString* start_str_col = nullptr;
+        if (argument_size == 3) {
+            start_str_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+        }
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                result_data[i] = -1;
+                continue;
+            }
+
+            // Parse optional start argument, default to 1
+            Int64 start_pos = 1;
+            if (start_str_col) {
+                auto start_data = start_str_col->get_data_at(i);
+                std::string start_str(start_data.data, start_data.size);
+                try {
+                    start_pos = std::stoll(start_str);
+                } catch (...) {
+                    result_data[i] = -1;
+                    continue;
+                }
+                if (start_pos < 1) {
+                    result_data[i] = -1;
+                    continue;
+                }
+            }
+
+            // Get thread-local RE2 instance; if not exist, compile per row
+            re2::RE2* re = reinterpret_cast<re2::RE2*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+            std::unique_ptr<re2::RE2> scoped_re;
+            if (!re) {
+                auto pattern_data = pattern_col->get_data_at(i);
+                std::string pat(pattern_data.data, pattern_data.size);
+                std::string error_str;
+                bool st = StringFunctions::compile_regex(pat, &error_str, StringRef(), StringRef(),
+                                                         scoped_re);
+                if (!st) {
+                    context->add_warning(error_str.c_str());
+                    result_data[i] = -1;
+                    continue;
+                }
+                re = scoped_re.get();
+            }
+
+            // Perform regex match
+            auto str_data = str_col->get_data_at(i);
+            re2::StringPiece str_sp(str_data.data, str_data.size);
+            size_t search_start = static_cast<size_t>(start_pos - 1);
+            if (search_start >= str_data.size) {
+                result_data[i] = -1;
+                continue;
+            }
+
+            re2::StringPiece match;
+            bool success =
+                    re->Match(str_sp, search_start, str_data.size, re2::RE2::UNANCHORED, &match, 1);
+            if (!success) {
+                result_data[i] = -1;
+                continue;
+            }
+
+            // Compute 1-based position
+            size_t match_pos = match.data() - str_data.data + 1;
+            result_data[i] = static_cast<Int64>(match_pos);
+        }
+    }
+};
+
+// FunctionRegexpPosition: wrap IFunction interface, call single RegexpPositionImpl
+class FunctionRegexpPosition : public IFunction {
+public:
+    static constexpr auto name = RegexpPositionImpl::name;
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpPosition>(); }
+
+    String get_name() const override { return name; }
+
+    // Supports variadic arguments
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    // Return type: Nullable(Int64)
+    DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    // Use TwoParamTypes / ThreeParamTypes to optimize get_variadic_argument_types_impl
+    DataTypes get_variadic_argument_types_impl() const override {
+        size_t actual_args = getVariadicNumberOfArguments(); // Provided by framework
+        if (actual_args == 2) {
+            return TwoParamTypes::get_variadic_argument_types();
+        } else if (actual_args == 3) {
+            return ThreeParamTypes::get_variadic_argument_types();
+        }
+        throw Exception("Function " + get_name() + " requires 2 or 3 arguments, got " +
+                                toString(actual_args),
+                        ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH);
+    }
+
+    // If pattern column is constant, compile once and store in THREAD_LOCAL state
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            if (context->is_col_constant(1)) {
+                DCHECK(!context->get_function_state(scope));
+                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto& pattern = pattern_col->get_data_at(0);
+                if (pattern.size == 0) {
+                    return Status::OK();
+                }
+                std::string error_str;
+                std::unique_ptr<re2::RE2> scoped_re;
+                bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
+                                                         StringRef(), scoped_re);
+                if (!st) {
+                    context->set_error(error_str.c_str());
+                    return Status::InvalidArgument(error_str);
+                }
+                std::shared_ptr<re2::RE2> re(scoped_re.release());
+                context->set_function_state(scope, re);
+            }
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        size_t argument_size = arguments.size();
+        if (argument_size < 2 || argument_size > 3) {
+            return Status::InvalidArgument("regexp_position requires 2 or 3 arguments, got " +
+                                           toString(argument_size));
+        }
+
+        // Construct Nullable(Int64) output
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto result_data_column = ColumnInt64::create();
+        auto& result_data = result_data_column->get_data();
+        result_data.resize(input_rows_count);
+
+        bool col_const[3] = {false, false, false};
+        ColumnPtr argument_columns[3] = {nullptr, nullptr, nullptr};
+
+        // Determine whether each argument column is constant
+        for (int i = 0; i < (int)argument_size; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+
+        // Constant folding for column 1 (str)
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+
+        // Constant folding for column 2 (pattern)
+        argument_columns[1] = col_const[1] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[1]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[1]).column;
+
+        // Constant folding for column 3 (start, optional)
+        if (argument_size == 3) {
+            argument_columns[2] = col_const[2]
+                                          ? static_cast<const ColumnConst&>(
+                                                    *block.get_by_position(arguments[2]).column)
+                                                    .convert_to_full_column()
+                                          : block.get_by_position(arguments[2]).column;
+        }
+
+        // Call the single implementation of RegexpPositionImpl
+        RegexpPositionImpl::execute_impl(context, argument_columns, argument_size, input_rows_count,
+                                         result_data, result_null_map->get_data());
+
+        // Construct Nullable column as return value
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
+        return Status::OK();
+    }
+};
 // template FunctionRegexpFunctionality is used for regexp_replace/regexp_replace_one
 template <typename Impl, typename ParamTypes>
 class FunctionRegexpReplace : public IFunction {
@@ -149,7 +342,6 @@ public:
                                           input_rows_count, result_data, result_offset,
                                           result_null_map->get_data());
         } else {
-            // the options have check in FE, so is always const, and get idx of 0
             if (argument_size == 4) {
                 options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
             }
@@ -499,7 +691,6 @@ struct RegexpExtractAllImpl {
     }
 };
 
-// template FunctionRegexpFunctionality is used for regexp_xxxx series functions, not for regexp match.
 template <typename Impl>
 class FunctionRegexpFunctionality : public IFunction {
 public:
@@ -606,6 +797,10 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<true>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractAllImpl>>();
+
+    // >>> Added: 注册新的 regexp_position
+    factory.register_function<FunctionRegexpPosition>();
+    // <<< Added
 }
 
 } // namespace doris::vectorized
