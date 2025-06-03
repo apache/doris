@@ -161,8 +161,6 @@ public class IcebergUtils {
     public static final String IDENTITY = "identity";
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
 
-    private static final Pattern BRANCH = Pattern.compile("branch_(.*)");
-    private static final Pattern TAG = Pattern.compile("tag_(.*)");
     private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {

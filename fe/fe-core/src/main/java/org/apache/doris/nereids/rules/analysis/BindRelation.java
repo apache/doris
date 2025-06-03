@@ -412,11 +412,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
-                        return new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
+                        LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot(),
-                                ImmutableList.of(),
-                                Optional.ofNullable(unboundRelation.getScanParams()));
+                                unboundRelation.getTableSnapshot(), ImmutableList.of(), Optional.empty());
+                        hudiScan = hudiScan.withScanParams(
+                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
+                        return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
