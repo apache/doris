@@ -58,10 +58,10 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-bvar::LatencyRecorder g_cu_compaction_get_delete_bitmap_time_ms(
-        "cu_compaction_get_delete_bitmap_time_ms");
-bvar::LatencyRecorder g_base_compaction_get_delete_bitmap_time_ms(
-        "base_compaction_get_delete_bitmap_time_ms");
+bvar::LatencyRecorder g_cu_compaction_get_delete_bitmap_lock_time_ms(
+        "cu_compaction_get_delete_bitmap_lock_time_ms");
+bvar::LatencyRecorder g_base_compaction_get_delete_bitmap_lock_time_ms(
+        "base_compaction_get_delete_bitmap_lock_time_ms");
 
 static constexpr int LOAD_INITIATOR_ID = -1;
 
@@ -998,9 +998,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
     int64_t t2 = MonotonicMicros();
     if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
-        g_cu_compaction_get_delete_bitmap_time_ms << (t2 - t1) / 1000;
+        g_cu_compaction_get_delete_bitmap_lock_time_ms << (t2 - t1) / 1000;
     } else if (compaction_type == ReaderType::READER_BASE_COMPACTION) {
-        g_base_compaction_get_delete_bitmap_time_ms << (t2 - t1) / 1000;
+        g_base_compaction_get_delete_bitmap_lock_time_ms << (t2 - t1) / 1000;
     }
     get_delete_bitmap_lock_start_time = t2;
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(this));
