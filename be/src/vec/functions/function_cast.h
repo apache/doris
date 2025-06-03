@@ -1275,6 +1275,7 @@ struct StringParsing {
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
         [[maybe_unused]] UInt32 scale = 0;
+        // TODO: TimeV2 type also need scale
         if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
             const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                     block.get_by_position(result).type.get());

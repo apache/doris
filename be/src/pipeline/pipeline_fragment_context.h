@@ -280,7 +280,7 @@ private:
     int _operator_id = 0;
     int _sink_operator_id = 0;
     /**
-     * Some states are shared by tasks in different instances (e.g. local exchange , broadcast join).
+     * Some states are shared by tasks in different pipeline task (e.g. local exchange , broadcast join).
      *
      * local exchange sink 0 ->                               -> local exchange source 0
      *                            LocalExchangeSharedState
