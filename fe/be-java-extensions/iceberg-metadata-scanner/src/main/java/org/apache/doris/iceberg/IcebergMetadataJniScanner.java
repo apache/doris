@@ -41,8 +41,7 @@ public abstract class IcebergMetadataJniScanner extends JniScanner {
     protected final String[] requiredFields;
     protected final Table table;
     protected final String timezone;
-    // reader is initialized in the initReader() method
-    protected Iterator<?> reader;
+    protected Iterator<?> reader; // reader is initialized in the initReader() method
 
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
     private static final Logger LOG = LoggerFactory.getLogger(IcebergMetadataJniScanner.class);

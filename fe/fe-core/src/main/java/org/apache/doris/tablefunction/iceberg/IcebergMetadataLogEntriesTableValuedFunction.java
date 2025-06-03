@@ -29,7 +29,7 @@ import java.util.List;
 
 class IcebergMetadataLogEntriesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("timestamp", ScalarType.DATETIMEV2, true),
+            new Column("timestamp", ScalarType.createDatetimeV2Type(3), true),
             new Column("snapshot_id", ScalarType.BIGINT, true),
             new Column("file", ScalarType.STRING, true),
             new Column("latest_snapshot_id", ScalarType.BIGINT, true),

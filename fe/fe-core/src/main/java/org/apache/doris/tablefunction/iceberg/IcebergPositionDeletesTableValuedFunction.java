@@ -23,10 +23,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
 import org.apache.doris.thrift.TIcebergQueryType;
-import org.apache.iceberg.ManifestContent;
-import org.apache.iceberg.util.SerializationUtil;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.iceberg.ManifestContent;
+import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
 import java.util.stream.Collectors;

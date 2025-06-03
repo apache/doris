@@ -29,7 +29,7 @@ import java.util.List;
 
 class IcebergEntriesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("status", ScalarType.BIGINT, true),
+            new Column("status", ScalarType.INT, true),
             new Column("snapshot_id", ScalarType.BIGINT, true),
             new Column("sequence_number", ScalarType.BIGINT, true),
             new Column("file_sequence_number", ScalarType.BIGINT, true),
