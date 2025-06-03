@@ -33,6 +33,7 @@
 #include "common/cast_set.h"
 #include "gutil/strings/numbers.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
@@ -54,27 +55,25 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
     row_num = result.second;
 
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
-        std::string hex = int128_to_string(
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
+        std::string hex =
+                int128_to_string(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                             TypeCheckOnRelease::DISABLE>(*ptr)
+                                         .get_element(row_num));
         ostr.write(hex.data(), hex.size());
     } else if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::ColumnItemType, float>) {
         // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
         char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = FloatToBuffer(
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num),
-                MAX_FLOAT_STR_LENGTH + 2, buf);
+        int len = FloatToBuffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*ptr)
+                                        .get_element(row_num),
+                                MAX_FLOAT_STR_LENGTH + 2, buf);
         ostr.write(buf, len);
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value ||
                          std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
-        ostr.write_number(
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
+        ostr.write_number(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                      TypeCheckOnRelease::DISABLE>(*ptr)
+                                  .get_element(row_num));
     }
 }
 
@@ -96,8 +95,7 @@ std::string DataTypeNumberBase<T>::to_string(
 }
 template <PrimitiveType T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data =
-            static_cast<ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>*>(column);
+    auto* column_data = static_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(column);
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
         // TODO: support for Uint128
         return Status::InvalidArgument("uint128 is not support");
@@ -169,23 +167,20 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, int128_t>::value ||
                   std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, uint128_t>::value ||
                   std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
-        return int128_to_string(
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
+        return int128_to_string(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*ptr)
+                                        .get_element(row_num));
     } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value) {
-        return std::to_string(
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
+        return std::to_string(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                          TypeCheckOnRelease::DISABLE>(*ptr)
+                                      .get_element(row_num));
     } else if constexpr (std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
         fmt::memory_buffer buffer; // only use in size-predictable type.
-        fmt::format_to(
-                buffer, "{}",
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
+        fmt::format_to(buffer, "{}",
+                       assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                   TypeCheckOnRelease::DISABLE>(*ptr)
+                               .get_element(row_num));
         return std::string(buffer.data(), buffer.size());
     }
 }
@@ -233,8 +228,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
         auto mem_size =
                 real_need_copy_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
         const auto* origin_data =
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&>(
-                        *data_column)
+                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data_column)
                         .get_data()
                         .data();
 
@@ -260,8 +254,7 @@ char* DataTypeNumberBase<T>::serialize(const IColumn& column, char* buf,
         // column data
         auto ptr = column.convert_to_full_column_if_const();
         const auto* origin_data =
-                assert_cast<const ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>&>(
-                        *ptr.get())
+                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*ptr.get())
                         .get_data()
                         .data();
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -289,10 +282,8 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
         // column data
         auto mem_size =
                 real_have_saved_num * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType);
-        auto& container =
-                assert_cast<ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>*>(
-                        origin_column)
-                        ->get_data();
+        auto& container = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(origin_column)
+                                  ->get_data();
         container.resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);
@@ -310,10 +301,8 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
         uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
         buf += sizeof(uint32_t);
         // column data
-        auto& container =
-                assert_cast<ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>*>(
-                        column->get())
-                        ->get_data();
+        auto& container = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(column->get())
+                                  ->get_data();
         container.resize(mem_size / sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);
@@ -330,7 +319,7 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
 
 template <PrimitiveType T>
 MutableColumnPtr DataTypeNumberBase<T>::create_column() const {
-    return ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>::create();
+    return PrimitiveTypeTraits<T>::ColumnType::create();
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

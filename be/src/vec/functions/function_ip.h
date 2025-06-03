@@ -54,9 +54,9 @@ namespace doris::vectorized {
 
 class FunctionIPv4NumToString : public IFunction {
 private:
-    template <typename ArgType>
+    template <PrimitiveType ArgPType>
     Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
-        using ColumnType = ColumnVector<ArgType>;
+        using ColumnType = ColumnVector<ArgPType>;
         const ColumnPtr& column = argument.column;
 
         const auto* col = assert_cast<const ColumnType*>(column.get());
@@ -73,7 +73,8 @@ private:
         char* pos = begin;
 
         auto null_map = ColumnUInt8::create(vec_in.size(), 0);
-        size_t src_size = std::min(sizeof(ArgType), (unsigned long)4);
+        size_t src_size =
+                std::min(sizeof(typename PrimitiveTypeTraits<ArgPType>::CppType), (unsigned long)4);
         for (size_t i = 0; i < vec_in.size(); ++i) {
             auto value = vec_in[i];
             if (value < IPV4_MIN_NUM_VALUE || value > IPV4_MAX_NUM_VALUE) {
@@ -108,16 +109,16 @@ public:
 
         switch (argument.type->get_primitive_type()) {
         case PrimitiveType::TYPE_TINYINT:
-            return execute_type<Int8>(block, argument, result);
+            return execute_type<TYPE_TINYINT>(block, argument, result);
             break;
         case PrimitiveType::TYPE_SMALLINT:
-            return execute_type<Int16>(block, argument, result);
+            return execute_type<TYPE_SMALLINT>(block, argument, result);
             break;
         case PrimitiveType::TYPE_INT:
-            return execute_type<Int32>(block, argument, result);
+            return execute_type<TYPE_INT>(block, argument, result);
             break;
         case PrimitiveType::TYPE_BIGINT:
-            return execute_type<Int64>(block, argument, result);
+            return execute_type<TYPE_BIGINT>(block, argument, result);
             break;
         default:
             break;
@@ -823,11 +824,10 @@ public:
         const auto& [ip_column_ptr, ip_col_const] = unpack_if_const(ip_column.column);
         const auto& [cidr_column_ptr, cidr_col_const] = unpack_if_const(cidr_column.column);
 
-        const auto* col_ip_column = assert_cast<const ColumnVector<IPv4>*>(ip_column_ptr.get());
-        const auto* col_cidr_column =
-                assert_cast<const ColumnVector<Int16>*>(cidr_column_ptr.get());
+        const auto* col_ip_column = assert_cast<const ColumnIPv4*>(ip_column_ptr.get());
+        const auto* col_cidr_column = assert_cast<const ColumnInt16*>(cidr_column_ptr.get());
 
-        const typename ColumnVector<IPv4>::Container& vec_ip_input = col_ip_column->get_data();
+        const typename ColumnIPv4::Container& vec_ip_input = col_ip_column->get_data();
         const ColumnInt16::Container& vec_cidr_input = col_cidr_column->get_data();
         auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
         auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
@@ -1068,9 +1068,9 @@ private:
     }
 };
 
-template <IPConvertExceptionMode exception_mode, typename Type>
+template <IPConvertExceptionMode exception_mode, PrimitiveType PType>
 inline constexpr auto to_ip_func_name() {
-    if constexpr (std::is_same_v<Type, IPv4>) {
+    if constexpr (PType == TYPE_IPV4) {
         return exception_mode == IPConvertExceptionMode::Throw
                        ? "to_ipv4"
                        : (exception_mode == IPConvertExceptionMode::Default ? "to_ipv4_or_default"
@@ -1083,14 +1083,14 @@ inline constexpr auto to_ip_func_name() {
     }
 }
 
-template <IPConvertExceptionMode exception_mode, typename Type>
+template <IPConvertExceptionMode exception_mode, PrimitiveType PType>
 class FunctionToIP : public IFunction {
-    static_assert(std::is_same_v<Type, IPv4> || std::is_same_v<Type, IPv6>);
+    static_assert(is_ip(PType));
 
 public:
-    static constexpr auto name = to_ip_func_name<exception_mode, Type>();
+    static constexpr auto name = to_ip_func_name<exception_mode, PType>();
 
-    static FunctionPtr create() { return std::make_shared<FunctionToIP<exception_mode, Type>>(); }
+    static FunctionPtr create() { return std::make_shared<FunctionToIP<exception_mode, PType>>(); }
 
     String get_name() const override { return name; }
 
@@ -1099,7 +1099,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr result_type;
 
-        if constexpr (std::is_same_v<Type, IPv4>) {
+        if constexpr (PType == TYPE_IPV4) {
             result_type = std::make_shared<DataTypeIPv4>();
         } else {
             result_type = std::make_shared<DataTypeIPv6>();
@@ -1131,7 +1131,7 @@ public:
             str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
         }
 
-        auto col_res = ColumnVector<Type>::create(input_rows_count, 0);
+        auto col_res = ColumnVector<PType>::create(input_rows_count, 0);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& col_res_data = col_res->get_data();
         auto& res_null_map_data = res_null_map->get_data();
@@ -1151,7 +1151,7 @@ public:
                 }
             }
 
-            if constexpr (std::is_same_v<Type, IPv4>) {
+            if constexpr (PType == TYPE_IPV4) {
                 StringRef ipv4_str = str_addr_column->get_data_at(i);
                 IPv4 ipv4_val = 0;
                 if (IPv4Value::from_string(ipv4_val, ipv4_str.data, ipv4_str.size)) {

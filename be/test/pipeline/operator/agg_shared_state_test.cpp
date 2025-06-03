@@ -38,7 +38,7 @@ protected:
 
         // Create test column
         _test_column = int_type->create_column();
-        auto* col_data = reinterpret_cast<vectorized::ColumnVector<int>*>(_test_column.get());
+        auto* col_data = reinterpret_cast<vectorized::ColumnInt32*>(_test_column.get());
 
         // Insert test values: 5, 3, 1, -2, -1, 0
         col_data->insert(vectorized::Field::create_field<TYPE_INT>(5));

@@ -49,7 +49,7 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris

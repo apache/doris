@@ -60,7 +60,7 @@ private:
 
     using ResultDataType = DataTypeNumber<T>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
-    using ColVecResult = ColumnVector<TResult>;
+    using ColVecResult = typename PrimitiveTypeTraits<T>::ColumnType;
 
 public:
     AggregateFunctionApproxTopSum(const std::vector<std::string>& column_names,

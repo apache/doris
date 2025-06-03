@@ -143,9 +143,9 @@ struct SubstringUtil {
         const auto* specific_str_column =
                 assert_cast<const ColumnString*>(argument_columns[0].get());
         const auto* specific_start_column =
-                assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
+                assert_cast<const ColumnInt32*>(argument_columns[1].get());
         const auto* specific_len_column =
-                assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+                assert_cast<const ColumnInt32*>(argument_columns[2].get());
 
         auto vectors = vectors_utf8<false>;
         bool is_ascii = simd::VStringFunctions::is_ascii(

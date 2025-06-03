@@ -30,7 +30,7 @@
 namespace doris::vectorized {
 
 TEST(ColumnNullableTest, HashTest) {
-    MutableColumnPtr tmp_column = ColumnVector<int>::create();
+    MutableColumnPtr tmp_column = ColumnInt32::create();
     auto val1 = 10;
     auto val2 = 20;
     tmp_column->insert_data((const char*)(&val1), 0);
