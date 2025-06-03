@@ -2020,7 +2020,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
     int field_idx = 0;
     int field_len = year_len;
-    long sec_offset = 0;
+    int sec_offset = 0;
     bool need_use_timezone = false;
 
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
@@ -2185,40 +2185,28 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
         if (!TimezoneUtils::find_cctz_time_zone(std::string {ptr, end}, given_tz)) {
             return false; // invalid format
         }
-        auto given = cctz::convert(cctz::civil_second {}, given_tz);
-        auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
-        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-        sec_offset = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-    }
-
-    // In check_range_and_set_time, for Date type the time part will be truncated. So if the timezone offset should make
-    // rounding to date part, it would be lost. To avoid this, we use a Datetime type to do these calc. It will save the
-    // time part and apply the offset. Then convert to Date type back.
-    // see https://github.com/apache/doris/pull/33553 for more details.
-    if constexpr (!is_datetime) {
-        if (sec_offset) {
-            DateV2Value<DateTimeV2ValueType> tmp;
-            if (!tmp.check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3],
-                                              date_val[4], date_val[5], date_val[6])) {
-                return false;
-            }
-            if (!tmp.date_add_interval<TimeUnit::SECOND>(
-                        TimeInterval {TimeUnit::SECOND, sec_offset, false})) {
-                return false;
-            }
-            this->assign_from(tmp);
-            return true;
+        if (is_invalid(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4], date_val[5],
+                       date_val[6])) {
+            return false;
         }
+        cctz::civil_second cs {date_val[0], date_val[1], date_val[2],
+                               date_val[3], date_val[4], date_val[5]};
+
+        auto given = cctz::convert(cs, given_tz);
+        auto local = cctz::convert(given, *local_time_zone);
+        date_val[0] = local.year();
+        date_val[1] = local.month();
+        date_val[2] = local.day();
+        date_val[3] = local.hour();
+        date_val[4] = local.minute();
+        date_val[5] = local.second();
     }
 
-    if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                  date_val[5], date_val[6])) {
-        return false;
-    }
-
-    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
-                      : true;
+    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
+                                    date_val[5], date_val[6]) &&
+           (sec_offset ? date_add_interval<TimeUnit::SECOND>(
+                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
+                       : true);
 }
 
 template <typename T>
