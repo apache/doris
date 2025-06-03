@@ -394,7 +394,9 @@ Status PlanFragmentExecutor::execute() {
     }
 #ifndef BE_TEST
     if (_runtime_state->is_cancelled()) {
-        return Status::Cancelled("cancelled before execution");
+        _status = Status::Cancelled("cancelled before execution, msg:" + _cancel_msg);
+        send_report(true);
+        return _status;
     }
 #endif
     int64_t duration_ns = 0;
