@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
@@ -42,13 +43,16 @@ import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class ComputeSignatureHelperTest {
@@ -130,8 +134,9 @@ public class ComputeSignatureHelperTest {
     void testMapImplementAnyDataTypeWithOutIndex() {
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(MapType.of(AnyDataType.INSTANCE_WITHOUT_INDEX, AnyDataType.INSTANCE_WITHOUT_INDEX));
-        List<Expression> arguments = Lists.newArrayList(new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)),
-                Lists.newArrayList(new BigIntLiteral(0))));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new IntegerLiteral(0), new BigIntLiteral(0));
+        List<Expression> arguments = Lists.newArrayList(new MapLiteral(map));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithOutIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
         Assertions.assertTrue(((MapType) signature.getArgType(0)).getKeyType() instanceof IntegerType);
@@ -195,8 +200,10 @@ public class ComputeSignatureHelperTest {
         FunctionSignature signature = FunctionSignature.ret(IntegerType.INSTANCE)
                 .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
                         new AnyDataType(0), new AnyDataType(1));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new IntegerLiteral(0), new BigIntLiteral(0));
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)), Lists.newArrayList(new BigIntLiteral(0))),
+                new MapLiteral(map),
                 new BigIntLiteral(0), new IntegerLiteral(0));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
@@ -229,10 +236,11 @@ public class ComputeSignatureHelperTest {
                 .args(MapType.of(new AnyDataType(0), new AnyDataType(1)),
                         new AnyDataType(0), new AnyDataType(1),
                         MapType.of(new FollowToAnyDataType(0), new FollowToAnyDataType(1)));
+        Map<Literal, Literal> map = Maps.newLinkedHashMap();
+        map.put(new BigIntLiteral(0), new IntegerLiteral(0));
         List<Expression> arguments = Lists.newArrayList(
                 new NullLiteral(), new NullLiteral(), new NullLiteral(),
-                new MapLiteral(Lists.newArrayList(new BigIntLiteral(0)),
-                        Lists.newArrayList(new IntegerLiteral(0))));
+                new MapLiteral(map));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
         Assertions.assertTrue(((MapType) signature.getArgType(0)).getKeyType() instanceof BigIntType);
@@ -268,9 +276,9 @@ public class ComputeSignatureHelperTest {
                         new AnyDataType(0), new AnyDataType(1),
                         MapType.of(new FollowToAnyDataType(0), new FollowToAnyDataType(1)));
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)), Lists.newArrayList(new BigIntLiteral(0))),
+                new MapLiteral(ImmutableMap.of(new IntegerLiteral(0), new BigIntLiteral(0))),
                 new BigIntLiteral(0), new IntegerLiteral(0),
-                new MapLiteral(Lists.newArrayList(new IntegerLiteral(0)), Lists.newArrayList(new BigIntLiteral(0))));
+                new MapLiteral(ImmutableMap.of(new IntegerLiteral(0), new BigIntLiteral(0))));
         signature = ComputeSignatureHelper.implementAnyDataTypeWithIndex(signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof MapType);
         Assertions.assertTrue(((MapType) signature.getArgType(0)).getKeyType() instanceof BigIntType);
@@ -331,8 +339,8 @@ public class ComputeSignatureHelperTest {
                         MapType.of(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
                         DecimalV3Type.WILDCARD);
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new DecimalV3Literal(new BigDecimal("1.1234"))),
-                        Lists.newArrayList(new DecimalV3Literal(new BigDecimal("12.12345")))),
+                new MapLiteral(ImmutableMap.of(new DecimalV3Literal(new BigDecimal("1.1234")),
+                        new DecimalV3Literal(new BigDecimal("12.12345")))),
                 new NullLiteral(),
                 new DecimalV3Literal(new BigDecimal("123.123")));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
@@ -385,8 +393,8 @@ public class ComputeSignatureHelperTest {
                         MapType.of(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
                         DateTimeV2Type.SYSTEM_DEFAULT);
         List<Expression> arguments = Lists.newArrayList(
-                new MapLiteral(Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.123")),
-                        Lists.newArrayList(new DateTimeV2Literal("2020-02-02 00:00:00.12"))),
+                new MapLiteral(ImmutableMap.of(new DateTimeV2Literal("2020-02-02 00:00:00.123"),
+                        new DateTimeV2Literal("2020-02-02 00:00:00.12"))),
                 new NullLiteral(),
                 new DateTimeV2Literal("2020-02-02 00:00:00.1234"));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
