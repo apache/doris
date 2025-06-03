@@ -260,9 +260,9 @@ public:
     int64_t last_cumu_no_suitable_version_ms = 0;
     int64_t last_access_time_ms = 0;
 
-    std::atomic<int64_t> local_read_time_ms = 0;
-    std::atomic<int64_t> remote_read_time_ms = 0;
-    std::atomic<int64_t> exec_compaction_time_ms = 0;
+    std::atomic<int64_t> local_read_time_us = 0;
+    std::atomic<int64_t> remote_read_time_us = 0;
+    std::atomic<int64_t> exec_compaction_time_us = 0;
 
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;
