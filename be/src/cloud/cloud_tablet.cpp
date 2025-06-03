@@ -736,19 +736,19 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
     root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
     rapidjson::Value exec_compaction_time;
     std::string num_str {std::to_string(exec_compaction_time_ms.load())};
-    full_schedule_value.SetString(num_str.c_str(), cast_set<uint>(num_str.length()),
-                                  root.GetAllocator());
-    root.AddMember("exec compaction time ms", full_schedule_value, root.GetAllocator());
+    exec_compaction_time.SetString(num_str.c_str(), cast_set<uint>(num_str.length()),
+                                   root.GetAllocator());
+    root.AddMember("exec compaction time ms", exec_compaction_time, root.GetAllocator());
     rapidjson::Value local_read_time;
     num_str = std::to_string(local_read_time_ms.load());
-    full_schedule_value.SetString(num_str.c_str(), cast_set<uint>(num_str.length()),
-                                  root.GetAllocator());
-    root.AddMember("compaction local read time ms", full_schedule_value, root.GetAllocator());
+    local_read_time.SetString(num_str.c_str(), cast_set<uint>(num_str.length()),
+                              root.GetAllocator());
+    root.AddMember("compaction local read time ms", local_read_time, root.GetAllocator());
     rapidjson::Value remote_read_time;
     num_str = std::to_string(remote_read_time_ms.load());
-    full_schedule_value.SetString(num_str.c_str(), cast_set<uint>(num_str.length()),
-                                  root.GetAllocator());
-    root.AddMember("compaction remote read time ms", full_schedule_value, root.GetAllocator());
+    remote_read_time.SetString(num_str.c_str(), cast_set<uint>(num_str.length()),
+                               root.GetAllocator());
+    root.AddMember("compaction remote read time ms", remote_read_time, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
