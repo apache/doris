@@ -161,8 +161,8 @@ suite("test_index_like_select", "inverted_index_select"){
         // case5 test int colume cannot use like
         def int_colume_like_result = "fail"
         try {
-            drop_result = sql "select * from ${indexTbName1} where ${int_colume1} like 9"
-            drop_index_twice_result = 'success'
+            sql "select * from ${indexTbName1} where ${int_colume1} like 9"
+            int_colume_like_result = 'success'
         } catch(Exception ex) {
             logger.info("int colume should not match succ, result: " + ex)
         }
