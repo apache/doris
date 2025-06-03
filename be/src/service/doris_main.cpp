@@ -427,6 +427,18 @@ int main(int argc, char** argv) {
                    << doris::config::spill_storage_root_path;
         exit(-1);
     }
+
+    std::vector<doris::StorePath> materialized_schema_table_paths;
+    if (doris::config::materialized_schema_table_storage_root_path.empty()) {
+        doris::config::materialized_schema_table_storage_root_path = doris::config::storage_root_path;
+    }
+    olap_res = doris::parse_conf_store_paths(doris::config::materialized_schema_table_storage_root_path, &materialized_schema_table_paths);
+    if (!olap_res) {
+        LOG(ERROR) << "parse config materialized_schema_table_storage_root_path failed, path="
+                   << doris::config::materialized_schema_table_storage_root_path;
+        exit(-1);
+    }
+
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
 
@@ -475,6 +487,25 @@ int main(int argc, char** argv) {
     }
     if (spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
+        exit(-1);
+    }
+
+    it = materialized_schema_table_paths.begin();
+    for (; it != materialized_schema_table_paths.end();) {
+        if (!doris::check_datapath_rw(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "read write test file failed, path=" << it->path;
+                it = materialized_schema_table_paths.erase(it);
+            } else {
+                LOG(ERROR) << "read write test file failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+    if (materialized_schema_table_paths.empty()) {
+        LOG(ERROR) << "All materialized_schema_table_paths are broken, exit.";
         exit(-1);
     }
 
@@ -527,7 +558,7 @@ int main(int argc, char** argv) {
 
     // init exec env
     auto* exec_env(doris::ExecEnv::GetInstance());
-    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, materialized_schema_table_paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
         return 0;

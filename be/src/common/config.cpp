@@ -1333,6 +1333,9 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
 
+DEFINE_String(materialized_schema_table_storage_root_path, "");
+DEFINE_String(materialized_schema_table_storage_limit, "5%");    // 5%
+
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
 DEFINE_mBool(force_azure_blob_global_endpoint, "false");

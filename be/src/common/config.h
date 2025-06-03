@@ -1408,6 +1408,9 @@ DECLARE_Int32(spill_io_thread_pool_thread_num);
 DECLARE_Int32(spill_io_thread_pool_queue_size);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 
+DECLARE_String(materialized_schema_table_storage_root_path);
+DECLARE_String(materialized_schema_table_storage_limit);
+
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);

@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <string>
+#include "olap/olap_common.h"
 
 namespace doris {
 // Here are some unified definitions
@@ -99,6 +100,7 @@ static const std::string INCREMENTAL_DELTA_PREFIX = "incremental_delta";
 static const std::string CLONE_PREFIX = "clone";
 static const std::string SPILL_DIR_PREFIX = "spill";
 static const std::string SPILL_GC_DIR_PREFIX = "spill_gc";
+static const std::string MATERIALIZED_SCHEMA_TABLE_DIR_PREFIX = "materialized_schema_table";
 
 static inline std::string local_segment_path(std::string_view tablet_path,
                                              std::string_view rowset_id, int64_t seg_id) {
