@@ -45,6 +45,7 @@ class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
+    static constexpr PrimitiveType PType = TYPE_STRING;
     static constexpr bool is_parametric = false;
 
     const char* get_family_name() const override { return "String"; }

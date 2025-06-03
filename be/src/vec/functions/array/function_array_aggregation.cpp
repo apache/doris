@@ -125,8 +125,7 @@ struct AggregateFunctionImpl<AggregateOperation::SUM> {
         static constexpr PrimitiveType ResultType =
                 ArrayAggregateResultImpl<Element, AggregateOperation::SUM, false>::Result;
         using AggregateDataType = AggregateFunctionSumData<ResultType>;
-        using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<Element>::ColumnItemType,
-                                              ResultType, AggregateDataType>;
+        using Function = AggregateFunctionSum<Element, ResultType, AggregateDataType>;
     };
 };
 template <>
@@ -136,8 +135,7 @@ struct AggregateFunctionImpl<AggregateOperation::SUM, true> {
         static constexpr PrimitiveType ResultType =
                 ArrayAggregateResultImpl<Element, AggregateOperation::SUM, true>::Result;
         using AggregateDataType = AggregateFunctionSumData<ResultType>;
-        using Function = AggregateFunctionSum<typename PrimitiveTypeTraits<Element>::ColumnItemType,
-                                              ResultType, AggregateDataType>;
+        using Function = AggregateFunctionSum<Element, ResultType, AggregateDataType>;
     };
 };
 
