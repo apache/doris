@@ -639,6 +639,7 @@ public class SchemaTable extends Table {
                             .column("IS_ALTER_FAILED", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .column("CREATE_TIME", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
                             .build())
             )
             .build();

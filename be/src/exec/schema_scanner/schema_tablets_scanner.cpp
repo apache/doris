@@ -66,6 +66,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaTabletsScanner::_s_tbls_columns = {
         {"IS_ALTER_FAILED", TYPE_BOOLEAN, sizeof(bool), true},
         {"CREATE_TIME", TYPE_BIGINT, sizeof(int64_t), true},
         {"UPDATE_TIME", TYPE_BIGINT, sizeof(int64_t), true},
+        {"IS_OVERLAP", TYPE_BOOLEAN, sizeof(bool), true},
 };
 
 SchemaTabletsScanner::SchemaTabletsScanner()
@@ -202,6 +203,15 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
                 return rowset == nullptr ? 0 : rowset->newest_write_timestamp();
             },
             16));
+    RETURN_IF_ERROR(fill_boolean_column(
+            [](BaseTabletSPtr tablet) {
+                const auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
+                return std::any_of(rs_metas.begin(), rs_metas.end(),
+                                   [](const RowsetMetaSharedPtr& rs_meta) {
+                                       return rs_meta->is_segments_overlapping();
+                                   });
+            },
+            17));
 
     _tablets_idx += fill_tablets_num;
     return Status::OK();
