@@ -139,11 +139,6 @@ bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stat
 
 class MetaServiceProxy {
 public:
-    static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
-        return get_pooled_client(stub, nullptr);
-    }
-
     static Status get_proxy(MetaServiceProxy** proxy) {
         // The 'stub' is a useless parameter, added only to reuse the `get_pooled_client` function.
         std::shared_ptr<MetaService_Stub> stub;
