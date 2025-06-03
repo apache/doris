@@ -62,6 +62,7 @@ suite("test_dml_select_udf_auth","p0,auth_call") {
     sql """ INSERT INTO ${dbName}.${tableName} VALUES ("abc"), ("123"), ("123"); """
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
+        sql """set enable_fallback_to_original_planner=false"""
         test {
             sql """ SELECT ${dbName}.${udfName}(col_1) as a FROM ${dbName}.${tableName} ORDER BY a; """
             exception "Can not found function"
