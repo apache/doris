@@ -124,6 +124,14 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     } catch (const Exception& e) {
         state = e.to_status();
     }
+    if (state.ok()) {
+        auto result_column = block->get_by_position(num_columns_without_result).column;
+        if (result_column->is_nullable() != _data_type->is_nullable()) {
+            return Status::InternalError(
+                    fmt::format("CastExpr result column type mismatch, expect {}, got {}",
+                                _data_type->get_name(), result_column->get_name()));
+        }
+    }
     return state;
 }
 
