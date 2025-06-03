@@ -30,12 +30,12 @@ import java.util.List;
 
 class IcebergSnapShotsTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("committed_at", ScalarType.DATETIMEV2),
-            new Column("snapshot_id", ScalarType.BIGINT),
-            new Column("parent_id", ScalarType.BIGINT),
-            new Column("operation", ScalarType.STRING),
-            new Column("manifest_list", ScalarType.STRING),
-            new Column("summary", new MapType(ScalarType.STRING, ScalarType.STRING)));
+            new Column("committed_at", ScalarType.DATETIMEV2, true),
+            new Column("snapshot_id", ScalarType.BIGINT, true),
+            new Column("parent_id", ScalarType.BIGINT, true),
+            new Column("operation", ScalarType.STRING, true),
+            new Column("manifest_list", ScalarType.STRING, true),
+            new Column("summary", new MapType(ScalarType.STRING, ScalarType.STRING), true));
 
     public IcebergSnapShotsTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.SNAPSHOTS);

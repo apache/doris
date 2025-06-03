@@ -21,23 +21,36 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
 import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.iceberg.ManifestContent;
+import org.apache.iceberg.util.SerializationUtil;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 class IcebergPositionDeletesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("file_path", ScalarType.STRING),
-            new Column("pos", ScalarType.BIGINT),
-            new Column("row", ScalarType.BIGINT),
-            new Column("partition", ScalarType.STRING),
-            new Column("spec_id", ScalarType.INT),
-            new Column("delete_file_path", ScalarType.STRING));
+            new Column("file_path", ScalarType.STRING, true),
+            new Column("pos", ScalarType.BIGINT, true),
+            new Column("row", ScalarType.BIGINT, true),
+            new Column("partition", ScalarType.STRING, true),
+            new Column("spec_id", ScalarType.INT, true),
+            new Column("delete_file_path", ScalarType.STRING, true));
 
     public IcebergPositionDeletesTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.POSITION_DELETES);
+    }
+
+    @Override
+    protected List<String> getSplits() {
+        return table.currentSnapshot().allManifests(table.io()).stream()
+                // filter only delete manifests
+                .filter(file -> file.content() == ManifestContent.DELETES)
+                .map(ManifestFileBean::fromManifest).map(SerializationUtil::serializeToBase64)
+                .collect(Collectors.toList());
     }
 
     @Override

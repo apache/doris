@@ -151,6 +151,7 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
     public List<TMetaScanRange> getMetaScanRanges() {
         List<TMetaScanRange> scanRanges = Lists.newArrayList();
         List<String> splits = getSplits();
+        String serializedTable = SerializationUtil.serializeToBase64(table);
         for (String split : splits) {
             TMetaScanRange metaScanRange = new TMetaScanRange();
             metaScanRange.setMetadataType(TMetadataType.ICEBERG);
@@ -160,7 +161,6 @@ public abstract class IcebergTableValuedFunction extends MetadataTableValuedFunc
             icebergMetadataParams.setCatalog(icebergTableName.getCtl());
             icebergMetadataParams.setDatabase(icebergTableName.getDb());
             icebergMetadataParams.setTable(icebergTableName.getTbl());
-            String serializedTable = SerializationUtil.serializeToBase64(table);
             icebergMetadataParams.setSerializedTable(serializedTable);
             icebergMetadataParams.setHadoopProps(hadoopProps);
             icebergMetadataParams.setSerializedSplit(split);

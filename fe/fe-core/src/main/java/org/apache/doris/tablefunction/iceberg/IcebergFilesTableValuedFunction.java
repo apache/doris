@@ -34,23 +34,23 @@ import java.util.stream.Collectors;
 
 class IcebergFilesTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA_SNAPSHOT = ImmutableList.of(
-            new Column("content", ScalarType.INT),
-            new Column("file_path", ScalarType.STRING),
-            new Column("file_format", ScalarType.STRING),
-            new Column("spec_id", ScalarType.INT),
-            new Column("record_count", ScalarType.BIGINT),
-            new Column("file_size_in_bytes", ScalarType.BIGINT),
-            new Column("column_sizes", new MapType(ScalarType.INT, ScalarType.BIGINT)),
-            new Column("value_counts", new MapType(ScalarType.INT, ScalarType.BIGINT)),
-            new Column("null_value_counts", new MapType(ScalarType.INT, ScalarType.BIGINT)),
-            new Column("nan_value_counts", new MapType(ScalarType.INT, ScalarType.BIGINT)),
-            new Column("lower_bounds", new MapType(ScalarType.INT, ScalarType.STRING)),
-            new Column("upper_bounds", new MapType(ScalarType.INT, ScalarType.STRING)),
-            new Column("key_metadata", ScalarType.STRING),
-            new Column("split_offsets", new ArrayType(ScalarType.BIGINT)),
-            new Column("equality_ids", new ArrayType(ScalarType.INT)),
-            new Column("sort_order_id", ScalarType.INT),
-            new Column("readable_metrics", ScalarType.STRING));
+            new Column("content", ScalarType.INT, true),
+            new Column("file_path", ScalarType.STRING, true),
+            new Column("file_format", ScalarType.STRING, true),
+            new Column("spec_id", ScalarType.INT, true),
+            new Column("record_count", ScalarType.BIGINT, true),
+            new Column("file_size_in_bytes", ScalarType.BIGINT, true),
+            new Column("column_sizes", new MapType(ScalarType.INT, ScalarType.BIGINT), true),
+            new Column("value_counts", new MapType(ScalarType.INT, ScalarType.BIGINT), true),
+            new Column("null_value_counts", new MapType(ScalarType.INT, ScalarType.BIGINT), true),
+            new Column("nan_value_counts", new MapType(ScalarType.INT, ScalarType.BIGINT), true),
+            new Column("lower_bounds", new MapType(ScalarType.INT, ScalarType.STRING), true),
+            new Column("upper_bounds", new MapType(ScalarType.INT, ScalarType.STRING), true),
+            new Column("key_metadata", ScalarType.STRING, true),
+            new Column("split_offsets", new ArrayType(ScalarType.BIGINT), true),
+            new Column("equality_ids", new ArrayType(ScalarType.INT), true),
+            new Column("sort_order_id", ScalarType.INT, true),
+            new Column("readable_metrics", ScalarType.STRING, true));
 
     public IcebergFilesTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.FILES);

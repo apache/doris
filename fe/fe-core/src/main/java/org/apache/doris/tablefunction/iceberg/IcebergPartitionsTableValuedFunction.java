@@ -21,11 +21,14 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
 import org.apache.doris.thrift.TIcebergQueryType;
+import org.apache.iceberg.util.SerializationUtil;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 class IcebergPartitionsTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
@@ -42,6 +45,13 @@ class IcebergPartitionsTableValuedFunction extends IcebergTableValuedFunction {
 
     public IcebergPartitionsTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.PARTITIONS);
+    }
+
+    @Override
+    protected List<String> getSplits() {
+        return table.currentSnapshot().allManifests(table.io()).stream()
+                .map(ManifestFileBean::fromManifest).map(SerializationUtil::serializeToBase64)
+                .collect(Collectors.toList());
     }
 
     @Override

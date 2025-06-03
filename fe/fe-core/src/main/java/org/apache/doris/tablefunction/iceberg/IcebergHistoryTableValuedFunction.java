@@ -29,10 +29,10 @@ import java.util.List;
 
 class IcebergHistoryTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("made_current_at", ScalarType.DATETIMEV2),
-            new Column("snapshot_id", ScalarType.BIGINT),
-            new Column("parent_id", ScalarType.BIGINT),
-            new Column("is_current_ancestor", ScalarType.BOOLEAN));
+            new Column("made_current_at", ScalarType.DATETIMEV2, true),
+            new Column("snapshot_id", ScalarType.BIGINT, true),
+            new Column("parent_id", ScalarType.BIGINT, true),
+            new Column("is_current_ancestor", ScalarType.BOOLEAN, true));
 
     public IcebergHistoryTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.HISTORY);

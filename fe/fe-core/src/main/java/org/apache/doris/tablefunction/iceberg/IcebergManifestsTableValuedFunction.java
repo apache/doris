@@ -29,15 +29,14 @@ import java.util.List;
 
 class IcebergManifestsTableValuedFunction extends IcebergTableValuedFunction {
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("path", ScalarType.STRING),
-            new Column("length", ScalarType.BIGINT),
-            new Column("partition_spec_id", ScalarType.INT),
-            new Column("added_snapshot_id", ScalarType.BIGINT),
-            new Column("added_data_files_count", ScalarType.INT),
-            new Column("existing_data_files_count", ScalarType.INT),
-            new Column("deleted_data_files_count", ScalarType.INT),
-            new Column("partition_summaries", ScalarType.STRING)
-    );
+            new Column("path", ScalarType.STRING, true),
+            new Column("length", ScalarType.BIGINT, true),
+            new Column("partition_spec_id", ScalarType.INT, true),
+            new Column("added_snapshot_id", ScalarType.BIGINT, true),
+            new Column("added_data_files_count", ScalarType.INT, true),
+            new Column("existing_data_files_count", ScalarType.INT, true),
+            new Column("deleted_data_files_count", ScalarType.INT, true),
+            new Column("partition_summaries", ScalarType.STRING, true));
 
     public IcebergManifestsTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.MANIFESTS);
