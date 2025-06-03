@@ -95,6 +95,11 @@ public:
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
 
+    // Only used in the materialization phase of delayed materialization,
+    // when there may be no corresponding QueryContext.
+    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
+
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
