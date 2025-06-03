@@ -66,7 +66,6 @@ Status SchemaBackendConfigurationScanner::get_next_block_internal(vectorized::Bl
     for (size_t col_idx = 0; col_idx < _s_tbls_columns.size(); ++col_idx) {
         size_t row_num = _config_infos.size();
         std::vector<StringRef> str_refs(row_num);
-        std::vector<int64_t> bigint_vals(row_num);
         std::vector<int8_t> bool_vals(row_num);
         std::vector<void*> datas(row_num);
         std::vector<std::string> column_values(row_num);
@@ -74,8 +73,7 @@ Status SchemaBackendConfigurationScanner::get_next_block_internal(vectorized::Bl
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
             // be_id
             if (col_idx == 0) {
-                bigint_vals[row_idx] = _backend_id;
-                datas[row_idx] = &bigint_vals[row_idx];
+                datas[row_idx] = &_backend_id;
             } else {
                 // config
                 const auto& row = _config_infos[row_idx];
