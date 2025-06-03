@@ -9,5 +9,5 @@ def	DEF	\N
 {"k1":"abc", "k3":"def"}	{"k1":"ABC", "k3":"DEF"}	{"k1":null, "k3":null}
 
 -- !sql4 --
-{"k2":2, "k3":"DEF"}
+{"k2":2.1, "k3":"DEF"}
 
