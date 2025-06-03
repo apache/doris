@@ -54,6 +54,7 @@ private:
     bool is_nullable;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_VARIANT;
     DataTypeVariant(const String& schema_format_ = "json", bool is_nullable_ = true);
     const char* get_family_name() const override { return "Variant"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }

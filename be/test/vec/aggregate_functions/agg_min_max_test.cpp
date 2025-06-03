@@ -50,7 +50,7 @@ class AggMinMaxTest : public ::testing::TestWithParam<std::string> {};
 TEST_P(AggMinMaxTest, min_max_test) {
     std::string min_max_type = GetParam();
     // Prepare test data.
-    auto column_vector_int32 = ColumnVector<Int32>::create();
+    auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
         column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
     }
