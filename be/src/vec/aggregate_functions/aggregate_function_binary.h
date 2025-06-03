@@ -42,15 +42,15 @@ template <PrimitiveType T1, PrimitiveType T2, template <PrimitiveType> typename 
 struct StatFunc {
     using ColVecT1 = typename PrimitiveTypeTraits<T1>::ColumnType;
     using ColVecT2 = typename PrimitiveTypeTraits<T2>::ColumnType;
-    using ResultType = Float64;
     using Data = Moments<TYPE_DOUBLE>;
+    static constexpr PrimitiveType ResultPrimitiveType = TYPE_DOUBLE;
 };
 
 template <typename StatFunc>
 struct AggregateFunctionBinary
         : public IAggregateFunctionDataHelper<typename StatFunc::Data,
                                               AggregateFunctionBinary<StatFunc>> {
-    using ResultType = typename StatFunc::ResultType;
+    static constexpr PrimitiveType ResultType = StatFunc::ResultPrimitiveType;
 
     using ColVecT1 = typename StatFunc::ColVecT1;
     using ColVecT2 = typename StatFunc::ColVecT2;
@@ -66,15 +66,15 @@ struct AggregateFunctionBinary
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeNumber<ResultType>>();
+        return std::make_shared<DataTypeNumber<StatFunc::ResultPrimitiveType>>();
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         this->data(place).add(
-                static_cast<ResultType>(
+                static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                         static_cast<const ColVecT1&>(*columns[0]).get_data()[row_num]),
-                static_cast<ResultType>(
+                static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
                         static_cast<const ColVecT2&>(*columns[1]).get_data()[row_num]));
     }
 

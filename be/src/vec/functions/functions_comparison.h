@@ -239,10 +239,10 @@ struct StringEqualsImpl {
     }
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct StringComparisonImpl<EqualsOp<A, B>> : StringEqualsImpl<true> {};
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct StringComparisonImpl<NotEqualsOp<A, B>> : StringEqualsImpl<false> {};
 
 struct NameEquals {
@@ -264,7 +264,7 @@ struct NameGreaterOrEquals {
     static constexpr auto name = "ge";
 };
 
-template <template <typename, typename> class Op, typename Name>
+template <template <PrimitiveType, PrimitiveType> class Op, typename Name>
 class FunctionComparison : public IFunction {
 public:
     static constexpr auto name = Name::name;
@@ -273,7 +273,7 @@ public:
     FunctionComparison() = default;
 
 private:
-    template <typename T0, typename T1>
+    template <PrimitiveType T0, PrimitiveType T1>
     bool execute_num_right_type(Block& block, uint32_t result, const ColumnVector<T0>* col_left,
                                 const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
@@ -282,8 +282,10 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->get_data().size());
-            NumComparisonImpl<T0, T1, Op<T0, T1>>::vector_vector(col_left->get_data(),
-                                                                 col_right->get_data(), vec_res);
+            NumComparisonImpl<typename PrimitiveTypeTraits<T0>::ColumnItemType,
+                              typename PrimitiveTypeTraits<T1>::ColumnItemType,
+                              Op<T0, T1>>::vector_vector(col_left->get_data(),
+                                                         col_right->get_data(), vec_res);
 
             block.replace_by_position(result, std::move(col_res));
             return true;
@@ -293,8 +295,12 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->size());
-            NumComparisonImpl<T0, T1, Op<T0, T1>>::vector_constant(
-                    col_left->get_data(), col_right_const->template get_value<T1>(), vec_res);
+            NumComparisonImpl<typename PrimitiveTypeTraits<T0>::ColumnItemType,
+                              typename PrimitiveTypeTraits<T1>::ColumnItemType, Op<T0, T1>>::
+                    vector_constant(col_left->get_data(),
+                                    col_right_const->template get_value<
+                                            typename PrimitiveTypeTraits<T1>::ColumnItemType>(),
+                                    vec_res);
 
             block.replace_by_position(result, std::move(col_res));
             return true;
@@ -303,7 +309,7 @@ private:
         return false;
     }
 
-    template <typename T0, typename T1>
+    template <PrimitiveType T0, PrimitiveType T1>
     bool execute_num_const_right_type(Block& block, uint32_t result, const ColumnConst* col_left,
                                       const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
@@ -312,17 +318,24 @@ private:
 
             ColumnUInt8::Container& vec_res = col_res->get_data();
             vec_res.resize(col_left->size());
-            NumComparisonImpl<T0, T1, Op<T0, T1>>::constant_vector(
-                    col_left->template get_value<T0>(), col_right->get_data(), vec_res);
+            NumComparisonImpl<typename PrimitiveTypeTraits<T0>::ColumnItemType,
+                              typename PrimitiveTypeTraits<T1>::ColumnItemType, Op<T0, T1>>::
+                    constant_vector(col_left->template get_value<
+                                            typename PrimitiveTypeTraits<T0>::ColumnItemType>(),
+                                    col_right->get_data(), vec_res);
 
             block.replace_by_position(result, std::move(col_res));
             return true;
         } else if (auto col_right_const =
                            check_and_get_column_const<ColumnVector<T1>>(col_right_untyped)) {
             UInt8 res = 0;
-            NumComparisonImpl<T0, T1, Op<T0, T1>>::constant_constant(
-                    col_left->template get_value<T0>(), col_right_const->template get_value<T1>(),
-                    res);
+            NumComparisonImpl<typename PrimitiveTypeTraits<T0>::ColumnItemType,
+                              typename PrimitiveTypeTraits<T1>::ColumnItemType, Op<T0, T1>>::
+                    constant_constant(col_left->template get_value<
+                                              typename PrimitiveTypeTraits<T0>::ColumnItemType>(),
+                                      col_right_const->template get_value<
+                                              typename PrimitiveTypeTraits<T1>::ColumnItemType>(),
+                                      res);
 
             block.replace_by_position(
                     result, DataTypeUInt8().create_column_const(col_left->size(),
@@ -333,23 +346,38 @@ private:
         return false;
     }
 
-    template <typename T0>
+    template <PrimitiveType T0>
     bool execute_num_left_type(Block& block, uint32_t result, const IColumn* col_left_untyped,
                                const IColumn* col_right_untyped) const {
         if (const ColumnVector<T0>* col_left =
                     check_and_get_column<ColumnVector<T0>>(col_left_untyped)) {
-            if (execute_num_right_type<T0, UInt8>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, UInt16>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, UInt32>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, UInt64>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Int8>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Int16>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Int32>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Int64>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Int128>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, IPv6>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Float32>(block, result, col_left, col_right_untyped) ||
-                execute_num_right_type<T0, Float64>(block, result, col_left, col_right_untyped)) {
+            if (execute_num_right_type<T0, TYPE_BOOLEAN>(block, result, col_left,
+                                                         col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_DATE>(block, result, col_left, col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_DATEV2>(block, result, col_left,
+                                                        col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_DATETIME>(block, result, col_left,
+                                                          col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_DATETIMEV2>(block, result, col_left,
+                                                            col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_TINYINT>(block, result, col_left,
+                                                         col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_SMALLINT>(block, result, col_left,
+                                                          col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_INT>(block, result, col_left, col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_BIGINT>(block, result, col_left,
+                                                        col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_LARGEINT>(block, result, col_left,
+                                                          col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_IPV4>(block, result, col_left, col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_IPV6>(block, result, col_left, col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_FLOAT>(block, result, col_left,
+                                                       col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_DOUBLE>(block, result, col_left,
+                                                        col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_TIME>(block, result, col_left, col_right_untyped) ||
+                execute_num_right_type<T0, TYPE_TIMEV2>(block, result, col_left,
+                                                        col_right_untyped)) {
                 return true;
             } else {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
@@ -359,30 +387,38 @@ private:
 
         } else if (auto col_left_const =
                            check_and_get_column_const<ColumnVector<T0>>(col_left_untyped)) {
-            if (execute_num_const_right_type<T0, UInt8>(block, result, col_left_const,
-                                                        col_right_untyped) ||
-                execute_num_const_right_type<T0, UInt16>(block, result, col_left_const,
-                                                         col_right_untyped) ||
-                execute_num_const_right_type<T0, UInt32>(block, result, col_left_const,
-                                                         col_right_untyped) ||
-                execute_num_const_right_type<T0, UInt64>(block, result, col_left_const,
-                                                         col_right_untyped) ||
-                execute_num_const_right_type<T0, Int8>(block, result, col_left_const,
-                                                       col_right_untyped) ||
-                execute_num_const_right_type<T0, Int16>(block, result, col_left_const,
-                                                        col_right_untyped) ||
-                execute_num_const_right_type<T0, Int32>(block, result, col_left_const,
-                                                        col_right_untyped) ||
-                execute_num_const_right_type<T0, Int64>(block, result, col_left_const,
-                                                        col_right_untyped) ||
-                execute_num_const_right_type<T0, Int128>(block, result, col_left_const,
-                                                         col_right_untyped) ||
-                execute_num_const_right_type<T0, IPv6>(block, result, col_left_const,
-                                                       col_right_untyped) ||
-                execute_num_const_right_type<T0, Float32>(block, result, col_left_const,
-                                                          col_right_untyped) ||
-                execute_num_const_right_type<T0, Float64>(block, result, col_left_const,
-                                                          col_right_untyped)) {
+            if (execute_num_const_right_type<T0, TYPE_BOOLEAN>(block, result, col_left_const,
+                                                               col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_DATE>(block, result, col_left_const,
+                                                            col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_DATEV2>(block, result, col_left_const,
+                                                              col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_DATETIME>(block, result, col_left_const,
+                                                                col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_DATETIMEV2>(block, result, col_left_const,
+                                                                  col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_TINYINT>(block, result, col_left_const,
+                                                               col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_SMALLINT>(block, result, col_left_const,
+                                                                col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_INT>(block, result, col_left_const,
+                                                           col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_BIGINT>(block, result, col_left_const,
+                                                              col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_LARGEINT>(block, result, col_left_const,
+                                                                col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_IPV4>(block, result, col_left_const,
+                                                            col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_IPV6>(block, result, col_left_const,
+                                                            col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_FLOAT>(block, result, col_left_const,
+                                                             col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_DOUBLE>(block, result, col_left_const,
+                                                              col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_TIME>(block, result, col_left_const,
+                                                            col_right_untyped) ||
+                execute_num_const_right_type<T0, TYPE_TIMEV2>(block, result, col_left_const,
+                                                              col_right_untyped)) {
                 return true;
             } else {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
@@ -401,8 +437,8 @@ private:
             using LeftDataType = typename Types::LeftType;
             using RightDataType = typename Types::RightType;
 
-            DecimalComparison<LeftDataType, RightDataType, Op, false>(block, result, col_left,
-                                                                      col_right);
+            DecimalComparison<LeftDataType::PType, RightDataType::PType, Op, false>(
+                    block, result, col_left, col_right);
             return true;
         };
 
@@ -462,7 +498,7 @@ private:
             }
         }
 
-        using StringImpl = StringComparisonImpl<Op<int, int>>;
+        using StringImpl = StringComparisonImpl<Op<TYPE_INT, TYPE_INT>>;
 
         auto c_res = ColumnUInt8::create();
         ColumnUInt8::Container& vec_res = c_res->get_data();
@@ -494,7 +530,7 @@ private:
 
         if (c0_const && c1_const) {
             UInt8 res = 0;
-            GenericComparisonImpl<Op<int, int>>::constant_constant(*c0, *c1, res);
+            GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::constant_constant(*c0, *c1, res);
             block.replace_by_position(result, DataTypeUInt8().create_column_const(
                                                       c0->size(), to_field<TYPE_BOOLEAN>(res)));
         } else {
@@ -503,11 +539,11 @@ private:
             vec_res.resize(c0->size());
 
             if (c0_const) {
-                GenericComparisonImpl<Op<int, int>>::constant_vector(*c0, *c1, vec_res);
+                GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::constant_vector(*c0, *c1, vec_res);
             } else if (c1_const) {
-                GenericComparisonImpl<Op<int, int>>::vector_constant(*c0, *c1, vec_res);
+                GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::vector_constant(*c0, *c1, vec_res);
             } else {
-                GenericComparisonImpl<Op<int, int>>::vector_vector(*c0, *c1, vec_res);
+                GenericComparisonImpl<Op<TYPE_INT, TYPE_INT>>::vector_vector(*c0, *c1, vec_res);
             }
 
             block.replace_by_position(result, std::move(c_res));
@@ -618,9 +654,11 @@ public:
             col_left_untyped == col_right_untyped) {
             /// Always true: =, <=, >=
             // TODO: Return const column in the future. But seems so far to do. We need a unified approach for passing const column.
-            if constexpr (std::is_same_v<Op<int, int>, EqualsOp<int, int>> ||
-                          std::is_same_v<Op<int, int>, LessOrEqualsOp<int, int>> ||
-                          std::is_same_v<Op<int, int>, GreaterOrEqualsOp<int, int>>) {
+            if constexpr (std::is_same_v<Op<TYPE_INT, TYPE_INT>, EqualsOp<TYPE_INT, TYPE_INT>> ||
+                          std::is_same_v<Op<TYPE_INT, TYPE_INT>,
+                                         LessOrEqualsOp<TYPE_INT, TYPE_INT>> ||
+                          std::is_same_v<Op<TYPE_INT, TYPE_INT>,
+                                         GreaterOrEqualsOp<TYPE_INT, TYPE_INT>>) {
                 block.get_by_position(result).column =
                         DataTypeUInt8()
                                 .create_column_const(input_rows_count,
@@ -648,28 +686,38 @@ public:
         const bool right_is_string = is_string_type(right_type->get_primitive_type());
 
         if (left_is_num_can_compare && right_is_num_can_compare) {
-            if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
-                                               col_right_untyped) ||
-                  execute_num_left_type<UInt16>(block, result, col_left_untyped,
-                                                col_right_untyped) ||
-                  execute_num_left_type<UInt32>(block, result, col_left_untyped,
-                                                col_right_untyped) ||
-                  execute_num_left_type<UInt64>(block, result, col_left_untyped,
-                                                col_right_untyped) ||
-                  execute_num_left_type<Int8>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Int16>(block, result, col_left_untyped,
-                                               col_right_untyped) ||
-                  execute_num_left_type<Int32>(block, result, col_left_untyped,
-                                               col_right_untyped) ||
-                  execute_num_left_type<Int64>(block, result, col_left_untyped,
-                                               col_right_untyped) ||
-                  execute_num_left_type<Int128>(block, result, col_left_untyped,
-                                                col_right_untyped) ||
-                  execute_num_left_type<IPv6>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Float32>(block, result, col_left_untyped,
-                                                 col_right_untyped) ||
-                  execute_num_left_type<Float64>(block, result, col_left_untyped,
-                                                 col_right_untyped))) {
+            if (!(execute_num_left_type<TYPE_BOOLEAN>(block, result, col_left_untyped,
+                                                      col_right_untyped) ||
+                  execute_num_left_type<TYPE_DATE>(block, result, col_left_untyped,
+                                                   col_right_untyped) ||
+                  execute_num_left_type<TYPE_DATEV2>(block, result, col_left_untyped,
+                                                     col_right_untyped) ||
+                  execute_num_left_type<TYPE_DATETIME>(block, result, col_left_untyped,
+                                                       col_right_untyped) ||
+                  execute_num_left_type<TYPE_DATETIMEV2>(block, result, col_left_untyped,
+                                                         col_right_untyped) ||
+                  execute_num_left_type<TYPE_TINYINT>(block, result, col_left_untyped,
+                                                      col_right_untyped) ||
+                  execute_num_left_type<TYPE_SMALLINT>(block, result, col_left_untyped,
+                                                       col_right_untyped) ||
+                  execute_num_left_type<TYPE_INT>(block, result, col_left_untyped,
+                                                  col_right_untyped) ||
+                  execute_num_left_type<TYPE_BIGINT>(block, result, col_left_untyped,
+                                                     col_right_untyped) ||
+                  execute_num_left_type<TYPE_LARGEINT>(block, result, col_left_untyped,
+                                                       col_right_untyped) ||
+                  execute_num_left_type<TYPE_IPV4>(block, result, col_left_untyped,
+                                                   col_right_untyped) ||
+                  execute_num_left_type<TYPE_IPV6>(block, result, col_left_untyped,
+                                                   col_right_untyped) ||
+                  execute_num_left_type<TYPE_FLOAT>(block, result, col_left_untyped,
+                                                    col_right_untyped) ||
+                  execute_num_left_type<TYPE_DOUBLE>(block, result, col_left_untyped,
+                                                     col_right_untyped) ||
+                  execute_num_left_type<TYPE_TIME>(block, result, col_left_untyped,
+                                                   col_right_untyped) ||
+                  execute_num_left_type<TYPE_TIMEV2>(block, result, col_left_untyped,
+                                                     col_right_untyped))) {
                 return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                             col_left_untyped->get_name(), get_name());
             }

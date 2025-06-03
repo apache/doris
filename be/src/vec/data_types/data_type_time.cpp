@@ -63,7 +63,7 @@ std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) con
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto value = assert_cast<const ColumnFloat64&>(*ptr).get_element(row_num);
+    auto value = assert_cast<const ColumnTimeV2&>(*ptr).get_element(row_num);
     return timev2_to_buffer_from_double(value, _scale);
 }
 
@@ -76,6 +76,6 @@ void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 }
 
 MutableColumnPtr DataTypeTimeV2::create_column() const {
-    return DataTypeNumberBase<Float64>::create_column();
+    return DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2>::create_column();
 }
 } // namespace doris::vectorized

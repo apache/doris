@@ -158,12 +158,12 @@ public:
                 << "first argument for function: " << name << " should be DataTypeMap";
 
         if constexpr (OldVersion) {
-            return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+            return make_nullable(std::make_shared<DataTypeBool>());
         } else {
             if (arguments[0]->is_nullable()) {
-                return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
+                return make_nullable(std::make_shared<DataTypeBool>());
             } else {
-                return std::make_shared<DataTypeNumber<UInt8>>();
+                return std::make_shared<DataTypeBool>();
             }
         }
     }
@@ -352,7 +352,7 @@ private:
                 ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         result_col_map_vals_data->reserve(input_rows_count);
         // map offsets column
-        auto result_col_map_offsets = ColumnUInt64::create();
+        auto result_col_map_offsets = ColumnOffset64::create();
         result_col_map_offsets->reserve(input_rows_count);
 
         std::vector<std::string_view> kvs;

@@ -54,6 +54,7 @@ private:
     DataTypePtr nested;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_ARRAY;
     static constexpr bool is_parametric = true;
 
     DataTypeArray(const DataTypePtr& nested_);
