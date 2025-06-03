@@ -34,7 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "serde/data_type_object_serde.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"

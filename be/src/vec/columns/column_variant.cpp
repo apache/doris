@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnVariant.cpp
 // and modified by Doris
 
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 
 #include <assert.h>
 #include <fmt/core.h>
@@ -73,7 +73,7 @@
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
 
@@ -1676,7 +1676,7 @@ void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type)
     if (!root.get_least_common_type()->equals(*expected_root_type)) {
         // make sure the root type is alawys as expected
         ColumnPtr casted_column;
-        static_cast<void>(
+        THROW_IF_ERROR(
                 schema_util::cast_column(ColumnWithTypeAndName {root.get_finalized_column_ptr(),
                                                                 root.get_least_common_type(), ""},
                                          expected_root_type, &casted_column));

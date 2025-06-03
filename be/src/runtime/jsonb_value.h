@@ -39,13 +39,6 @@ struct JsonBinaryValue {
     JsonbParser parser;
 
     JsonBinaryValue() = default;
-    JsonBinaryValue(char* ptr, size_t len) {
-        static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
-    }
-    JsonBinaryValue(const std::string& s) {
-        static_cast<void>(from_json_string(s.c_str(), s.length()));
-    }
-    JsonBinaryValue(const char* ptr, int len) { static_cast<void>(from_json_string(ptr, len)); }
 
     const char* value() const { return ptr; }
 
@@ -100,7 +93,11 @@ struct JsonBinaryValue {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
     }
 
-    Status from_json_string(const char* s, size_t len);
+    Status init_from_json_string(const char* s, size_t len);
+
+    Status init_from_json_string(const std::string& s) {
+        return init_from_json_string(s.c_str(), s.size());
+    }
 
     std::string to_json_string() const;
 

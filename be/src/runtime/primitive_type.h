@@ -108,7 +108,6 @@ class ColumnArray;
 
 class DecimalV2Value;
 struct StringRef;
-struct JsonBinaryValue;
 
 constexpr bool is_enumeration_type(PrimitiveType type) {
     switch (type) {

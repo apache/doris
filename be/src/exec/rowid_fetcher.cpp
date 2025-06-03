@@ -173,9 +173,9 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                 }
             }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                vectorized::JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values, {});
+                        col_uid_to_idx, *output_block, default_values, {}));
             }
             return Status::OK();
         }
@@ -793,10 +793,10 @@ Status RowIdStorageReader::read_doris_format_row(
                 },
                 lookup_row_data_ms));
 
-        vectorized::JsonbSerializeUtil::jsonb_to_block(
+        RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                 row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                 row_store_read_struct.row_store_buffer.size(), row_store_read_struct.col_uid_to_idx,
-                result_block, row_store_read_struct.default_values, {});
+                result_block, row_store_read_struct.default_values, {}));
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             vectorized::MutableColumnPtr column =

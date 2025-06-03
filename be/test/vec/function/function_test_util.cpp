@@ -374,7 +374,10 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         }
         case PrimitiveType::TYPE_JSONB: {
             auto str = any_cast<ut_type::STRING>(cell);
-            JsonBinaryValue jsonb_val(str.c_str(), str.size());
+            JsonBinaryValue jsonb_val;
+            if (!jsonb_val.init_from_json_string(str.c_str(), str.size()).ok()) {
+                return false;
+            }
             column->insert_data(jsonb_val.value(), jsonb_val.size());
             break;
         }

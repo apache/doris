@@ -23,7 +23,7 @@
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type.h"

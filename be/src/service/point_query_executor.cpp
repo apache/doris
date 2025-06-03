@@ -457,12 +457,12 @@ Status PointQueryExecutor::_lookup_row_data() {
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         if (_row_read_ctxs[i]._cached_row_data.valid()) {
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
                     *_result_block, _reusable->get_col_default_values(),
-                    _reusable->include_col_uids());
+                    _reusable->include_col_uids()));
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -477,10 +477,10 @@ Status PointQueryExecutor::_lookup_row_data() {
                     *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
                     use_row_cache));
             // serilize value to block, currently only jsonb row formt
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),
                     _reusable->get_col_uid_to_idx(), *_result_block,
-                    _reusable->get_col_default_values(), _reusable->include_col_uids());
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
         }
         if (!_reusable->missing_col_uids().empty()) {
             if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
