@@ -85,7 +85,7 @@ public:
             auto null_map_column = ColumnUInt8::create();
 
             auto nested_column = nullable_column->get_nested_column_ptr();
-            auto data_column = assert_cast<const ColumnVector<Int32>*>(nested_column.get());
+            auto data_column = assert_cast<const ColumnInt32*>(nested_column.get());
 
             for (int i = 0; i < input_rows_count; i++) {
                 if (nullable_column->is_null_at(i)) {
@@ -102,7 +102,7 @@ public:
             block.replace_by_position(result, ColumnNullable::create(std::move(res_column),
                                                                      std::move(null_map_column)));
         } else {
-            auto data_column = assert_cast<const ColumnVector<Int32>*>(argument_column.get());
+            auto data_column = assert_cast<const ColumnInt32*>(argument_column.get());
 
             for (int i = 0; i < input_rows_count; i++) {
                 int seconds = data_column->get_element(i);

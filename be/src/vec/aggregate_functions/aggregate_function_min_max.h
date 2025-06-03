@@ -50,7 +50,7 @@ namespace vectorized {
 class Arena;
 template <typename T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris

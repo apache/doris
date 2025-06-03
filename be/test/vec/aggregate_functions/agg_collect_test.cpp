@@ -223,7 +223,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -247,7 +247,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -271,7 +271,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {2, 1, 3};
@@ -295,7 +295,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {2, 1, 3};

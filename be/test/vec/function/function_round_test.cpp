@@ -1016,9 +1016,9 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
     FunctionContext* context = nullptr;
 
     for (const auto& test_case : round_test_cases) {
-        auto col_general = ColumnVector<FloatType>::create(1);
+        auto col_general = ColumnVector<FloatPType>::create(1);
         auto col_scale = ColumnInt32::create();
-        auto col_res_expected = ColumnVector<FloatType>::create(1);
+        auto col_res_expected = ColumnVector<FloatPType>::create(1);
         size_t rid = 0;
 
         Block block;
@@ -1045,7 +1045,7 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
         block.insert({nullptr, std::make_shared<DataTypeNumber<FloatPType>>(), "col_res"});
 
         auto status = func->execute_impl(context, block, arguments, res_idx, 1);
-        auto col_res = assert_cast<const ColumnVector<FloatType>&>(
+        auto col_res = assert_cast<const ColumnVector<FloatPType>&>(
                 *(block.get_by_position(res_idx).column));
         EXPECT_TRUE(status.ok());
 

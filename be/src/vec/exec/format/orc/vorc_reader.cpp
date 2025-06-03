@@ -1671,12 +1671,12 @@ Status OrcReader::_decode_int32_column(const std::string& col_name,
                                        const orc::ColumnVectorBatch* cvb, size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     if (dynamic_cast<const orc::LongVectorBatch*>(cvb) != nullptr) {
-        return _decode_flat_column<Int32, orc::LongVectorBatch>(col_name, data_column, cvb,
-                                                                num_values);
+        return _decode_flat_column<TYPE_INT, orc::LongVectorBatch>(col_name, data_column, cvb,
+                                                                   num_values);
     } else if (dynamic_cast<const orc::EncodedStringVectorBatch*>(cvb) != nullptr) {
         const auto* data = static_cast<const orc::EncodedStringVectorBatch*>(cvb);
         const auto* cvb_data = data->index.data();
-        auto& column_data = static_cast<ColumnVector<Int32>&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnInt32&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
@@ -1721,7 +1721,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     switch (logical_type) {
 #define DISPATCH(FlatType, CppType, OrcColumnType) \
     case FlatType:                                 \
-        return _decode_flat_column<CppType, OrcColumnType>(col_name, data_column, cvb, num_values);
+        return _decode_flat_column<FlatType, OrcColumnType>(col_name, data_column, cvb, num_values);
         FOR_FLAT_ORC_COLUMNS(DISPATCH)
 #undef DISPATCH
     case PrimitiveType::TYPE_INT:
@@ -1739,10 +1739,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
                                                                cvb, num_values);
     case PrimitiveType::TYPE_DATEV2:
-        return _decode_time_column<DateV2Value<DateV2ValueType>, UInt32, orc::LongVectorBatch,
+        return _decode_time_column<DateV2Value<DateV2ValueType>, TYPE_DATEV2, orc::LongVectorBatch,
                                    is_filter>(col_name, data_column, cvb, num_values);
     case PrimitiveType::TYPE_DATETIMEV2:
-        return _decode_time_column<DateV2Value<DateTimeV2ValueType>, UInt64,
+        return _decode_time_column<DateV2Value<DateTimeV2ValueType>, TYPE_DATETIMEV2,
                                    orc::TimestampVectorBatch, is_filter>(col_name, data_column, cvb,
                                                                          num_values);
     case PrimitiveType::TYPE_STRING:
@@ -2077,7 +2077,7 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
 
         if (!_dict_cols_has_converted && !_dict_filter_cols.empty()) {
             for (auto& dict_filter_cols : _dict_filter_cols) {
-                MutableColumnPtr dict_col_ptr = ColumnVector<Int32>::create();
+                MutableColumnPtr dict_col_ptr = ColumnInt32::create();
                 size_t pos = block->get_position_by_name(dict_filter_cols.first);
                 auto& column_with_type_and_name = block->get_by_position(pos);
                 auto& column_type = column_with_type_and_name.type;
@@ -2227,7 +2227,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
 
     if (!_dict_cols_has_converted && !_dict_filter_cols.empty()) {
         for (auto& dict_filter_cols : _dict_filter_cols) {
-            MutableColumnPtr dict_col_ptr = ColumnVector<Int32>::create();
+            MutableColumnPtr dict_col_ptr = ColumnInt32::create();
             size_t pos = block->get_position_by_name(dict_filter_cols.first);
             auto& column_with_type_and_name = block->get_by_position(pos);
             auto& column_type = column_with_type_and_name.type;

@@ -109,6 +109,7 @@ class DataTypeDecimal final : public IDataType {
 public:
     using ColumnType = ColumnDecimal<T>;
     using FieldType = T;
+    static constexpr PrimitiveType PType = T::PType;
 
     static constexpr bool is_parametric = true;
 

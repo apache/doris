@@ -76,8 +76,8 @@ public:
                     block.get_by_position(arguments[1]).type->get_name());
         }
         // prepare return column
-        auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
-        auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
+        auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
+        auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
         // execute check of contains all

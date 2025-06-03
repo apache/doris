@@ -39,16 +39,19 @@
 
 class SipHash;
 
-#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
-    if (null_data == nullptr) {                                                      \
-        for (size_t i = 0; i < s; i++) {                                             \
-            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
-        }                                                                            \
-    } else {                                                                         \
-        for (size_t i = 0; i < s; i++) {                                             \
-            if (null_data[i] == 0)                                                   \
-                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
-        }                                                                            \
+#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                                       \
+    if (null_data == nullptr) {                                                                    \
+        for (size_t i = 0; i < s; i++) {                                                           \
+            hashes[i] = HashUtil::zlib_crc_hash(                                                   \
+                    &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType), hashes[i]); \
+        }                                                                                          \
+    } else {                                                                                       \
+        for (size_t i = 0; i < s; i++) {                                                           \
+            if (null_data[i] == 0)                                                                 \
+                hashes[i] = HashUtil::zlib_crc_hash(                                               \
+                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),         \
+                        hashes[i]);                                                                \
+        }                                                                                          \
     }
 
 namespace doris::vectorized {
@@ -662,25 +665,6 @@ public:
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
-
-    virtual bool is_date_type() const { return is_date; }
-    virtual bool is_datetime_type() const { return is_date_time; }
-
-    virtual void set_date_type() { is_date = true; }
-    virtual void set_datetime_type() { is_date_time = true; }
-
-    void copy_date_types(const IColumn& col) {
-        if (col.is_date_type()) {
-            set_date_type();
-        }
-        if (col.is_datetime_type()) {
-            set_datetime_type();
-        }
-    }
-
-    // todo(wb): a temporary implemention, need re-abstract here
-    bool is_date = false;
-    bool is_date_time = false;
 
 protected:
     template <typename Derived>
