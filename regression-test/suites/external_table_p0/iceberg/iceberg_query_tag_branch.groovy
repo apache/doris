@@ -98,13 +98,13 @@ suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_do
         qt_version_12  """ select c1 from tag_branch_table for version as of 't3' order by c1 ;""" 
         qt_version_13  """ select c1,c2 from tag_branch_table for version as of 't3' order by c1 ;""" 
 
-        qt_count_branch_1 """ select count(*) from tag_branch_table@branch(b1) order by c1;""" 
-        qt_count_branch_2 """ select count(*) from tag_branch_table@branch(b2) order by c1;""" 
-        qt_count_branch_3 """ select count(*) from tag_branch_table@branch(b3) order by c1;""" 
+        qt_count_branch_1 """ select count(*) from tag_branch_table@branch(b1);""" 
+        qt_count_branch_2 """ select count(*) from tag_branch_table@branch(b2);""" 
+        qt_count_branch_3 """ select count(*) from tag_branch_table@branch(b3);""" 
 
-        qt_count_tag_1  """ select count(*) from tag_branch_table@tag(t1) order by c1 ;""" 
-        qt_count_tag_2  """ select count(*) from tag_branch_table@tag(t2) order by c1 ;""" 
-        qt_count_tag_3  """ select count(*) from tag_branch_table@tag(t3) order by c1 ;""" 
+        qt_count_tag_1  """ select count(*) from tag_branch_table@tag(t1);""" 
+        qt_count_tag_2  """ select count(*) from tag_branch_table@tag(t2);""" 
+        qt_count_tag_3  """ select count(*) from tag_branch_table@tag(t3);""" 
     }
 
     def query_tag_branch_in_subquery = {
@@ -176,7 +176,6 @@ suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_do
     }
 
     def query_exception = {
-                // exception
         test {
             sql """ select * from tag_branch_table@branch('name'='not_exists_branch'); """
             exception "UserException"
