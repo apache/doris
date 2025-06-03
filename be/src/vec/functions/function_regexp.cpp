@@ -503,8 +503,9 @@ struct RegexpExtractAllImpl {
 struct RegexpCountImpl {
     static constexpr auto name = "regexp_count";
 
+    template <bool Const>
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
-                             size_t input_rows_count, ColumnInt64::Container& result_data,
+                             size_t input_rows_count, ColumnInt32::Container& result_data,
                              NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
@@ -513,28 +514,14 @@ struct RegexpCountImpl {
                 result_data[i] = 0;
                 continue;
             }
-            result_data[i] = _execute_inner_loop<false>(context, str_col, pattern_col, null_map, i);
-        }
-    }
-
-    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count,
-                                        ColumnInt64::Container& result_data, NullMap& null_map) {
-        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                result_data[i] = 0;
-                continue;
-            }
-            result_data[i] = _execute_inner_loop<true>(context, str_col, pattern_col, null_map, i);
+            result_data[i] = _execute_inner_loop<Const>(context, str_col, pattern_col, null_map, i);
         }
     }
 
     template <bool Const>
-    static int64_t _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
-                                       const ColumnString* pattern_col, NullMap& null_map,
-                                       const size_t index_now) {
+    static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                   const ColumnString* pattern_col, NullMap& null_map,
+                                   const size_t index_now) {
         re2::RE2* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
@@ -553,7 +540,7 @@ struct RegexpCountImpl {
 
         const auto& str = str_col->get_data_at(index_now);
 
-        int64_t count = 0;
+        int count = 0;
         size_t pos = 0;
         while (pos < str.size) {
             auto str_pos = str.data + pos;
@@ -688,8 +675,16 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr int64_type = std::make_shared<DataTypeInt64>();
-        return make_nullable(int64_type);
+        DataTypePtr int32_type = std::make_shared<DataTypeInt32>();
+        // Return nullable type only if any argument is nullable
+        bool is_nullable = false;
+        for (const auto& arg : arguments) {
+            if (arg->is_nullable()) {
+                is_nullable = true;
+                break;
+            }
+        }
+        return is_nullable ? make_nullable(int32_type) : int32_type;
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -720,7 +715,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto result_data_column = ColumnInt64::create(input_rows_count);
+        auto result_data_column = ColumnInt32::create(input_rows_count);
         auto& result_data = result_data_column->get_data();
 
         bool col_const[2];
@@ -735,15 +730,28 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
 
         if (col_const[1]) {
-            RegexpCountImpl::execute_impl_const_args(context, argument_columns, input_rows_count,
-                                                     result_data, result_null_map->get_data());
+            RegexpCountImpl::execute_impl<true>(context, argument_columns, input_rows_count,
+                                                result_data, result_null_map->get_data());
         } else {
-            RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                          result_null_map->get_data());
+            RegexpCountImpl::execute_impl<false>(context, argument_columns, input_rows_count,
+                                                 result_data, result_null_map->get_data());
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
+        // Check if return type should be nullable
+        bool is_nullable = false;
+        for (const auto& arg_idx : arguments) {
+            if (block.get_by_position(arg_idx).type->is_nullable()) {
+                is_nullable = true;
+                break;
+            }
+        }
+
+        if (is_nullable) {
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_data_column), std::move(result_null_map));
+        } else {
+            block.get_by_position(result).column = std::move(result_data_column);
+        }
         return Status::OK();
     }
 };
