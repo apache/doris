@@ -116,7 +116,7 @@ public:
             std::conditional_t<is_decimal(T), typename Data::ResultType, Float64>>;
     using ResultDataType = std::conditional_t<
             T == TYPE_DECIMALV2, DataTypeDecimalV2,
-            std::conditional_t<is_decimal(T), DataTypeDecimal<ResultPType>, DataTypeFloat64>>;
+            std::conditional_t<is_decimal(T), DataTypeDecimal<Data::ResultPType>, DataTypeFloat64>>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = std::conditional_t<
             T == TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>,
