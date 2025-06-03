@@ -21,43 +21,48 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.property.storage.LocalProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.collect.Maps;
-
 import java.util.List;
 import java.util.Map;
 
 public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     public static final String NAME = "file";
-    public static final String STORAGE_TYPE = "storage_type";
 
     private ExternalFileTableValuedFunction delegateTvf;
 
     public FileTableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        Map<String, String> mergedProperties = Maps.newHashMap();
-        mergedProperties.putAll(properties);
-        String storageType = getOrDefaultAndRemove(mergedProperties, STORAGE_TYPE, "").toLowerCase();
-        switch (storageType) {
-            case S3TableValuedFunction.NAME:
-                delegateTvf = new S3TableValuedFunction(mergedProperties);
-                break;
-            case HdfsTableValuedFunction.NAME:
-                delegateTvf = new HdfsTableValuedFunction(mergedProperties);
-                break;
-            case LocalTableValuedFunction.NAME:
-                delegateTvf = new LocalTableValuedFunction(mergedProperties);
-                break;
-            default:
-                throw new AnalysisException("Could not find storage_type: " + storageType);
+        // We don't need to parseCommonProperties because the corresponding Storage will do it
+        // Map<String, String> props = super.parseCommonProperties(properties);
+        try {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+            if (this.storageProperties instanceof AbstractS3CompatibleProperties
+                    || this.storageProperties instanceof AzureProperties) {
+                delegateTvf = new S3TableValuedFunction(properties);
+            } else if (this.storageProperties instanceof HdfsCompatibleProperties) {
+                delegateTvf = new HdfsTableValuedFunction(properties);
+            } else if (this.storageProperties instanceof LocalProperties) {
+                delegateTvf = new LocalTableValuedFunction(properties);
+            } else {
+                throw new AnalysisException("Could not find storage_type: " + storageProperties);
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -82,8 +87,8 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     @Override
-    public Map<String, String> getLocationProperties() {
-        return delegateTvf.getLocationProperties();
+    public Map<String, String> getBackendConnectProperties() {
+        return delegateTvf.getBackendConnectProperties();
     }
 
     @Override
@@ -124,5 +129,10 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     @Override
     public String getTableName() {
         return delegateTvf.getTableName();
+    }
+
+    @Override
+    protected Backend getBackend() {
+        return delegateTvf.getBackend();
     }
 }

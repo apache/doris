@@ -19,7 +19,6 @@ package org.apache.doris.datasource.tvf;
 
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.TableValuedFunctionRef;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.thrift.TFileType;
@@ -40,7 +39,6 @@ public class FileTableValuedFunctionTest extends TestWithFeService {
     public void testS3TableValuedFunction() throws Exception {
         // Test S3 TVF with old style properties
         String queryOld = "select * from file(\n"
-                + "  'storage_type' = 's3',\n"
                 + "  'uri' = 'http://s3.us-east-1.amazonaws.com/my-bucket/test.parquet',\n"
                 + "  'access_key' = 'akk',\n"
                 + "  'secret_key' = 'skk',\n"
@@ -57,7 +55,6 @@ public class FileTableValuedFunctionTest extends TestWithFeService {
 
         // Test S3 TVF with new style properties
         String queryNew = "select * from file(\n"
-                + "  'storage_type' = 's3',\n"
                 + "  'uri' = 's3://bucket/key',\n"
                 + "  's3.access_key' = 'ak',\n"
                 + "  's3.secret_key' = 'sk',\n"
@@ -77,7 +74,6 @@ public class FileTableValuedFunctionTest extends TestWithFeService {
     public void testHdfsTableValuedFunction() throws Exception {
         // Test HDFS TVF with basic properties
         String query = "select * from file(\n"
-                + "  'storage_type' = 'hdfs',\n"
                 + "  'uri' = 'hdfs://namenode/path/to/file.csv',\n"
                 + "  'hadoop.username' = 'hadoop',\n"
                 + "  'format' = 'csv'\n"
@@ -91,7 +87,6 @@ public class FileTableValuedFunctionTest extends TestWithFeService {
 
         // Test HDFS TVF with additional properties
         String queryWithProps = "select * from file(\n"
-                + "  'storage_type' = 'hdfs',\n"
                 + "  'uri' = 'hdfs://namenode/path/to/file.csv',\n"
                 + "  'hadoop.username' = 'hadoop',\n"
                 + "  'hadoop.fs.name' = 'hdfs://namenode:8020',\n"
@@ -105,32 +100,9 @@ public class FileTableValuedFunctionTest extends TestWithFeService {
     }
 
     @Test
-    public void testInvalidStorageType() {
-        String query = "select * from file(\n"
-                + "  'storage_type' = 'unknown'\n"
-                + ") limit 10;";
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> {
-            createStmt(query);
-        });
-        Assertions.assertTrue(ex.getMessage().contains("Could not find storage_type"));
-    }
-
-    @Test
-    public void testMissingStorageType() {
-        String query = "select * from file(\n"
-                + "  'uri' = 's3://bucket/key'\n"
-                + ") limit 10;";
-        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () -> {
-            createStmt(query);
-        });
-        Assertions.assertTrue(ex.getMessage().contains("Could not find storage_type"));
-    }
-
-    @Test
     public void testS3PropertiesConversion() throws Exception {
         // Test old style properties conversion
         String queryOld = "select * from file(\n"
-                + "  'storage_type' = 's3',\n"
                 + "  'uri' = 's3://bucket/key',\n"
                 + "  's3.access_key' = 'ak',\n"
                 + "  's3.secret_key' = 'sk',\n"
@@ -148,7 +120,6 @@ public class FileTableValuedFunctionTest extends TestWithFeService {
     @Test
     public void testHdfsPropertiesConversion() throws Exception {
         String query = "select * from file(\n"
-                + "  'storage_type' = 'hdfs',\n"
                 + "  'uri' = 'hdfs://namenode/path/to/file.csv',\n"
                 + "  'hadoop.username' = 'hadoop',\n"
                 + "  'hadoop.fs.name' = 'hdfs://namenode:8020',\n"

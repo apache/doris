@@ -38,7 +38,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     String compress_type = "gz" 
     qt_gz_1 """
     select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -48,7 +47,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     
     qt_gz_2 """
     select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -61,7 +59,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     compress_type = "bz2" 
     qt_bz2_1 """
     select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -70,7 +67,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     """
     qt_bz2_2 """
     select c1,c4 from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -85,7 +81,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     
     qt_lz4_1 """
     select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -94,7 +89,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     """
     qt_lz4_2 """
     select c2,c3 from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -107,7 +101,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     compress_type = "deflate";
     qt_deflate_1 """ 
         select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -116,7 +109,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     """
     qt_deflate_2 """ 
         select c4,count(*) from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -129,7 +121,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     compress_type = "snappy";
     qt_snappy_1 """ 
         select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -138,7 +129,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     """    
     qt_snappy_2 """ 
         select c2,c3 from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -149,7 +139,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     // test empty snapppy file
     qt_snappy_empty """ 
         select * from file(
-        "storage_type" = "local",
         "file_path" = "${outFilePath}/test_empty_snappy.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -161,7 +150,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     test {
         sql """
         select count(*) from file(
-        "storage_type" = "local",
             "file_path" = "../be.out",
             "backend_id" = "${be_id}",
             "column_separator" = ",",
@@ -175,7 +163,6 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     test {
         sql """
         select count(*) from file(
-        "storage_type" = "local",
             "file_path" = "./xx.out",
             "backend_id" = "${be_id}",
             "column_separator" = ",",

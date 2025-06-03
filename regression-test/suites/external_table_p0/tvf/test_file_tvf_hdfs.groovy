@@ -33,7 +33,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
             format = "csv"
             qt_csv_all_types """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -43,7 +42,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/student.csv"
             format = "csv"
             qt_csv_student """ select cast(c1 as INT) as id, c2 as name, c3 as age from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -52,7 +50,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_malformat.csv"
             format = "csv"
             qt_csv_array_malformat """ select * from FILE(
-                                        "storage_type" = "hdfs",
                                         "uri" = "${uri}",
                                         "hadoop.username" = "${hdfsUserName}",
                                         "format" = "${format}",
@@ -61,7 +58,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_normal.csv"
             format = "csv"
             qt_csv_array_normal """ select * from FILE(
-                                    "storage_type" = "hdfs",
                                     "uri" = "${uri}",
                                     "hadoop.username" = "${hdfsUserName}",
                                     "format" = "${format}",
@@ -71,7 +67,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types_compressed.csv.gz"
             format = "csv"
             qt_csv_with_compress_type """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -82,7 +77,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types_compressed.csv.gz"
             format = "csv"
             qt_csv_infer_compress_type """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -92,7 +86,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/student_with_names.csv"
             format = "csv_with_names"
             qt_csv_names """ select cast(id as INT) as id, name, age from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "column_separator" = ",",
@@ -102,7 +95,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/student_with_names_and_types.csv"
             format = "csv_with_names_and_types"
             qt_csv_names_types """ select cast(id as INT) as id, name, age from FILE(
-                                    "storage_type" = "hdfs",
                                     "uri" = "${uri}",
                                     "hadoop.username" = "${hdfsUserName}",
                                     "column_separator" = ",",
@@ -113,7 +105,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet.snappy.parquet"
             format = "parquet"
             qt_parquet """ select * from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by s_suppkey limit 20; """
@@ -122,7 +113,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet.brotli.parquet"
             format = "parquet"
             qt_parquet_brotli """ select * from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by s_suppkey limit 20; """
@@ -131,7 +121,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet_decimal256.parquet"
             format = "parquet"
             qt_parquet_decimal256 """ select * from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by id; """
@@ -140,7 +129,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_orc.snappy.orc"
             format = "orc"
             qt_orc """ select * from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by p_partkey limit 20; """
@@ -150,7 +138,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_json """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -161,7 +148,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_json_limit1 """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -171,7 +157,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/one_array_json.json"
             format = "json"
             qt_json_limit2 """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -180,7 +165,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"
             qt_json_limit3 """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -189,7 +173,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"
             qt_json_limit4 """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -201,7 +184,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/nest_json.json"
             format = "json"
             qt_json_root """ select cast(id as INT) as id, city, cast(code as INT) as code from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -213,7 +195,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_json_paths """ select cast(id as INT) as id, cast(code as INT) as code from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -225,7 +206,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/one_array_json.json"
             format = "json"
             qt_one_array """ select cast(id as INT) as id, city, cast(code as INT) as code from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}",
@@ -237,7 +217,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json"
             format = "json"
             qt_cast """ select cast(id as INT) as id, city, cast(code as INT) as code from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -269,7 +248,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             def result2 = sql """ insert into ${testTable}(id,city,code)
                     select cast (id as INT) as id, city, cast (code as INT) as code
                     from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
@@ -284,7 +262,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
                 def result3 = sql """ insert into ${testTable}(id,city,code)
                         select cast (id as INT) as id, city, cast (code as INT) as code
                         from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}",
@@ -301,7 +278,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
                 def result4 = sql """ insert into ${testTable}(id,city,code)
                         select cast (id as INT) as id, city, cast (code as INT) as code
                         from FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}",
@@ -319,7 +295,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet.snappy.parquet"
             format = "parquet"
             qt_desc """ desc function FILE(
-                            "storage_type" = "hdfs",
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}"); """
@@ -331,7 +306,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
             format = "csv"
             order_qt_hdfs_compatible """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "fs.defaultFS"= "${defaultFS}",
                         "hadoop.username" = "${hdfsUserName}",
@@ -342,7 +316,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
             format = "csv"
             order_qt_hdfs_csv_schema """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "csv_schema" = "id:int;tinyint_col:tinyint;smallint_col:smallint;bigint_col:bigint;largeint_col:largeint;float_col:float;double_col:double;decimal_col:decimal(10,5);string_col:string;string_col:string;string_col:string;date_col:date;datetime_col:datetime(3)",
                         "hadoop.username" = "${hdfsUserName}",
@@ -350,7 +323,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
                         "format" = "${format}") order by id; """
 
             order_qt_hdfs_desc_csv_schema """ desc function FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "csv_schema" = "id:int;tinyint_col:tinyint;smallint_col:smallint;bigint_col:bigint;largeint_col:largeint;float_col:float;double_col:double;decimal_col:decimal(10,5);string_col:string;string_col:string;string_col:string;date_col:date;datetime_col:datetime(3)",
                         "hadoop.username" = "${hdfsUserName}",
@@ -365,7 +337,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             sql """
                 create view test_hdfs_tvf_create_view as
                 select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -377,7 +348,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             sql """
                 alter view test_hdfs_tvf_create_view as
                 select c1 from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -392,7 +362,6 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
     // test exception
     test {
         sql """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -400,13 +369,12 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Properties 'uri' is required"""
+        exception """props must contain uri"""
     }
 
     // test exception
     test {
         sql """ select * from FILE(
-                        "storage_type" = "hdfs",
                         "uri" = "xx",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = ",",
@@ -414,14 +382,13 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Invalid export path, there is no schema of URI found. please check your path"""
+        exception """Invalid uri: xx"""
     }
 
     // test exception
     test {
         sql """ select * from FILE(
-                        "storage_type" = "hdfs",
-                        "uri" = "xx",
+                        "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "column_separator" = "",
                         "format" = "csv") order by c1;
@@ -435,8 +402,7 @@ suite("test_file_tvf_hdfs","external,hive,tvf,external_docker") {
     // test exception
     test {
         sql """ select * from FILE(
-                        "storage_type" = "hdfs",
-                        "uri" = "xx",
+                        "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "line_delimiter" = "",
                         "format" = "csv") order by c1;
