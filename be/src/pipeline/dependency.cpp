@@ -533,8 +533,8 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     return Status::OK();
 }
 
-Dependency* MaterializationSharedState::create_source_dependency(int operator_id, int node_id,
-                                                                 const std::string& name) {
+void MaterializationSharedState::create_counter_dependency(int operator_id, int node_id,
+                                                           const std::string& name) {
     auto dep =
             std::make_shared<CountedFinishDependency>(operator_id, node_id, name + "_DEPENDENCY");
     dep->set_shared_state(this);
@@ -542,7 +542,6 @@ Dependency* MaterializationSharedState::create_source_dependency(int operator_id
     dep->add(0);
 
     source_deps.push_back(dep);
-    return source_deps.back().get();
 }
 
 Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
@@ -655,7 +654,8 @@ Status MaterializationSharedState::init_multi_requests(
         }
         rpc_struct_map.emplace(node_info.id, FetchRpcStruct {.stub = std::move(client),
                                                              .request = multi_get_request,
-                                                             .callback = nullptr});
+                                                             .callback = nullptr,
+                                                             .rpc_timer = MonotonicStopWatch()});
     }
     // add be_num ad count finish counter for source dependency
     ((CountedFinishDependency*)source_deps.back().get())->add((int)rpc_struct_map.size());
