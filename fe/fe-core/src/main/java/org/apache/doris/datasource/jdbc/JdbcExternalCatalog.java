@@ -110,7 +110,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
                 getConnectionPoolMaxWaitTime(), getConnectionPoolMaxLifeTime());
 
-        // check funtion rules
+        // check function rules
         ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
