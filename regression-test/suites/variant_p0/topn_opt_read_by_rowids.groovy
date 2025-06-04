@@ -99,6 +99,6 @@ PROPERTIES (
             * FROM
              test_web_log 
             ORDER BY
-             ts DESC, timestampkey 
+             ts DESC, timestampkey
              LIMIT 10"""
 } 
