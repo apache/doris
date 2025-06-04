@@ -509,7 +509,7 @@ static bool check_and_remove_delete_bitmap_update_lock(
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    if (use_version == "v2" && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
         // when upgrade ms, prevent old ms get delete bitmap update lock
         if (lock_info.initiators_size() > 0) {
             ss << "compaction lock has " << lock_info.initiators_size() << " initiators";
@@ -646,7 +646,7 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
     VLOG_DEBUG << "remove_delete_bitmap_update_lock table_id=" << table_id
                << " initiator=" << lock_initiator << " tablet_id=" << tablet_id
                << " lock_id=" << lock_id << " use_version=" << use_version;
-    if (use_version == "v2" && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
         std::string tablet_compaction_val;
