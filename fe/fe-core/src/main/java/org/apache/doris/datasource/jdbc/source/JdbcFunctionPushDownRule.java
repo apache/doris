@@ -108,7 +108,7 @@ public class JdbcFunctionPushDownRule {
 
     public static Expr processFunctions(TOdbcTableType tableType, Expr expr, List<String> errors,
             ExternalFunctionRules functionRules) {
-        if (tableType == null || expr == null) {
+        if (tableType == null || expr == null || functionRules == null) {
             return expr;
         }
 
