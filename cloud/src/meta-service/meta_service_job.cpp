@@ -517,29 +517,27 @@ static bool check_and_remove_delete_bitmap_update_lock(
             code = MetaServiceCode::LOCK_EXPIRED;
             return false;
         }
-        std::string tablet_compaction_key =
-                mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
-        std::string tablet_compaction_val;
-        err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, lock_initiator});
+        std::string tablet_job_val;
+        err = txn->get(tablet_job_key, &tablet_job_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             ss << "lock initiator " << lock_initiator << " not exist";
             msg = ss.str();
             code = MetaServiceCode::LOCK_EXPIRED;
             return false;
         } else if (err != TxnErrorCode::TXN_OK) {
-            ss << "failed to get tablet compaction key, instance_id=" << instance_id
+            ss << "failed to get tablet job key, instance_id=" << instance_id
                << " table_id=" << table_id << " tablet_id=" << tablet_id
-               << " initiator=" << lock_initiator << " key=" << hex(tablet_compaction_key)
+               << " initiator=" << lock_initiator << " key=" << hex(tablet_job_key)
                << " err=" << err;
             msg = ss.str();
             code = cast_as<ErrCategory::READ>(err);
             return false;
         }
-        txn->remove(tablet_compaction_key);
-        INSTANCE_LOG(INFO) << "remove tablet compaction lock, table_id=" << table_id
+        txn->remove(tablet_job_key);
+        INSTANCE_LOG(INFO) << "remove tablet job lock, table_id=" << table_id
                            << " tablet_id=" << tablet_id << " lock_id=" << lock_id
-                           << " initiator=" << lock_initiator
-                           << " key=" << hex(tablet_compaction_key);
+                           << " initiator=" << lock_initiator << " key=" << hex(tablet_job_key);
         // may left a lock key for -1
         return true;
     } else {
@@ -647,23 +645,21 @@ static void remove_delete_bitmap_update_lock(std::unique_ptr<Transaction>& txn,
                << " initiator=" << lock_initiator << " tablet_id=" << tablet_id
                << " lock_id=" << lock_id << " use_version=" << use_version;
     if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
-        std::string tablet_compaction_key =
-                mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
-        std::string tablet_compaction_val;
-        TxnErrorCode err = txn->get(tablet_compaction_key, &tablet_compaction_val);
+        std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, lock_initiator});
+        std::string tablet_job_val;
+        TxnErrorCode err = txn->get(tablet_job_key, &tablet_job_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             remove_delete_bitmap_update_lock_v1(txn, instance_id, table_id, tablet_id, lock_id,
                                                 lock_initiator);
         } else if (err != TxnErrorCode::TXN_OK) {
-            INSTANCE_LOG(WARNING) << "failed to get tablet compaction key, instance_id="
-                                  << instance_id << " table_id=" << table_id
-                                  << " initiator=" << lock_initiator
-                                  << " key=" << hex(tablet_compaction_key) << " err=" << err;
+            INSTANCE_LOG(WARNING) << "failed to get tablet job key, instance_id=" << instance_id
+                                  << " table_id=" << table_id << " initiator=" << lock_initiator
+                                  << " key=" << hex(tablet_job_key) << " err=" << err;
             return;
         } else {
-            txn->remove(tablet_compaction_key);
-            INSTANCE_LOG(INFO) << "remove tablet compaction key, table_id=" << table_id
-                               << ", key=" << hex(tablet_compaction_key)
+            txn->remove(tablet_job_key);
+            INSTANCE_LOG(INFO) << "remove tablet job key, table_id=" << table_id
+                               << ", key=" << hex(tablet_job_key)
                                << " initiator=" << lock_initiator;
         }
     } else {
