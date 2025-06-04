@@ -950,12 +950,13 @@ void StorageEngine::_clean_unused_rowset_metas() {
     for (auto data_dir : data_dirs) {
         static_cast<void>(
                 RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func));
-        // delete delete bitmap
+        // 1. delete delete_bitmap
         std::set<int64_t> tablets_to_save_meta;
         for (auto& rowset_meta : invalid_rowset_metas) {
             TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
             if (tablet && tablet->tablet_meta()->enable_unique_key_merge_on_write()) {
-                tablet->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id());
+                tablet->tablet_meta()->remove_rowset_delete_bitmap(rowset_meta->rowset_id(),
+                                                                   rowset_meta->version());
                 tablets_to_save_meta.emplace(tablet->tablet_id());
             }
         }
@@ -966,7 +967,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
                 tablet->save_meta();
             }
         }
-        // delete rowset meta
+        // 2. delete rowset meta
         for (auto& rowset_meta : invalid_rowset_metas) {
             static_cast<void>(RowsetMetaManager::remove(
                     data_dir->get_meta(), rowset_meta->tablet_uid(), rowset_meta->rowset_id()));
@@ -1274,7 +1275,7 @@ void StorageEngine::start_delete_unused_rowset() {
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet && tablet->enable_unique_key_merge_on_write()) {
-            tablet->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id());
+            tablet->tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
             tablets_to_save_meta.emplace(tablet->tablet_id());
         }
         Status status = rs->remove();

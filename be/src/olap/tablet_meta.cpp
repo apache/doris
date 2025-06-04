@@ -455,12 +455,12 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
 }
 
-void TabletMeta::remove_rowset_delete_bitmap(const RowsetId& rowset_id) {
+void TabletMeta::remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version) {
     if (_enable_unique_key_merge_on_write) {
         delete_bitmap().remove({rowset_id, 0, 0}, {rowset_id, UINT32_MAX, 0});
         if (config::enable_mow_verbose_log) {
-            LOG_INFO("delete rowset delete bitmap. tablet={}, rowset={}", tablet_id(),
-                     rowset_id.to_string());
+            LOG_INFO("delete rowset delete bitmap. tablet={}, rowset={}, version={}", tablet_id(),
+                     rowset_id.to_string(), version.to_string());
         }
         size_t rowset_cache_version_size = delete_bitmap().remove_rowset_cache_version(rowset_id);
         _check_mow_rowset_cache_version_size(rowset_cache_version_size);

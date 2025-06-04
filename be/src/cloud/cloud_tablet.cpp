@@ -345,7 +345,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                 if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
                     // add existed rowset to unused_rowsets to remove delete bitmap
                     if (auto find_it = _rs_version_map.find(rs->version());
-                        find_it != _stale_rs_version_map.end()) {
+                        find_it != _rs_version_map.end()) {
                         DCHECK(find_it->second->rowset_id() != rs->rowset_id())
                                 << "tablet_id=" << tablet_id()
                                 << ", rowset_id=" << rs->rowset_id().to_string()
@@ -518,7 +518,7 @@ void CloudTablet::remove_delete_bitmap() {
             ++it;
             continue;
         }
-        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id());
+        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
         it = _unused_rowsets.erase(it);
     }
 
