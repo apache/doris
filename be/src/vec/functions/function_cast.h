@@ -109,10 +109,7 @@ namespace doris::vectorized {
   */
 inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column) {
     const auto* arg_type = named_column.type.get();
-    bool ok = check_and_get_data_type<DataTypeUInt64>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt32>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt16>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt8>(arg_type);
+    bool ok = check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
                                named_column.type->get_name());
@@ -159,9 +156,10 @@ struct ConvertImpl {
 
         using ColVecFrom =
                 std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+                                   ColumnVector<FromDataType::PType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
@@ -377,14 +375,14 @@ struct ConvertImplToTimeType {
 
         using ColVecFrom =
                 std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
+                                   ColumnVector<FromDataType::PType>>;
 
         using DateValueType = std::conditional_t<
                 IsDatelikeV2Types<ToDataType>,
                 std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value<DateV2ValueType>,
                                    DateV2Value<DateTimeV2ValueType>>,
                 VecDateTimeValue>;
-        using ColVecTo = ColumnVector<ToFieldType>;
+        using ColVecTo = ColumnVector<ToDataType::PType>;
 
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
@@ -1102,9 +1100,6 @@ public:
 };
 
 using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8>;
-using FunctionToUInt16 = FunctionConvert<DataTypeUInt16, NameToUInt16>;
-using FunctionToUInt32 = FunctionConvert<DataTypeUInt32, NameToUInt32>;
-using FunctionToUInt64 = FunctionConvert<DataTypeUInt64, NameToUInt64>;
 using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8>;
 using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16>;
 using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32>;
@@ -1133,18 +1128,6 @@ struct FunctionTo;
 template <>
 struct FunctionTo<DataTypeUInt8> {
     using Type = FunctionToUInt8;
-};
-template <>
-struct FunctionTo<DataTypeUInt16> {
-    using Type = FunctionToUInt16;
-};
-template <>
-struct FunctionTo<DataTypeUInt32> {
-    using Type = FunctionToUInt32;
-};
-template <>
-struct FunctionTo<DataTypeUInt64> {
-    using Type = FunctionToUInt64;
 };
 template <>
 struct FunctionTo<DataTypeInt8> {
@@ -1258,8 +1241,9 @@ struct StringParsing {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
@@ -1291,6 +1275,7 @@ struct StringParsing {
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
         [[maybe_unused]] UInt32 scale = 0;
+        // TODO: TimeV2 type also need scale
         if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
             const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                     block.get_by_position(result).type.get());
@@ -2200,9 +2185,6 @@ private:
             using ToDataType = typename Types::LeftType;
 
             if constexpr (std::is_same_v<ToDataType, DataTypeUInt8> ||
-                          std::is_same_v<ToDataType, DataTypeUInt16> ||
-                          std::is_same_v<ToDataType, DataTypeUInt32> ||
-                          std::is_same_v<ToDataType, DataTypeUInt64> ||
                           std::is_same_v<ToDataType, DataTypeInt8> ||
                           std::is_same_v<ToDataType, DataTypeInt16> ||
                           std::is_same_v<ToDataType, DataTypeInt32> ||
@@ -2257,7 +2239,7 @@ private:
         case PrimitiveType::TYPE_HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             return create_bitmap_wrapper(context, from_type,
                                          static_cast<const DataTypeBitMap&>(*to_type));
         case PrimitiveType::TYPE_JSONB:

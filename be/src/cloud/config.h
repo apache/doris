@@ -71,6 +71,7 @@ DECLARE_Int64(tablet_cache_shards);
 DECLARE_mInt32(tablet_sync_interval_s);
 // parallelism for scanner init where may issue RPCs to sync rowset meta from MS
 DECLARE_mInt32(init_scanner_sync_rowsets_parallelism);
+DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 
 // Cloud compaction config
 DECLARE_mInt64(min_compaction_failure_interval_ms);

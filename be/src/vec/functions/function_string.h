@@ -1814,8 +1814,8 @@ public:
         bool part_num_const = false;
         std::tie(part_num_column_ptr, part_num_const) =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
-        const ColumnVector<Int32>* part_num_col =
-                assert_cast<const ColumnVector<Int32>*>(part_num_column_ptr.get());
+        const ColumnInt32* part_num_col =
+                assert_cast<const ColumnInt32*>(part_num_column_ptr.get());
 
         // For constant multi-character delimiters, create StringRef and StringSearch only once
         std::optional<StringRef> const_delimiter_ref;
@@ -3141,7 +3141,7 @@ struct MoneyFormatInt64Impl {
 
     static void execute(FunctionContext* context, ColumnString* result_column,
                         const ColumnPtr col_ptr, size_t input_rows_count) {
-        const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
+        const auto* data_column = assert_cast<const ColumnInt64*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
             StringRef str =
@@ -3157,7 +3157,7 @@ struct MoneyFormatInt128Impl {
 
     static void execute(FunctionContext* context, ColumnString* result_column,
                         const ColumnPtr col_ptr, size_t input_rows_count) {
-        const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
+        const auto* data_column = assert_cast<const ColumnInt128*>(col_ptr.get());
         // SELECT money_format(170141183460469231731687303715884105728/*INT128_MAX + 1*/) will
         // get "170,141,183,460,469,231,731,687,303,715,884,105,727.00" in doris,
         // see https://github.com/apache/doris/blob/788abf2d7c3c7c2d57487a9608e889e7662d5fb2/be/src/vec/data_types/data_type_number_base.cpp#L124
@@ -3296,7 +3296,7 @@ struct FormatRoundInt64Impl {
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
                           size_t input_rows_count) {
-        const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
+        const auto* data_column = assert_cast<const ColumnInt64*>(col_ptr.get());
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
         for (size_t i = 0; i < input_rows_count; i++) {
@@ -3323,7 +3323,7 @@ struct FormatRoundInt128Impl {
     static Status execute(FunctionContext* context, ColumnString* result_column,
                           const ColumnPtr col_ptr, ColumnPtr decimal_places_col_ptr,
                           size_t input_rows_count) {
-        const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
+        const auto* data_column = assert_cast<const ColumnInt128*>(col_ptr.get());
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
         // SELECT money_format(170141183460469231731687303715884105728/*INT128_MAX + 1*/) will
@@ -3474,7 +3474,7 @@ public:
 
         auto col_left = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto col_right = assert_cast<const ColumnString*>(argument_columns[1].get());
-        auto col_pos = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+        auto col_pos = assert_cast<const ColumnInt32*>(argument_columns[2].get());
 
         ColumnInt32::MutablePtr col_res = ColumnInt32::create();
         auto& vec_res = col_res->get_data();
@@ -3762,16 +3762,12 @@ struct SubReplaceImpl {
         }
         const auto* data_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         const auto* mask_column = assert_cast<const ColumnString*>(argument_columns[1].get());
-        const auto* start_column =
-                assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
-        const auto* length_column =
-                assert_cast<const ColumnVector<Int32>*>(argument_columns[3].get());
+        const auto* start_column = assert_cast<const ColumnInt32*>(argument_columns[2].get());
+        const auto* length_column = assert_cast<const ColumnInt32*>(argument_columns[3].get());
 
         std::visit(
                 [&](auto origin_str_const, auto new_str_const, auto start_const, auto len_const) {
-                    if (simd::VStringFunctions::is_ascii(
-                                StringRef {data_column->get_chars().data(),
-                                           data_column->get_chars().size()})) {
+                    if (data_column->is_ascii()) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
                                 length_column->get_data(), args_null_map->get_data(), result_column,
@@ -4158,14 +4154,14 @@ public:
                     auto& chars = str_column->get_chars();
                     auto& offsets = str_column->get_offsets();
                     offsets.resize(1);
-                    const ColumnVector<Int32>* int_column;
+                    const ColumnInt32* int_column;
                     if (auto* nullable = check_and_get_column<const ColumnNullable>(
                                 const_column->get_data_column())) {
-                        int_column = assert_cast<const ColumnVector<Int32>*>(
+                        int_column = assert_cast<const ColumnInt32*>(
                                 nullable->get_nested_column_ptr().get());
                     } else {
-                        int_column = assert_cast<const ColumnVector<Int32>*>(
-                                &const_column->get_data_column());
+                        int_column =
+                                assert_cast<const ColumnInt32*>(&const_column->get_data_column());
                     }
                     int int_val = int_column->get_int(0);
                     integer_to_char_(0, &int_val, chars, offsets);
@@ -4183,10 +4179,10 @@ public:
 
                 if (auto nullable = check_and_get_column<const ColumnNullable>(
                             *block.get_by_position(arguments[i]).column)) {
-                    const auto* int_data = assert_cast<const ColumnVector<Int32>*>(
-                                                   nullable->get_nested_column_ptr().get())
-                                                   ->get_data()
-                                                   .data();
+                    const auto* int_data =
+                            assert_cast<const ColumnInt32*>(nullable->get_nested_column_ptr().get())
+                                    ->get_data()
+                                    .data();
                     const auto* null_map_data = nullable->get_null_map_data().data();
                     for (size_t j = 0; j < input_rows_count; ++j) {
                         // ignore null
@@ -4197,7 +4193,7 @@ public:
                         }
                     }
                 } else {
-                    const auto* int_data = assert_cast<const ColumnVector<Int32>*>(
+                    const auto* int_data = assert_cast<const ColumnInt32*>(
                                                    block.get_by_position(arguments[i]).column.get())
                                                    ->get_data()
                                                    .data();
@@ -4348,22 +4344,16 @@ public:
 
         const auto* col_origin = assert_cast<const ColumnString*>(argument_columns[0].get());
 
-        const auto* col_pos = assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get())
-                                      ->get_data()
-                                      .data();
-        const auto* col_len = assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get())
-                                      ->get_data()
-                                      .data();
+        const auto* col_pos =
+                assert_cast<const ColumnInt32*>(argument_columns[1].get())->get_data().data();
+        const auto* col_len =
+                assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_data().data();
         const auto* col_insert = assert_cast<const ColumnString*>(argument_columns[3].get());
 
         ColumnString::MutablePtr col_res = ColumnString::create();
 
         // if all input string is ascii, we can use ascii function to handle it
-        const bool is_all_ascii =
-                simd::VStringFunctions::is_ascii(StringRef {col_origin->get_chars().data(),
-                                                            col_origin->get_chars().size()}) &&
-                simd::VStringFunctions::is_ascii(
-                        StringRef {col_insert->get_chars().data(), col_insert->get_chars().size()});
+        const bool is_all_ascii = col_origin->is_ascii() && col_insert->is_ascii();
         std::visit(
                 [&](auto origin_const, auto pos_const, auto len_const, auto insert_const) {
                     if (is_all_ascii) {
@@ -4631,12 +4621,7 @@ public:
         const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
         const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
 
-        bool is_ascii = simd::VStringFunctions::is_ascii(
-                                {col_source->get_chars().data(), col_source->get_chars().size()}) &&
-                        simd::VStringFunctions::is_ascii(
-                                {col_from->get_chars().data(), col_from->get_chars().size()}) &&
-                        simd::VStringFunctions::is_ascii(
-                                {col_to->get_chars().data(), col_to->get_chars().size()});
+        bool is_ascii = col_source->is_ascii() && col_from->is_ascii() && col_to->is_ascii();
         auto impl_vectors = impl_vectors_utf8<false>;
         if (col_const[1] && col_const[2] && is_ascii) {
             impl_vectors = impl_vectors_ascii<true>;

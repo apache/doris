@@ -445,7 +445,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     // Only two case:
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
-    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_OBJECT) && column_ptr) {
+    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_BITMAP) && column_ptr) {
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {
@@ -581,7 +581,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
-                                                    std::make_shared<DataTypeNumber<Int64>>(),
+                                                    std::make_shared<DataTypeInt64>(),
                                                     BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }

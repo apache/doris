@@ -144,7 +144,7 @@ private:
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
         size_t rows = offsets.size();
         // prepare return data
-        auto matched_indices = ColumnVector<MapIndiceDataType::FieldType>::create();
+        auto matched_indices = ColumnVector<MapIndiceDataType::PType>::create();
         matched_indices->reserve(rows);
 
         for (size_t i = 0; i < rows; i++) {

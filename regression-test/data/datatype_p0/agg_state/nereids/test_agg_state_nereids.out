@@ -16,7 +16,7 @@
 
 -- !desc --
 k1	int	Yes	true	\N	
-k2	agg_state<max_by(int, int null)>	No	false	\N	GENERIC
+k2	agg_state<max_by(int not null, int null)>	No	false	\N	GENERIC
 
 -- !length1 --
 1	11

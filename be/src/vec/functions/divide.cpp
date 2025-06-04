@@ -33,16 +33,19 @@ namespace doris::vectorized {
 
 static const DecimalV2Value one(1, 0);
 
-template <typename A, typename B>
+template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct DivideFloatingImpl {
-    using ResultType = typename NumberTraits::ResultOfFloatingPointDivision<A, B>::Type;
-    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+    using A = typename PrimitiveTypeTraits<TypeA>::CppNativeType;
+    using B = typename PrimitiveTypeTraits<TypeB>::CppNativeType;
+    static constexpr PrimitiveType ResultType =
+            NumberTraits::ResultOfFloatingPointDivision<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<TypeA, TypeB>;
 
     static const constexpr bool allow_decimal = true;
 
-    template <typename Result = ResultType>
+    template <PrimitiveType Result = ResultType>
     static void apply(const typename Traits::ArrayA& a, B b,
-                      typename ColumnVector<Result>::Container& c,
+                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
                       typename Traits::ArrayNull& null_map) {
         size_t size = c.size();
         UInt8 is_null = b == 0;
@@ -55,16 +58,17 @@ struct DivideFloatingImpl {
         }
     }
 
-    template <typename Result = DecimalV2Value>
+    template <PrimitiveType Result = TYPE_DECIMALV2>
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, UInt8& is_null) {
         is_null = b.is_zero();
         return a / (is_null ? one : b);
     }
 
-    template <typename Result = ResultType>
-    static inline Result apply(A a, B b, UInt8& is_null) {
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::CppNativeType apply(A a, B b,
+                                                                            UInt8& is_null) {
         is_null = b == 0;
-        return static_cast<Result>(a) / (b + is_null);
+        return static_cast<typename PrimitiveTypeTraits<Result>::CppNativeType>(a) / (b + is_null);
     }
 };
 
