@@ -33,7 +33,7 @@ class IcebergEntriesJniScanner extends IcebergMetadataJniScanner {
     private static final Map<String, String> ENTRIES_SCHEMA = new HashMap<>();
 
     static {
-        ENTRIES_SCHEMA.put("status", "bigint");
+        ENTRIES_SCHEMA.put("status", "int");
         ENTRIES_SCHEMA.put("snapshot_id", "bigint");
         ENTRIES_SCHEMA.put("sequence_number", "bigint");
         ENTRIES_SCHEMA.put("file_sequence_number", "bigint");
@@ -41,13 +41,8 @@ class IcebergEntriesJniScanner extends IcebergMetadataJniScanner {
         ENTRIES_SCHEMA.put("readable_metrics", "string"); // Placeholder for readable metrics, can be extended later
     }
 
-    // A serializable bean that contains a bare minimum to read a manifest
-    // private final ManifestFile manifestBean;
-
     public IcebergEntriesJniScanner(int batchSize, Map<String, String> params) {
         super(batchSize, params);
-        // manifestBean =
-        // SerializationUtil.deserializeFromBase64(params.get("serialized_split"));
     }
 
     @Override
@@ -71,7 +66,7 @@ class IcebergEntriesJniScanner extends IcebergMetadataJniScanner {
         StructLike entry = (StructLike) row;
         switch (columnName) {
             case "status":
-                return entry.get(0, Long.class);
+                return entry.get(0, Integer.class);
             case "snapshot_id":
                 return entry.get(1, Long.class);
             case "sequence_number":
