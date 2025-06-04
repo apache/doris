@@ -160,7 +160,7 @@ public:
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL && context->is_col_constant(1)) {
-            const auto pattern = context->get_constant_col(1)->column_ptr;
+            const auto pattern_col = context->get_constant_col(1)->column_ptr;
             const auto& pattern = pattern->get_data_at(0);
 
             if (pattern.size == 0) {
@@ -278,8 +278,8 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern = context->get_constant_col(1)->column_ptr;
-                const auto& pattern = pattern->get_data_at(0);
+                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto& pattern = pattern_col->get_data_at(0);
                 if (pattern.size == 0) {
                     return Status::OK();
                 }
@@ -354,8 +354,8 @@ struct RegexpReplaceImpl {
                              const StringRef& options_value, size_t input_rows_count,
                              ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                              NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -363,7 +363,7 @@ struct RegexpReplaceImpl {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<false>(context, str, pattern, replace_col, options_value,
+            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, options_value,
                                        result_data, result_offset, null_map, i);
         }
     }
@@ -371,8 +371,8 @@ struct RegexpReplaceImpl {
                                         const StringRef& options_value, size_t input_rows_count,
                                         ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -380,13 +380,13 @@ struct RegexpReplaceImpl {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str, pattern, replace_col, options_value,
+            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, options_value,
                                       result_data, result_offset, null_map, i);
         }
     }
     template <bool Const>
-    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str,
-                                    const ColumnString* pattern,
+    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                    const ColumnString* pattern_col,
                                     const ColumnString* replace_col, const StringRef& options_value,
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, NullMap& null_map,
@@ -396,7 +396,7 @@ struct RegexpReplaceImpl {
         std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
         if (re == nullptr) {
             std::string error_str;
-            const auto& pattern = pattern->get_data_at(index_check_const(index_now, Const));
+            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
                                                      options_value, scoped_re);
             if (!st) {
@@ -410,7 +410,7 @@ struct RegexpReplaceImpl {
         re2::StringPiece replace_str = re2::StringPiece(
                 replace_col->get_data_at(index_check_const(index_now, Const)).to_string_view());
 
-        std::string result_str str->get_data_at(index_now).to_string());
+        std::string result_str(str_col->get_data_at(index_now).to_string());
         re2::RE2::GlobalReplace(&result_str, *re, replace_str);
         StringOP::push_value_string(result_str, index_now, result_data, result_offset);
     }
@@ -423,8 +423,8 @@ struct RegexpReplaceOneImpl {
                              const StringRef& options_value, size_t input_rows_count,
                              ColumnString::Chars& result_data, ColumnString::Offsets& result_offset,
                              NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
         // 3 args
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -432,7 +432,7 @@ struct RegexpReplaceOneImpl {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<false>(context, str, pattern, replace_col, options_value,
+            _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, options_value,
                                        result_data, result_offset, null_map, i);
         }
     }
@@ -441,8 +441,8 @@ struct RegexpReplaceOneImpl {
                                         const StringRef& options_value, size_t input_rows_count,
                                         ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
         // 3 args
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -450,13 +450,13 @@ struct RegexpReplaceOneImpl {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str, pattern, replace_col, options_value,
+            _execute_inner_loop<true>(context, str_col, pattern_col, replace_col, options_value,
                                       result_data, result_offset, null_map, i);
         }
     }
     template <bool Const>
-    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str,
-                                    const ColumnString* pattern,
+    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                    const ColumnString* pattern_col,
                                     const ColumnString* replace_col, const StringRef& options_value,
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, NullMap& null_map,
@@ -466,7 +466,7 @@ struct RegexpReplaceOneImpl {
         std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
         if (re == nullptr) {
             std::string error_str;
-            const auto& pattern = pattern->get_data_at(index_check_const(index_now, Const));
+            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
                                                      options_value, scoped_re);
             if (!st) {
@@ -480,7 +480,7 @@ struct RegexpReplaceOneImpl {
         re2::StringPiece replace_str = re2::StringPiece(
                 replace_col->get_data_at(index_check_const(index_now, Const)).to_string_view());
 
-        std::string result_str str->get_data_at(index_now).to_string());
+        std::string result_str(str_col->get_data_at(index_now).to_string());
         re2::RE2::Replace(&result_str, *re, replace_str);
         StringOP::push_value_string(result_str, index_now, result_data, result_offset);
     }
@@ -493,10 +493,9 @@ struct RegexpExtractImpl {
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnString::Chars& result_data,
                              ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col =
-                check_and_get_column<ColumnVector<Int64>>(argument_columns[2].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -508,7 +507,7 @@ struct RegexpExtractImpl {
                            : StringOP::push_empty_string(i, result_data, result_offset);
                 continue;
             }
-            _execute_inner_loop<false>(context, str, pattern, index_data, result_data,
+            _execute_inner_loop<false>(context, str_col, pattern_col, index_data, result_data,
                                        result_offset, null_map, i);
         }
     }
@@ -516,10 +515,9 @@ struct RegexpExtractImpl {
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
                                         size_t input_rows_count, ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col =
-                check_and_get_column<ColumnVector<Int64>>(argument_columns[2].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
 
         const auto& index_data = index_col->get_int(0);
         if (index_data < 0) {
@@ -536,13 +534,13 @@ struct RegexpExtractImpl {
                 continue;
             }
 
-            _execute_inner_loop<true>(context, str, pattern, index_data, result_data,
+            _execute_inner_loop<true>(context, str_col, pattern_col, index_data, result_data,
                                       result_offset, null_map, i);
         }
     }
     template <bool Const>
-    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str,
-                                    const ColumnString* pattern, const Int64 index_data,
+    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                    const ColumnString* pattern_col, const Int64 index_data,
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, NullMap& null_map,
                                     const size_t index_now) {
@@ -551,7 +549,7 @@ struct RegexpExtractImpl {
         std::unique_ptr<re2::RE2> scoped_re;
         if (re == nullptr) {
             std::string error_str;
-            const auto& pattern = pattern->get_data_at(index_check_const(index_now, Const));
+            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
             if (!st) {
@@ -561,7 +559,7 @@ struct RegexpExtractImpl {
             }
             re = scoped_re.get();
         }
-        const auto& str = str->get_data_at(index_now);
+        const auto& str = str_col->get_data_at(index_now);
         re2::StringPiece str_sp = re2::StringPiece(str.data, str.size);
 
         int max_matches = 1 + re->NumberOfCapturingGroups();
@@ -593,14 +591,14 @@ struct RegexpExtractAllImpl {
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnString::Chars& result_data,
                              ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<false>(context, str, pattern, result_data, result_offset,
+            _execute_inner_loop<false>(context, str_col, pattern_col, result_data, result_offset,
                                        null_map, i);
         }
     }
@@ -608,20 +606,20 @@ struct RegexpExtractAllImpl {
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
                                         size_t input_rows_count, ColumnString::Chars& result_data,
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         for (int i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
-            _execute_inner_loop<true>(context, str, pattern, result_data, result_offset,
+            _execute_inner_loop<true>(context, str_col, pattern_col, result_data, result_offset,
                                       null_map, i);
         }
     }
     template <bool Const>
-    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str,
-                                    const ColumnString* pattern,
+    static void _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                    const ColumnString* pattern_col,
                                     ColumnString::Chars& result_data,
                                     ColumnString::Offsets& result_offset, NullMap& null_map,
                                     const size_t index_now) {
@@ -630,7 +628,7 @@ struct RegexpExtractAllImpl {
         std::unique_ptr<re2::RE2> scoped_re;
         if (re == nullptr) {
             std::string error_str;
-            const auto& pattern = pattern->get_data_at(index_check_const(index_now, Const));
+            const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, Const));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
             if (!st) {
@@ -644,7 +642,7 @@ struct RegexpExtractAllImpl {
             StringOP::push_empty_string(index_now, result_data, result_offset);
             return;
         }
-        const auto& str = str->get_data_at(index_now);
+        const auto& str = str_col->get_data_at(index_now);
         int max_matches = 1 + re->NumberOfCapturingGroups();
         std::vector<re2::StringPiece> res_matches;
         size_t pos = 0;
@@ -711,8 +709,8 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
-                const auto pattern = context->get_constant_col(1)->column_ptr;
-                const auto& pattern = pattern->get_data_at(0);
+                const auto pattern_col = context->get_constant_col(1)->column_ptr;
+                const auto& pattern = pattern_col->get_data_at(0);
                 if (pattern.size == 0) {
                     return Status::OK();
                 }
