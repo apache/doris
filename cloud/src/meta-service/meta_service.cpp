@@ -1149,7 +1149,8 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     }
 
     // Check if the compaction/sc tablet job has finished
-    if (config::enable_tablet_job_check && request->has_tablet_job_id() && !request->tablet_job_id().empty()) {
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
         if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
                                request->tablet_job_id())) {
             return;
@@ -1294,7 +1295,8 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     }
 
     // Check if the compaction/sc tablet job has finished
-    if (config::enable_tablet_job_check && request->has_tablet_job_id() && !request->tablet_job_id().empty()) {
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
         if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
                                request->tablet_job_id())) {
             return;
