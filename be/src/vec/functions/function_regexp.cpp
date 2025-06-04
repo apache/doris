@@ -30,6 +30,7 @@
 #include "exprs/string_functions.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -50,6 +51,190 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+struct RegexpCountImpl {
+    static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
+                             size_t input_rows_count, ColumnInt64::Container& result_data,
+                             NullMap& null_map) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                result_data[i] = 0;
+                continue;
+            }
+
+            result_data[i] = _execute_inner_loop<false>(
+                context, str_col, pattern_col, null_map, i);
+        }
+    }
+
+    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
+                                        size_t input_rows_count, ColumnInt64::Container& result_data,
+                                        NullMap& null_map) {
+        const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
+        const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map[i]) {
+                result_data[i] = 0;
+                continue;
+            }
+
+            result_data[i] = _execute_inner_loop<true>(
+                context, str_col, pattern_col, null_map, i);
+        }
+    }
+
+private:
+    template <bool Const>
+    static int64_t _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
+                                      const ColumnString* pattern_col, NullMap& null_map,
+                                      const size_t index_now) {
+        re2::RE2* re = reinterpret_cast<re2::RE2*>(
+            context->get_function_state(FunctionContext::THREAD_LOCAL));
+        std::unique_ptr<re2::RE2> scoped_re;
+
+        if (str_col->is_null_at(index_now) || 
+            pattern_col->is_null_at(index_check_const(index_now, Const))) {
+            null_map[index_now] = true;
+            return 0;
+        }
+
+        const auto& str = str_col->get_data_at(index_now);
+        const auto& pattern = pattern_col->get_data_at(
+            index_check_const(index_now, Const));
+
+        if (!re) {
+            std::string error_str;
+            bool st = StringFunctions::compile_regex(
+                pattern, &error_str, StringRef(), StringRef(), scoped_re);
+            if (!st) {
+                context->add_warning(error_str.c_str());
+                null_map[index_now] = true;
+                return 0;
+            }
+            re = scoped_re.get();
+        }
+
+        int64_t count = 0;
+        size_t pos = 0;
+        re2::StringPiece str_sp(str.data, str.size);
+
+        while (pos < str.size) {
+            re2::StringPiece current(str.data + pos, str.size - pos);
+            re2::StringPiece match;
+
+            if (!re->Match(current, 0, current.size(), re2::RE2::UNANCHORED, &match, 1)) {
+                break;
+            }
+
+            if (match.empty()) {
+                pos++;
+            } else {
+                count++;
+                pos += match.data() - current.data() + match.size();
+            }
+        }
+
+        return count;
+    }
+};
+
+class FunctionRegexpCount : public IFunction {
+public:
+    static constexpr auto name = "regexp_count";
+
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpCount>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto int64_type = std::make_shared<DataTypeInt64>();
+        return make_nullable(
+            std::static_pointer_cast<const IDataType>(int64_type));
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL && context->is_col_constant(1)) {
+            const auto pattern_col = context->get_constant_col(1)->column_ptr;
+            const auto& pattern = pattern_col->get_data_at(0);
+
+            if (pattern.size == 0) {
+                return Status::OK();
+            }
+
+            std::string error_str;
+            std::unique_ptr<re2::RE2> scoped_re;
+            bool st = StringFunctions::compile_regex(
+                pattern, &error_str, StringRef(), StringRef(), scoped_re);
+            
+            if (!st) {
+                context->set_error(error_str.c_str());
+                return Status::InvalidArgument(error_str);
+            }
+
+            std::shared_ptr<re2::RE2> re(scoped_re.release());
+            context->set_function_state(scope, 
+                std::static_pointer_cast<void>(re));
+        }
+        return Status::OK();
+    }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            auto ptr = context->get_function_state(scope);
+            if (ptr) {
+                delete reinterpret_cast<re2::RE2*>(ptr);
+                context->set_function_state(scope, nullptr);
+            }
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto result_data_column = ColumnInt64::create();
+        auto& result_data = result_data_column->get_data();
+        result_data.resize(input_rows_count);
+
+        bool col_const[2];
+        ColumnPtr argument_columns[2];
+        
+        for (int i = 0; i < 2; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        
+        argument_columns[0] = col_const[0]
+            ? static_cast<const ColumnConst&>(*block.get_by_position(arguments[0]).column)
+                  .convert_to_full_column()
+            : block.get_by_position(arguments[0]).column;
+        
+        argument_columns[1] = col_const[1]
+            ? static_cast<const ColumnConst&>(*block.get_by_position(arguments[1]).column)
+                  .convert_to_full_column()
+            : block.get_by_position(arguments[1]).column;
+
+        if (col_const[1]) {
+            RegexpCountImpl::execute_impl_const_args(
+                context, argument_columns, input_rows_count, result_data, 
+                result_null_map->get_data());
+        } else {
+            RegexpCountImpl::execute_impl(
+                context, argument_columns, input_rows_count, result_data, 
+                result_null_map->get_data());
+        }
+
+        block.get_by_position(result).column = ColumnNullable::create(
+            std::move(result_data_column), std::move(result_null_map));
+        return Status::OK();
+    }
+};
 
 struct ThreeParamTypes {
     static DataTypes get_variadic_argument_types() {
@@ -310,7 +495,8 @@ struct RegexpExtractImpl {
                              ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
+        const auto* index_col =
+                check_and_get_column<ColumnVector<Int64>>(argument_columns[2].get());
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -332,7 +518,8 @@ struct RegexpExtractImpl {
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
+        const auto* index_col =
+                check_and_get_column<ColumnVector<Int64>>(argument_columns[2].get());
 
         const auto& index_data = index_col->get_int(0);
         if (index_data < 0) {
@@ -606,6 +793,7 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<true>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractImpl<false>>>();
     factory.register_function<FunctionRegexpFunctionality<RegexpExtractAllImpl>>();
+    factory.register_function<FunctionRegexpCount>();
 }
 
 } // namespace doris::vectorized
