@@ -56,219 +56,170 @@
  * and modified by Doris
  */
 
-#ifndef JSONB_JSONBJSONPARSERSIMD_H
-#define JSONB_JSONBJSONPARSERSIMD_H
-
+#pragma once
 #include <simdjson.h>
 
 #include <cmath>
 #include <limits>
 
+#include "common/status.h"
 #include "jsonb_document.h"
-#include "jsonb_error.h"
 #include "jsonb_writer.h"
 #include "string_parser.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 using int128_t = __int128;
-class JsonbParserTSIMD {
-public:
-    JsonbParserTSIMD() : err_(JsonbErrType::E_NONE) {}
-
-    explicit JsonbParserTSIMD(JsonbOutStream& os) : writer_(os), err_(JsonbErrType::E_NONE) {}
-
-    // parse a UTF-8 JSON string
-    bool parse(const std::string& str) { return parse(str.c_str(), str.size()); }
-
-    // parse a UTF-8 JSON c-style string (NULL terminated)
-    bool parse(const char* c_str) { return parse(c_str, strlen(c_str)); }
-
+struct JsonbParser {
     // parse a UTF-8 JSON string with length
-    bool parse(const char* pch, size_t len) {
-        // reset state before parse
-        reset();
-
+    // will reset writer before parse
+    static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
         if (!pch || len == 0) {
-            err_ = JsonbErrType::E_EMPTY_DOCUMENT;
-            VLOG_DEBUG << "empty json string";
-            return false;
+            return Status::InternalError("Empty JSON document");
         }
-
-        // parse json using simdjson, return false on exception
+        writer.reset();
         try {
+            simdjson::ondemand::parser simdjson_parser;
             simdjson::padded_string json_str {pch, len};
-            simdjson::ondemand::document doc = parser_.iterate(json_str);
+            simdjson::ondemand::document doc = simdjson_parser.iterate(json_str);
 
             // simdjson process top level primitive types specially
             // so some repeated code here
             switch (doc.type()) {
             case simdjson::ondemand::json_type::object:
             case simdjson::ondemand::json_type::array: {
-                parse(doc.get_value());
+                RETURN_IF_ERROR(parse(doc.get_value(), writer));
                 break;
             }
             case simdjson::ondemand::json_type::null: {
-                if (writer_.writeNull() == 0) {
-                    err_ = JsonbErrType::E_OUTPUT_FAIL;
-                    LOG(WARNING) << "writeNull failed";
+                if (writer.writeNull() == 0) {
+                    return Status::InternalError("writeNull failed");
                 }
                 break;
             }
             case simdjson::ondemand::json_type::boolean: {
-                if (writer_.writeBool(doc.get_bool()) == 0) {
-                    err_ = JsonbErrType::E_OUTPUT_FAIL;
-                    LOG(WARNING) << "writeBool failed";
+                if (writer.writeBool(doc.get_bool()) == 0) {
+                    return Status::InternalError("writeBool failed");
                 }
                 break;
             }
             case simdjson::ondemand::json_type::string: {
-                write_string(doc.get_string());
+                RETURN_IF_ERROR(write_string(doc.get_string(), writer));
                 break;
             }
             case simdjson::ondemand::json_type::number: {
-                write_number(doc.get_number(), doc.raw_json_token());
+                RETURN_IF_ERROR(write_number(doc.get_number(), doc.raw_json_token(), writer));
                 break;
             }
             }
-
-            return err_ == JsonbErrType::E_NONE;
         } catch (simdjson::simdjson_error& e) {
-            err_ = JsonbErrType::E_EXCEPTION;
-            VLOG_DEBUG << "simdjson parse exception: " << e.what();
-            return false;
+            return Status::InternalError(fmt::format("simdjson parse exception: {}", e.what()));
         }
+        return Status::OK();
     }
 
+private:
     // parse json, recursively if necessary, by simdjson
     //  and serialize to binary format by writer
-    void parse(simdjson::ondemand::value value) {
+    static Status parse(simdjson::ondemand::value value, JsonbWriter& writer) {
         switch (value.type()) {
         case simdjson::ondemand::json_type::null: {
-            if (writer_.writeNull() == 0) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeNull failed";
+            if (writer.writeNull() == 0) {
+                return Status::InternalError("writeNull failed");
             }
             break;
         }
         case simdjson::ondemand::json_type::boolean: {
-            if (writer_.writeBool(value.get_bool()) == 0) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeBool failed";
+            if (writer.writeBool(value.get_bool()) == 0) {
+                return Status::InternalError("writeBool failed");
             }
             break;
         }
         case simdjson::ondemand::json_type::string: {
-            write_string(value.get_string());
+            RETURN_IF_ERROR(write_string(value.get_string(), writer));
             break;
         }
         case simdjson::ondemand::json_type::number: {
-            write_number(value.get_number(), value.raw_json_token());
+            RETURN_IF_ERROR(write_number(value.get_number(), value.raw_json_token(), writer));
             break;
         }
         case simdjson::ondemand::json_type::object: {
-            if (!writer_.writeStartObject()) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeStartObject failed";
-                break;
+            if (!writer.writeStartObject()) {
+                return Status::InternalError("writeStartObject failed");
             }
 
             for (auto kv : value.get_object()) {
                 std::string_view key;
                 simdjson::error_code e = kv.unescaped_key().get(key);
                 if (e != simdjson::SUCCESS) {
-                    err_ = JsonbErrType::E_INVALID_KEY_STRING;
-                    LOG(WARNING) << "simdjson get key failed: " << e;
-                    break;
+                    return Status::InternalError(fmt::format("simdjson get key failed: {}", e));
                 }
 
-                if (writer_.writeKey(key.data(), key.size()) == 0) {
-                    err_ = JsonbErrType::E_OUTPUT_FAIL;
-                    LOG(WARNING) << "writeKey failed key: " << key;
-                    break;
+                // write key
+                if (key.size() > std::numeric_limits<uint8_t>::max()) {
+                    return Status::InternalError("key size exceeds max limit: {} , {}", key.size(),
+                                                 std::numeric_limits<uint8_t>::max());
+                }
+                if (writer.writeKey(key.data(), (uint8_t)key.size()) == 0) {
+                    return Status::InternalError("writeKey failed : {}", key);
                 }
 
                 // parse object value
-                parse(kv.value());
-                if (err_ != JsonbErrType::E_NONE) {
-                    LOG(WARNING) << "parse object value failed";
-                    break;
-                }
-            }
-            if (err_ != JsonbErrType::E_NONE) {
-                break;
+                RETURN_IF_ERROR(parse(kv.value(), writer));
             }
 
-            if (!writer_.writeEndObject()) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeEndObject failed";
+            if (!writer.writeEndObject()) {
+                return Status::InternalError("writeEndObject failed");
                 break;
             }
 
             break;
         }
         case simdjson::ondemand::json_type::array: {
-            if (!writer_.writeStartArray()) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeStartArray failed";
-                break;
+            if (!writer.writeStartArray()) {
+                return Status::InternalError("writeStartArray failed");
             }
 
             for (auto elem : value.get_array()) {
                 // parse array element
-                parse(elem.value());
-                if (err_ != JsonbErrType::E_NONE) {
-                    LOG(WARNING) << "parse array element failed";
-                    break;
-                }
-            }
-            if (err_ != JsonbErrType::E_NONE) {
-                break;
+                RETURN_IF_ERROR(parse(elem.value(), writer));
             }
 
-            if (!writer_.writeEndArray()) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeEndArray failed";
-                break;
+            if (!writer.writeEndArray()) {
+                return Status::InternalError("writeEndArray failed");
             }
-
             break;
         }
         default: {
-            err_ = JsonbErrType::E_INVALID_TYPE;
-            LOG(WARNING) << "unknown value type: "; // << value;
-            break;
+            return Status::InternalError("unknown value type: ");
         }
 
         } // end of switch
+        return Status::OK();
     }
 
-    void write_string(std::string_view str) {
+    static Status write_string(std::string_view str, JsonbWriter& writer) {
         // start writing string
-        if (!writer_.writeStartString()) {
-            err_ = JsonbErrType::E_OUTPUT_FAIL;
-            LOG(WARNING) << "writeStartString failed";
-            return;
+        if (!writer.writeStartString()) {
+            return Status::InternalError("writeStartString failed");
         }
 
         // write string
         if (str.size() > 0) {
-            if (writer_.writeString(str.data(), str.size()) == 0) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeString failed";
-                return;
+            if (writer.writeString(str.data(), str.size()) == 0) {
+                return Status::InternalError("writeString failed");
             }
         }
 
         // end writing string
-        if (!writer_.writeEndString()) {
-            err_ = JsonbErrType::E_OUTPUT_FAIL;
-            LOG(WARNING) << "writeEndString failed";
-            return;
+        if (!writer.writeEndString()) {
+            return Status::InternalError("writeEndString failed");
         }
+        return Status::OK();
     }
 
-    void write_number(simdjson::ondemand::number num, std::string_view raw_string) {
+    static Status write_number(simdjson::ondemand::number num, std::string_view raw_string,
+                               JsonbWriter& writer) {
         if (num.is_double()) {
             double number = num.get_double();
             // When a double exceeds the precision that can be represented by a double type in simdjson, it gets converted to 0.
@@ -278,68 +229,41 @@ public:
                 number = StringParser::string_to_float<double>(raw_string.data(), raw_string.size(),
                                                                &result);
                 if (result != StringParser::PARSE_SUCCESS) {
-                    err_ = JsonbErrType::E_INVALID_NUMBER;
-                    LOG(WARNING) << "invalid number, raw string is: " << raw_string;
-                    return;
+                    return Status::InternalError("invalid number, raw string is: " +
+                                                 std::string(raw_string));
                 }
             }
 
-            if (writer_.writeDouble(number) == 0) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeDouble failed";
-                return;
+            if (writer.writeDouble(number) == 0) {
+                return Status::InternalError("writeDouble failed");
             }
         } else if (num.is_int64() || num.is_uint64()) {
             int128_t val = num.is_int64() ? (int128_t)num.get_int64() : (int128_t)num.get_uint64();
             int size = 0;
             if (val >= std::numeric_limits<int8_t>::min() &&
                 val <= std::numeric_limits<int8_t>::max()) {
-                size = writer_.writeInt8((int8_t)val);
+                size = writer.writeInt8((int8_t)val);
             } else if (val >= std::numeric_limits<int16_t>::min() &&
                        val <= std::numeric_limits<int16_t>::max()) {
-                size = writer_.writeInt16((int16_t)val);
+                size = writer.writeInt16((int16_t)val);
             } else if (val >= std::numeric_limits<int32_t>::min() &&
                        val <= std::numeric_limits<int32_t>::max()) {
-                size = writer_.writeInt32((int32_t)val);
+                size = writer.writeInt32((int32_t)val);
             } else if (val >= std::numeric_limits<int64_t>::min() &&
                        val <= std::numeric_limits<int64_t>::max()) {
-                size = writer_.writeInt64((int64_t)val);
+                size = writer.writeInt64((int64_t)val);
             } else { // INT128
-                size = writer_.writeInt128(val);
+                size = writer.writeInt128(val);
             }
 
             if (size == 0) {
-                err_ = JsonbErrType::E_OUTPUT_FAIL;
-                LOG(WARNING) << "writeInt failed";
-                return;
+                return Status::InternalError("writeInt failed");
             }
         } else {
-            err_ = JsonbErrType::E_INVALID_NUMBER;
-            LOG(WARNING) << "invalid number: " << num.as_double();
-            return;
+            return Status::InternalError("invalid number: " + std::to_string(num.as_double()));
         }
+        return Status::OK();
     }
-
-    JsonbWriterT<JsonbOutStream>& getWriter() { return writer_; }
-
-    JsonbErrType getErrorCode() { return err_; }
-
-    // clear error code
-    void clearErr() { err_ = JsonbErrType::E_NONE; }
-
-    void reset() {
-        writer_.reset();
-        clearErr();
-    }
-
-private:
-    simdjson::ondemand::parser parser_;
-    JsonbWriterT<JsonbOutStream> writer_;
-    JsonbErrType err_;
 };
-
-using JsonbParser = JsonbParserTSIMD;
-
+#include "common/compile_check_end.h"
 } // namespace doris
-
-#endif // JSONB_JSONBJSONPARSERSIMD_H
