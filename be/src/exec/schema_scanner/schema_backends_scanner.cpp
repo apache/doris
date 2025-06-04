@@ -83,8 +83,8 @@ Status SchemaBackendsScanner::_get_new_table() {
     TFetchBackendsRequest request;
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::fetch_backends(*(_param->common_param->ip),
-                                                     _param->common_param->port,
-                                                     request, &_backends_result));
+                                                     _param->common_param->port, request,
+                                                     &_backends_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -124,14 +124,15 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // BACKENDID
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = backends[row_idx].backend_id ;
+        int64_refs[row_idx] = backends[row_idx].backend_id;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
 
     // HOST
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].host.c_str(), backends[row_idx].host.length());
+        str_refs[row_idx] =
+                StringRef(backends[row_idx].host.c_str(), backends[row_idx].host.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
@@ -173,14 +174,16 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // LASTSTARTTIME
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].last_start_time.c_str(), backends[row_idx].last_start_time.length());
+        str_refs[row_idx] = StringRef(backends[row_idx].last_start_time.c_str(),
+                                      backends[row_idx].last_start_time.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
 
     // LASTHEARTBEAT
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].last_heartbeat.c_str(), backends[row_idx].last_heartbeat.length());
+        str_refs[row_idx] = StringRef(backends[row_idx].last_heartbeat.c_str(),
+                                      backends[row_idx].last_heartbeat.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
@@ -208,28 +211,28 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // DATAUSEDCAPACITY
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = backends[row_idx].data_used_capacity ;
+        int64_refs[row_idx] = backends[row_idx].data_used_capacity;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
 
     // TRASHUSEDCAPACITY
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = backends[row_idx].trash_used_capacity ;
+        int64_refs[row_idx] = backends[row_idx].trash_used_capacity;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
 
     // AVAILCAPACITY
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = backends[row_idx].avail_capacity ;
+        int64_refs[row_idx] = backends[row_idx].avail_capacity;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
 
     // TOTALCAPACITY
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = backends[row_idx].total_capacity ;
+        int64_refs[row_idx] = backends[row_idx].total_capacity;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 15, datas));
@@ -243,42 +246,46 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // MAXDISKUSEDPCT
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        double_refs[row_idx] = backends[row_idx].max_disk_used_pct ;
+        double_refs[row_idx] = backends[row_idx].max_disk_used_pct;
         datas[row_idx] = double_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
 
     // REMOTEUSEDCAPACITY
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = backends[row_idx].remote_used_capacity ;
+        int64_refs[row_idx] = backends[row_idx].remote_used_capacity;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, datas));
 
     // TAG
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].tag.c_str(), backends[row_idx].tag.length());
+        str_refs[row_idx] =
+                StringRef(backends[row_idx].tag.c_str(), backends[row_idx].tag.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, datas));
 
     // ERRMSG
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].errmsg.c_str(), backends[row_idx].errmsg.length());
+        str_refs[row_idx] =
+                StringRef(backends[row_idx].errmsg.c_str(), backends[row_idx].errmsg.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
 
     // VERSION
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].version.c_str(), backends[row_idx].version.length());
+        str_refs[row_idx] =
+                StringRef(backends[row_idx].version.c_str(), backends[row_idx].version.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 21, datas));
 
     // STATUS
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].status.c_str(), backends[row_idx].status.length());
+        str_refs[row_idx] =
+                StringRef(backends[row_idx].status.c_str(), backends[row_idx].status.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 22, datas));
@@ -292,7 +299,8 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // NODEROLE
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(backends[row_idx].node_role.c_str(), backends[row_idx].node_role.length());
+        str_refs[row_idx] = StringRef(backends[row_idx].node_role.c_str(),
+                                      backends[row_idx].node_role.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 24, datas));
