@@ -31,6 +31,8 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
@@ -1215,15 +1217,15 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeTimeV2>();
+        return std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
         ColumnPtr col = block.get_by_position(arguments[0]).column;
-        const auto* arg = assert_cast<const ColumnOffset64*>(col.get());
-        ColumnFloat64::MutablePtr res = ColumnFloat64::create(input_rows_count);
+        const auto* arg = assert_cast<const ColumnDateTimeV2*>(col.get());
+        ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res->get_data();
         for (int i = 0; i < arg->size(); i++) {
             auto v = arg->get_element(i);
