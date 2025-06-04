@@ -18,14 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -132,7 +130,7 @@ public class ExportStmt extends StatementBase implements NotFallbackInParser {
 
     @Override
     public String toSql() {
-
+        return "";
     }
 
     @Override
