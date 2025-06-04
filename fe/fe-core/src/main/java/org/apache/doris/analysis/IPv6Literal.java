@@ -76,6 +76,11 @@ public class IPv6Literal extends LiteralExpr {
     }
 
     @Override
+    protected String toSqlImpl() {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return "\"" + getStringValue() + "\"";

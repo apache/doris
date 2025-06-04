@@ -77,6 +77,13 @@ public class StructLiteral extends LiteralExpr {
     }
 
     @Override
+    protected String toSqlImpl() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.toSqlImpl()));
+        return "STRUCT(" + StringUtils.join(list, ", ") + ")";
+    }
+
+    @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         List<String> list = new ArrayList<>(children.size());

@@ -110,9 +110,15 @@ public class IsNullPredicate extends Predicate {
     }
 
     @Override
+    public String toSqlImpl() {
+        return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
+        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + (isNotNull ? " IS NOT NULL"
+                : " IS NULL");
     }
 
     @Override

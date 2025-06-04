@@ -59,6 +59,11 @@ public class Subquery extends Expr {
     }
 
     @Override
+    public String toSqlImpl() {
+        return "(" + stmt.toSql() + ")";
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return "(" + stmt.toSql() + ")";

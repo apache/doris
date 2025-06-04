@@ -90,11 +90,19 @@ public class BetweenPredicate extends Predicate {
     }
 
     @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
+    public String toSqlImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
         return children.get(0).toSql() + " " + notStr + "BETWEEN "
                 + children.get(1).toSql() + " AND " + children.get(2).toSql();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        String notStr = (isNotBetween) ? "NOT " : "";
+        return children.get(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "BETWEEN "
+                + children.get(1).toSql(disableTableName, needExternalSql, tableType, table) + " AND " + children.get(2)
+                .toSql(disableTableName, needExternalSql, tableType, table);
     }
 
     @Override

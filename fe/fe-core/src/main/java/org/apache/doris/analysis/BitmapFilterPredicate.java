@@ -81,10 +81,17 @@ public class BitmapFilterPredicate extends Predicate {
     }
 
     @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
+    protected String toSqlImpl() {
         return (notIn ? "not " : "") + "BitmapFilterPredicate(" + children.get(0).toSql() + ", " + children.get(1)
                 .toSql() + ")";
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return (notIn ? "not " : "") + "BitmapFilterPredicate(" + children.get(0)
+                .toSql(disableTableName, needExternalSql, tableType, table) + ", " + children.get(1)
+                .toSql(disableTableName, needExternalSql, tableType, table) + ")";
     }
 
     @Override

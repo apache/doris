@@ -104,6 +104,11 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl() {
+        return value ? "TRUE" : "FALSE";
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return value ? "TRUE" : "FALSE";

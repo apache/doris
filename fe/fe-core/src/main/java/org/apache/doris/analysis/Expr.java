@@ -918,8 +918,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toSql() {
-        return (printSqlInParens) ? "(" + toSqlImpl(false, false, null, null) + ")"
-                : toSqlImpl(false, false, null, null);
+        return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
     public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
@@ -939,6 +938,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Returns a SQL string representing this expr. Subclasses should override this method
      * instead of toSql() to ensure that parenthesis are properly added around the toSql().
      */
+    protected abstract String toSqlImpl();
+
     protected abstract String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table);
 

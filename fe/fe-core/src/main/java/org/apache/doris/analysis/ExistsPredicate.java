@@ -61,6 +61,18 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
+    public String toSqlImpl() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (notExists) {
+            strBuilder.append("NOT ");
+
+        }
+        strBuilder.append("EXISTS ");
+        strBuilder.append(getChild(0).toSql());
+        return strBuilder.toString();
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         StringBuilder strBuilder = new StringBuilder();
@@ -69,7 +81,7 @@ public class ExistsPredicate extends Predicate {
 
         }
         strBuilder.append("EXISTS ");
-        strBuilder.append(getChild(0).toSql());
+        strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
         return strBuilder.toString();
     }
 

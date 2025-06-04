@@ -137,8 +137,7 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
+    public String toSqlImpl() {
         StringBuilder output = new StringBuilder("CASE");
         int childIdx = 0;
         if (hasCaseExpr) {
@@ -150,6 +149,29 @@ public class CaseExpr extends Expr {
         }
         if (hasElseExpr) {
             output.append(" ELSE " + children.get(children.size() - 1).toSql());
+        }
+        output.append(" END");
+        return output.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        StringBuilder output = new StringBuilder("CASE");
+        int childIdx = 0;
+        if (hasCaseExpr) {
+            output.append(' ')
+                    .append(children.get(childIdx++).toSql(disableTableName, needExternalSql, tableType, table));
+        }
+        while (childIdx + 2 <= children.size()) {
+            output.append(
+                    " WHEN " + children.get(childIdx++).toSql(disableTableName, needExternalSql, tableType, table));
+            output.append(
+                    " THEN " + children.get(childIdx++).toSql(disableTableName, needExternalSql, tableType, table));
+        }
+        if (hasElseExpr) {
+            output.append(" ELSE " + children.get(children.size() - 1)
+                    .toSql(disableTableName, needExternalSql, tableType, table));
         }
         output.append(" END");
         return output.toString();

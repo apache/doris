@@ -273,6 +273,11 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
+    public String toSqlImpl() {
+        return getStringValue();
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return getStringValue();

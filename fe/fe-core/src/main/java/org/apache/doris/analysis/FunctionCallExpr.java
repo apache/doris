@@ -672,8 +672,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
+    public String toSqlImpl() {
         Expr expr;
         if (originStmtFnExpr != null) {
             expr = originStmtFnExpr;
@@ -691,6 +690,52 @@ public class FunctionCallExpr extends Expr {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(" ");
             sb.append(children.get(1).toSql());
+        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
+            sb.append("key ");
+            for (int i = 0; i < children.size(); i++) {
+                String str = ((StringLiteral) children.get(i)).getValue();
+                if (str.isEmpty()) {
+                    continue;
+                }
+                sb.append(str);
+                sb.append(".");
+            }
+            sb.deleteCharAt(sb.length() - 1);
+        } else {
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(paramsToSql());
+            if (fnName.getFunction().equalsIgnoreCase("json_quote")
+                    || fnName.getFunction().equalsIgnoreCase("json_array")
+                    || fnName.getFunction().equalsIgnoreCase("json_object")
+                    || fnName.getFunction().equalsIgnoreCase("json_insert")
+                    || fnName.getFunction().equalsIgnoreCase("json_replace")
+                    || fnName.getFunction().equalsIgnoreCase("json_set")) {
+                return forJSON(sb.toString());
+            }
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+
+        // when function is like or regexp, the expr generated sql should be like this
+        // eg: child1 like child2
+        if (fnName.getFunction().equalsIgnoreCase("like")
+                || fnName.getFunction().equalsIgnoreCase("regexp")) {
+            sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table));
+            sb.append(" ");
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(" ");
+            sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table));
         } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
             sb.append("key ");
             for (int i = 0; i < children.size(); i++) {

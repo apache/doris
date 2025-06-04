@@ -263,12 +263,22 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
+    public String toSqlImpl() {
         if (children.size() == 1) {
             return op.toString() + " " + getChild(0).toSql();
         } else {
             return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
+        } else {
+            return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString()
+                    + " " + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
         }
     }
 

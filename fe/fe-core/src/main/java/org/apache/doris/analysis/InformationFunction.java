@@ -96,6 +96,11 @@ public class InformationFunction extends Expr {
     }
 
     @Override
+    public String toSqlImpl() {
+        return funcType + "()";
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return funcType + "()";

@@ -190,6 +190,15 @@ public class MapLiteral extends LiteralExpr {
     }
 
     @Override
+    protected String toSqlImpl() {
+        List<String> list = new ArrayList<>(children.size());
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+            list.add(children.get(i).toSqlImpl() + ":" + children.get(i + 1).toSqlImpl());
+        }
+        return "MAP{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         List<String> list = new ArrayList<>(children.size());

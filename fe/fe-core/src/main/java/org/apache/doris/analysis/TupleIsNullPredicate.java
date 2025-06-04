@@ -190,6 +190,11 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     @Override
+    public String toSqlImpl() {
+        return "TupleIsNull(" + Joiner.on(",").join(tupleIds) + ")";
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return "TupleIsNull(" + Joiner.on(",").join(tupleIds) + ")";

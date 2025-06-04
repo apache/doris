@@ -93,6 +93,11 @@ public class JsonLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl() {
+        return "'" + value.replaceAll("'", "''") + "'";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.JSON_LITERAL;
         msg.json_literal = new TJsonLiteral(getUnescapedValue());

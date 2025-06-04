@@ -85,6 +85,13 @@ public class EncryptKeyRef extends Expr {
     }
 
     @Override
+    protected String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(encryptKeyName.toSql());
+        return sb.toString();
+    }
+
+    @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         StringBuilder sb = new StringBuilder();

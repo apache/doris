@@ -91,6 +91,11 @@ public class ColumnRefExpr extends Expr {
     }
 
     @Override
+    protected String toSqlImpl() {
+        return columnName;
+    }
+
+    @Override
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return columnName;

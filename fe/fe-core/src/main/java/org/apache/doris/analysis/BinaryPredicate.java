@@ -283,9 +283,15 @@ public class BinaryPredicate extends Predicate {
     }
 
     @Override
+    public String toSqlImpl() {
+        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
-        return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+        return getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + op.toString() + " "
+                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table);
     }
 
     @Override

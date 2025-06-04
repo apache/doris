@@ -56,6 +56,11 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl() {
+        return "MAXVALUE";
+    }
+
+    @Override
     public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         return "MAXVALUE";
