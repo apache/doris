@@ -24,7 +24,7 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalFunctionRules;
-import org.apache.doris.datasource.ExternalFunctionRules.FunctionRewriteRule;
+import org.apache.doris.datasource.ExternalFunctionRules.FunctionRewriteRules;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import com.google.common.base.Preconditions;
@@ -149,7 +149,7 @@ public class JdbcFunctionPushDownRule {
         return expr;
     }
 
-    private static void replaceFunctionNameIfNecessary(String func, FunctionRewriteRule rewriteRule,
+    private static void replaceFunctionNameIfNecessary(String func, FunctionRewriteRules rewriteRule,
             FunctionCallExpr functionCallExpr) {
         String newFuncName = rewriteRule.rewriteFunction(func);
         if (!newFuncName.equals(func)) {

@@ -23,7 +23,7 @@ import org.apache.doris.datasource.ExternalFunctionRules.FunctionPushDownRule;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ExternalFunctionRulesTest {
+public class ExternalFunctionPushDownRulesTest {
 
     @Test
     public void testFunctionPushDownRuleCreateWithMysqlDataSource() {
