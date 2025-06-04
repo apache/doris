@@ -267,8 +267,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                                     createTableBatchReadSession(requiredBatchPartitionSpecs);
                             List<Split> batchSplit = getSplitByTableSession(tableBatchReadSession);
 
-                            splitAssignment.addToQueue(batchSplit);
-                        } catch (IOException e) {
+                            if (splitAssignment.needMoreSplit()) {
+                                splitAssignment.addToQueue(batchSplit);
+                            }
+                        } catch (Exception e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {
                             if (batchException.get() != null) {
@@ -288,7 +290,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                     splitAssignment.setException(batchException.get());
                 }
             }
-        });
+        }, scheduleExecutor);
     }
 
     @Override

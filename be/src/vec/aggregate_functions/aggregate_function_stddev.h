@@ -40,7 +40,7 @@ class BufferReadable;
 class BufferWritable;
 template <typename T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
 template <PrimitiveType T, bool is_stddev>
@@ -138,7 +138,7 @@ struct PopData : BaseData<T, is_stddev>, Name {
         }
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 };
 
 // For this series of functions, the Decimal type is not supported
@@ -162,7 +162,7 @@ struct SampData : BaseData<T, is_stddev>, Name {
         }
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
 };
 
 struct StddevName {

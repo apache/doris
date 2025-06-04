@@ -29,7 +29,7 @@ namespace doris::segment_v2 {
 
 PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher) {}
+        : _searcher(searcher), _io_ctx(io_ctx) {}
 
 void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.terms.empty()) {
@@ -38,7 +38,7 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     if (query_info.terms.size() == 1) {
         auto* term_pos = TermPositionIterator::ensure_term_position(
-                _searcher->getReader(), query_info.field_name, query_info.terms[0]);
+                _io_ctx, _searcher->getReader(), query_info.field_name, query_info.terms[0]);
         _iterators.emplace_back(std::make_shared<TermPositionIterator>(term_pos));
         _lead1 = &_iterators.at(0);
         return;
@@ -90,7 +90,7 @@ void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_
     std::vector<PostingsAndPosition> postings;
     for (size_t i = 0; i < query_info.terms.size(); i++) {
         const auto& term = query_info.terms[i];
-        auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
+        auto* term_pos = TermPositionIterator::ensure_term_position(_io_ctx, _searcher->getReader(),
                                                                     query_info.field_name, term);
         auto iter = std::make_shared<TermPositionIterator>(term_pos);
         _iterators.emplace_back(iter);
@@ -106,16 +106,16 @@ void PhraseQuery::init_exact_phrase_matcher(const std::wstring& field_name,
     for (size_t i = 0; i < terms.size(); i++) {
         if (i < terms.size() - 1) {
             const auto& term = terms[i][0];
-            auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
-                                                                        field_name, term);
+            auto* term_pos = TermPositionIterator::ensure_term_position(
+                    _io_ctx, _searcher->getReader(), field_name, term);
             auto iter = std::make_shared<TermPositionIterator>(term_pos);
             _iterators.emplace_back(iter);
             postings.emplace_back(iter, i);
         } else {
             std::vector<TermPositionIterator> subs;
             for (const auto& term : terms[i]) {
-                auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
-                                                                            field_name, term);
+                auto* term_pos = TermPositionIterator::ensure_term_position(
+                        _io_ctx, _searcher->getReader(), field_name, term);
                 subs.emplace_back(term_pos);
             }
             auto iter = std::make_shared<UnionTermIterator<TermPositionIterator>>(std::move(subs));
@@ -131,7 +131,7 @@ void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query
     std::vector<PostingsAndFreq> postings;
     for (size_t i = 0; i < query_info.terms.size(); i++) {
         const auto& term = query_info.terms[i];
-        auto* term_pos = TermPositionIterator::ensure_term_position(_searcher->getReader(),
+        auto* term_pos = TermPositionIterator::ensure_term_position(_io_ctx, _searcher->getReader(),
                                                                     query_info.field_name, term);
         auto iter = std::make_shared<TermPositionIterator>(term_pos);
         _iterators.emplace_back(iter);
@@ -147,7 +147,7 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
         for (size_t i = 0; i < query_info.terms.size(); i++) {
             const auto& term = query_info.terms[i];
             auto* term_pos = TermPositionIterator::ensure_term_position(
-                    _searcher->getReader(), query_info.field_name, term);
+                    _io_ctx, _searcher->getReader(), query_info.field_name, term);
             auto iter = std::make_shared<TermPositionIterator>(term_pos);
             _iterators.emplace_back(iter);
             postings.emplace_back(iter, i);
@@ -161,7 +161,7 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
             for (size_t i = 0; i < terms.size(); i++) {
                 const auto& term = terms[i];
                 auto* term_pos = TermPositionIterator::ensure_term_position(
-                        _searcher->getReader(), query_info.field_name, term);
+                        _io_ctx, _searcher->getReader(), query_info.field_name, term);
                 auto iter = std::make_shared<TermPositionIterator>(term_pos);
                 postings.emplace_back(iter, i);
             }

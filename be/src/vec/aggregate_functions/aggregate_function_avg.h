@@ -47,15 +47,15 @@ class BufferReadable;
 class BufferWritable;
 template <typename T>
 class ColumnDecimal;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionAvgData {
-    using ResultType = T;
-    T sum {};
+    using ResultType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
     UInt64 count = 0;
 
     AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
@@ -78,15 +78,16 @@ struct AggregateFunctionAvgData {
             return static_cast<ResultT>(sum);
         }
         // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
-        if constexpr (IsDecimalV2<T> && IsDecimalV2<ResultT>) {
+        if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
             Decimal128V2 ret(cal_ret.value());
             return ret;
         } else {
-            if constexpr (IsDecimal256<T>) {
-                return static_cast<ResultT>(sum / T(count));
+            if constexpr (T == TYPE_DECIMAL256) {
+                return static_cast<ResultT>(sum /
+                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
             } else {
                 return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
             }
@@ -115,7 +116,7 @@ public:
     using ResultDataType = std::conditional_t<
             T == TYPE_DECIMALV2, DataTypeDecimal<Decimal128V2>,
             std::conditional_t<is_decimal(T), DataTypeDecimal<typename Data::ResultType>,
-                               DataTypeNumber<Float64>>>;
+                               DataTypeFloat64>>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = std::conditional_t<
             T == TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>,

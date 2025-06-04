@@ -33,11 +33,7 @@
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_error.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -611,7 +607,7 @@ class FunctionJsonbExtractPath : public IFunction {
 public:
     static constexpr auto name = "json_exists_path";
     static constexpr auto alias = "jsonb_exists_path";
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     using Container = typename ColumnType::Container;
     static FunctionPtr create() { return std::make_shared<FunctionJsonbExtractPath>(); }
     String get_name() const override { return name; }
@@ -1194,49 +1190,49 @@ public:
 struct JsonbTypeExists {
     using T = uint8_t;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = true;
 };
 
 struct JsonbTypeNull {
     using T = void;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeBool {
     using T = bool;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt {
     using T = int32_t;
     using ReturnType = DataTypeInt32;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt32;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt64 {
     using T = int64_t;
     using ReturnType = DataTypeInt64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt64;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt128 {
     using T = int128_t;
     using ReturnType = DataTypeInt128;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt128;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeDouble {
     using T = double;
     using ReturnType = DataTypeFloat64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnFloat64;
     static const bool only_check_exists = false;
 };
 

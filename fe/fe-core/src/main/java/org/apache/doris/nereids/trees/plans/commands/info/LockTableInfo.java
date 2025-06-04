@@ -15,36 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.analysis.LockTable;
 
 /**
- * Datetime type in Nereids.
+ * LockTableInfo is a wrapper class for LockTable to support TableNameInfo
+ * which uses ConnectContext for analysis.
  */
-public class TimeType extends PrimitiveType implements RangeScalable {
+public class LockTableInfo {
+    private TableNameInfo tableNameInfo;
+    private String alias;
+    private LockTable.LockType lockType;
 
-    public static final TimeType INSTANCE = new TimeType();
-
-    private static final int WIDTH = 8;
-
-    private TimeType() {
+    public LockTableInfo(TableNameInfo tableNameInfo, String alias, LockTable.LockType lockType) {
+        this.tableNameInfo = tableNameInfo;
+        this.alias = alias;
+        this.lockType = lockType;
     }
 
-    @Override
-    public Type toCatalogDataType() {
-        return Type.TIME;
+    public TableNameInfo getTableNameInfo() {
+        return tableNameInfo;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof TimeType;
+    public String getAlias() {
+        return alias;
     }
 
-    @Override
-    public int width() {
-        return WIDTH;
+    public LockTable.LockType getLockType() {
+        return lockType;
     }
+
 }

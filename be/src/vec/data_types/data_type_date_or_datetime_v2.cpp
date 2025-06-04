@@ -66,7 +66,7 @@ std::string DataTypeDateV2::to_string(const IColumn& column, size_t row_num) con
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
+    UInt32 int_val = assert_cast<const ColumnDateV2&>(*ptr).get_element(row_num);
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
 
     char buf[64];
@@ -87,7 +87,7 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
+    UInt32 int_val = assert_cast<const ColumnDateV2&>(*ptr).get_element(row_num);
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
 
     char buf[64];
@@ -97,7 +97,7 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
 }
 
 Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = static_cast<ColumnUInt32*>(column);
+    auto* column_data = assert_cast<ColumnDateV2*>(column);
     UInt32 val = 0;
     if (!read_date_v2_text_impl<UInt32>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
@@ -108,7 +108,7 @@ Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
 }
 
 MutableColumnPtr DataTypeDateV2::create_column() const {
-    return DataTypeNumberBase<UInt32>::create_column();
+    return DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::create_column();
 }
 
 void DataTypeDateV2::cast_to_date_time(const UInt32 from, Int64& to) {
@@ -150,7 +150,7 @@ std::string DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num)
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
+    UInt64 int_val = assert_cast<const ColumnDateTimeV2&>(*ptr).get_element(row_num);
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
@@ -186,7 +186,7 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
+    UInt64 int_val = assert_cast<const ColumnDateTimeV2&>(*ptr).get_element(row_num);
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
@@ -196,7 +196,7 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
 }
 
 Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto* column_data = assert_cast<ColumnUInt64*>(column);
+    auto* column_data = assert_cast<ColumnDateTimeV2*>(column);
     UInt64 val = 0;
     if (!read_datetime_v2_text_impl<UInt64>(val, rb, _scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
@@ -212,7 +212,7 @@ void DataTypeDateTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 MutableColumnPtr DataTypeDateTimeV2::create_column() const {
-    return DataTypeNumberBase<UInt64>::create_column();
+    return DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::create_column();
 }
 
 void DataTypeDateTimeV2::cast_to_date_time(const UInt64 from, Int64& to) {

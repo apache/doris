@@ -20,6 +20,8 @@
 // and modified by Doris.
 
 suite("sort") {
+    // this case is used to test defer materialze, and hence turn topn_lazy_materialization off
+    sql """set enable_topn_lazy_materialization=false;"""
     qt_sort_string_single_column """ select * from ( select '汇总' as a union all select '2022-01-01' as a ) a order by 1 """
     qt_sort_string_multiple_columns """ select * from ( select '汇总' as a,1 as b union all select '2022-01-01' as a,1 as b ) a order by 1,2 """
     qt_sort_string_on_fe """ select '汇总' > '2022-01-01' """
