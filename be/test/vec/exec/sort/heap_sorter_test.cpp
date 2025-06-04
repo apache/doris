@@ -119,14 +119,27 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
         Block block;
         bool eos;
         EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
-        std::cout << block.dump_data() << std::endl;
-        EXPECT_EQ(block.rows(), 6);
-
+        EXPECT_EQ(block.rows(), 5);
+        EXPECT_EQ(eos, false);
         EXPECT_TRUE(ColumnHelper::block_equal(
                 block,
                 Block {ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
-                               {1, 2, 3, 4, 5, 6}, {false, false, false, false, false, false}),
-                       ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5, 6})}));
+                               {1, 2, 3, 4, 5}, {false, false, false, false, false}),
+                       ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5})}));
+
+        block.clear();
+        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+        EXPECT_EQ(block.rows(), 1);
+        EXPECT_EQ(eos, false);
+        EXPECT_TRUE(ColumnHelper::block_equal(
+                block,
+                Block {ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({6}, {false}),
+                       ColumnHelper::create_column_with_name<DataTypeInt64>({6})}));
+
+        block.clear();
+        EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
+        EXPECT_EQ(block.rows(), 0);
+        EXPECT_EQ(eos, true);
     }
 }
 
