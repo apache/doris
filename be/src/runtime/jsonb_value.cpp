@@ -28,7 +28,7 @@
 
 namespace doris {
 
-Status JsonBinaryValue::from_json_string(const char* s, size_t length) {
+Status JsonBinaryValue::init_from_json_string(const char* s, size_t length) {
     JsonbErrType error = JsonbErrType::E_NONE;
     if (!parser.parse(s, length)) {
         error = parser.getErrorCode();
