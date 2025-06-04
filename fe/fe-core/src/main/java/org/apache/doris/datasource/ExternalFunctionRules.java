@@ -142,17 +142,17 @@ public class ExternalFunctionRules {
                 return false;
             }
 
-            // 如果 supportedFunctions 不为空，则只允许 supportedFunctions 中的 function 返回 true
+            // If supportedFunctions is not empty, only functions in supportedFunctions can return true
             if (!supportedFunctions.isEmpty()) {
                 return supportedFunctions.contains(functionName.toLowerCase());
             }
 
-            // 对于包含在 unsupportedFunctions 中的 function，返回 false
+            // For functions contained in unsupportedFunctions, return false
             if (unsupportedFunctions.contains(functionName.toLowerCase())) {
                 return false;
             }
 
-            // 其余情况，返回 true
+            // In other cases, return true
             return true;
         }
     }
