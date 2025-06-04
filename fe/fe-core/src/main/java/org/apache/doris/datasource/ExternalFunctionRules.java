@@ -51,6 +51,9 @@ public class ExternalFunctionRules {
     }
 
     public static void check(String jsonRules) throws DdlException {
+        if (Strings.isNullOrEmpty(jsonRules)) {
+            return;
+        }
         FunctionPushDownRule.check(jsonRules);
         FunctionRewriteRules.check(jsonRules);
     }

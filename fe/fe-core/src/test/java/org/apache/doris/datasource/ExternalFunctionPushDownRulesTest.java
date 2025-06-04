@@ -98,12 +98,12 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleCreateWithValidCustomRules() {
         // Test custom rules with supported functions
-        String jsonRules = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"custom_func1\", \"Custom_Func2\"],\n" +
-                "    \"unsupported\": [\"blocked_func1\", \"Blocked_Func2\"]\n" +
-                "  }\n" +
-                "}";
+        String jsonRules = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"custom_func1\", \"Custom_Func2\"],\n"
+                + "    \"unsupported\": [\"blocked_func1\", \"Blocked_Func2\"]\n"
+                + "  }\n"
+                + "}";
 
         FunctionPushDownRule rule = FunctionPushDownRule.create("mysql", jsonRules);
 
@@ -129,11 +129,11 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleCreateWithOnlySupportedCustomRules() {
         // Test custom rules with only supported functions
-        String jsonRules = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"allowed_func1\", \"allowed_func2\"]\n" +
-                "  }\n" +
-                "}";
+        String jsonRules = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"allowed_func1\", \"allowed_func2\"]\n"
+                + "  }\n"
+                + "}";
 
         FunctionPushDownRule rule = FunctionPushDownRule.create("unknown", jsonRules);
 
@@ -150,11 +150,11 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleCreateWithOnlyUnsupportedCustomRules() {
         // Test custom rules with only unsupported functions
-        String jsonRules = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"unsupported\": [\"blocked_func1\", \"blocked_func2\"]\n" +
-                "  }\n" +
-                "}";
+        String jsonRules = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"unsupported\": [\"blocked_func1\", \"blocked_func2\"]\n"
+                + "  }\n"
+                + "}";
 
         FunctionPushDownRule rule = FunctionPushDownRule.create("unknown", jsonRules);
 
@@ -169,12 +169,12 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleCreateWithEmptyCustomRules() {
         // Test empty custom rules
-        String jsonRules = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [],\n" +
-                "    \"unsupported\": []\n" +
-                "  }\n" +
-                "}";
+        String jsonRules = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [],\n"
+                + "    \"unsupported\": []\n"
+                + "  }\n"
+                + "}";
 
         FunctionPushDownRule rule = FunctionPushDownRule.create("unknown", jsonRules);
 
@@ -186,9 +186,9 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleCreateWithNullCustomRules() {
         // Test null pushdown section
-        String jsonRules = "{\n" +
-                "  \"pushdown\": null\n" +
-                "}";
+        String jsonRules = "{\n"
+                + "  \"pushdown\": null\n"
+                + "}";
 
         FunctionPushDownRule rule = FunctionPushDownRule.create("unknown", jsonRules);
 
@@ -239,11 +239,11 @@ public class ExternalFunctionPushDownRulesTest {
         Assertions.assertFalse(emptyRule.canPushDown("any_function"));
 
         // 2. Function in supported list -> return true (only when supportedFunctions is not empty)
-        String supportedJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"func1\"]\n" +
-                "  }\n" +
-                "}";
+        String supportedJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"func1\"]\n"
+                + "  }\n"
+                + "}";
         FunctionPushDownRule supportedRule = FunctionPushDownRule.create("unknown", supportedJson);
         Assertions.assertTrue(supportedRule.canPushDown("func1"));
 
@@ -251,11 +251,11 @@ public class ExternalFunctionPushDownRulesTest {
         Assertions.assertFalse(supportedRule.canPushDown("other_func"));
 
         // 4. Function in unsupported list -> return false
-        String unsupportedJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"unsupported\": [\"func1\"]\n" +
-                "  }\n" +
-                "}";
+        String unsupportedJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"unsupported\": [\"func1\"]\n"
+                + "  }\n"
+                + "}";
         FunctionPushDownRule unsupportedRule = FunctionPushDownRule.create("unknown", unsupportedJson);
         Assertions.assertFalse(unsupportedRule.canPushDown("func1"));
 
@@ -263,12 +263,12 @@ public class ExternalFunctionPushDownRulesTest {
         Assertions.assertTrue(unsupportedRule.canPushDown("other_func"));
 
         // 6. Priority test: when supportedFunctions is not empty, only supported functions return true
-        String bothJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"func1\"],\n" +
-                "    \"unsupported\": [\"func2\"]\n" +
-                "  }\n" +
-                "}";
+        String bothJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"func1\"],\n"
+                + "    \"unsupported\": [\"func2\"]\n"
+                + "  }\n"
+                + "}";
         FunctionPushDownRule bothRule = FunctionPushDownRule.create("unknown", bothJson);
         Assertions.assertTrue(bothRule.canPushDown("func1")); // in supported list
         Assertions.assertFalse(bothRule.canPushDown("func2")); // not in supported list (even though in unsupported)
@@ -278,12 +278,12 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleCheck() throws DdlException {
         // Test valid JSON rules
-        String validJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"func1\", \"func2\"],\n" +
-                "    \"unsupported\": [\"func3\", \"func4\"]\n" +
-                "  }\n" +
-                "}";
+        String validJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"func1\", \"func2\"],\n"
+                + "    \"unsupported\": [\"func3\", \"func4\"]\n"
+                + "  }\n"
+                + "}";
 
         // Should not throw exception
         Assertions.assertDoesNotThrow(() -> {
@@ -349,12 +349,12 @@ public class ExternalFunctionPushDownRulesTest {
     @Test
     public void testFunctionPushDownRuleWithComplexCustomRules() {
         // Test complex custom rules that override and extend default rules
-        String complexJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"date_trunc\", \"custom_func\"],\n" +
-                "    \"unsupported\": [\"from_unixtime\", \"another_func\"]\n" +
-                "  }\n" +
-                "}";
+        String complexJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"date_trunc\", \"custom_func\"],\n"
+                + "    \"unsupported\": [\"from_unixtime\", \"another_func\"]\n"
+                + "  }\n"
+                + "}";
 
         // Test with MySQL (has default unsupported functions)
         FunctionPushDownRule mysqlRule = FunctionPushDownRule.create("mysql", complexJson);
@@ -376,11 +376,11 @@ public class ExternalFunctionPushDownRulesTest {
         // Additional test cases for the new logic
 
         // Test case 1: Only unsupported functions defined (supportedFunctions is empty)
-        String onlyUnsupportedJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"unsupported\": [\"blocked_func\"]\n" +
-                "  }\n" +
-                "}";
+        String onlyUnsupportedJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"unsupported\": [\"blocked_func\"]\n"
+                + "  }\n"
+                + "}";
         FunctionPushDownRule onlyUnsupportedRule = FunctionPushDownRule.create("unknown", onlyUnsupportedJson);
 
         // Functions in unsupported list should be denied
@@ -391,12 +391,12 @@ public class ExternalFunctionPushDownRulesTest {
         Assertions.assertTrue(onlyUnsupportedRule.canPushDown("sum"));
 
         // Test case 2: Both supported and unsupported functions defined
-        String bothListsJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"func1\", \"func2\"],\n" +
-                "    \"unsupported\": [\"func3\", \"func4\"]\n" +
-                "  }\n" +
-                "}";
+        String bothListsJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"func1\", \"func2\"],\n"
+                + "    \"unsupported\": [\"func3\", \"func4\"]\n"
+                + "  }\n"
+                + "}";
         FunctionPushDownRule bothListsRule = FunctionPushDownRule.create("unknown", bothListsJson);
 
         // Only supported functions return true
@@ -412,11 +412,11 @@ public class ExternalFunctionPushDownRulesTest {
         Assertions.assertFalse(bothListsRule.canPushDown("other_func"));
 
         // Test case 3: MySQL with custom supported functions
-        String mysqlSupportedJson = "{\n" +
-                "  \"pushdown\": {\n" +
-                "    \"supported\": [\"date_trunc\", \"money_format\"]\n" +
-                "  }\n" +
-                "}";
+        String mysqlSupportedJson = "{\n"
+                + "  \"pushdown\": {\n"
+                + "    \"supported\": [\"date_trunc\", \"money_format\"]\n"
+                + "  }\n"
+                + "}";
         FunctionPushDownRule mysqlSupportedRule = FunctionPushDownRule.create("mysql", mysqlSupportedJson);
 
         // Only supported functions return true (overrides default MySQL unsupported functions)
