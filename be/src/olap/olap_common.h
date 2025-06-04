@@ -370,6 +370,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_search_init_timer = 0;
+    int64_t inverted_index_searcher_search_exec_timer = 0;
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
