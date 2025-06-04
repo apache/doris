@@ -73,7 +73,6 @@ public class MTMVTest {
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
         mtmv.setQuerySql("select * from xxx;");
         MTMVStatus mtmvStatus = new MTMVStatus();
-        mtmvStatus.init();
         mtmv.setStatus(mtmvStatus);
         mtmv.setJobInfo(buildMTMVJobInfo(mtmv));
         mtmv.setMvProperties(new HashMap<>());
@@ -183,7 +182,6 @@ public class MTMVTest {
         MTMV mtmv = new MTMV();
         MTMVStatus status = new MTMVStatus();
         mtmv.setStatus(status);
-        status.init();
         // test init
         Assert.assertEquals(MTMVState.INIT, status.getState());
         Assert.assertEquals(MTMVRefreshState.INIT, status.getRefreshState());
