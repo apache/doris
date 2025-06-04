@@ -53,7 +53,6 @@
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"

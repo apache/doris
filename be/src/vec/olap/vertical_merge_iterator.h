@@ -34,7 +34,6 @@
 #include "olap/schema.h"
 #include "olap/utils.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 
 #pragma once

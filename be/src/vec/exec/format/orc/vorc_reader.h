@@ -405,7 +405,8 @@ private:
         ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
-        auto& column_data = static_cast<ColumnDecimal<DecimalType>&>(*data_column).get_data();
+        auto& column_data =
+                static_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 
