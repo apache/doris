@@ -103,6 +103,8 @@ public:
     // which will not be cleared.
     int do_delete_bitmap_storage_optimize_check();
 
+    int do_mow_compaction_key_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
