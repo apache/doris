@@ -174,6 +174,7 @@ public abstract class MaterializationContext {
         this.scanPlan = doGenerateScanPlan(cascadesContext);
         // Materialization output expression shuttle, this will be used to expression rewrite
         List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        // generate expression depend on the order of output
         this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
                 scanPlanOutput);
         // This is used by normalize statistics column expression

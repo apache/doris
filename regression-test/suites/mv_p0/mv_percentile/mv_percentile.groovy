@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 suite ("mv_percentile") {
     sql "set enable_fallback_to_original_planner = false"
 
@@ -66,11 +64,15 @@ suite ("mv_percentile") {
     qt_select_star "select * from d_table order by k1;"
 
     mv_rewrite_success("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2 order by k1,k2;",
-            "kp")
+            "kp", enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_fail("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2 order by k1,k2;",
+            "kp", enable_sync_mv_cost_based_rewrite(), [NOT_IN_RBO])
     qt_select_mv "select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2 order by k1,k2;"
 
     mv_rewrite_success("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;",
-            "kp")
+            "kp", enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_fail("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;",
+            "kp", enable_sync_mv_cost_based_rewrite(), [NOT_IN_RBO])
     qt_select_mv "select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2,3;"
 
     mv_rewrite_success("select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;", "kp")
@@ -79,10 +81,14 @@ suite ("mv_percentile") {
     sql """set enable_stats=true;"""
 
     mv_rewrite_success("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2 order by k1,k2;",
-            "kp")
+            "kp", enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_fail("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by k1,k2 order by k1,k2;",
+            "kp", enable_sync_mv_cost_based_rewrite(), [NOT_IN_RBO])
 
     mv_rewrite_success("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;",
-            "kp")
+            "kp", enable_sync_mv_cost_based_rewrite(), true, [TRY_IN_RBO, FORCE_IN_RBO])
+    mv_rewrite_fail("select k1,k2,percentile(k3, 0.1),percentile(k3, 0.9) from d_table group by grouping sets((k1),(k1,k2),()) order by 1,2;",
+            "kp", enable_sync_mv_cost_based_rewrite(), [NOT_IN_RBO])
 
     mv_rewrite_success("select percentile(k3, 0.1) from d_table group by grouping sets((k1),()) order by 1;", "kp")
 }

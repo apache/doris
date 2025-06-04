@@ -1,3 +1,4 @@
+package mv.pre_rewrite.limit
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -136,7 +137,7 @@ suite("query_with_limit") {
     sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
     sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
-    // test limit
+    // test limit without offset
     def mv1_0 =
             """
             select
@@ -166,10 +167,11 @@ suite("query_with_limit") {
             where o_orderkey > 1
             limit 2;
             """
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv1_0, query1_0, "mv1_0", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
-    // test normal limit offset
+    // test normal limit with offset
     def mv1_1 =
             """
             select
@@ -199,7 +201,8 @@ suite("query_with_limit") {
             where o_orderkey > 1
             limit 2 offset 3;
             """
-    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
     // test mv with limit in from subquery, should fail
@@ -233,7 +236,8 @@ suite("query_with_limit") {
     async_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
-    // 1_3 test limit offset in from subquery, and query is the same with mv
+    // test limit and offset in from subquery, and query is the same with mv
+    // should fail, no support limit in mv, multi table
     def mv1_3 =
             """
             select
@@ -243,7 +247,7 @@ suite("query_with_limit") {
             l_orderkey,
             l_partkey
             from
-            (select * from orders limit 2) t
+            (select * from orders limit 2 offset 3) t
             left join lineitem on l_orderkey = o_orderkey
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey;
             """
@@ -256,7 +260,7 @@ suite("query_with_limit") {
             l_orderkey,
             l_partkey
             from
-            (select * from orders limit 2) t
+            (select * from orders limit 2 offset 3) t
             left join lineitem on l_orderkey = o_orderkey
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey;
             """
@@ -264,7 +268,8 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
 
-    // 1_4 test limit offset in where subquery, and query is the same with mv
+    // test limit offset in where subquery, and query is the same with mv
+    // should fail, no support topN in mv, single table
     def mv1_4 =
             """
             select
@@ -307,7 +312,6 @@ suite("query_with_limit") {
             l_partkey,
             l_suppkey;
             """
-    // order keys should contains all join child slot
     def query1_5 =
             """
             select
@@ -326,11 +330,53 @@ suite("query_with_limit") {
             l_suppkey
             limit 2 offset 3;
             """
-    async_mv_rewrite_success(db, mv1_5, query1_5, "mv1_5")
+    async_mv_rewrite_success(db, mv1_5, query1_5, "mv1_5", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv1_5, query1_5, "mv1_5", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
 
 
-    // test mv with limit in from subquery, should fail
+    // test normal limit without offset + group by
+    def mv1_5_0 =
+            """
+            select
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            group by
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey;
+            """
+    def query1_5_0 =
+            """
+            select
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            group by
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            limit 2;
+            """
+    async_mv_rewrite_success(db, mv1_5_0, query1_5_0, "mv1_5_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv1_5_0, query1_5_0, "mv1_5_0", [NOT_IN_RBO])
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5_0"""
+
+
+    // test mv limit in from subquery, should fail
     def mv1_6 =
             """
             select
@@ -348,7 +394,6 @@ suite("query_with_limit") {
             l_partkey,
             l_suppkey;
             """
-    // order keys should contains all join child slot
     def query1_6 =
             """
             select
@@ -372,7 +417,7 @@ suite("query_with_limit") {
 
 
     // test limit offset in from subquery, and query is the same with mv
-    // test mv with limit in from subquery, should fail
+    // should fail, no support topN in mv, multi table
     def mv1_7 =
             """
             select
@@ -390,7 +435,6 @@ suite("query_with_limit") {
             l_partkey,
             l_suppkey;
             """
-    // order keys should contains all join child slot
     def query1_7 =
             """
             select
@@ -412,7 +456,8 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_7"""
 
 
-    // 1_4 test limit offset in where subquery, and query is the same with mv
+    // test limit offset in where subquery, and query is the same with mv
+    // should fail, no support topN in mv, single table
     def mv1_8 =
             """
             select
@@ -449,7 +494,7 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_8"""
 
 
-    // test topN rewrite
+    // test topN rewrite with offset
     def mv2_0 =
             """
             select
@@ -480,12 +525,13 @@ suite("query_with_limit") {
             offset 1;
             """
     order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0", [NOT_IN_RBO])
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
 
-    // test topN rewrite with offset
+    // test topN rewrite without offset
     def mv2_1 =
             """
             select
@@ -515,7 +561,8 @@ suite("query_with_limit") {
             limit 2;
             """
     order_qt_query2_1_before "${query2_1}"
-    async_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1", [NOT_IN_RBO])
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -531,7 +578,8 @@ suite("query_with_limit") {
             from
             ( select * from 
             orders left
-            join lineitem on l_orderkey = o_orderkey order by l_orderkey
+            join lineitem on l_orderkey = o_orderkey
+            order by l_orderkey
             limit 2) t
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey;
             """
@@ -555,7 +603,7 @@ suite("query_with_limit") {
     order_qt_query2_2_after "${query2_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
-    // test topN in from subquery, and query is the same with mv
+    // test topN in from subquery, and query is the same with mv, multi table
     def mv2_3 =
             """
             select
@@ -567,7 +615,8 @@ suite("query_with_limit") {
             from
             ( select * from 
             orders left
-            join lineitem on l_orderkey = o_orderkey order by l_orderkey
+            join lineitem on l_orderkey = o_orderkey
+            order by l_orderkey
             limit 2) t
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey;
             """
@@ -582,7 +631,8 @@ suite("query_with_limit") {
             from
             ( select * from 
             orders left
-            join lineitem on l_orderkey = o_orderkey order by l_orderkey
+            join lineitem on l_orderkey = o_orderkey
+            order by l_orderkey
             limit 2) t
             left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey;
             """
@@ -592,8 +642,7 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
 
-    // test topN in where subquery, and query is the same with mv
-    // 1_4 test limit offset in where subquery, and query is the same with mv
+    // test topN in where subquery, and query is the same with mv, single table
     def mv2_4 =
             """
             select
@@ -618,8 +667,7 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_4"""
 
 
-
-    // test normal topN + group by
+    // test normal topN + group by, with offset
     def mv2_5 =
             """
             select
@@ -661,8 +709,56 @@ suite("query_with_limit") {
             l_suppkey
             limit 2 offset 3;
             """
-    async_mv_rewrite_success(db, mv2_5, query2_5, "mv2_5")
+    async_mv_rewrite_success(db, mv2_5, query2_5, "mv2_5", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_5, query2_5, "mv2_5", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_5"""
+
+
+    // test normal topN + group by, without offset
+    def mv2_5_0 =
+            """
+            select
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            group by
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey;
+            """
+    // order keys should contains all join child slot
+    def query2_5_0 =
+            """
+            select
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            from
+            orders left
+            join lineitem on l_orderkey = o_orderkey
+            left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+            group by
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            order by 
+            l_orderkey,
+            o_orderkey,
+            l_partkey,
+            l_suppkey
+            limit 2;
+            """
+    async_mv_rewrite_success(db, mv2_5_0, query2_5_0, "mv2_5_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv2_5_0, query2_5_0, "mv2_5_0", [NOT_IN_RBO])
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_5_0"""
 
 
     // test mv with topN in from subquery, should fail
@@ -707,8 +803,7 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_6"""
 
 
-    // test limit offset in from subquery, and query is the same with mv
-    // test mv with limit in from subquery, should fail
+    // test limit offset in from subquery, and query is the same with mv, multi table
     def mv2_7 =
             """
             select
@@ -726,7 +821,6 @@ suite("query_with_limit") {
             l_partkey,
             l_suppkey;
             """
-    // order keys should contains all join child slot
     def query2_7 =
             """
             select
@@ -748,7 +842,7 @@ suite("query_with_limit") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_7"""
 
 
-    // 1_4 test limit offset in where subquery, and query is the same with mv
+    // test limit offset in where subquery, and query is the same with mv, single table
     def mv2_8 =
             """
             select
@@ -908,8 +1002,7 @@ suite("query_with_limit") {
     async_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
-
-    // 4_0 query is union all + limit offset
+    // query is union all + limit offset
     def mv4_0 =
             """
                 select 
@@ -937,11 +1030,44 @@ suite("query_with_limit") {
                 ) t  
                   limit 2 offset 5;
             """
-    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0")
+    async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv4_0, query4_0, "mv4_0", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 
+    // query is union all + limit without offset
+    def mv4_0_0 =
+            """
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+            """
+    def query4_0_0 =
+            """
+            select *
+            from (
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                union all
+                select 
+                  o_orderkey
+                  from
+                  orders
+                ) t  
+                  limit 2 offset 5;
+            """
+    async_mv_rewrite_success(db, mv4_0_0, query4_0_0, "mv4_0_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv4_0_0, query4_0_0, "mv4_0_0", [NOT_IN_RBO])
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0_0"""
 
-    // 4_1 query is union all + group by + limit offset
+
+    // query is union all + group by + limit offset
     def mv4_1 =
             """
                 select 
@@ -972,11 +1098,48 @@ suite("query_with_limit") {
                 group by l_orderkey 
                   limit 2 offset 0;
             """
-    // aggregate is not pushed down when push down topN, shuold success now
-    async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1")
+    async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1", [TRY_IN_RBO, FORCE_IN_RBO])
+    // because limit not pushed through aggregate, so success
+    async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1", [NOT_IN_RBO])
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
-    // 4_2 query is union all + topN
+    // query is union all + group by + limit without offset
+    def mv4_1_0 =
+            """
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                  group by l_orderkey 
+            """
+    def query4_1_0 =
+            """
+            select *
+            from (
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                group by l_orderkey  
+                union all
+                select 
+                  o_orderkey
+                  from
+                  orders
+                ) t 
+                group by l_orderkey 
+                  limit 2;
+            """
+    async_mv_rewrite_success(db, mv4_1_0, query4_1_0, "mv4_1_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_success(db, mv4_1_0, query4_1_0, "mv4_1_0", [NOT_IN_RBO])
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1_0"""
+
+
+    // query is union all + topN
     def mv4_2 =
             """
                 select 
@@ -1006,12 +1169,49 @@ suite("query_with_limit") {
                 order by l_orderkey 
                   limit 2 offset 5;
             """
-    // aggregate is not pushed down when push down topN, should success now
-    async_mv_rewrite_success(db, mv4_2, query4_2, "mv4_2")
+    async_mv_rewrite_success(db, mv4_2, query4_2, "mv4_2", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv4_2, query4_2, "mv4_2", [NOT_IN_RBO])
+    order_qt_query4_2_after "${query4_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_2"""
 
 
-    // 4_3 query is union all + group by + topN
+    // query is union all + topN, without offset
+    def mv4_2_0 =
+            """
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                  order by l_orderkey
+            """
+    def query4_2_0 =
+            """
+            select *
+            from (
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                union all
+                select 
+                  o_orderkey
+                  from
+                  orders
+                ) t 
+                order by l_orderkey 
+                  limit 2;
+            """
+    async_mv_rewrite_success(db, mv4_2_0, query4_2_0, "mv4_2_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv4_2_0, query4_2_0, "mv4_2_0", [NOT_IN_RBO])
+    order_qt_query4_2_0_after "${query4_2_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_2_0"""
+
+
+    // query is union all + group by + topN
     def mv4_3 =
             """
                 select 
@@ -1044,8 +1244,48 @@ suite("query_with_limit") {
                   order by l_orderkey
                   limit 2 offset 5;
             """
-    async_mv_rewrite_success(db, mv4_3, query4_3, "mv4_3")
+    async_mv_rewrite_success(db, mv4_3, query4_3, "mv4_3", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv4_3, query4_3, "mv4_3", [NOT_IN_RBO])
+    order_qt_query4_3_after "${query4_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_3"""
 
+
+    // query is union all + group by + topN without offset
+    def mv4_3_0 =
+            """
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                  group by l_orderkey 
+                  order by l_orderkey
+            """
+    def query4_3_0 =
+            """
+            select *
+            from (
+                select 
+                  l_orderkey
+                from 
+                  lineitem
+                  left join
+                  orders on l_orderkey = o_orderkey
+                group by l_orderkey  
+                union all
+                select 
+                  o_orderkey
+                  from
+                  orders
+                ) t  
+                  group by l_orderkey 
+                  order by l_orderkey
+                  limit 2 offset 5;
+            """
+    async_mv_rewrite_success(db, mv4_3_0, query4_3_0, "mv4_3_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    async_mv_rewrite_fail(db, mv4_3_0, query4_3_0, "mv4_3_0", [NOT_IN_RBO])
+    order_qt_query4_3_0_after "${query4_3_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_3_0"""
 }
 

@@ -454,7 +454,7 @@ public class Memo {
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            refreshVersion.incrementAndGet();
+            incrementAndGetRefreshVersion();
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {

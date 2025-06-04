@@ -30,9 +30,11 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
@@ -143,15 +145,18 @@ public class MTMVCache {
             @Override
             public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink,
                     Object context) {
-                return logicalResultSink.child().accept(this, context);
+                // todo how to handle when cte,if make sure this is needed, we should remove original plan
+                return new LogicalProject(logicalResultSink.getOutput(),
+                        false, logicalResultSink.children());
             }
         }, null);
         // Optimize by rules to remove top sort
         CascadesContext parentCascadesContext = CascadesContext.initContext(cascadesContext.getStatementContext(),
                 mvPlan, PhysicalProperties.ANY);
         mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
-            Rewriter.getCteChildrenRewriter(childContext,
-                    ImmutableList.of(Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new))).execute();
+            Rewriter.getCteChildrenRewriter(childContext, ImmutableList.of(
+                    Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
+                    Rewriter.bottomUp(new MergeProjects()))).execute();
             return childContext.getRewritePlan();
         }, mvPlan, plan, false);
         // Construct structInfo once for use later
