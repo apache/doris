@@ -177,7 +177,7 @@ public class PointQueryExecutor implements CoordInterface {
                 updateChildIdx = 1;
             } else {
                 Preconditions.checkState(false,
-                        "Should contains literal in " + binaryPredicate.toSqlImpl(false, false, null, null));
+                        "Should contains literal in " + binaryPredicate.toSqlImpl());
             }
             // not a placeholder to replace
             if (!colNameToConjunct.containsKey(slot.getColumnName())) {

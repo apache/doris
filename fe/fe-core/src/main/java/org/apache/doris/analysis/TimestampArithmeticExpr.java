@@ -443,7 +443,7 @@ public class TimestampArithmeticExpr extends Expr {
             strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
         } else {
             // Non-function-call like version with interval as second operand.
-            strBuilder.append(getChild(0).toSql());
+            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
             strBuilder.append(" " + op.toString() + " ");
             strBuilder.append("INTERVAL ");
             strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + " ");

@@ -356,7 +356,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             } catch (ClassCastException e) {
                 // ignore a >1.0 or a <false
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Abort this range of column" + columnName.toSqlImpl(false, false, null, null));
+                    LOG.debug("Abort this range of column" + columnName.toSqlImpl());
                 }
                 continue;
             }

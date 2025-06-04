@@ -1300,7 +1300,7 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(fnName.getFunction(), newArgTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (fn == null) {
-                LOG.warn("fn {} not exists", this.toSqlImpl(false, false, null, null));
+                LOG.warn("fn {} not exists", this.toSqlImpl());
                 throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
             }
             fn.setReturnType(getChild(0).getType());
@@ -1739,7 +1739,7 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fn == null) {
-            LOG.warn("fn {} not exists", this.toSqlImpl(false, false, null, null));
+            LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
@@ -2504,7 +2504,7 @@ public class FunctionCallExpr extends Expr {
         if (!analyzer.isUDFAllowed()) {
             throw new AnalysisException(
                     "Does not support non-builtin functions, or function does not exist: "
-                            + this.toSqlImpl(false, false, null, null));
+                            + this.toSqlImpl());
         }
 
         Function fn = null;

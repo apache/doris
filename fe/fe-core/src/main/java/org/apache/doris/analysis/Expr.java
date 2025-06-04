@@ -949,7 +949,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * sql digest should be represented different from tosqlImpl().
      */
     protected String toDigestImpl() {
-        return toSqlImpl(false, false, null, null);
+        return toSqlImpl();
     }
 
     public String toExternalSql(TableType tableType, TableIf table) {

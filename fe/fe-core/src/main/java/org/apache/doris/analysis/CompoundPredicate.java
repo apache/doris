@@ -297,7 +297,7 @@ public class CompoundPredicate extends Predicate {
 
     @Override
     public String toString() {
-        return toSqlImpl(false, false, null, null);
+        return toSqlImpl();
     }
 
     @Override

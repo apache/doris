@@ -282,7 +282,7 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
             fn = getBuiltinFunction(fnName.getFunction(), argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }
         if (fn == null) {
-            LOG.warn("fn {} not exists", this.toSqlImpl(false, false, null, null));
+            LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
         if (LOG.isDebugEnabled()) {
