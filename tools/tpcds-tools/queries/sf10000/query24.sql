@@ -9,7 +9,7 @@ with ssales as
       ,i_manager_id
       ,i_units
       ,i_size
-      ,sum(ss_sales_price) netpaid
+      ,sum(ss_net_paid) netpaid
 from store_sales
     ,store_returns
     ,store
@@ -61,7 +61,7 @@ with ssales as
       ,i_manager_id
       ,i_units
       ,i_size
-      ,sum(ss_sales_price) netpaid
+      ,sum(ss_net_paid) netpaid
 from store_sales
     ,store_returns
     ,store
