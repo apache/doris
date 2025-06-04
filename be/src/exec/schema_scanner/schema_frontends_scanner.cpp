@@ -75,8 +75,8 @@ Status SchemaFrontendsScanner::_get_new_table() {
     TFetchFrontendsRequest request;
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::fetch_frontends(*(_param->common_param->ip),
-                                                     _param->common_param->port,
-                                                     request, &_frontends_result));
+                                                     _param->common_param->port, request,
+                                                     &_frontends_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
@@ -116,14 +116,16 @@ Status SchemaFrontendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // NAME
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].name.c_str(), frontends[row_idx].name.length());
+        str_refs[row_idx] =
+                StringRef(frontends[row_idx].name.c_str(), frontends[row_idx].name.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
 
     // HOST
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].host.c_str(), frontends[row_idx].host.length());
+        str_refs[row_idx] =
+                StringRef(frontends[row_idx].host.c_str(), frontends[row_idx].host.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
@@ -165,7 +167,8 @@ Status SchemaFrontendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // ROLE
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].role.c_str(), frontends[row_idx].role.length());
+        str_refs[row_idx] =
+                StringRef(frontends[row_idx].role.c_str(), frontends[row_idx].role.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
@@ -200,21 +203,23 @@ Status SchemaFrontendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // REPLAYEDJOURNALID
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        int64_refs[row_idx] = frontends[row_idx].replayed_journal_id ;
+        int64_refs[row_idx] = frontends[row_idx].replayed_journal_id;
         datas[row_idx] = int64_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
 
     // LASTSTARTTIME
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].last_start_time.c_str(), frontends[row_idx].last_start_time.length());
+        str_refs[row_idx] = StringRef(frontends[row_idx].last_start_time.c_str(),
+                                      frontends[row_idx].last_start_time.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, datas));
 
     // LASTHEARTBEAT
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].last_heartbeat.c_str(), frontends[row_idx].last_heartbeat.length());
+        str_refs[row_idx] = StringRef(frontends[row_idx].last_heartbeat.c_str(),
+                                      frontends[row_idx].last_heartbeat.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
@@ -228,14 +233,16 @@ Status SchemaFrontendsScanner::_fill_block_impl(vectorized::Block* block) {
 
     // ERRMSG
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].err_msg.c_str(), frontends[row_idx].err_msg.length());
+        str_refs[row_idx] =
+                StringRef(frontends[row_idx].err_msg.c_str(), frontends[row_idx].err_msg.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
 
     // VERSION
     for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
-        str_refs[row_idx] = StringRef(frontends[row_idx].version.c_str(), frontends[row_idx].version.length());
+        str_refs[row_idx] =
+                StringRef(frontends[row_idx].version.c_str(), frontends[row_idx].version.length());
         datas[row_idx] = str_refs.data() + row_idx;
     }
     RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
