@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -33,6 +34,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -46,6 +48,8 @@ public class ColumnStatistic {
     public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
     public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
     public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
+
+    public static final double HOT_VALUE_PERCENTAGE = 0.5;
 
     private static final Logger LOG = LogManager.getLogger(ColumnStatistic.class);
 
@@ -75,6 +79,8 @@ public class ColumnStatistic {
     public final double minValue;
     @SerializedName("maxValue")
     public final double maxValue;
+    @SerializedName("skewValues")
+    public ArrayList<Literal> hotValues;
     @SerializedName("isUnKnown")
     public final boolean isUnKnown;
 
