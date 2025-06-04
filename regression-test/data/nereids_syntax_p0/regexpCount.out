@@ -1,0 +1,59 @@
+-- Test Case 1: Basic match (3 lowercase words with spaces)
+ 3
+
+-- Test Case 2: All letters (2 words)
+ 2
+
+-- Test Case 3: Single letters (3 matches)
+ 3
+
+-- Test Case 4: Uppercase letters (no matches)
+ 0
+
+-- Test Case 5: Letter-number combinations (3 matches)
+ 3
+
+-- Test Case 6: Multiple spaces (3 matches)
+ 3
+
+-- Test Case 7: Single letter without spaces (1 match)
+ 1
+
+-- Test Case 8: Newline/tab separators (3 matches)
+ 3
+
+-- Test Case 9: No letters (0 matches)
+ 0
+
+-- Test Case 10: Empty string (0 matches)
+ 0
+
+-- Test Case 11: Whitespace only (0 matches)
+ 0
+
+-- Test Case 12: Trailing whitespace (1 match)
+ 1
+
+-- Test Case 13: Leading whitespace (1 match)
+ 1
+
+-- Test Case 14: Letters with special characters (2 matches)
+ 2
+
+-- Test Case 15: Consecutive letters and numbers (1 match)
+ 1
+
+-- Test Case 16: Words with length ≥3 (1 match)
+ 1
+
+-- Test Case 17: Words with length =2 (2 matches)
+ 2
+
+-- Test Case 18: Letters surrounded by special characters (3 matches)
+ 3
+
+-- Test Case 19: Mixed newline characters (3 matches)
+ 3
+
+-- Test Case 20: String "NULL" (0 matches, uppercase)
+ 0
