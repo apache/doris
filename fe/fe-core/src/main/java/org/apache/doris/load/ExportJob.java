@@ -48,6 +48,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -162,6 +163,8 @@ public class ExportJob implements Writable {
     private String dataConsistency;
     @SerializedName("compressType")
     private String compressType;
+    @SerializedName("whereStr")
+    private String whereStr;
 
     private TableRef tableRef;
 
@@ -679,6 +682,14 @@ public class ExportJob implements Writable {
                 && (state == ExportJobState.CANCELLED || state == ExportJobState.FINISHED);
     }
 
+    public String getWhereStr() {
+        return whereStr;
+    }
+
+    public void setWhereStr(String whereStr) {
+        this.whereStr = whereStr;
+    }
+
     @Override
     public String toString() {
         return "ExportJob [jobId=" + id
@@ -779,6 +790,11 @@ public class ExportJob implements Writable {
         if (origStmt.originStmt.isEmpty()) {
             return;
         }
+        // for compatible
+        NereidsParser nereidsParser = new NereidsParser();
+        ExportCommand command = (ExportCommand) nereidsParser.parseSingle(origStmt.originStmt);
+        Optional<Expression> expr = command.getExpr();
+        this.setWhereStr(expr.isPresent() ? expr.get().toSql() : "");
     }
 
     @Override
