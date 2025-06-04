@@ -1207,4 +1207,34 @@ private:
     }
 };
 
+class FunctionTime : public IFunction {
+public:
+    static constexpr auto name = "time";
+    static FunctionPtr create() { return std::make_shared<FunctionTime>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeTimeV2>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 1);
+        ColumnPtr col = block.get_by_position(arguments[0]).column;
+        const auto* arg = assert_cast<const ColumnUInt64*>(col.get());
+        ColumnFloat64::MutablePtr res = ColumnFloat64::create(input_rows_count);
+        auto& res_data = res->get_data();
+        for (int i = 0; i < arg->size(); i++) {
+            auto v = arg->get_element(i);
+            // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
+            res_data[i] = TimeValue::make_time(DataTypeDateTimeV2::get_hour(v),
+                                               DataTypeDateTimeV2::get_minute(v),
+                                               DataTypeDateTimeV2::get_second(v));
+        }
+        block.replace_by_position(result, std::move(res));
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized
