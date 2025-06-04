@@ -201,11 +201,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         private long lockId;
         private DeleteBitmapUpdateLockContext lockContext;
         private long expireAt;
+        private long cnt;
 
         public CachedDeleteBitmapLock(long lockId, DeleteBitmapUpdateLockContext lockContext, long expireAt) {
             this.lockId = lockId;
             this.lockContext = lockContext;
             this.expireAt = expireAt;
+            this.cnt = 0;
         }
 
         public long getLockId() {
@@ -218,6 +220,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         public boolean isExpired() {
             return System.currentTimeMillis() > expireAt;
+        }
+
+        public void incCnt() {
+            this.cnt++;
+        }
+
+        public long getCnt() {
+            return cnt;
         }
     }
 
@@ -459,6 +469,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 removeDeleteBitmapUpdateLock(dbId, mowTableList, transactionId);
             }
             throw e;
+        } finally {
+            long lockId = getTxnLockId(dbId, transactionId);
+            if (lockId != -1) {
+                // this txn use CachedDeleteBitmapLock
+                int maxTimes = Config.share_mow_lock_for_load_threshold;
+                long tableId = mowTableList.get(0).getId();
+                CachedDeleteBitmapLock cachedLock = cachedDeleteBitmapLockMgr.get(dbId).get(tableId);
+                LOG.info("txn {}, tableId {}, use cached delete bitmap lock, cnt is {}, maxTimes is {}",
+                        transactionId, tableId, cachedLock.getCnt(), maxTimes);
+                if (maxTimes > 0 && cachedLock.getCnt() >= maxTimes) {
+                    LOG.warn("txn {}, tableId {}, use cached delete bitmap lock, cnt is {}, maxTimes is {}, "
+                            + "so remove the dbm lock in ms", transactionId, tableId, cachedLock.getCnt(), maxTimes);
+                    removeDeleteBitmapUpdateLock(dbId, mowTableList, transactionId);
+                }
+            }
         }
     }
 
@@ -1161,6 +1186,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             cachedDeleteBitmapLocks.put(tableId, cachedLock);
         }
         setTxnLockId(dbId, transactionId, cachedLock.getLockId());
+        cachedLock.incCnt();
         return cachedLock.getLockContext();
     }
 
