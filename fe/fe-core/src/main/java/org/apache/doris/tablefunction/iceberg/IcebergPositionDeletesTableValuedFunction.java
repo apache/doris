@@ -20,25 +20,29 @@ package org.apache.doris.tablefunction.iceberg;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.iceberg.share.ManifestFileBean;
 import org.apache.doris.thrift.TIcebergQueryType;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.util.SerializationUtil;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
 class IcebergPositionDeletesTableValuedFunction extends IcebergTableValuedFunction {
+    // TODO: support partition
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("file_path", ScalarType.STRING, true),
-            new Column("pos", ScalarType.BIGINT, true),
-            new Column("row", ScalarType.BIGINT, true),
-            new Column("partition", ScalarType.STRING, true),
-            new Column("spec_id", ScalarType.INT, true),
-            new Column("delete_file_path", ScalarType.STRING, true));
+            new Column("file_path", ScalarType.STRING, true, "Path of a file in which a deleted row is stored"),
+            new Column("pos", ScalarType.BIGINT, true, "Ordinal position of a deleted row in the data file"),
+            new Column("row", new StructType(
+                    new StructField("id", ScalarType.INT),
+                    new StructField("name", ScalarType.STRING)),
+                    true, "Deleted row values"),
+            new Column("spec_id", ScalarType.INT, true, "Spec ID used to track the file containing a row"),
+            new Column("delete_file_path", ScalarType.STRING, true, "Path of the file in which a row is stored"));
 
     public IcebergPositionDeletesTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.POSITION_DELETES);
@@ -46,9 +50,10 @@ class IcebergPositionDeletesTableValuedFunction extends IcebergTableValuedFuncti
 
     @Override
     protected List<String> getSplits() {
-        return table.currentSnapshot().allManifests(table.io()).stream()
-                // filter only delete manifests
-                .filter(file -> file.content() == ManifestContent.DELETES)
+        if (table.currentSnapshot() == null) {
+            return List.of();
+        }
+        return table.currentSnapshot().deleteManifests(table.io()).stream()
                 .map(ManifestFileBean::fromManifest).map(SerializationUtil::serializeToBase64)
                 .collect(Collectors.toList());
     }

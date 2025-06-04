@@ -31,17 +31,20 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 class IcebergPartitionsTableValuedFunction extends IcebergTableValuedFunction {
+    // TODO: support partitions and add comment
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("partition", ScalarType.STRING),
-            new Column("spec_id", ScalarType.INT),
-            new Column("record_count", ScalarType.BIGINT),
-            new Column("file_count", ScalarType.BIGINT),
-            new Column("total_data_file_size_in_bytes", ScalarType.BIGINT),
-            new Column("position_delete_record_count", ScalarType.BIGINT),
-            new Column("position_delete_file_count", ScalarType.BIGINT),
-            new Column("equality_delete_record_count", ScalarType.BIGINT),
-            new Column("equality_delete_file_count", ScalarType.BIGINT),
-            new Column("last_updated_at", ScalarType.BIGINT));
+            new Column("partition", ScalarType.STRING, true),
+            new Column("partition_spec_id", ScalarType.INT, true),
+            new Column("spec_id", ScalarType.INT, true),
+            new Column("record_count", ScalarType.BIGINT, true),
+            new Column("file_count", ScalarType.INT, true),
+            new Column("total_data_file_size_in_bytes", ScalarType.BIGINT, true),
+            new Column("position_delete_record_count", ScalarType.BIGINT, true),
+            new Column("position_delete_file_count", ScalarType.INT, true),
+            new Column("equality_delete_record_count", ScalarType.BIGINT, true),
+            new Column("equality_delete_file_count", ScalarType.INT, true),
+            new Column("last_updated_at", ScalarType.DATETIME, true),
+            new Column("last_updated_snapshot_id", ScalarType.BIGINT, true));
 
     public IcebergPartitionsTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.PARTITIONS);
@@ -49,6 +52,9 @@ class IcebergPartitionsTableValuedFunction extends IcebergTableValuedFunction {
 
     @Override
     protected List<String> getSplits() {
+        if (table.currentSnapshot() == null) {
+            return List.of();
+        }
         return table.currentSnapshot().allManifests(table.io()).stream()
                 .map(ManifestFileBean::fromManifest).map(SerializationUtil::serializeToBase64)
                 .collect(Collectors.toList());

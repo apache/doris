@@ -183,6 +183,10 @@ public class Column implements GsonPostProcessable {
         this(name, type, false, null, isAllowNull, null, "");
     }
 
+    public Column(String name, Type type, boolean isAllowNull, String comment) {
+        this(name, type, false, null, isAllowNull, null, comment);
+    }
+
     public Column(String name, Type type) {
         this(name, type, false, null, false, null, "");
     }

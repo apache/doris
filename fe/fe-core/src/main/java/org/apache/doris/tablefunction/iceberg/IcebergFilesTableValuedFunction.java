@@ -58,6 +58,9 @@ class IcebergFilesTableValuedFunction extends IcebergTableValuedFunction {
 
     @Override
     protected List<String> getSplits() {
+        if (table.currentSnapshot() == null) {
+            return List.of();
+        }
         return table.currentSnapshot().allManifests(table.io()).stream()
                 .map(ManifestFileBean::fromManifest).map(SerializationUtil::serializeToBase64)
                 .collect(Collectors.toList());
