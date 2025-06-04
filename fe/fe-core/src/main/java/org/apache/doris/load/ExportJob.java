@@ -126,6 +126,7 @@ public class ExportJob implements Writable {
     // this is the origin stmt of ExportStmt, we use it to persist where expr of Export job,
     // because we can not serialize the Expressions contained in job.
     @SerializedName("origStmt")
+    @Deprecated
     private OriginStatement origStmt;
     @SerializedName("qualifiedUser")
     private String qualifiedUser;
@@ -168,8 +169,10 @@ public class ExportJob implements Writable {
 
     private TableRef tableRef;
 
+    @Deprecated
     private Expr whereExpr;
 
+    // when fe restart, job will be cancel, so whereExpression not need persist
     private Optional<Expression> whereExpression;
 
     private int parallelism;
