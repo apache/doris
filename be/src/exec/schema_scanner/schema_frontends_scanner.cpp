@@ -75,8 +75,8 @@ Status SchemaFrontendsScanner::_get_new_table() {
     TFetchFrontendsRequest request;
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
         RETURN_IF_ERROR(SchemaHelper::fetch_frontends(*(_param->common_param->ip),
-                                                     _param->common_param->port,
-                                                     request, &_frontends_result));
+                                                     _param->common_param->port, request,
+                                                     &_frontends_result));
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
