@@ -79,10 +79,6 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status HierarchicalDataReader::seek_to_first() {
-    throw Exception(Status::FatalError("Not implemented"));
-}
-
 Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
         RETURN_IF_ERROR(node.data.iterator->seek_to_ordinal(ord));
@@ -155,10 +151,6 @@ Status ExtractReader::init(const ColumnIteratorOptions& opts) {
         _root_reader->inited = true;
     }
     return Status::OK();
-}
-
-Status ExtractReader::seek_to_first() {
-    throw Exception(Status::FatalError("Not implemented"));
 }
 
 Status ExtractReader::seek_to_ordinal(ordinal_t ord) {
