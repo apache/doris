@@ -110,13 +110,9 @@ struct SortOperatorTest : public ::testing::Test {
             state->emplace_local_state(source->operator_id(), std::move(source_local_state_uptr));
         }
 
-        {
-            EXPECT_TRUE(sink_local_state->open(state.get()).ok());
-        }
+        EXPECT_TRUE(sink_local_state->open(state.get()).ok());
 
-        {
-            EXPECT_TRUE(source_local_state->open(state.get()).ok());
-        }
+        EXPECT_TRUE(source_local_state->open(state.get()).ok());
     }
 
     bool is_block(std::vector<Dependency*> deps) {
