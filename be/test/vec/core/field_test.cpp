@@ -34,17 +34,20 @@ namespace doris::vectorized {
 TEST(VFieldTest, field_string) {
     Field f;
 
-    f = Field {String {"Hello, world (1)"}};
+    f = Field::create_field<TYPE_STRING>(String {"Hello, world (1)"});
     ASSERT_EQ(f.get<String>(), "Hello, world (1)");
-    f = Field {String {"Hello, world (2)"}};
+    f = Field::create_field<TYPE_STRING>(String {"Hello, world (2)"});
     ASSERT_EQ(f.get<String>(), "Hello, world (2)");
-    f = Field {Array {Field {String {"Hello, world (3)"}}}};
+    f = Field::create_field<TYPE_ARRAY>(
+            Array {Field ::create_field<TYPE_STRING>(String {"Hello, world (3)"})});
     ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (3)");
-    f = String {"Hello, world (4)"};
+    f = Field::create_field<TYPE_STRING>(String {"Hello, world (4)"});
     ASSERT_EQ(f.get<String>(), "Hello, world (4)");
-    f = Array {Field {String {"Hello, world (5)"}}};
+    f = Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_STRING>(String {"Hello, world (5)"})});
     ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (5)");
-    f = Array {Field(String {"Hello, world (6)"})};
+    f = Field::create_field<TYPE_ARRAY>(
+            Array {Field::create_field<TYPE_STRING>(String {"Hello, world (6)"})});
     ASSERT_EQ(f.get<Array>()[0].get<String>(), "Hello, world (6)");
 }
 
@@ -97,7 +100,7 @@ TEST(VFieldTest, jsonb_field_unique_ptr) {
     ASSERT_EQ(std::string(jf5.get_value(), jf5.get_size()), std::string(test_data));
 
     // Test JsonbField with Field
-    Field field_jf = jf1;
+    Field field_jf = Field::create_field<TYPE_JSONB>(jf1);
     ASSERT_EQ(field_jf.get_type(), TYPE_JSONB);
     ASSERT_NE(field_jf.get<JsonbField>().get_value(), nullptr);
     ASSERT_EQ(field_jf.get<JsonbField>().get_size(), test_size);
@@ -168,7 +171,7 @@ TEST(VFieldTest, jsonb_field_io) {
             // we can't use read_binary because of the JsonbField is not POD type
             JsonbField jsonb_from_field;
             read_json_binary(jsonb_from_field, read_field_buf);
-            Field f2 = jsonb_from_field;
+            Field f2 = Field::create_field<TYPE_JSONB>(jsonb_from_field);
 
             ASSERT_EQ(f2.get_type(), TYPE_JSONB);
             ASSERT_NE(f2.get<JsonbField>().get_value(), nullptr);

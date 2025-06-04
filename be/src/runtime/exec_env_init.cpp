@@ -47,6 +47,7 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -254,6 +255,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    RETURN_IF_ERROR(_init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -321,8 +323,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         LOG(ERROR) << "Scanner scheduler init failed. " << status;
         return status;
     }
-
-    RETURN_IF_ERROR(_init_mem_env());
 
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
@@ -453,6 +453,7 @@ Status ExecEnv::_init_mem_env() {
         return Status::InternalError(ss.str());
     }
 
+    _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -719,6 +720,9 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
+
+    // _id_manager must be destoried before tablet schema cache
+    SAFE_DELETE(_id_manager);
 
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);

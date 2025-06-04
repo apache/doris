@@ -67,6 +67,7 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_STRUCT;
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
@@ -87,7 +88,6 @@ public:
     Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for struct");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

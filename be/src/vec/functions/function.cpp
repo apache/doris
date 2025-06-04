@@ -196,7 +196,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
             return block.get_by_position(elem).column->only_null();
         })) {
         block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, Null());
+                block.get_by_position(result).type->create_column_const(input_rows_count, Field());
         *executed = true;
         return Status::OK();
     }

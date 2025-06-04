@@ -74,7 +74,7 @@ private:
         }
 
         uint32_t num_columns_without_result = block->columns();
-        auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+        auto res_data_column = ColumnUInt8::create(block->rows());
         ColumnPtr argument_column =
                 block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         size_t sz = argument_column->size();

@@ -43,9 +43,9 @@ public:
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override;
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override;
 
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;

@@ -854,6 +854,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         Status prepare_st = Status::OK();
         ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params, _thread_pool.get()),
                                          prepare_st);
+        DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.prepare_failed", {
+            prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");
+        });
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
             return prepare_st;

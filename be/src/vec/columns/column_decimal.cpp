@@ -168,7 +168,17 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {
-        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        // TODO(gabriel)
+        if (null_data == nullptr) {
+            for (size_t i = 0; i < s; i++) {
+                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);
+            }
+        } else {
+            for (size_t i = 0; i < s; i++) {
+                if (null_data[i] == 0)
+                    hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);
+            }
+        }
     } else {
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
@@ -217,6 +227,22 @@ void ColumnDecimal<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                                                    sizeof(T), hashes[i]);
         }
     }
+}
+
+template <typename T>
+Field ColumnDecimal<T>::operator[](size_t n) const {
+    if constexpr (std::is_same_v<T, Decimal32>) {
+        return Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal64>) {
+        return Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V2>) {
+        return Field::create_field<TYPE_DECIMALV2>(DecimalField<Decimal128V2>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+        return Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(data[n], scale));
+    } else if constexpr (std::is_same_v<T, Decimal256>) {
+        return Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(data[n], scale));
+    }
+    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid decimal type");
 }
 
 template <typename T>

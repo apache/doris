@@ -199,7 +199,7 @@ public:
         Block lambda_block;
         auto column_size = names.size();
         MutableColumns columns(column_size);
-        while (args_info.current_row_idx < block->rows()) {
+        do {
             bool mem_reuse = lambda_block.mem_reuse();
             for (int i = 0; i < column_size; i++) {
                 if (mem_reuse) {
@@ -222,7 +222,7 @@ public:
                 long current_step = std::min(
                         max_step, (long)(args_info.cur_size - args_info.current_offset_in_array));
                 size_t pos = args_info.array_start + args_info.current_offset_in_array;
-                for (int i = 0; i < arguments.size(); ++i) {
+                for (int i = 0; i < arguments.size() && current_step > 0; ++i) {
                     columns[gap + i]->insert_range_from(*lambda_datas[i], pos, current_step);
                 }
                 args_info.current_offset_in_array += current_step;
@@ -265,7 +265,7 @@ public:
             }
             result_col->insert_range_from(*res_col, 0, res_col->size());
             lambda_block.clear_column_data(column_size);
-        }
+        } while (args_info.current_row_idx < block->rows());
 
         //4. get the result column after execution, reassemble it into a new array column, and return.
         ColumnWithTypeAndName result_arr;

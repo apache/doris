@@ -97,7 +97,7 @@ suite("test_paimon_olap_rewrite_mtmv", "p0,external,mtmv,external_docker,externa
     mv_rewrite_success("${mvSql}", "${mvName}")
 
     // select p_b should not rewrite
-    mv_rewrite_fail("SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
+    mv_not_part_in("SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
 
     //refresh auto
     sql """

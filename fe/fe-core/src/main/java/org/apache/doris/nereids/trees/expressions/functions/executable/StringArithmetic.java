@@ -74,9 +74,12 @@ public class StringArithmetic {
      * Executable arithmetic functions concat
      */
     @ExecFunction(name = "concat")
-    public static Expression concatVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
-        String result = first.getValue() + second.getValue();
-        return castStringLikeLiteral(first, result);
+    public static Expression concatVarchar(StringLikeLiteral... values) {
+        final StringBuilder sb = new StringBuilder();
+        for (StringLikeLiteral value : values) {
+            sb.append(value.getValue());
+        }
+        return castStringLikeLiteral(values[0], sb.toString());
     }
 
     private static String substringImpl(String first, int second, int third) {

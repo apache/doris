@@ -67,7 +67,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeString);
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE_STRING);
     }
 
     bool is_variadic() const override { return true; }
@@ -83,14 +83,14 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        const auto* sources = check_and_get_column<ColumnVector<typename Transform::OpArgType>>(
+        const auto* sources = check_and_get_column<ColumnVector<Transform::OpArgType>>(
                 remove_nullable(source_col).get());
         auto col_res = ColumnString::create();
 
         // Support all input of datetime is valind to make sure not null return
         if (sources) {
             if (is_nullable) {
-                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
+                auto null_map = ColumnUInt8::create(input_rows_count);
                 TransformerToStringOneArgument<Transform>::vector(
                         context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
                         null_map->get_data());

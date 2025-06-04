@@ -22,6 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 namespace vectorized {
@@ -90,11 +91,11 @@ struct ProcessHashTableProbe {
     const std::shared_ptr<vectorized::Block>& _build_block;
     std::unique_ptr<vectorized::Arena> _arena;
 
-    vectorized::ColumnVector<uint32_t> _probe_indexs;
-    vectorized::ColumnVector<uint32_t> _output_row_indexs;
+    vectorized::ColumnOffset32 _probe_indexs;
+    vectorized::ColumnOffset32 _output_row_indexs;
     bool _probe_visited = false;
     bool _picking_null_keys = false;
-    vectorized::ColumnVector<uint32_t> _build_indexs;
+    vectorized::ColumnOffset32 _build_indexs;
     std::vector<uint8_t> _null_flags;
 
     /// If the probe key of one row on left side is null,
@@ -119,8 +120,15 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
-    size_t _right_col_idx;
+    // See `HashJoinProbeOperatorX::_right_col_idx`
+    const size_t _right_col_idx;
+
     size_t _right_col_len;
+
+    // For right semi with mark join conjunct, we need to store the mark join flags
+    // in the hash table.
+    // -1 means null, 0 means false, 1 means true
+    DorisVector<int8_t> mark_join_flags;
 };
 
 } // namespace pipeline

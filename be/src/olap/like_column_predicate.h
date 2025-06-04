@@ -99,8 +99,8 @@ private:
             auto& null_map_data = nullable_col->get_null_map_column().get_data();
             auto& nested_col = nullable_col->get_nested_column();
             if (nested_col.is_column_dictionary()) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);
+                auto* nested_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(nested_col);
                 auto& data_array = nested_col_ptr->get_data();
                 for (uint16_t i = 0; i < size; i++) {
                     if (null_map_data[i]) {
@@ -133,8 +133,8 @@ private:
             }
         } else {
             if (column.is_column_dictionary()) {
-                auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                auto* nested_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 auto& data_array = nested_col_ptr->get_data();
                 for (uint16_t i = 0; i < size; i++) {
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);

@@ -1749,8 +1749,8 @@ public class AnalysisManager implements Writable {
             if (!(s instanceof SlotReference)) {
                 return;
             }
-            Optional<Column> optionalColumn = ((SlotReference) s).getColumn();
-            Optional<TableIf> optionalTable = ((SlotReference) s).getTable();
+            Optional<Column> optionalColumn = ((SlotReference) s).getOriginalColumn();
+            Optional<TableIf> optionalTable = ((SlotReference) s).getOriginalTable();
             if (optionalColumn.isPresent() && optionalTable.isPresent()
                     && !StatisticsUtil.isUnsupportedType(optionalColumn.get().getType())) {
                 TableIf table = optionalTable.get();

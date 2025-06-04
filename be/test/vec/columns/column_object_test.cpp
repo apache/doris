@@ -66,8 +66,8 @@ TEST_F(ColumnObjectTest, permute) {
 TEST_F(ColumnObjectTest, test_pop_back) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
-    Field field_int(123);
-    Field field_string("hello");
+    Field field_int = Field::create_field<TYPE_INT>(123);
+    Field field_string = Field::create_field<TYPE_STRING>("hello");
 
     subcolumn.insert(field_int);
     subcolumn.insert(field_string);
@@ -84,14 +84,14 @@ TEST_F(ColumnObjectTest, test_pop_back) {
 TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
-    Field field_int8(42);
+    Field field_int8 = Field::create_field<TYPE_TINYINT>(42);
     subcolumn.insert(field_int8);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
     EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int8)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int8)");
 
-    Field field_int16(12345);
+    Field field_int16 = Field::create_field<TYPE_SMALLINT>(12345);
     subcolumn.insert(field_int16);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
@@ -99,7 +99,7 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(Int16)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int16)");
 
-    Field field_int32(1234567);
+    Field field_int32 = Field::create_field<TYPE_INT>(1234567);
     subcolumn.insert(field_int32);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 3);
@@ -150,7 +150,7 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int32)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int32)");
 
-    Field field_string("hello");
+    Field field_string = Field::create_field<TYPE_STRING>("hello");
     subcolumn.insert(field_string);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
@@ -169,9 +169,9 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
     {
         // Create source column with scalar values
         auto src_column = ColumnVariant::create(true);
-        Field field_int(123);
+        Field field_int = Field::create_field<TYPE_INT>(123);
         src_column->try_insert(field_int);
-        Field field_int2(456);
+        Field field_int2 = Field::create_field<TYPE_INT>(456);
         src_column->try_insert(field_int2);
         src_column->finalize();
         EXPECT_TRUE(src_column->is_scalar_variant());
@@ -208,16 +208,16 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
     {
         // Create source column with scalar values
         auto src_column = ColumnVariant::create(true);
-        Field field_int(123);
+        Field field_int = Field::create_field<TYPE_INT>(123);
         src_column->try_insert(field_int);
-        Field field_int2(456);
+        Field field_int2 = Field::create_field<TYPE_INT>(456);
         src_column->try_insert(field_int2);
         src_column->finalize();
         EXPECT_TRUE(src_column->is_scalar_variant());
 
         // Create destination column with same type
         auto dst_column = ColumnVariant::create(true);
-        Field field_int3(789);
+        Field field_int3 = Field::create_field<TYPE_INT>(789);
         dst_column->try_insert(field_int3);
         dst_column->finalize();
         EXPECT_TRUE(dst_column->is_scalar_variant());
@@ -249,15 +249,15 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         auto src_column = ColumnVariant::create(true);
 
         // Create a map with {"a": 123}
-        Field field_map = VariantMap();
+        Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& map1 = field_map.get<VariantMap&>();
-        map1["a"] = 123;
+        map1["a"] = Field::create_field<TYPE_INT>(123);
         src_column->try_insert(field_map);
 
         // Create another map with {"b": "hello"}
-        field_map = VariantMap();
+        field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& map2 = field_map.get<VariantMap&>();
-        map2["b"] = String("hello");
+        map2["b"] = Field::create_field<TYPE_STRING>(String("hello"));
         src_column->try_insert(field_map);
 
         src_column->finalize();

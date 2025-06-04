@@ -55,9 +55,9 @@ static ColumnDateTimeV2::MutablePtr column_datetime_v2_5;
 static ColumnDateTimeV2::MutablePtr column_datetime_v2_6;
 static ColumnDateV2::MutablePtr column_date_v2;
 
-static ColumnFloat64::MutablePtr column_time_v2_6;
-static ColumnFloat64::MutablePtr column_time_v2_5;
-static ColumnFloat64::MutablePtr column_time_v2_0;
+static ColumnTimeV2::MutablePtr column_time_v2_6;
+static ColumnTimeV2::MutablePtr column_time_v2_5;
+static ColumnTimeV2::MutablePtr column_time_v2_0;
 
 class DataTypeDateTimeV2SerDeTest : public ::testing::Test {
 public:
@@ -69,9 +69,9 @@ public:
         column_datetime_v2_5 = ColumnDateTimeV2::create();
         column_datetime_v2_6 = ColumnDateTimeV2::create();
         column_date_v2 = ColumnDateV2::create();
-        column_time_v2_6 = ColumnFloat64::create();
-        column_time_v2_5 = ColumnFloat64::create();
-        column_time_v2_0 = ColumnFloat64::create();
+        column_time_v2_6 = ColumnTimeV2::create();
+        column_time_v2_5 = ColumnTimeV2::create();
+        column_time_v2_0 = ColumnTimeV2::create();
 
         load_columns_data();
     }

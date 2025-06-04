@@ -647,6 +647,7 @@ DEFINE_Int32(num_cores, "0");
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
 DEFINE_Bool(ignore_broken_disk, "false");
+DEFINE_Bool(ignore_file_cache_dir_upgrade_failure, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
 DEFINE_mInt32(memory_maintenance_sleep_time_ms, "50");
@@ -815,6 +816,8 @@ DEFINE_Int32(query_cache_max_partition_count, "1024");
 // This is to avoid too many version num.
 DEFINE_mInt32(max_tablet_version_num, "2000");
 
+DEFINE_mInt32(time_series_max_tablet_version_num, "20000");
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
@@ -936,8 +939,8 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 DEFINE_String(rpc_load_balancer, "rr");
 
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
-// so we set a soft limit, default is 1MB
-DEFINE_Int32(string_type_length_soft_limit_bytes, "1048576");
+// so we set a soft limit, default is 10MB
+DEFINE_Int32(string_type_length_soft_limit_bytes, "10485760");
 
 DEFINE_Validator(string_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
@@ -1071,11 +1074,11 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
-DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
-DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "78");
-DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "75");
+DEFINE_mInt32(file_cache_enter_need_evict_cache_in_advance_percent, "88");
+DEFINE_mInt32(file_cache_exit_need_evict_cache_in_advance_percent, "85");
 DEFINE_mInt32(file_cache_evict_in_advance_interval_ms, "1000");
 DEFINE_mInt64(file_cache_evict_in_advance_batch_bytes, "31457280"); // 30MB
 DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
@@ -1205,6 +1208,9 @@ DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 // missing rows correctness check when compaction for mow table
@@ -1223,6 +1229,8 @@ DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 // get agg correctness check for mow table
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
+DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
+DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1489,6 +1497,8 @@ DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
 DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
+
+DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -40,16 +40,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 struct AggregateFunctionCountData {
     UInt64 count = 0;

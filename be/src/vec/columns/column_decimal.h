@@ -44,16 +44,10 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-class ColumnSorter;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-
+class Arena;
+class ColumnSorter;
 /// PaddedPODArray extended by Decimal scale
 template <typename T>
 class DecimalPaddedPODArray : public PaddedPODArray<T> {
@@ -194,7 +188,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    Field operator[](size_t n) const override { return DecimalField(data[n], scale); }
+    Field operator[](size_t n) const override;
 
     StringRef get_raw_data() const override {
         return StringRef(reinterpret_cast<const char*>(data.data()), data.size());
@@ -297,22 +291,6 @@ protected:
         hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
     };
 };
-
-template <typename>
-class ColumnVector;
-
-template <typename T, bool is_decimal = false>
-struct ColumnVectorOrDecimalT {
-    using Col = ColumnVector<T>;
-};
-
-template <typename T>
-struct ColumnVectorOrDecimalT<T, true> {
-    using Col = ColumnDecimal<T>;
-};
-
-template <typename T>
-using ColumnVectorOrDecimal = typename ColumnVectorOrDecimalT<T, IsDecimalNumber<T>>::Col;
 
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"

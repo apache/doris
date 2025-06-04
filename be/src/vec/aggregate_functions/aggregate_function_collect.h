@@ -47,13 +47,13 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-template <typename T, typename HasLimit>
+template <PrimitiveType T, typename HasLimit>
 struct AggregateFunctionCollectSetData {
-    using ElementType = T;
-    using ColVecType = ColumnVectorOrDecimal<ElementType>;
-    using ElementNativeType = typename NativeType<T>::Type;
+    static constexpr PrimitiveType PType = T;
+    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = phmap::flat_hash_set<ElementNativeType>;
+    using Set = phmap::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -94,7 +94,7 @@ struct AggregateFunctionCollectSetData {
     void read(BufferReadable& buf) {
         uint64_t new_size = 0;
         read_var_uint(new_size, buf);
-        ElementNativeType x;
+        ElementType x;
         for (size_t i = 0; i < new_size; ++i) {
             read_binary(x, buf);
             data_set.insert(x);
@@ -113,11 +113,13 @@ struct AggregateFunctionCollectSetData {
     void reset() { data_set.clear(); }
 };
 
-template <typename HasLimit>
-struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
+template <PrimitiveType T, typename HasLimit>
+    requires(is_string_type(T))
+struct AggregateFunctionCollectSetData<T, HasLimit> {
+    static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
-    using SelfType = AggregateFunctionCollectSetData<ElementType, HasLimit>;
+    using SelfType = AggregateFunctionCollectSetData<T, HasLimit>;
     using Set = phmap::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
@@ -181,11 +183,12 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     void reset() { data_set.clear(); }
 };
 
-template <typename T, typename HasLimit>
+template <PrimitiveType T, typename HasLimit>
 struct AggregateFunctionCollectListData {
-    using ElementType = T;
-    using ColVecType = ColumnVectorOrDecimal<ElementType>;
-    using SelfType = AggregateFunctionCollectListData<ElementType, HasLimit>;
+    static constexpr PrimitiveType PType = T;
+    using ElementType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
+    using SelfType = AggregateFunctionCollectListData<T, HasLimit>;
     PaddedPODArray<ElementType> data;
     Int64 max_size = -1;
 
@@ -240,8 +243,10 @@ struct AggregateFunctionCollectListData {
     }
 };
 
-template <typename HasLimit>
-struct AggregateFunctionCollectListData<StringRef, HasLimit> {
+template <PrimitiveType T, typename HasLimit>
+    requires(is_string_type(T))
+struct AggregateFunctionCollectListData<T, HasLimit> {
+    static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     MutableColumnPtr data;
@@ -305,10 +310,13 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
     }
 };
 
-template <typename HasLimit>
-struct AggregateFunctionCollectListData<void, HasLimit> {
+template <PrimitiveType T, typename HasLimit>
+    requires(!is_string_type(T) && !is_int_or_bool(T) && !is_float_or_double(T) && !is_decimal(T) &&
+             !is_date_type(T) && !is_ip(T))
+struct AggregateFunctionCollectListData<T, HasLimit> {
+    static constexpr PrimitiveType PType = T;
     using ElementType = StringRef;
-    using Self = AggregateFunctionCollectListData<void, HasLimit>;
+    using Self = AggregateFunctionCollectListData<T, HasLimit>;
     DataTypeSerDeSPtr serde; // for complex serialize && deserialize from multi BE
     MutableColumnPtr column_data;
     Int64 max_size = -1;
@@ -391,9 +399,10 @@ template <typename Data, typename HasLimit>
 class AggregateFunctionCollect
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>,
                                               true> {
-    using GenericType = AggregateFunctionCollectSetData<StringRef, HasLimit>;
-
-    static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
+    static constexpr bool ENABLE_ARENA =
+            std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_STRING, HasLimit>> ||
+            std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_CHAR, HasLimit>> ||
+            std::is_same_v<Data, AggregateFunctionCollectSetData<TYPE_VARCHAR, HasLimit>>;
 
 public:
     AggregateFunctionCollect(const DataTypes& argument_types_)
@@ -402,8 +411,7 @@ public:
               return_type(std::make_shared<DataTypeArray>(make_nullable(argument_types_[0]))) {}
 
     std::string get_name() const override {
-        if constexpr (std::is_same_v<AggregateFunctionCollectListData<typename Data::ElementType,
-                                                                      HasLimit>,
+        if constexpr (std::is_same_v<AggregateFunctionCollectListData<Data::PType, HasLimit>,
                                      Data>) {
             return "collect_list";
         } else {

@@ -45,6 +45,7 @@ class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
+    static constexpr PrimitiveType PType = TYPE_STRING;
     static constexpr bool is_parametric = false;
 
     const char* get_family_name() const override { return "String"; }
@@ -71,7 +72,7 @@ public:
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
-        return Field(node.string_literal.value);
+        return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
 
     bool equals(const IDataType& rhs) const override;

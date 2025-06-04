@@ -20,11 +20,9 @@ import static java.util.concurrent.TimeUnit.SECONDS
 import org.awaitility.Awaitility
 
 suite("test_dict_load_and_get_hash_map") {
-    def dbName  = "test_dict_load_and_get_hash_map_db"    
-
-    sql "drop database if exists ${dbName}"
-    sql "create database ${dbName}"
-    sql "use ${dbName}"
+    sql "drop database if exists test_dict_load_and_get_hash_map_db"
+    sql "create database test_dict_load_and_get_hash_map_db"
+    sql "use test_dict_load_and_get_hash_map_db"
 
     sql """
         create table single_key_with_duplicate(
@@ -62,6 +60,7 @@ suite("test_dict_load_and_get_hash_map") {
                 logger.info("refresh dictionary dc_single_key_with_duplicate failed: " + e.getMessage())
             }
         }
+        assertTrue(_ < 30, "refresh dictionary dc_single_key_with_duplicate failed")
         sleep(1000)
     }
 
@@ -96,31 +95,31 @@ suite("test_dict_load_and_get_hash_map") {
     waitDictionaryReady("dc_single_key_without_duplicate")
     
     qt_sql_constant"""
-        select dict_get("${dbName}.dc_single_key_without_duplicate", "str_not_null", 1)  ,  
-               dict_get("${dbName}.dc_single_key_without_duplicate", "str_not_null", 2),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "str_not_null", 3),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "str_not_null", null)         
+        select dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_not_null", 1)  ,  
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_not_null", 2),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_not_null", 3),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_not_null", null)         
     """
 
     qt_sql_constant"""
-        select dict_get("${dbName}.dc_single_key_without_duplicate", "str_null", 1)  ,  
-               dict_get("${dbName}.dc_single_key_without_duplicate", "str_null", 2),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "str_null", 3),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "str_null", null) 
+        select dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_null", 1)  ,  
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_null", 2),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_null", 3),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "str_null", null) 
     """         
 
     qt_sql_constant"""
-        select dict_get("${dbName}.dc_single_key_without_duplicate", "int_not_null", 1)  ,  
-               dict_get("${dbName}.dc_single_key_without_duplicate", "int_not_null", 2),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "int_not_null", 3),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "int_not_null", null)        
+        select dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_not_null", 1)  ,  
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_not_null", 2),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_not_null", 3),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_not_null", null)        
     """     
 
     qt_sql_constant"""
-        select dict_get("${dbName}.dc_single_key_without_duplicate", "int_null", 1)  ,  
-               dict_get("${dbName}.dc_single_key_without_duplicate", "int_null", 2),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "int_null", 3),
-               dict_get("${dbName}.dc_single_key_without_duplicate", "int_null", null)        
+        select dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_null", 1)  ,  
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_null", 2),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_null", 3),
+               dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_null", null)        
     """     
 
 
@@ -139,19 +138,19 @@ suite("test_dict_load_and_get_hash_map") {
      sql """insert into query_table values(3, 3);"""  // 3 can not found return null
 
     qt_sql_not_constant"""
-        select int_not_null , dict_get("${dbName}.dc_single_key_without_duplicate", "int_not_null", int_not_null) from query_table order by int_not_null       
+        select int_not_null , dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_not_null", int_not_null) from query_table order by int_not_null       
     """     
     qt_sql_not_constant"""
-        select int_null ,  dict_get("${dbName}.dc_single_key_without_duplicate", "int_null", int_null) from query_table order by int_null       
+        select int_null ,  dict_get("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", "int_null", int_null) from query_table order by int_null       
     """     
 
 
     qt_sql_many """
-        select int_not_null , dict_get_many("${dbName}.dc_single_key_without_duplicate", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(int_not_null)) from query_table order by int_not_null          
+        select int_not_null , dict_get_many("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(int_not_null)) from query_table order by int_not_null          
     """     
 
     qt_sql_many """
-        select int_null , dict_get_many("${dbName}.dc_single_key_without_duplicate", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(int_null)) from query_table order by int_null          
+        select int_null , dict_get_many("test_dict_load_and_get_hash_map_db.dc_single_key_without_duplicate", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(int_null)) from query_table order by int_null          
     """     
 
 
@@ -192,17 +191,17 @@ suite("test_dict_load_and_get_hash_map") {
     waitDictionaryReady("dc_multi_key_table")  
 
     qt_sql_constant"""
-        select dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'abc'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'ABC'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(3, 3.0, 'ABC'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'ABC'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'abc'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(3, 3.0, 'abc'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'def'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'def'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(3, 3.0, 'def'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'DEF'))  ,  
-               dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'DEF'));  
+        select dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'abc'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'ABC'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(3, 3.0, 'ABC'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'ABC'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'abc'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(3, 3.0, 'abc'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'def'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'def'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(3, 3.0, 'def'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(1, 1.0, 'DEF'))  ,  
+               dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(2, 2.0, 'DEF'));  
     """     
 
 
@@ -223,7 +222,7 @@ suite("test_dict_load_and_get_hash_map") {
     sql """insert into query_table_multi_key values(3, 3.0, 'ABC');"""      
 
     qt_sql_not_constant"""
-        select k0, k1, k2, dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(k0, k1, k2)) from query_table_multi_key order by k0, k1, k2       
+        select k0, k1, k2, dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(k0, k1, k2)) from query_table_multi_key order by k0, k1, k2       
     """     
 
 
@@ -244,6 +243,6 @@ suite("test_dict_load_and_get_hash_map") {
     sql """ insert into query_table_multi_key_null values(3, 3.0, null);"""          
 
     qt_sql_not_constant"""
-        select k0, k1, k2, dict_get_many("${dbName}.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(k0, k1, k2)) from query_table_multi_key_null order by k0, k1, k2       
+        select k0, k1, k2, dict_get_many("test_dict_load_and_get_hash_map_db.dc_multi_key_table", ["int_not_null" , "int_null" , "str_not_null" , "str_null"], struct(k0, k1, k2)) from query_table_multi_key_null order by k0, k1, k2       
     """     
 }

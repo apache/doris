@@ -137,6 +137,19 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     return buf;
 }
 
+Field DataTypeVariant::get_field(const TExprNode& node) const {
+    if (node.__isset.string_literal) {
+        return Field::create_field<TYPE_STRING>(node.string_literal.value);
+    }
+    if (node.node_type == TExprNodeType::NULL_LITERAL) {
+        return {};
+    }
+    std::stringstream error_string;
+    node.printTo(error_string);
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
+    return {};
+}
+
 const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
     auto column_object = assert_cast<ColumnVariant*>(column->get());

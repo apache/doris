@@ -90,6 +90,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 if (dfsFileSystem == null) {
                     Configuration conf = hdfsProperties.getHadoopConfiguration();
+                    // TODO: Temporarily disable the HDFS file system cache to prevent instances from being closed by
+                    //  each other in V1. This line can be removed once V1 and V2 are unified.
+                    conf.set("fs.hdfs.impl.disable.cache", "true");
                     authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {

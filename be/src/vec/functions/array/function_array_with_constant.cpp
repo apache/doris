@@ -84,7 +84,7 @@ public:
                       : num;
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
                              .column->convert_to_full_column_if_const();
-        auto offsets_col = ColumnVector<ColumnArray::Offset64>::create();
+        auto offsets_col = ColumnOffset64::create();
         ColumnArray::Offsets64& offsets = offsets_col->get_data();
         offsets.reserve(input_rows_count);
         ColumnArray::Offset64 offset = 0;

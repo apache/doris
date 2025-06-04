@@ -38,17 +38,12 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "vec/io/io_helper.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
-#include "common/cast_set.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -70,6 +65,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/io/io_helper.h"
 #include "vec/utils/stringop_substring.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -417,19 +413,19 @@ struct GetJsonNumberType {
 struct JsonNumberTypeDouble {
     using T = Float64;
     using ReturnType = DataTypeFloat64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnFloat64;
 };
 
 struct JsonNumberTypeInt {
     using T = int32_t;
     using ReturnType = DataTypeInt32;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt32;
 };
 
 struct JsonNumberTypeBigInt {
     using T = int64_t;
     using ReturnType = DataTypeInt64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt64;
 };
 
 struct GetJsonDouble : public GetJsonNumberType<JsonNumberTypeDouble> {
@@ -1101,7 +1097,7 @@ public:
                                         col_from.get_name());
         }
 
-        auto col_to = ColumnVector<vectorized::Int32>::create();
+        auto col_to = ColumnInt32::create();
         auto& vec_to = col_to->get_data();
         size_t size = col_from.size();
         vec_to.resize(size);
@@ -1219,7 +1215,7 @@ public:
             return Status::RuntimeError("Illegal column should be ColumnString");
         }
 
-        auto col_to = ColumnVector<vectorized::UInt8>::create();
+        auto col_to = ColumnUInt8::create();
         auto& vec_to = col_to->get_data();
         size_t size = col_json.size();
         vec_to.resize(size);

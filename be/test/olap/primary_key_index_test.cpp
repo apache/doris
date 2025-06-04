@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/types.h"

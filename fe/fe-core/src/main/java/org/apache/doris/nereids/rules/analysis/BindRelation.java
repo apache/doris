@@ -266,10 +266,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
+            SlotReference slot = SlotReference.fromColumn(olapTable, col, olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
-                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {
+                if (childSlot instanceof SlotReference && childSlot.getName().equals(col.getName())) {
                     exprId = childSlot.getExprId();
                     slot = slot.withExprId(exprId);
                     break;
@@ -412,14 +412,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of());
                         hudiScan = hudiScan.withScanParams(hmsTable, unboundRelation.getScanParams());
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
                                 unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
@@ -428,7 +428,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
-                            unboundRelation.getTableSnapshot());
+                            unboundRelation.getTableSnapshot(), ImmutableList.of());
                 case SCHEMA:
                     // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
                     return new LogicalSubQueryAlias<>(qualifiedTableName,
