@@ -585,8 +585,7 @@ void serialize_and_deserialize_test_decimal() {
         vectorized::Decimal<int> value = 111234;
         vec->insert_value(value);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
-        vectorized::DataTypePtr data_type(
-                std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6, 3));
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDecimal32>(6, 3));
         vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
                                                         "test_int");
         vectorized::Block block({type_and_name});
@@ -610,8 +609,7 @@ void serialize_and_deserialize_test_decimal() {
             vectorized::Decimal<int> value = 111000 + i;
             vec->insert_value(value);
         }
-        vectorized::DataTypePtr data_type(
-                std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6, 3));
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDecimal32>(6, 3));
         vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
         vectorized::Block block({type_and_name});
         PBlock pblock;

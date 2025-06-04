@@ -67,8 +67,13 @@ class DataTypeDateTime;
 class DataTypeDate;
 class DataTypeDateTimeV2;
 class DataTypeDateV2;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeDecimal;
+using DataTypeDecimal32 = DataTypeDecimal<TYPE_DECIMAL32>;
+using DataTypeDecimal64 = DataTypeDecimal<TYPE_DECIMAL64>;
+using DataTypeDecimalV2 = DataTypeDecimal<TYPE_DECIMALV2>;
+using DataTypeDecimal128 = DataTypeDecimal<TYPE_DECIMAL128I>;
+using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 class DataTypeIPv4;
 class DataTypeIPv6;
 class DataTypeString;
@@ -463,7 +468,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using StorageFieldType = decimal12_t;
     using CppNativeType = vectorized::Int128;
     using ColumnItemType = vectorized::Decimal128V2;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal128V2>;
+    using DataType = vectorized::DataTypeDecimalV2;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V2>;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V2>;
     using AvgNearestFieldType = vectorized::Decimal128V2;
@@ -478,7 +483,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
     using StorageFieldType = vectorized::Int32;
     using CppNativeType = vectorized::Int32;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal32>;
+    using DataType = vectorized::DataTypeDecimal32;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal32>;
     using AvgNearestFieldType = vectorized::Decimal128V3;
@@ -493,7 +498,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using StorageFieldType = vectorized::Int64;
     using CppNativeType = vectorized::Int64;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal64>;
+    using DataType = vectorized::DataTypeDecimal64;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal64>;
     using AvgNearestFieldType = vectorized::Decimal128V3;
@@ -508,7 +513,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using StorageFieldType = vectorized::Int128;
     using CppNativeType = vectorized::Int128;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal128V3>;
+    using DataType = vectorized::DataTypeDecimal128;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V3>;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V3>;
     using AvgNearestFieldType = vectorized::Decimal128V3;
@@ -523,7 +528,7 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
     using StorageFieldType = wide::Int256;
     using CppNativeType = wide::Int256;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal256>;
+    using DataType = vectorized::DataTypeDecimal256;
     using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal256>;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal256>;
     using AvgNearestFieldType = vectorized::Decimal256;

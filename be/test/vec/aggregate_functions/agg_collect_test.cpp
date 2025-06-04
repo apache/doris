@@ -178,8 +178,8 @@ TEST_F(VAggCollectTest, test_empty) {
     test_agg_collect<DataTypeInt128>("collect_list");
     test_agg_collect<DataTypeInt128>("collect_set");
 
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_list");
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_set");
+    test_agg_collect<DataTypeDecimalV2>("collect_list");
+    test_agg_collect<DataTypeDecimalV2>("collect_set");
 
     test_agg_collect<DataTypeDate>("collect_list");
     test_agg_collect<DataTypeDate>("collect_set");
@@ -194,8 +194,8 @@ TEST_F(VAggCollectTest, test_with_data) {
     test_agg_collect<DataTypeInt128>("collect_list", 20);
     test_agg_collect<DataTypeInt128>("collect_set", 30);
 
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_list", 10);
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_set", 11);
+    test_agg_collect<DataTypeDecimalV2>("collect_list", 10);
+    test_agg_collect<DataTypeDecimalV2>("collect_set", 11);
 
     test_agg_collect<DataTypeDateTime>("collect_list", 5);
     test_agg_collect<DataTypeDateTime>("collect_set", 6);

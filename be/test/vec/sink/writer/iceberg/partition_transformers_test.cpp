@@ -76,9 +76,8 @@ TEST_F(PartitionTransformersTest, test_decimal32_truncate_transform) {
     const std::vector<int32_t> values({1065});
     auto column = ColumnDecimal32::create(0, 2);
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
-    ColumnWithTypeAndName test_decimal32(column->get_ptr(),
-                                         std::make_shared<DataTypeDecimal<Decimal32>>(4, 2),
-                                         "test_decimal32");
+    ColumnWithTypeAndName test_decimal32(
+            column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
     Block block({test_decimal32});
     auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
@@ -163,9 +162,8 @@ TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
     const std::vector<int32_t> values({1420}); // -500754589
     auto column = ColumnDecimal32::create(0, 2);
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
-    ColumnWithTypeAndName test_decimal32(column->get_ptr(),
-                                         std::make_shared<DataTypeDecimal<Decimal32>>(4, 2),
-                                         "test_decimal32");
+    ColumnWithTypeAndName test_decimal32(
+            column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
     Block block({test_decimal32});
     auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);

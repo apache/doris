@@ -171,14 +171,14 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<Type>(scale_arg);
 
             const NativeType* __restrict p_in = reinterpret_cast<const NativeType*>(in.data());
             const NativeType* end_in = reinterpret_cast<const NativeType*>(in.data()) + in.size();
             NativeType* __restrict p_out = reinterpret_cast<NativeType*>(out.data());
 
             if (out_scale < 0) {
-                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
+                auto negative_scale = DecimalScaleParams::get_scale_factor<Type>(-out_scale);
                 while (p_in < end_in) {
                     Op::compute(p_in, scale, p_out, negative_scale);
                     ++p_in;
@@ -200,9 +200,9 @@ public:
                                 Int16 out_scale) {
         Int16 scale_arg = in_scale - out_scale;
         if (scale_arg > 0) {
-            auto scale = DecimalScaleParams::get_scale_factor<T>(scale_arg);
+            auto scale = DecimalScaleParams::get_scale_factor<Type>(scale_arg);
             if (out_scale < 0) {
-                auto negative_scale = DecimalScaleParams::get_scale_factor<T>(-out_scale);
+                auto negative_scale = DecimalScaleParams::get_scale_factor<Type>(-out_scale);
                 Op::compute(&in, scale, &out, negative_scale);
             } else {
                 Op::compute(&in, scale, &out, 1);
@@ -874,7 +874,7 @@ struct DecimalRoundTwoImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0),
+        return {std::make_shared<vectorized::DataTypeDecimal32>(9, 0),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 };
@@ -884,7 +884,7 @@ struct DecimalRoundOneImpl {
     static constexpr auto name = Name::name;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<vectorized::DataTypeDecimal<Decimal32>>(9, 0)};
+        return {std::make_shared<vectorized::DataTypeDecimal32>(9, 0)};
     }
 };
 

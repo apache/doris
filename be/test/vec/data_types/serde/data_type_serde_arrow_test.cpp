@@ -152,8 +152,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             }
             break;
         case TYPE_DECIMAL32: {
-            vectorized::DataTypePtr decimal_data_type =
-                    std::make_shared<DataTypeDecimal<Decimal32>>(9, 2);
+            vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal32>(9, 2);
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
             auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int32>>*)
@@ -181,8 +180,7 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             block->insert(type_and_name);
         } break;
         case TYPE_DECIMAL64: {
-            vectorized::DataTypePtr decimal_data_type =
-                    std::make_shared<DataTypeDecimal<Decimal64>>(18, 6);
+            vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal64>(18, 6);
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
             auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int64>>*)
