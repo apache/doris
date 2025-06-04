@@ -80,6 +80,8 @@ public:
     IntCounter* finish_task_requests_total = nullptr;
     IntCounter* finish_task_requests_failed = nullptr;
 
+    IntCounter* compaction_producer_callback_a_round_time = nullptr;
+
     IntCounter* base_compaction_request_total = nullptr;
     IntCounter* base_compaction_request_failed = nullptr;
     IntCounter* cumulative_compaction_request_total = nullptr;
@@ -87,6 +89,15 @@ public:
     IntCounter* single_compaction_request_total = nullptr;
     IntCounter* single_compaction_request_failed = nullptr;
     IntCounter* single_compaction_request_cancelled = nullptr;
+
+    IntCounter* local_compaction_read_rows_total = nullptr;
+    IntCounter* local_compaction_read_bytes_total = nullptr;
+    IntCounter* local_compaction_write_rows_total = nullptr;
+    IntCounter* local_compaction_write_bytes_total = nullptr;
+    IntCounter* remote_compaction_read_rows_total = nullptr;
+    IntCounter* remote_compaction_read_bytes_total = nullptr;
+    IntCounter* remote_compaction_write_rows_total = nullptr;
+    IntCounter* remote_compaction_write_bytes_total = nullptr;
 
     IntCounter* base_compaction_deltas_total = nullptr;
     IntCounter* base_compaction_bytes_total = nullptr;
