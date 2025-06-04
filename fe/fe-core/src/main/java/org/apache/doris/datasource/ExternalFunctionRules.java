@@ -41,26 +41,26 @@ public class ExternalFunctionRules {
     private static final Logger LOG = LogManager.getLogger(ExternalFunctionRules.class);
 
     private FunctionPushDownRule functionPushDownRule;
-    private FunctionRewriteRule functionRewriteRule;
+    private FunctionRewriteRules functionRewriteRules;
 
     public static ExternalFunctionRules create(String datasource, String jsonRules) {
         ExternalFunctionRules rules = new ExternalFunctionRules();
         rules.functionPushDownRule = FunctionPushDownRule.create(datasource, jsonRules);
-        rules.functionRewriteRule = FunctionRewriteRule.create(datasource, jsonRules);
+        rules.functionRewriteRules = FunctionRewriteRules.create(datasource, jsonRules);
         return rules;
     }
 
     public static void check(String jsonRules) throws DdlException {
         FunctionPushDownRule.check(jsonRules);
-        FunctionRewriteRule.check(jsonRules);
+        FunctionRewriteRules.check(jsonRules);
     }
 
     public FunctionPushDownRule getFunctionPushDownRule() {
         return functionPushDownRule;
     }
 
-    public FunctionRewriteRule getFunctionRewriteRule() {
-        return functionRewriteRule;
+    public FunctionRewriteRules getFunctionRewriteRule() {
+        return functionRewriteRules;
     }
 
     /**
@@ -158,11 +158,11 @@ public class ExternalFunctionRules {
      * FunctionRewriteRule is used to rewrite function names based on provided rules.
      * It allows for mapping one function name to another.
      */
-    public static class FunctionRewriteRule {
+    public static class FunctionRewriteRules {
         private final Map<String, String> rewriteMap = Maps.newHashMap();
 
-        public static FunctionRewriteRule create(String datasource, String jsonRules) {
-            FunctionRewriteRule rewriteRule = new FunctionRewriteRule();
+        public static FunctionRewriteRules create(String datasource, String jsonRules) {
+            FunctionRewriteRules rewriteRule = new FunctionRewriteRules();
             try {
                 // Add default rewrite rules
                 switch (datasource.toLowerCase()) {
@@ -192,8 +192,8 @@ public class ExternalFunctionRules {
         }
 
         private void setCustomRules(RewriteRules rules) {
-            if (rules != null && rules.getRewrite() != null && rules.getRewrite().getRewriteMap() != null) {
-                this.rewriteMap.putAll(rules.getRewrite().getRewriteMap());
+            if (rules != null && rules.getRewrite() != null) {
+                this.rewriteMap.putAll(rules.getRewrite());
             }
         }
 
@@ -204,7 +204,11 @@ public class ExternalFunctionRules {
         public static void check(String jsonRules) throws DdlException {
             try {
                 Gson gson = new Gson();
-                gson.fromJson(jsonRules, RewriteRules.class);
+                RewriteRules rules = gson.fromJson(jsonRules, RewriteRules.class);
+                if (rules == null) {
+                    throw new DdlException("Rewrite rules cannot be null");
+                }
+                rules.check();
             } catch (Exception e) {
                 throw new DdlException("Failed to parse rewrite rules: " + jsonRules, e);
             }
@@ -263,16 +267,11 @@ public class ExternalFunctionRules {
      */
     @Data
     public static class RewriteRules {
-        private Rewrite rewrite;
-
-        @Data
-        public static class Rewrite {
-            private Map<String, String> rewriteMap;
-        }
+        private Map<String, String> rewrite;
 
         public void check() {
-            if (rewrite != null && rewrite.getRewriteMap() != null) {
-                for (Map.Entry<String, String> entry : rewrite.getRewriteMap().entrySet()) {
+            if (rewrite != null) {
+                for (Map.Entry<String, String> entry : rewrite.entrySet()) {
                     String origFunc = entry.getKey();
                     String newFunc = entry.getValue();
                     if (Strings.isNullOrEmpty(origFunc) || Strings.isNullOrEmpty(newFunc)) {
