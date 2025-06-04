@@ -27,8 +27,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -36,8 +35,6 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Maps;
 
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -89,7 +86,7 @@ public class MTMVRelatedPartitionDescFilterGenerator implements MTMVRelatedParti
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
-            return analyzeUsedPartitions(planner.getRewrittenPlan(), mtmv.getMvPartitionInfo());
+            return analyzeUsedPartitions(statementContext, mtmv.getMvPartitionInfo());
         } finally {
             // after operate, roll back the disable rules
             ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
@@ -100,12 +97,12 @@ public class MTMVRelatedPartitionDescFilterGenerator implements MTMVRelatedParti
         }
     }
 
-    public static Set<String> analyzeUsedPartitions(Plan rewrittenPlan, MTMVPartitionInfo mtmvPartitionInfo) {
-        Map<BaseTableInfo, Set<String>> queryUsedBaseTablePartitions = new LinkedHashMap<>();
+    public static Set<String> analyzeUsedPartitions(
+            StatementContext statementContext, MTMVPartitionInfo mtmvPartitionInfo) {
+        Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator
+                .getQueryUsedPartitions(statementContext);
         BaseTableInfo relatedTableInfo = mtmvPartitionInfo.getRelatedTableInfo();
-        queryUsedBaseTablePartitions.put(relatedTableInfo, new HashSet<>());
-        rewrittenPlan.accept(new StructInfo.QueryScanPartitionsCollector(), queryUsedBaseTablePartitions);
-        return queryUsedBaseTablePartitions.get(relatedTableInfo);
+        return queryUsedPartitions.get(relatedTableInfo.toList());
     }
 
 }
