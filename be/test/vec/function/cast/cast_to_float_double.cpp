@@ -242,11 +242,12 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
         check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
     }
-    template <typename FromT, int FromPrecision, int FromScale, PrimitiveType FloatPType>
+    template <PrimitiveType FromPT, int FromPrecision, int FromScale, PrimitiveType FloatPType>
     void from_decimalv3_no_overflow_test_func() {
+        using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
         using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromPT> dt_from(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -300,7 +301,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                                                                    large_fractional1,
                                                                    large_fractional2,
                                                                    large_fractional3};
-        DataTypeDecimal<FromT> dt(FromPrecision, FromScale);
+        DataTypeDecimal<FromPT> dt(FromPrecision, FromScale);
         DataSet data_set;
         std::string dbg_str =
                 fmt::format("test cast Decimal({}, {}) to {}: ", FromPrecision, FromScale,
@@ -382,34 +383,34 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         check_function_for_cast<DataTypeNumber<FloatPType>>(input_types, data_set);
     }
 
-    template <typename FromT, PrimitiveType ToPT>
+    template <PrimitiveType FromPT, PrimitiveType ToPT>
     void from_decimal_test_func() {
-        constexpr auto max_decimal_pre = max_decimal_precision<FromT>();
+        constexpr auto max_decimal_pre = max_decimal_precision<FromPT>();
         constexpr auto min_decimal_pre =
-                std::is_same_v<FromT, Decimal32>
+                FromPT == TYPE_DECIMAL32
                         ? 1
-                        : (std::is_same_v<FromT, Decimal64>
+                        : (FromPT == TYPE_DECIMAL64
                                    ? BeConsts::MAX_DECIMAL32_PRECISION + 1
-                                   : (std::is_same_v<FromT, Decimal128V3>
+                                   : (FromPT == TYPE_DECIMAL128I
                                               ? BeConsts::MAX_DECIMAL64_PRECISION + 1
-                                              : (std::is_same_v<FromT, Decimal256>
+                                              : (FromPT == TYPE_DECIMAL256
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(min_decimal_pre == 1 || min_decimal_pre > 9);
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, 0, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, 0, ToPT>();
         if constexpr (min_decimal_pre != 1) {
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre / 2,
+            from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, min_decimal_pre / 2,
                                                  ToPT>();
-            from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre - 1,
+            from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, min_decimal_pre - 1,
                                                  ToPT>();
         }
-        from_decimalv3_no_overflow_test_func<FromT, min_decimal_pre, min_decimal_pre, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, min_decimal_pre, min_decimal_pre, ToPT>();
 
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 0, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, 1, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre / 2, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre - 1, ToPT>();
-        from_decimalv3_no_overflow_test_func<FromT, max_decimal_pre, max_decimal_pre, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, 0, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, 1, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, max_decimal_pre / 2, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, max_decimal_pre - 1, ToPT>();
+        from_decimalv3_no_overflow_test_func<FromPT, max_decimal_pre, max_decimal_pre, ToPT>();
     }
 
     template <PrimitiveType FloatPType>
@@ -755,15 +756,15 @@ TEST_F(FunctionCastToFloatTest, test_from_double_to_float) {
     check_function_for_cast<DataTypeFloat32>(input_types, data_set);
 }
 TEST_F(FunctionCastToFloatTest, test_from_decimal) {
-    from_decimal_test_func<Decimal32, TYPE_FLOAT>();
-    from_decimal_test_func<Decimal64, TYPE_FLOAT>();
-    from_decimal_test_func<Decimal128V3, TYPE_FLOAT>();
-    from_decimal_test_func<Decimal256, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL32, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL64, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL128I, TYPE_FLOAT>();
+    from_decimal_test_func<TYPE_DECIMAL256, TYPE_FLOAT>();
 
-    from_decimal_test_func<Decimal32, TYPE_DOUBLE>();
-    from_decimal_test_func<Decimal64, TYPE_DOUBLE>();
-    from_decimal_test_func<Decimal128V3, TYPE_DOUBLE>();
-    from_decimal_test_func<Decimal256, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL32, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL64, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL128I, TYPE_DOUBLE>();
+    from_decimal_test_func<TYPE_DECIMAL256, TYPE_DOUBLE>();
 }
 TEST_F(FunctionCastToFloatTest, test_from_date) {
     from_date_test_func<TYPE_FLOAT>();

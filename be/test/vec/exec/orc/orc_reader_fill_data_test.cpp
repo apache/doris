@@ -330,7 +330,7 @@ TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {
         auto reader = OrcReader::create_unique(params, range, "", nullptr, true);
 
         auto doris_struct_type = std::make_shared<DataTypeStruct>(
-                std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal<Decimal64>>(18, 5)},
+                std::vector<DataTypePtr> {std::make_shared<DataTypeDecimal64>(18, 5)},
                 std::vector<std::string> {"col1"});
         MutableColumnPtr doris_column = doris_struct_type->create_column()->assume_mutable();
         reader->_decimal_scale_params.resize(0);

@@ -58,10 +58,10 @@ private:
         }
     };
 
-    template <typename DecimalPrimitiveType, typename DecimalPhysicalType>
-    static DecimalPrimitiveType _decode_primitive_decimal(const FieldSchema* col_schema,
-                                                          const std::string& encoded_data,
-                                                          int dest_scale) {
+    template <PrimitiveType DecimalPrimitiveType, typename DecimalPhysicalType>
+    static typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType
+    _decode_primitive_decimal(const FieldSchema* col_schema, const std::string& encoded_data,
+                              int dest_scale) {
         int scale = col_schema->parquet_schema.scale;
         Int128 value = *reinterpret_cast<const DecimalPhysicalType*>(encoded_data.data());
         if (dest_scale > scale) {
@@ -69,13 +69,13 @@ private:
         } else if (dest_scale < scale) {
             value /= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
         }
-        return (DecimalPrimitiveType)value;
+        return (typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType)value;
     }
 
-    template <typename DecimalPrimitiveType>
-    static DecimalPrimitiveType _decode_binary_decimal(const FieldSchema* col_schema,
-                                                       const std::string& encoded_data,
-                                                       int dest_scale) {
+    template <PrimitiveType DecimalPrimitiveType>
+    static typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType
+    _decode_binary_decimal(const FieldSchema* col_schema, const std::string& encoded_data,
+                           int dest_scale) {
         int scale = col_schema->parquet_schema.scale;
         const char* buf_start = encoded_data.data();
         Int128 value = buf_start[0] & 0x80 ? -1 : 0;
@@ -87,7 +87,7 @@ private:
         } else if (dest_scale < scale) {
             value /= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
         }
-        return (DecimalPrimitiveType)value;
+        return (typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType)value;
     }
 
     template <typename CppType>
@@ -210,7 +210,7 @@ private:
             break;
         case TYPE_DECIMALV2:
             if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
-                size_t max_precision = max_decimal_precision<Decimal128V2>();
+                size_t max_precision = max_decimal_precision<TYPE_DECIMALV2>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
@@ -218,19 +218,19 @@ private:
                 }
                 int v2_scale = DecimalV2Value::SCALE;
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                    min_value = DecimalV2Value(_decode_binary_decimal<TYPE_DECIMALV2>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_binary_decimal<Decimal128V2>(
+                    max_value = DecimalV2Value(_decode_binary_decimal<TYPE_DECIMALV2>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int32>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int32>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int32>(
                             col_schema, encoded_max, v2_scale));
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
+                    min_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int64>(
                             col_schema, encoded_min, v2_scale));
-                    max_value = DecimalV2Value(_decode_primitive_decimal<Decimal128V2, Int64>(
+                    max_value = DecimalV2Value(_decode_primitive_decimal<TYPE_DECIMALV2, Int64>(
                             col_schema, encoded_max, v2_scale));
                 } else {
                     return false;
@@ -247,27 +247,27 @@ private:
             if constexpr (std::is_same_v<CppType, Decimal32> ||
                           std::is_same_v<CppType, Decimal64> ||
                           std::is_same_v<CppType, Decimal128V3>) {
-                size_t max_precision = max_decimal_precision<CppType>();
+                size_t max_precision = max_decimal_precision<CppType::PType>();
                 if (col_schema->parquet_schema.precision < 1 ||
                     col_schema->parquet_schema.precision > max_precision ||
                     col_schema->parquet_schema.scale > max_precision) {
                     return false;
                 }
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
-                    min_value = _decode_binary_decimal<CppType>(col_schema, encoded_min,
-                                                                predicate.scale);
-                    max_value = _decode_binary_decimal<CppType>(col_schema, encoded_max,
-                                                                predicate.scale);
+                    min_value = _decode_binary_decimal<CppType::PType>(col_schema, encoded_min,
+                                                                       predicate.scale);
+                    max_value = _decode_binary_decimal<CppType::PType>(col_schema, encoded_max,
+                                                                       predicate.scale);
                 } else if (physical_type == tparquet::Type::INT32) {
-                    min_value = _decode_primitive_decimal<CppType, Int32>(col_schema, encoded_min,
-                                                                          predicate.scale);
-                    max_value = _decode_primitive_decimal<CppType, Int32>(col_schema, encoded_max,
-                                                                          predicate.scale);
+                    min_value = _decode_primitive_decimal<CppType::PType, Int32>(
+                            col_schema, encoded_min, predicate.scale);
+                    max_value = _decode_primitive_decimal<CppType::PType, Int32>(
+                            col_schema, encoded_max, predicate.scale);
                 } else if (physical_type == tparquet::Type::INT64) {
-                    min_value = _decode_primitive_decimal<CppType, Int64>(col_schema, encoded_min,
-                                                                          predicate.scale);
-                    max_value = _decode_primitive_decimal<CppType, Int64>(col_schema, encoded_max,
-                                                                          predicate.scale);
+                    min_value = _decode_primitive_decimal<CppType::PType, Int64>(
+                            col_schema, encoded_min, predicate.scale);
+                    max_value = _decode_primitive_decimal<CppType::PType, Int64>(
+                            col_schema, encoded_max, predicate.scale);
                 } else {
                     return false;
                 }

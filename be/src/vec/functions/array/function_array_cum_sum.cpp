@@ -80,15 +80,24 @@ public:
             break;
         }
         case PrimitiveType::TYPE_DECIMALV2:
-            return_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                    DataTypeDecimal<Decimal128V2>::max_precision(), nested_type->get_scale());
+            return_type = std::make_shared<DataTypeDecimalV2>(DataTypeDecimalV2::max_precision(),
+                                                              nested_type->get_scale());
             break;
         case PrimitiveType::TYPE_DECIMAL32:
+            return_type = std::make_shared<DataTypeDecimal32>(DataTypeDecimal32::max_precision(),
+                                                              nested_type->get_scale());
+            break;
         case PrimitiveType::TYPE_DECIMAL64:
+            return_type = std::make_shared<DataTypeDecimal64>(DataTypeDecimal64::max_precision(),
+                                                              nested_type->get_scale());
+            break;
         case PrimitiveType::TYPE_DECIMAL128I:
+            return_type = std::make_shared<DataTypeDecimal128>(DataTypeDecimal128::max_precision(),
+                                                               nested_type->get_scale());
+            break;
         case PrimitiveType::TYPE_DECIMAL256:
-            return_type = std::make_shared<DataTypeDecimal<DecimalResultType>>(
-                    DataTypeDecimal<DecimalResultType>::max_precision(), nested_type->get_scale());
+            return_type = std::make_shared<DataTypeDecimal256>(DataTypeDecimal256::max_precision(),
+                                                               nested_type->get_scale());
             break;
         default:
             break;

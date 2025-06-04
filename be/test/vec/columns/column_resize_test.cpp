@@ -42,8 +42,8 @@ DataTypes _create_scala_data_types() {
     DataTypePtr dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime>());
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDate>());
     DataTypePtr dc = std::make_shared<DataTypeNullable>(vectorized::create_decimal(10, 2, false));
-    DataTypePtr dcv2 = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeDecimal<vectorized::Decimal128V2>>(27, 9));
+    DataTypePtr dcv2 =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimalV2>(27, 9));
     DataTypePtr n3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
     DataTypePtr n1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
     DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());

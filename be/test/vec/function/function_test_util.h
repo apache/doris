@@ -116,7 +116,7 @@ struct ut_input_type<DataTypeNumber<NativeType>> {
     using type = DataTypeNumber<NativeType>::FieldType;
     inline static type default_value = 123;
 };
-template <typename DecimalType>
+template <PrimitiveType DecimalType>
 struct ut_input_type<DataTypeDecimal<DecimalType>> {
     using type = DataTypeDecimal<DecimalType>::FieldType;
     inline static type default_value = type {123};
@@ -245,19 +245,19 @@ DataTypePtr get_return_type_descriptor(int scale, int precision) {
     } else if (std::is_same_v<ReturnType, DateTimeV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DATETIMEV2,
                                                             false, precision, scale);
-    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V2>>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimalV2>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMALV2,
                                                             false, precision, scale);
-    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal32>>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal32>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL32,
                                                             false, precision, scale);
-    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal64>>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal64>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL64,
                                                             false, precision, scale);
-    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128V3>>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal128>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL128I,
                                                             false, precision, scale);
-    } else if (std::is_same_v<ReturnType, DataTypeDecimal<Decimal256>>) {
+    } else if (std::is_same_v<ReturnType, DataTypeDecimal256>) {
         return DataTypeFactory::instance().create_data_type(doris::PrimitiveType::TYPE_DECIMAL256,
                                                             false, precision, scale);
     } else {
