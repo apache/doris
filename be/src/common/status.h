@@ -50,7 +50,7 @@ namespace ErrorCode {
     TStatusError(DIRECTORY_NOT_EMPTY, true);              \
     TStatusError(NOT_IMPLEMENTED_ERROR, false);           \
     TStatusError(END_OF_FILE, false);                     \
-    TStatusError(INTERNAL_ERROR, true);                   \
+    TStatusError(INTERNAL_ERROR, false);                  \
     TStatusError(RUNTIME_ERROR, true);                    \
     TStatusError(CANCELLED, false);                       \
     TStatusError(ANALYSIS_ERROR, false);                  \
