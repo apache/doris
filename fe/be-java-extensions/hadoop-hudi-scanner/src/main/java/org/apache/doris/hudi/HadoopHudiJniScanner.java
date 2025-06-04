@@ -207,7 +207,7 @@ public class HadoopHudiJniScanner extends JniScanner {
                 IntStream.range(0, splitHudiColumnNames.length)
                         .boxed()
                         .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
-        
+
         requiredTypes = new ColumnType[requiredFields.length];
         for (int i = 0; i < requiredFields.length; i++) {
             String requiredField = requiredFields[i];
