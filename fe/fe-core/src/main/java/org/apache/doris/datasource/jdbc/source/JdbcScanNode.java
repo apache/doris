@@ -41,7 +41,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
-import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -134,7 +133,7 @@ public class JdbcScanNode extends ExternalScanNode {
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         List<String> errors = Lists.newArrayList();
         List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors,
-                ((JdbcExternalCatalog) tbl.getDatabase().getCatalog()).getFunctionRules());
+                tbl.getExternalFunctionRules());
 
         for (Expr individualConjunct : pushDownConjuncts) {
             String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
