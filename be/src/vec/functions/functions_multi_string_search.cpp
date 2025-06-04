@@ -104,7 +104,7 @@ public:
                     name);
         }
 
-        auto col_res = ColumnVector<ResultType>::create();
+        auto col_res = ColumnVector<Impl::ResultPType>::create();
         auto col_offsets = ColumnArray::ColumnOffsets::create();
 
         auto& vec_res = col_res->get_data();
@@ -166,6 +166,7 @@ struct MultiMatchTraits {
 template <PrimitiveType PType, MultiMatchTraits::Find Find, bool WithEditDistance>
 struct FunctionMultiMatchAnyImpl {
     using ResultType = typename PrimitiveTypeTraits<PType>::CppType;
+    static constexpr PrimitiveType ResultPType = PType;
 
     static constexpr bool FindAny = (Find == MultiMatchTraits::Find::Any);
     static constexpr bool FindAnyIndex = (Find == MultiMatchTraits::Find::AnyIndex);

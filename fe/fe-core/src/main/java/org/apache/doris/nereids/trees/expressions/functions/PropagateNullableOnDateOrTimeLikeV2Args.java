@@ -15,36 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
+import java.util.List;
 
 /**
- * Datetime type in Nereids.
+ * some function PropagateNullable when args are datev2 or datetimev2 or time like
+ * and AlwaysNullable when other type parameters
  */
-public class TimeType extends PrimitiveType implements RangeScalable {
-
-    public static final TimeType INSTANCE = new TimeType();
-
-    private static final int WIDTH = 8;
-
-    private TimeType() {
-    }
-
+public interface PropagateNullableOnDateOrTimeLikeV2Args extends PropagateNullable, AlwaysNullable {
     @Override
-    public Type toCatalogDataType() {
-        return Type.TIME;
+    default boolean nullable() {
+        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType()
+                || e.getDataType().isTimeLikeType())) {
+            return PropagateNullable.super.nullable();
+        } else {
+            return AlwaysNullable.super.nullable();
+        }
     }
 
-    @Override
-    public boolean equals(Object o) {
-        return o instanceof TimeType;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
-    }
+    List<Expression> children();
 }

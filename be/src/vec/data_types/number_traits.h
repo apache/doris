@@ -249,10 +249,10 @@ struct ResultOfBitNot {
     static constexpr PrimitiveType Type = Construct<std::is_signed_v<A>, false, sizeof(A)>::Type;
 };
 
-template <typename A, typename B>
+template <PrimitiveType A, PrimitiveType B>
 struct BinaryOperatorTraits {
-    using ColumnVectorA = std::conditional_t<IsDecimalNumber<A>, ColumnDecimal<A>, ColumnVector<A>>;
-    using ColumnVectorB = std::conditional_t<IsDecimalNumber<B>, ColumnDecimal<B>, ColumnVector<B>>;
+    using ColumnVectorA = typename PrimitiveTypeTraits<A>::ColumnType;
+    using ColumnVectorB = typename PrimitiveTypeTraits<B>::ColumnType;
     using ArrayA = typename ColumnVectorA::Container;
     using ArrayB = typename ColumnVectorB::Container;
     using ArrayNull = PaddedPODArray<UInt8>;

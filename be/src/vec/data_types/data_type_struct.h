@@ -67,6 +67,7 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_STRUCT;
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);

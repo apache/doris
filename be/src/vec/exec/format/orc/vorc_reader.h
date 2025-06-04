@@ -69,9 +69,9 @@ struct IOContext;
 } // namespace io
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnVector;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeDecimal;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
@@ -339,7 +339,7 @@ private:
                                        const orc::Type* orc_column_type,
                                        const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    template <typename CppType, typename OrcColumnType>
+    template <PrimitiveType PType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
@@ -349,16 +349,17 @@ private:
                                          cvb->toString());
         }
         auto* cvb_data = data->data.data();
-        auto& column_data = static_cast<ColumnVector<CppType>&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnVector<PType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
-            column_data[origin_size + i] = (CppType)cvb_data[i];
+            column_data[origin_size + i] =
+                    (typename PrimitiveTypeTraits<PType>::CppType)cvb_data[i];
         }
         return Status::OK();
     }
 
-    template <typename DecimalPrimitiveType>
+    template <PrimitiveType DecimalPrimitiveType>
     void _init_decimal_converter(const DataTypePtr& data_type, DecimalScaleParams& scale_params,
                                  const int32_t orc_decimal_scale) {
         if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
@@ -383,11 +384,12 @@ private:
         }
     }
 
-    template <typename DecimalPrimitiveType, typename OrcColumnType, bool is_filter>
+    template <PrimitiveType DecimalPrimitiveType, typename OrcColumnType, bool is_filter>
     Status _decode_explicit_decimal_column(const std::string& col_name,
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
                                            const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::ColumnItemType;
         auto* data = dynamic_cast<const OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
@@ -403,8 +405,7 @@ private:
         ++_decimal_scale_params_index;
 
         auto* cvb_data = data->values.data();
-        auto& column_data =
-                static_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnDecimal<DecimalType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 
@@ -421,8 +422,8 @@ private:
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
                 value *= scale_params.scale_factor;
-                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-                v = (DecimalPrimitiveType)value;
+                auto& v = reinterpret_cast<DecimalType&>(column_data[origin_size + i]);
+                v = (DecimalType)value;
             }
         } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             for (int i = 0; i < num_values; ++i) {
@@ -437,8 +438,8 @@ private:
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
                 value /= scale_params.scale_factor;
-                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-                v = (DecimalPrimitiveType)value;
+                auto& v = reinterpret_cast<DecimalType&>(column_data[origin_size + i]);
+                v = (DecimalType)value;
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
@@ -452,8 +453,8 @@ private:
                     uint64_t lo = non_const_data->values[i].getLowBits();
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
-                auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-                v = (DecimalPrimitiveType)value;
+                auto& v = reinterpret_cast<DecimalType&>(column_data[origin_size + i]);
+                v = (DecimalType)value;
             }
         }
         return Status::OK();
@@ -463,7 +464,7 @@ private:
     Status _decode_int32_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                 const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    template <typename DecimalPrimitiveType, bool is_filter>
+    template <PrimitiveType DecimalPrimitiveType, bool is_filter>
     Status _decode_decimal_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                   const DataTypePtr& data_type, const orc::ColumnVectorBatch* cvb,
                                   size_t num_values) {
@@ -479,7 +480,8 @@ private:
         }
     }
 
-    template <typename CppType, typename DorisColumnType, typename OrcColumnType, bool is_filter>
+    template <typename CppType, PrimitiveType DorisColumnType, typename OrcColumnType,
+              bool is_filter>
     Status _decode_time_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                const orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);

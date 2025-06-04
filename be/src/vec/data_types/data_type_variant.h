@@ -34,7 +34,7 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "serde/data_type_object_serde.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -54,6 +54,7 @@ private:
     bool is_nullable;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_VARIANT;
     DataTypeVariant(const String& schema_format_ = "json", bool is_nullable_ = true);
     const char* get_family_name() const override { return "Variant"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
