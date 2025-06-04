@@ -694,16 +694,6 @@ Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_
     return Status::OK();
 }
 
-Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter,
-                                   const ColumnIteratorOptions& iter_opts) {
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-    *iter = _ordinal_index->begin();
-    if (!iter->valid()) {
-        return Status::NotFound("Failed to seek to first rowid");
-    }
-    return Status::OK();
-}
-
 Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                                        const ColumnIteratorOptions& iter_opts) {
     RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
@@ -1200,15 +1190,6 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 FileColumnIterator::~FileColumnIterator() = default;
-
-Status FileColumnIterator::seek_to_first() {
-    RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter, _opts));
-    RETURN_IF_ERROR(_read_data_page(_page_iter));
-
-    _seek_to_pos_in_page(&_page, 0);
-    _current_ordinal = 0;
-    return Status::OK();
-}
 
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek

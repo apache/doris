@@ -370,7 +370,7 @@ class StreamLoadAction implements SuiteAction {
                  try {
                      // stream load may cost more time than expected in regression test, because of case run in parallel.
                      // So we allow stream load cost more time, use 4 * time as threshold.
-                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 3 * time)
+                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 4 * time)
                  } catch (Throwable t) {
                      throw new IllegalStateException("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}")
                  }

@@ -159,7 +159,7 @@ TEST(DecimalTest, string_parser) {
 }
 TEST(DecimalTest, crc32) {
     PrimitiveType type = PrimitiveType::TYPE_DECIMAL256;
-    DataTypeDecimal<vectorized::Decimal256> data_type(76, 10);
+    DataTypeDecimal256 data_type(76, 10);
     auto col = data_type.create_column();
     Decimal256 dec_max(type_limit<vectorized::Decimal256>::max());
     Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());

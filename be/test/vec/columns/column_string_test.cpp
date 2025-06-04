@@ -1078,4 +1078,33 @@ TEST_F(ColumnStringTest, ScalaTypeStringTest2erase) {
     }
 }
 
+TEST_F(ColumnStringTest, is_ascii) {
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                       StringRef("4"), StringRef("5")};
+        for (auto d : data) {
+            column->insert_data(d.data, d.size);
+        }
+        EXPECT_TRUE(column->is_ascii());
+    }
+
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"),
+                                       StringRef("3"),   StringRef("4"),
+                                       StringRef("5"),   StringRef("你好世界")};
+        for (auto d : data) {
+            column->insert_data(d.data, d.size);
+        }
+        EXPECT_FALSE(column->is_ascii());
+    }
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef(""), StringRef(""), StringRef(""),
+                                       StringRef(""), StringRef(""), StringRef("")};
+        EXPECT_TRUE(column->is_ascii());
+    }
+}
+
 } // namespace doris::vectorized
