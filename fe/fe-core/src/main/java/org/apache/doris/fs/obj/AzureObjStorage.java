@@ -46,6 +46,7 @@ import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.commons.lang3.tuple.Triple;
+import org.apache.hadoop.fs.Path;
 import org.apache.http.HttpStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -316,6 +317,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        return globList(remotePath, result, fileNameOnly, false);
+    }
+
+    public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly, boolean recursive) {
         long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
@@ -325,7 +330,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
             String bucket = uri.getBucket();
-            LOG.info("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
+            LOG.info("try to glob list for azure, remote path {}, orig {}, recursive: {}",
+                    globPath, remotePath, recursive);
             BlobContainerClient client = getClient().getBlobContainerClient(bucket);
             java.nio.file.Path pathPattern = Paths.get(globPath);
             LOG.info("path pattern {}", pathPattern.toString());
@@ -344,35 +350,63 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     elementCnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
-                    boolean isPrefix = false;
-                    while (blobPath.normalize().toString().startsWith(listPrefix)) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("get blob {}", blobPath.normalize().toString());
+                    // If recursive is true, we'll process all files under the prefix
+                    if (recursive) {
+                        if (blobPath.normalize().toString().startsWith(listPrefix)) {
+                            if (blobPath.normalize().toString().equals(listPrefix)) {
+                                continue;
+                            }
+                            matchCnt++;
+                            String name = fileNameOnly ? blobPath.getFileName().toString() :
+                                    constructS3Path(blobPath.toString(),
+                                            uri.getBucket());
+                            RemoteFile remoteFile = new RemoteFile(
+                                    name,
+                                    new Path(name),
+                                    true,
+                                    false,
+                                    blobItem.getProperties().getContentLength(),
+                                    blobItem.getProperties().getContentLength(),
+                                    blobItem.getProperties().getLastModified().getSecond(),
+                                    null);
+                            result.add(remoteFile);
                         }
-                        if (!matcher.matches(blobPath)) {
-                            isPrefix = true;
+                    } else {
+                        // Original non-recursive logic
+                        boolean isPrefix = false;
+                        while (blobPath.normalize().toString().startsWith(listPrefix)) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("get blob {}", blobPath.normalize().toString());
+                            }
+                            if (!matcher.matches(blobPath)) {
+                                isPrefix = true;
+                                blobPath = blobPath.getParent();
+                                continue;
+                            }
+                            if (directorySet.contains(blobPath.normalize().toString())) {
+                                break;
+                            }
+                            if (isPrefix) {
+                                directorySet.add(blobPath.normalize().toString());
+                            }
+
+                            matchCnt++;
+                            String name = fileNameOnly ? blobPath.getFileName().toString() :
+                                    constructS3Path(blobPath.toString(),
+                                            uri.getBucket());
+                            RemoteFile remoteFile = new RemoteFile(name,
+                                    new Path(name),
+                                    !isPrefix,
+                                    isPrefix,
+                                    isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                    isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                    isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond(),
+                                    null);
+                            result.add(remoteFile);
+
                             blobPath = blobPath.getParent();
-                            continue;
+                            isPrefix = true;
                         }
-                        if (directorySet.contains(blobPath.normalize().toString())) {
-                            break;
-                        }
-                        if (isPrefix) {
-                            directorySet.add(blobPath.normalize().toString());
-                        }
-
-                        matchCnt++;
-                        RemoteFile remoteFile = new RemoteFile(
-                                fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                        uri.getBucket()),
-                                !isPrefix,
-                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
-                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
-                                isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond());
-                        result.add(remoteFile);
-
-                        blobPath = blobPath.getParent();
-                        isPrefix = true;
                     }
                 }
                 newContinuationToken = pagedResponse.getContinuationToken();
@@ -397,7 +431,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
-                                                     String newContinuationToken) {
+            String newContinuationToken) {
         PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
         return pagedBlobs.iterableByPage().iterator().next();
     }

@@ -45,6 +45,12 @@ public class AzureFileSystem extends ObjFileSystem {
     }
 
     @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
+        return azureObjStorage.globList(remotePath, result, false, true);
+    }
+
+    @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
         return null;
     }
