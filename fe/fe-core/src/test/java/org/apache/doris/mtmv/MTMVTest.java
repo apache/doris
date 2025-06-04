@@ -72,8 +72,7 @@ public class MTMVTest {
         mtmv.setQualifiedDbName("db1");
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
         mtmv.setQuerySql("select * from xxx;");
-        MTMVStatus mtmvStatus = new MTMVStatus();
-        mtmv.setStatus(mtmvStatus);
+        mtmv.setStatus(new MTMVStatus());
         mtmv.setJobInfo(buildMTMVJobInfo(mtmv));
         mtmv.setMvProperties(new HashMap<>());
         mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet()));
