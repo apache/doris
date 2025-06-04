@@ -1947,13 +1947,13 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    if (use_version == "v2" && lock_id == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, table_id, lock_initiator});
         std::string tablet_compaction_val;
         err = txn->get(tablet_compaction_key, &tablet_compaction_val);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            ss << "tablet compaction key not found, table_id=" << table_id << " lock_id" << lock_id
+            ss << "tablet compaction key not found, table_id=" << table_id << " lock_id=" << lock_id
                << " initiator=" << lock_initiator;
             msg = ss.str();
             code = MetaServiceCode::LOCK_EXPIRED;
@@ -2976,7 +2976,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
             lock_info.set_lock_id(request->lock_id());
             // compaction does not use this expiration, only used when upgrade ms
             lock_info.set_expiration(expiration);
-            if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+            if (!is_job_delete_bitmap_lock_id(request->lock_id())) {
                 lock_info.add_initiators(request->initiator());
             } else {
                 // in normal case, this should remove 0 kvs
@@ -3006,7 +3006,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (lock_info.lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+            if (!is_job_delete_bitmap_lock_id(lock_info.lock_id())) {
                 if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
                     LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                               << lock_info.lock_id() << " table_id=" << table_id
@@ -3027,7 +3027,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 lock_info.set_lock_id(request->lock_id());
                 // compaction does not use the expiration, only used when upgrade ms
                 lock_info.set_expiration(expiration);
-                if (request->lock_id() != COMPACTION_DELETE_BITMAP_LOCK_ID) {
+                if (!is_job_delete_bitmap_lock_id(request->lock_id())) {
                     bool found = false;
                     for (auto initiator : lock_info.initiators()) {
                         if (request->initiator() == initiator) {
@@ -3063,8 +3063,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                     return;
                 }
             } else {
-                if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
-                    std::string current_lock_msg = "locked by lock_id=-1";
+                if (request->lock_id() == lock_info.lock_id()) {
+                    std::string current_lock_msg =
+                            "locked by lock_id=" + std::to_string(lock_info.lock_id());
                     if (!put_mow_tablet_compaction_key(code, msg, txn, instance_id, table_id,
                                                        request->lock_id(), request->initiator(),
                                                        expiration, current_lock_msg)) {
@@ -3123,13 +3124,22 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                         code = MetaServiceCode::LOCK_CONFLICT;
                         return;
                     }
-                    // all compaction is expired
+                    // all job is expired
                     lock_info.set_lock_id(request->lock_id());
                     lock_info.set_expiration(expiration);
                     lock_info.clear_initiators();
-                    lock_info.add_initiators(request->initiator());
                     std::string current_lock_msg =
-                            std::to_string(expired_compaction_num) + " compaction is expired";
+                            std::to_string(expired_compaction_num) + " job is expired";
+                    if (!is_job_delete_bitmap_lock_id(request->lock_id())) {
+                        lock_info.add_initiators(request->initiator());
+                    } else {
+                        lock_key_not_found = true;
+                        if (!put_mow_tablet_compaction_key(code, msg, txn, instance_id, table_id,
+                                                           request->lock_id(), request->initiator(),
+                                                           expiration, current_lock_msg)) {
+                            return;
+                        }
+                    }
                     if (!put_delete_bitmap_update_lock_key(code, msg, txn, table_id,
                                                            request->lock_id(), request->initiator(),
                                                            lock_key, lock_info, current_lock_msg)) {
@@ -3141,11 +3151,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
 
         err = txn->commit();
         TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock:commit:conflict", &first_retry,
-                                 &err);
+                                 request, &err);
         if (err == TxnErrorCode::TXN_OK) {
             break;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
-                   request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
+                   is_job_delete_bitmap_lock_id(request->lock_id()) &&
                    config::delete_bitmap_enable_retry_txn_conflict && first_retry) {
             // if err is TXN_CONFLICT, and the lock id is -1, do a fast retry
             if (err == TxnErrorCode::TXN_CONFLICT) {
@@ -3271,7 +3281,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         msg = "failed to init txn";
         return;
     }
-    if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
+    if (is_job_delete_bitmap_lock_id(request->lock_id())) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, request->table_id(), request->initiator()});
         txn->remove(tablet_compaction_key);
