@@ -174,7 +174,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(3, 70);
                     ps.setObject(4, "a");
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     assertTrue(false)
                 } catch (Exception e) {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
@@ -184,7 +184,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(1, 9);
                     ps.setObject(2, "f");
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     assertTrue(false)
                 } catch (Exception e) {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
@@ -213,7 +213,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(2, "f");
                     ps.setObject(3, "f");
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     assertTrue(false)
                 } catch (Exception e) {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
@@ -222,7 +222,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                 try (PreparedStatement ps = connection.prepareStatement("insert into ${table}(id, name) values(?)")) {
                     ps.setObject(1, 13);
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     assertTrue(false)
                 } catch (Exception e) {
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
@@ -232,7 +232,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(1, 12);
                     ps.setObject(2, "f");
                     ps.addBatch();
-                    int[] result = ps.executeBatch();
+                    result = ps.executeBatch();
                     assertTrue(false)
                 } catch (Exception e) {
                     assertTrue(e.getMessage().contains("Unknown column 'names'"))
@@ -247,7 +247,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                         ps.setObject(2, "f");
                         ps.setObject(3, 90);
                         ps.addBatch();
-                        int[] result = ps.executeBatch();
+                        result = ps.executeBatch();
                         logger.info("prepare insert result: " + result)
                     }
                 }
@@ -263,7 +263,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                         ps.setObject(5, "f");
                         ps.setObject(6, 90);
                         ps.addBatch();
-                        int[] result = ps.executeBatch();
+                        result = ps.executeBatch();
                         logger.info("prepare insert result: " + result)
                     }
                 }
@@ -275,7 +275,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(2, "f")
                     ps.setObject(3, 90)
                     ps.addBatch()
-                    int[] result = ps.executeBatch()
+                    result = ps.executeBatch()
                     logger.info("prepare insert result: " + result)
 
                     sql """ alter table ${table} ADD column age int after name; """
@@ -306,7 +306,7 @@ suite("insert_group_commit_with_exception", "nonConcurrent") {
                     ps.setObject(2, "f")
                     ps.setObject(3, 90)
                     ps.addBatch()
-                    int[] result = ps.executeBatch()
+                    result = ps.executeBatch()
                     logger.info("prepare insert result: " + result)
 
                     sql """ alter table ${table} DROP column age; """
