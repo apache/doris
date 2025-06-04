@@ -559,6 +559,8 @@ struct WindowFunctionLastImpl : Data {
             (frame_start >= partition_end)) { //beyond or under partition, set null
             if ((this->has_set_value()) &&
                 (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
+                // have set value, do nothing, because like rows unbouned preceding and M following
+                // it's caculated as the cumulative mode, so it's could reuse the previous
             } else {
                 this->set_is_null();
             }
