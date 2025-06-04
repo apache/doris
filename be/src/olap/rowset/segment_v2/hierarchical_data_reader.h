@@ -59,8 +59,6 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status seek_to_first() override;
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
@@ -276,8 +274,6 @@ public:
               _target_type_hint(target_type_hint) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_first() override;
 
     Status seek_to_ordinal(ordinal_t ord) override;
 

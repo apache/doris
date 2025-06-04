@@ -76,8 +76,7 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
                                       input_and_expected.second.size());
     }
 
-    block.insert({std::move(col_dec_v2), std::make_shared<DataTypeDecimal<Decimal128V2>>(10, 1),
-                  "col_dec_v2"});
+    block.insert({std::move(col_dec_v2), std::make_shared<DataTypeDecimalV2>(10, 1), "col_dec_v2"});
     block.insert({nullptr, std::make_shared<DataTypeString>(), "col_res"});
 
     Status exec_status = money_format->execute_impl(context.get(), block, arguments, result_idx,

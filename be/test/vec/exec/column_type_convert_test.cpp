@@ -314,7 +314,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
                                                                                  false, 9, 2);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(18, 2);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(18, 2);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -344,7 +344,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32,
                                                                                  false, 9, 2);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(38, 10);
+        auto dst_type = std::make_shared<DataTypeDecimal128>(38, 10);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -375,7 +375,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
                                                                                  false, 18, 4);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(76, 35);
+        auto dst_type = std::make_shared<DataTypeDecimal256>(76, 35);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -531,7 +531,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     // TEST INT -> DECIMAL
     {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(10, 2);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -561,7 +561,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     // TEST INT -> DECIMAL
     {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_INT, false);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal128V3>>(18, 5);
+        auto dst_type = std::make_shared<DataTypeDecimal128>(18, 5);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -591,7 +591,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     {
         auto src_type =
                 vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(38, 10);
+        auto dst_type = std::make_shared<DataTypeDecimal256>(38, 10);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, dst_type,
                                                                        converter::COMMON);
@@ -621,7 +621,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     {
         auto src_type =
                 vectorized::DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal256>>(12, 10);
+        auto dst_type = std::make_shared<DataTypeDecimal256>(12, 10);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -659,7 +659,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
                                                                                  false, 18, 4);
 
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 4);
+        auto dst_type = std::make_shared<DataTypeDecimal32>(9, 4);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -693,7 +693,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_DECIMAL64,
                                                                                  false, 18, 4);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal32>>(9, 4);
+        auto dst_type = std::make_shared<DataTypeDecimal32>(9, 4);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -735,7 +735,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     // TEST FLOAT -> DECIMAL
     {
         auto src_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(10, 2);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
@@ -784,7 +784,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
     {
         auto src_type =
                 vectorized::DataTypeFactory::instance().create_data_type(TYPE_STRING, false);
-        auto dst_type = std::make_shared<DataTypeDecimal<Decimal64>>(10, 2);
+        auto dst_type = std::make_shared<DataTypeDecimal64>(10, 2);
         auto nullable_dst_type = std::make_shared<DataTypeNullable>(dst_type);
 
         auto converter = converter::ColumnTypeConverter::get_converter(src_type, nullable_dst_type,
