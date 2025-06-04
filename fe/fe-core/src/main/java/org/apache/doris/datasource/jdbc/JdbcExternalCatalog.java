@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -77,6 +78,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
     private IdentifierMapping identifierMapping;
+    private ExternalFunctionRules functionRules;
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment)
@@ -107,6 +109,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 getExcludeDatabaseMap());
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
                 getConnectionPoolMaxWaitTime(), getConnectionPoolMaxLifeTime());
+
+        // check funtion rules
+        ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
     @Override
@@ -222,6 +227,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         jdbcClient = createJdbcClient();
+        this.functionRules = ExternalFunctionRules.create(getDatabaseTypeName(),
+                catalogProperty.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
     private JdbcClient createJdbcClient() {
@@ -435,5 +442,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         testTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
 
         return testTable;
+    }
+
+    public ExternalFunctionRules getFunctionRules() {
+        return functionRules;
     }
 }
