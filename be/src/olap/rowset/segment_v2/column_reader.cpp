@@ -694,16 +694,6 @@ Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_
     return Status::OK();
 }
 
-Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter,
-                                   const ColumnIteratorOptions& iter_opts) {
-    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
-    *iter = _ordinal_index->begin();
-    if (!iter->valid()) {
-        return Status::NotFound("Failed to seek to first rowid");
-    }
-    return Status::OK();
-}
-
 Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                                        const ColumnIteratorOptions& iter_opts) {
     RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
@@ -1026,11 +1016,11 @@ Status OffsetFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
 Status OffsetFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
     if (_offset_iterator->get_current_page()->has_remaining()) {
         PageDecoder* offset_page_decoder = _offset_iterator->get_current_page()->data_decoder.get();
-        vectorized::MutableColumnPtr offset_col = vectorized::ColumnUInt64::create();
+        vectorized::MutableColumnPtr offset_col = vectorized::ColumnOffset64::create();
         size_t n = 1;
         RETURN_IF_ERROR(offset_page_decoder->peek_next_batch(&n, offset_col)); // not null
         DCHECK(offset_col->size() == 1);
-        *offset = assert_cast<const vectorized::ColumnUInt64*>(offset_col.get())->get_element(0);
+        *offset = assert_cast<const vectorized::ColumnOffset64*>(offset_col.get())->get_element(0);
     } else {
         *offset = _offset_iterator->get_current_page()->next_array_item_ordinal;
     }
@@ -1200,15 +1190,6 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 FileColumnIterator::~FileColumnIterator() = default;
-
-Status FileColumnIterator::seek_to_first() {
-    RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter, _opts));
-    RETURN_IF_ERROR(_read_data_page(_page_iter));
-
-    _seek_to_pos_in_page(&_page, 0);
-    _current_ordinal = 0;
-    return Status::OK();
-}
 
 Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek

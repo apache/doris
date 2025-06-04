@@ -164,9 +164,8 @@ public:
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
                             .mutate();
-            auto& res_map =
-                    assert_cast<ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(res_column.get())
-                            ->get_data();
+            auto& res_map = assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(res_column.get())
+                                    ->get_data();
             auto* __restrict res = res_map.data();
 
             // Here it's SIMD thought the compiler automatically
@@ -316,15 +315,17 @@ public:
             return insert_result_data<ColumnDecimal<Decimal128V3>>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DATETIME:
+            return insert_result_data<ColumnDateTime>(result_column, argument_column, null_map_data,
+                                                      filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DATE:
-            return insert_result_data<ColumnInt64>(result_column, argument_column, null_map_data,
-                                                   filled_flag, input_rows_count);
+            return insert_result_data<ColumnDate>(result_column, argument_column, null_map_data,
+                                                  filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DATEV2:
-            return insert_result_data<ColumnUInt32>(result_column, argument_column, null_map_data,
+            return insert_result_data<ColumnDateV2>(result_column, argument_column, null_map_data,
                                                     filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DATETIMEV2:
-            return insert_result_data<ColumnUInt64>(result_column, argument_column, null_map_data,
-                                                    filled_flag, input_rows_count);
+            return insert_result_data<ColumnDateTimeV2>(
+                    result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_BITMAP:
             return insert_result_data_bitmap(result_column, argument_column, null_map_data,
                                              filled_flag, input_rows_count);

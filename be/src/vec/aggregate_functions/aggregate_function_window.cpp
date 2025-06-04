@@ -203,37 +203,47 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
                     argument_types);
         }
     }
-    case PrimitiveType::TYPE_DATE:
-    case PrimitiveType::TYPE_DATETIME: {
+    case PrimitiveType::TYPE_DATE: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnInt64, result_is_nullable, arg_is_nullable>, true>>>(
+                    Impl<Data<ColumnDate, result_is_nullable, arg_is_nullable>, true>>>(
                     argument_types);
         } else {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnInt64, result_is_nullable, arg_is_nullable>, false>>>(
+                    Impl<Data<ColumnDate, result_is_nullable, arg_is_nullable>, false>>>(
+                    argument_types);
+        }
+    }
+    case PrimitiveType::TYPE_DATETIME: {
+        if (arg_ignore_null_value) {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateTime, result_is_nullable, arg_is_nullable>, true>>>(
+                    argument_types);
+        } else {
+            return std::make_shared<AggregateFunctionTemplate<
+                    Impl<Data<ColumnDateTime, result_is_nullable, arg_is_nullable>, false>>>(
                     argument_types);
         }
     }
     case PrimitiveType::TYPE_DATETIMEV2: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnUInt64, result_is_nullable, arg_is_nullable>, true>>>(
+                    Impl<Data<ColumnDateTimeV2, result_is_nullable, arg_is_nullable>, true>>>(
                     argument_types);
         } else {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnUInt64, result_is_nullable, arg_is_nullable>, false>>>(
+                    Impl<Data<ColumnDateTimeV2, result_is_nullable, arg_is_nullable>, false>>>(
                     argument_types);
         }
     }
     case PrimitiveType::TYPE_DATEV2: {
         if (arg_ignore_null_value) {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnUInt32, result_is_nullable, arg_is_nullable>, true>>>(
+                    Impl<Data<ColumnDateV2, result_is_nullable, arg_is_nullable>, true>>>(
                     argument_types);
         } else {
             return std::make_shared<AggregateFunctionTemplate<
-                    Impl<Data<ColumnUInt32, result_is_nullable, arg_is_nullable>, false>>>(
+                    Impl<Data<ColumnDateV2, result_is_nullable, arg_is_nullable>, false>>>(
                     argument_types);
         }
     }

@@ -55,6 +55,7 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_MAP;
 
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_MAP; }

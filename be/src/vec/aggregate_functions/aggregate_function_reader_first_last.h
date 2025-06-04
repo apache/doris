@@ -333,20 +333,24 @@ AggregateFunctionPtr create_function_single_value(const String& name,
                 FunctionData<ColumnString, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
-    case PrimitiveType::TYPE_DATE:
+    case PrimitiveType::TYPE_DATE: {
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDate, result_is_nullable, arg_is_nullable, is_copy>>>(
+                argument_types);
+    }
     case PrimitiveType::TYPE_DATETIME: {
         return std::make_shared<ReaderFunctionData<
-                FunctionData<ColumnInt64, result_is_nullable, arg_is_nullable, is_copy>>>(
+                FunctionData<ColumnDateTime, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_DATETIMEV2: {
         return std::make_shared<ReaderFunctionData<
-                FunctionData<ColumnUInt64, result_is_nullable, arg_is_nullable, is_copy>>>(
+                FunctionData<ColumnDateTimeV2, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_DATEV2: {
         return std::make_shared<ReaderFunctionData<
-                FunctionData<ColumnUInt32, result_is_nullable, arg_is_nullable, is_copy>>>(
+                FunctionData<ColumnDateV2, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_IPV4: {

@@ -752,6 +752,7 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
+    case TExprNodeType::TIMEV2_LITERAL:
         return true;
     default:
         return false;
@@ -1652,12 +1653,6 @@ Status SegmentIterator::_init_current_block(
                 current_columns[cid]->clear();
             } else { // non-predicate column
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-
-                if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                    current_columns[cid]->set_date_type();
-                } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                    current_columns[cid]->set_datetime_type();
-                }
                 current_columns[cid]->reserve(nrows_read_limit);
             }
         }

@@ -126,8 +126,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest3) {
     std::cout << "==== nullable_int32 === " << std::endl;
     // nullable_int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
 
@@ -148,8 +148,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
     std::cout << "==== array<int32> === " << std::endl;
     // array<int32>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -183,8 +183,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -219,8 +219,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -262,8 +262,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
     std::cout << "==== array<array<int32>> === " << std::endl;
     // array<array<int32>>
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
-        auto null_map = vectorized::ColumnVector<UInt8>::create();
+        auto vec = vectorized::ColumnInt32::create();
+        auto null_map = vectorized::ColumnUInt8::create();
         auto& data = vec->get_data();
         auto& null_map_data = null_map->get_data();
         int rows = 10;
@@ -313,7 +313,7 @@ inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== int32 === " << std::endl;
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -420,7 +420,7 @@ inline void serialize_and_deserialize_pb_test() {
     // int with 1024 batch size
     std::cout << "==== int with 1024 batch size === " << std::endl;
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -436,7 +436,7 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv4
     std::cout << "==== ipv4 === " << std::endl;
     {
-        auto vec = vectorized::ColumnVector<IPv4>::create();
+        auto vec = vectorized::ColumnIPv4::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -447,7 +447,7 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv6
     std::cout << "==== ipv6 === " << std::endl;
     {
-        auto vec = vectorized::ColumnVector<IPv6>::create();
+        auto vec = vectorized::ColumnIPv6::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -686,7 +686,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {
     std::cout << "==== LargeInt === " << std::endl;
     // LargeInt
     {
-        auto vec = vectorized::ColumnVector<Int128>::create();
+        auto vec = vectorized::ColumnInt128::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 10; ++i) {
             data.push_back(500000000000 + i);

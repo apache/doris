@@ -37,7 +37,7 @@ class BufferWritable;
 class IColumn;
 template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
 template <PrimitiveType T>

@@ -42,7 +42,7 @@ Status DataTypeDate64SerDe<T>::serialize_one_cell_to_json(
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         bw.write('"');
     }
-    Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
+    Int64 int_val = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
     if (options.date_olap_format) {
         tm time_tm;
         memset(&time_tm, 0, sizeof(time_tm));
@@ -78,7 +78,7 @@ template <PrimitiveType T>
 Status DataTypeDate64SerDe<T>::deserialize_one_cell_from_json(
         IColumn& column, Slice& slice,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnInt64&>(column);
+    auto& column_data = assert_cast<ColumnVector<T>&>(column);
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         slice.trim_quote();
     }
@@ -112,7 +112,7 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
+    Int64 int_val = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
     if (options.date_olap_format) {
         tm time_tm;
         int64 part1 = (int_val / 1000000L);
@@ -147,7 +147,7 @@ Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
 
 Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnInt64&>(column);
+    auto& column_data = assert_cast<ColumnDateTime&>(column);
     Int64 val = 0;
     if (options.date_olap_format) {
         tm time_tm;
@@ -181,7 +181,7 @@ Status DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, cons
                                                      arrow::ArrayBuilder* array_builder,
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<const ColumnVector<T>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
@@ -224,7 +224,7 @@ Status DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
     if (arrow_array->type()->id() == arrow::Type::DATE64) {
@@ -292,7 +292,7 @@ template <bool is_binary_format>
 Status DataTypeDate64SerDe<T>::_write_column_to_mysql(
         const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
         bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    const auto& data = assert_cast<const ColumnVector<Int64>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
     VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
@@ -334,7 +334,7 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
                                                    std::vector<StringRef>& buffer_list) const {
-    const auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     auto& BUFFER_UNIT_SIZE = DataTypeNumberSerDe<T>::BUFFER_UNIT_SIZE;

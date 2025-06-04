@@ -287,8 +287,7 @@ struct AggregateFunctionTopNImplWeight {
                     assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
         }
         if constexpr (is_string_type(T)) {
-            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(
-                                  *columns[1])
+            auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                   .get_data()[row_num];
             place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num),
@@ -298,8 +297,7 @@ struct AggregateFunctionTopNImplWeight {
                     assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                 TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
-            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(
-                                  *columns[1])
+            auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                   .get_data()[row_num];
             place.add(val, weight);
         }

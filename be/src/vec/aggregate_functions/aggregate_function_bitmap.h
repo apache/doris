@@ -314,7 +314,7 @@ class AggregateFunctionBitmapCount final
                   AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
 public:
     // using ColVecType = ColumnBitmap;
-    using ColVecResult = ColumnVector<Int64>;
+    using ColVecResult = ColumnInt64;
     using AggFunctionData = AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>;
 
     AggregateFunctionBitmapCount(const DataTypes& argument_types_)
