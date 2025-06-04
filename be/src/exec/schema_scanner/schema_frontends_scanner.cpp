@@ -92,7 +92,7 @@ Status SchemaFrontendsScanner::get_next_block_internal(vectorized::Block* block,
     }
 
     *eos = true;
-    if (_frontends_result.backends.empty()) {
+    if (_frontends_result.frontends.empty()) {
         return Status::OK();
     }
     return _fill_block_impl(block);
