@@ -205,6 +205,7 @@ public:
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)) {
         _is_table_schema = true;
+        _connector_name = split(_connector_class, "/").back();
     }
 
     ~JniConnector() override = default;
@@ -272,6 +273,11 @@ public:
 
     static Status fill_block(Block* block, const ColumnNumbers& arguments, long table_address);
 
+    // Writer specific methods
+    Status open_writer(RuntimeState* state, RuntimeProfile* profile);
+    Status write(Block* block);
+    Status finish();
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -282,6 +288,8 @@ private:
     std::vector<std::string> _column_names;
     int32_t _self_split_weight;
     bool _is_table_schema = false;
+    // Flag to distinguish writer vs scanner mode
+    bool _is_writer = false;
 
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
@@ -299,24 +307,38 @@ private:
 
     size_t _has_read = 0;
 
+    // General JNI objects and classes
     bool _closed = false;
-    bool _scanner_opened = false;
-    jclass _jni_scanner_cls;
-    jobject _jni_scanner_obj;
-    jmethodID _jni_scanner_open;
-    jmethodID _jni_scanner_get_append_data_time;
-    jmethodID _jni_scanner_get_create_vector_table_time;
+    bool _jni_object_initialized = false;
+    jclass _jni_class;
+    jobject _jni_object;
+
+    // General JNI method IDs
+    jmethodID _jni_open;
+    jmethodID _jni_close;
+    jmethodID _jni_get_statistics;
+    jmethodID _jni_release_column;
+    jmethodID _jni_release_table;
+
+    // Scanner JNI method IDs
     jmethodID _jni_scanner_get_next_batch;
     jmethodID _jni_scanner_get_table_schema;
-    jmethodID _jni_scanner_close;
-    jmethodID _jni_scanner_release_column;
-    jmethodID _jni_scanner_release_table;
-    jmethodID _jni_scanner_get_statistics;
+
+    // Writer JNI method IDs
+    jmethodID _jni_writer_write_data = nullptr;
+    jmethodID _jni_writer_finish_write = nullptr;
+    jmethodID _jni_scanner_get_append_data_time = nullptr;
+    jmethodID _jni_scanner_get_create_vector_table_time = nullptr;
 
     TableMetaAddress _table_meta;
 
     int _predicates_length = 0;
     std::unique_ptr<char[]> _predicates;
+
+    // Writer specific timers
+    RuntimeProfile::Counter* _open_writer_time = nullptr;
+    RuntimeProfile::Counter* _write_data_time = nullptr;
+    RuntimeProfile::Counter* _finish_write_time = nullptr;
 
     /**
      * Set the address of meta information, which is returned by org.apache.doris.common.jni.JniScanner#getNextBatchMeta
@@ -324,6 +346,8 @@ private:
     void _set_meta(long meta_addr) { _table_meta.set_meta(meta_addr); }
 
     Status _init_jni_scanner(JNIEnv* env, int batch_size);
+
+    Status _init_jni_writer(JNIEnv* env);
 
     Status _fill_block(Block* block, size_t num_rows);
 
