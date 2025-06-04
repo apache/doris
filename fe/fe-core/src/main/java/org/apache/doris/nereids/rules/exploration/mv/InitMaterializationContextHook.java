@@ -266,9 +266,17 @@ public class InitMaterializationContextHook implements PlannerHook {
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,
                                 false, cascadesContext.getConnectContext());
-                        contexts.add(new SyncMaterializationContext(mtmvCache.getFinalPlanAndStructInfo().key(),
-                                mtmvCache.getOriginalFinalPlan(), olapTable, meta.getIndexId(), indexName,
-                                cascadesContext, mtmvCache.getStatistics()));
+                        if (!cascadesContext.getStatementContext().isNeedPreRewrite()) {
+                            contexts.add(new SyncMaterializationContext(mtmvCache.getFinalPlanAndStructInfo().key(),
+                                    mtmvCache.getOriginalFinalPlan(), olapTable, meta.getIndexId(), indexName,
+                                    cascadesContext, mtmvCache.getStatistics()));
+                        } else {
+                            for (Pair<Plan, StructInfo> planAndStructInfo : mtmvCache.getTmpPlanAndStructInfos()) {
+                                contexts.add(new SyncMaterializationContext(planAndStructInfo.key(),
+                                        planAndStructInfo.key(), olapTable, meta.getIndexId(), indexName,
+                                        cascadesContext, mtmvCache.getStatistics()));
+                            }
+                        }
                     } else {
                         LOG.warn(String.format("can't assemble create mv sql for index ", indexName));
                     }

@@ -64,14 +64,14 @@ public class StructInfoMap {
      * @return struct info or null if not found
      */
     public @Nullable StructInfo getStructInfo(CascadesContext cascadesContext, BitSet tableMap, Group group,
-            Plan originPlan) {
+            Plan originPlan, boolean forceRefresh) {
         StructInfo structInfo = infoMap.get(tableMap);
         if (structInfo != null) {
             return structInfo;
         }
         if (groupExpressionMap.isEmpty() || !groupExpressionMap.containsKey(tableMap)) {
             refresh(group, cascadesContext, tableMap, new HashSet<>(),
-                    cascadesContext.getConnectContext().getSessionVariable().isEnableMaterializedViewNestRewrite());
+                    forceRefresh);
             group.getstructInfoMap().setRefreshVersion(cascadesContext.getMemo().getRefreshVersion());
         }
         if (groupExpressionMap.containsKey(tableMap)) {

@@ -61,6 +61,9 @@ public class PreMaterializedViewRewriter {
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.PUSH_LIMIT_THROUGH_WINDOW.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.LIMIT_SORT_TO_TOP_N.ordinal());
         NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.LIMIT_AGG_TO_TOPN_AGG.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.ELIMINATE_CONST_JOIN_CONDITION.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.MERGE_PERCENTILE_TO_ARRAY.ordinal());
+        NEED_PRE_REWRITE_RULE_TYPES.set(RuleType.SUM_LITERAL_REWRITE.ordinal());
     }
 
     /**
@@ -84,9 +87,9 @@ public class PreMaterializedViewRewriter {
         cascadesContext.getMemo().incrementAndGetRefreshVersion();
         // Extract logical plan by table id set by the corresponding best physical plan
         StructInfo structInfo = root.getstructInfoMap().getStructInfo(cascadesContext,
-                chosenMaterializationAndUsedTable.value(), root, null);
+                chosenMaterializationAndUsedTable.value(), root, null, true);
         if (structInfo == null) {
-            LOG.warn("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
+            LOG.error("preMaterializedViewRewriter rewrite structInfo is null, query id is {}",
                     cascadesContext.getConnectContext().getQueryIdentifier());
         }
         if (structInfo != null && !chosenMaterializationAndUsedTable.key().isEmpty()) {
