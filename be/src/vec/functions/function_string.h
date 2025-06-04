@@ -3173,7 +3173,7 @@ struct MoneyFormatInt128Impl {
 
 struct MoneyFormatDecimalImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9)};
+        return {std::make_shared<DataTypeDecimalV2>(27, 9)};
     }
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
@@ -3347,7 +3347,7 @@ struct FormatRoundInt128Impl {
 
 struct FormatRoundDecimalImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9),
+        return {std::make_shared<DataTypeDecimalV2>(27, 9),
                 std::make_shared<vectorized::DataTypeInt32>()};
     }
 

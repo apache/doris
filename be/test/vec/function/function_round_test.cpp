@@ -978,16 +978,17 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
 
         if (decimal_col_is_const) {
             block.insert({ColumnConst::create(col_general->clone_resized(1), 1),
-                          std::make_shared<DataTypeDecimal<DecimalType>>(precision, scale),
+                          std::make_shared<DataTypeDecimal<DecimalType::PType>>(precision, scale),
                           "col_general_const"});
         } else {
             block.insert({col_general->clone(),
-                          std::make_shared<DataTypeDecimal<DecimalType>>(precision, scale),
+                          std::make_shared<DataTypeDecimal<DecimalType::PType>>(precision, scale),
                           "col_general"});
         }
 
         block.insert({col_scale->clone(), std::make_shared<DataTypeInt32>(), "col_scale"});
-        block.insert({nullptr, std::make_shared<DataTypeDecimal<DecimalType>>(precision, scale),
+        block.insert({nullptr,
+                      std::make_shared<DataTypeDecimal<DecimalType::PType>>(precision, scale),
                       "col_res"});
 
         auto status = func->execute_impl(context, block, arguments, res_idx, input_rows_count);
