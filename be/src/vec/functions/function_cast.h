@@ -771,6 +771,12 @@ struct ConvertImplFromJsonb {
             auto& res = col_to->get_data();
             res.resize(input_rows_count);
 
+            auto get_rb_from_json_string = [](JsonbValue* value) -> ReadBuffer {
+                const char* data = ((JsonbStringVal*)value)->getBlob();
+                size_t size = ((JsonbStringVal*)value)->length();
+                return ReadBuffer {(char*)(data), size};
+            };
+
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const auto& val = column_string->get_data_at(i);
                 // ReadBuffer read_buffer((char*)(val.data), val.size);
@@ -810,6 +816,15 @@ struct ConvertImplFromJsonb {
                                          ((const JsonbDoubleVal*)value)->val()) == 0
                                          ? 0
                                          : 1;
+                    } else if (value->isString()) {
+                        typename PrimitiveTypeTraits<TYPE_BOOLEAN>::ColumnItemType val = 0;
+                        ReadBuffer rb = get_rb_from_json_string(value);
+                        if (try_read_bool_text(val, rb)) {
+                            res[i] = val;
+                        } else {
+                            null_map[i] = 1;
+                            res[i] = 0;
+                        }
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -829,6 +844,15 @@ struct ConvertImplFromJsonb {
                         res[i] = 1;
                     } else if (value->isFalse()) {
                         res[i] = 0;
+                    } else if (value->isString()) {
+                        typename PrimitiveTypeTraits<type>::ColumnItemType val = 0;
+                        ReadBuffer rb = get_rb_from_json_string(value);
+                        if (read_int_text_impl(val, rb)) {
+                            res[i] = val;
+                        } else {
+                            null_map[i] = 1;
+                            res[i] = 0;
+                        }
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
@@ -846,6 +870,15 @@ struct ConvertImplFromJsonb {
                         res[i] = 0;
                     } else if (value->isInt()) {
                         res[i] = ((const JsonbIntVal*)value)->val();
+                    } else if (value->isString()) {
+                        typename PrimitiveTypeTraits<type>::ColumnItemType val = 0;
+                        ReadBuffer rb = get_rb_from_json_string(value);
+                        if (try_read_float_text(val, rb)) {
+                            res[i] = val;
+                        } else {
+                            null_map[i] = 1;
+                            res[i] = 0;
+                        }
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;
