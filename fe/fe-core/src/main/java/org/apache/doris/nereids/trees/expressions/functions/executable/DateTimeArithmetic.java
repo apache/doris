@@ -496,6 +496,6 @@ public class DateTimeArithmetic {
      */
     @ExecFunction(name = "time")
     public static Expression time(DateTimeV2Literal date) {
-        return new TimeV2Literal(date.getHour(), date.getMinute(), date.getSecond(), 0, 0, false);
+        return new TimeV2Literal((int) date.getHour(), (int) date.getMinute(), (int) date.getSecond(), 0, 0, false);
     }
 }
