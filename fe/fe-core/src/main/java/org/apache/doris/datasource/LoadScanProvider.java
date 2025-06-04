@@ -94,7 +94,7 @@ public class LoadScanProvider {
         if (fileGroupInfo.getSequenceMapCol() != null) {
             params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
         }
-        params.setProperties(fileGroupInfo.getBrokerDesc().getProperties());
+        params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(fileGroupInfo.getBrokerDesc()
                     .getBackendConfigProperties());

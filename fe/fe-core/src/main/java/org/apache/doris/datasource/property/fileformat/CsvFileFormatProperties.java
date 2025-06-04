@@ -58,10 +58,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private byte enclose;
     private byte escape;
 
-    // used by tvf
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
     }
