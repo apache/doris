@@ -33,7 +33,7 @@ class IcebergMetadataLogEntriesTableValuedFunction extends IcebergTableValuedFun
             new Column("file", ScalarType.STRING, true),
             new Column("latest_snapshot_id", ScalarType.BIGINT, true),
             new Column("latest_schema_id", ScalarType.INT, true),
-            new Column("latest_partition_spec_id", ScalarType.BIGINT, true));
+            new Column("latest_sequence_number", ScalarType.BIGINT, true));
 
     public IcebergMetadataLogEntriesTableValuedFunction(TableName icebergTableName) throws AnalysisException {
         super(icebergTableName, TIcebergQueryType.METADATA_LOG_ENTRIES);

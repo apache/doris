@@ -37,7 +37,7 @@ class IcebergMetadataLogEntriesJniScanner extends IcebergMetadataJniScanner {
         METADATA_LOG_ENTRIES_SCHEMA.put("file", "string");
         METADATA_LOG_ENTRIES_SCHEMA.put("latest_snapshot_id", "bigint");
         METADATA_LOG_ENTRIES_SCHEMA.put("latest_schema_id", "int");
-        METADATA_LOG_ENTRIES_SCHEMA.put("latest_partition_spec_id", "bigint");
+        METADATA_LOG_ENTRIES_SCHEMA.put("latest_sequence_number", "bigint");
     }
 
     public IcebergMetadataLogEntriesJniScanner(int batchSize, Map<String, String> params) {
@@ -72,7 +72,7 @@ class IcebergMetadataLogEntriesJniScanner extends IcebergMetadataJniScanner {
                 return entry.get(2, Long.class);
             case "latest_schema_id":
                 return entry.get(3, Integer.class);
-            case "latest_partition_spec_id":
+            case "latest_sequence_number":
                 return entry.get(4, Long.class);
             default:
                 throw new IllegalArgumentException(

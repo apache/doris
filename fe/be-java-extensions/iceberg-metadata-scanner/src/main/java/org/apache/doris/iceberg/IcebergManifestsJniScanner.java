@@ -17,6 +17,7 @@
 
 package org.apache.doris.iceberg;
 
+import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 
 import java.io.IOException;
@@ -28,16 +29,19 @@ class IcebergManifestsJniScanner extends IcebergMetadataJniScanner {
     private static final Map<String, String> MANIFESTS_SCHEMA = new HashMap<>();
 
     static {
-        MANIFESTS_SCHEMA.put("content", "string");
+        MANIFESTS_SCHEMA.put("content", "int");
         MANIFESTS_SCHEMA.put("path", "string");
         MANIFESTS_SCHEMA.put("length", "bigint");
         MANIFESTS_SCHEMA.put("partition_spec_id", "int");
         MANIFESTS_SCHEMA.put("added_snapshot_id", "bigint");
-        MANIFESTS_SCHEMA.put("added_data_files_count", "bigint");
-        MANIFESTS_SCHEMA.put("existing_data_files_count", "bigint");
-        MANIFESTS_SCHEMA.put("deleted_data_files_count", "bigint");
-        MANIFESTS_SCHEMA.put("deleted_rows_count", "bigint");
-        MANIFESTS_SCHEMA.put("partitions", "string"); // TODO: support partitions
+        MANIFESTS_SCHEMA.put("added_data_files_count", "int");
+        MANIFESTS_SCHEMA.put("existing_data_files_count", "int");
+        MANIFESTS_SCHEMA.put("deleted_data_files_count", "int");
+        MANIFESTS_SCHEMA.put("added_delete_files_count", "int");
+        MANIFESTS_SCHEMA.put("existing_delete_files_count", "int");
+        MANIFESTS_SCHEMA.put("deleted_delete_files_count", "int");
+        MANIFESTS_SCHEMA.put("partition_summaries",
+                "array<struct<contains_null:boolean,contains_nan:boolean,lower_bound:string,upper_bound:string>>");
     }
 
     public IcebergManifestsJniScanner(int batchSize, Map<String, String> params) {
@@ -56,28 +60,32 @@ class IcebergManifestsJniScanner extends IcebergMetadataJniScanner {
 
     @Override
     protected Object getColumnValue(String columnName, Object row) {
-        ManifestFile manifestFile = (ManifestFile) row;
+        ManifestFile manifest = (ManifestFile) row;
         switch (columnName) {
             case "content":
-                return manifestFile.content().name();
+                return manifest.content().id();
             case "path":
-                return manifestFile.path();
+                return manifest.path();
             case "length":
-                return manifestFile.length();
+                return manifest.length();
             case "partition_spec_id":
-                return manifestFile.partitionSpecId();
+                return manifest.partitionSpecId();
             case "added_snapshot_id":
-                return manifestFile.snapshotId();
+                return manifest.snapshotId();
             case "added_data_files_count":
-                return manifestFile.addedFilesCount();
+                return manifest.content() == ManifestContent.DATA ? manifest.addedFilesCount() : 0;
             case "existing_data_files_count":
-                return manifestFile.existingFilesCount();
+                return manifest.content() == ManifestContent.DATA ? manifest.existingFilesCount() : 0;
             case "deleted_data_files_count":
-                return manifestFile.deletedFilesCount();
-            case "deleted_rows_count":
-                return manifestFile.deletedRowsCount();
-            case "partitions":
-                // TODO: support partitions
+                return manifest.content() == ManifestContent.DATA ? manifest.deletedFilesCount() : 0;
+            case "added_delete_files_count":
+                return manifest.content() == ManifestContent.DELETES ? manifest.addedFilesCount() : 0;
+            case "existing_delete_files_count":
+                return manifest.content() == ManifestContent.DELETES ? manifest.existingFilesCount() : 0;
+            case "deleted_delete_files_count":
+                return manifest.content() == ManifestContent.DELETES ? manifest.deletedFilesCount() : 0;
+            case "partition_summaries":
+                // TODO: implement partition summaries
                 return null;
             default:
                 throw new IllegalArgumentException(
