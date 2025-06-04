@@ -29,17 +29,17 @@ suite("test_isnull") {
         );
     """
     
-    sql """ INSERT INTO db VALUES(1); """
-    sql """ INSERT INTO db VALUES(2); """
-    sql """ INSERT INTO db VALUES(3); """
-    sql """ INSERT INTO db VALUES(0); """
-    sql """ INSERT INTO db VALUES(NULL); """
+    sql """ INSERT INTO test_isnull VALUES(1); """
+    sql """ INSERT INTO test_isnull VALUES(2); """
+    sql """ INSERT INTO test_isnull VALUES(3); """
+    sql """ INSERT INTO test_isnull VALUES(0); """
+    sql """ INSERT INTO test_isnull VALUES(NULL); """
 
     qt_select1 """
-        SELECT id, ISNULL(id) FROM db ORDER BY id;
+        SELECT id, ISNULL(id) FROM test_isnull ORDER BY id;
     """
     qt_select2 """
-        SELECT id, ISNOTNULL(id) FROM db ORDER BY id;
+        SELECT id, ISNOTNULL(id) FROM test_isnull ORDER BY id;
     """
 
 }
