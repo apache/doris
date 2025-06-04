@@ -397,7 +397,6 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<std::pair<Version, std::vector<RowsetSharedPtr>>> deleted_stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
-    std::vector<std::string> version_to_delete;
     {
         std::unique_lock wlock(_meta_lock);
 
@@ -438,14 +437,12 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 _tablet_meta->delete_stale_rs_meta_by_version(v_ts->version());
             }
             Version version(start_version, end_version);
-            version_to_delete.emplace_back(version.to_string());
             if (!stale_rowsets.empty()) {
                 deleted_stale_rowsets.emplace_back(version, std::move(stale_rowsets));
             }
         }
         _reconstruct_version_tracker_if_necessary();
     }
-    _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
     recycle_cached_data(expired_rowsets);
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
