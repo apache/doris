@@ -44,24 +44,24 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                           \
-    M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)                        \
-    M(PrimitiveType::TYPE_BOOLEAN, ColumnUInt8, UInt8)                      \
-    M(PrimitiveType::TYPE_SMALLINT, ColumnInt16, Int16)                     \
-    M(PrimitiveType::TYPE_INT, ColumnInt32, Int32)                          \
-    M(PrimitiveType::TYPE_BIGINT, ColumnInt64, Int64)                       \
-    M(PrimitiveType::TYPE_LARGEINT, ColumnInt128, Int128)                   \
-    M(PrimitiveType::TYPE_FLOAT, ColumnFloat32, Float32)                    \
-    M(PrimitiveType::TYPE_DOUBLE, ColumnFloat64, Float64)                   \
-    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>, Int128)   \
-    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal<Decimal128V3>, Int128) \
-    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal<Decimal<Int32>>, Int32)  \
-    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal<Decimal<Int64>>, Int64)  \
-    M(PrimitiveType::TYPE_DATE, ColumnDate, Int64)                          \
-    M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)                     \
-    M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)                  \
-    M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)             \
-    M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                           \
+#define FOR_FIXED_LENGTH_TYPES(M)                                  \
+    M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
+    M(PrimitiveType::TYPE_BOOLEAN, ColumnUInt8, UInt8)             \
+    M(PrimitiveType::TYPE_SMALLINT, ColumnInt16, Int16)            \
+    M(PrimitiveType::TYPE_INT, ColumnInt32, Int32)                 \
+    M(PrimitiveType::TYPE_BIGINT, ColumnInt64, Int64)              \
+    M(PrimitiveType::TYPE_LARGEINT, ColumnInt128, Int128)          \
+    M(PrimitiveType::TYPE_FLOAT, ColumnFloat32, Float32)           \
+    M(PrimitiveType::TYPE_DOUBLE, ColumnFloat64, Float64)          \
+    M(PrimitiveType::TYPE_DECIMALV2, ColumnDecimal128V2, Int128)   \
+    M(PrimitiveType::TYPE_DECIMAL128I, ColumnDecimal128V3, Int128) \
+    M(PrimitiveType::TYPE_DECIMAL32, ColumnDecimal32, Int32)       \
+    M(PrimitiveType::TYPE_DECIMAL64, ColumnDecimal64, Int64)       \
+    M(PrimitiveType::TYPE_DATE, ColumnDate, Int64)                 \
+    M(PrimitiveType::TYPE_DATEV2, ColumnDateV2, UInt32)            \
+    M(PrimitiveType::TYPE_DATETIME, ColumnDateTime, Int64)         \
+    M(PrimitiveType::TYPE_DATETIMEV2, ColumnDateTimeV2, UInt64)    \
+    M(PrimitiveType::TYPE_IPV4, ColumnIPv4, IPv4)                  \
     M(PrimitiveType::TYPE_IPV6, ColumnIPv6, IPv6)
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {

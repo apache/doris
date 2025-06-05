@@ -38,7 +38,7 @@ namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
@@ -127,8 +127,7 @@ struct BaseData {
 
 template <PrimitiveType T, typename Name, bool is_stddev>
 struct PopData : BaseData<T, is_stddev>, Name {
-    using ColVecResult =
-            std::conditional_t<is_decimal(T), ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (is_decimal(T)) {
@@ -147,8 +146,7 @@ struct PopData : BaseData<T, is_stddev>, Name {
 
 template <PrimitiveType T, typename Name, bool is_stddev>
 struct SampData : BaseData<T, is_stddev>, Name {
-    using ColVecResult =
-            std::conditional_t<is_decimal(T), ColumnDecimal<Decimal128V2>, ColumnFloat64>;
+    using ColVecResult = std::conditional_t<is_decimal(T), ColumnDecimal128V2, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColVecResult&>(to);
         if (this->count == 1 || this->count == 0) {

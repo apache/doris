@@ -35,7 +35,6 @@
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/string_buffer.hpp"
@@ -245,7 +244,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
 
         UInt32 mem_size = cast_set<UInt32>(real_need_copy_num * sizeof(FieldType));
         const auto* origin_data =
-                assert_cast<const ColumnDecimal<FieldType>&>(*data_column).get_data().data();
+                assert_cast<const ColumnDecimal<T>&>(*data_column).get_data().data();
 
         // column data
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -267,7 +266,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
         // column data
         auto ptr = column.convert_to_full_column_if_const();
         const auto* origin_data =
-                assert_cast<const ColumnDecimal<FieldType>&>(*ptr.get()).get_data().data();
+                assert_cast<const ColumnDecimal<T>&>(*ptr.get()).get_data().data();
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(buf, origin_data, mem_size);
             return buf + mem_size;
@@ -291,7 +290,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
 
         // column data
         UInt32 mem_size = cast_set<UInt32>(real_have_saved_num * sizeof(FieldType));
-        auto& container = assert_cast<ColumnDecimal<FieldType>*>(origin_column)->get_data();
+        auto& container = assert_cast<ColumnDecimal<T>*>(origin_column)->get_data();
         container.resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);
@@ -309,7 +308,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
         uint32_t mem_size = *reinterpret_cast<const uint32_t*>(buf);
         buf += sizeof(uint32_t);
         // column data
-        auto& container = assert_cast<ColumnDecimal<FieldType>*>(column->get())->get_data();
+        auto& container = assert_cast<ColumnDecimal<T>*>(column->get())->get_data();
         container.resize(mem_size / sizeof(FieldType));
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);

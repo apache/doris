@@ -42,7 +42,7 @@
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
@@ -343,9 +343,7 @@ private:
         for (size_t i = 0; i < perms.size(); i++) {
             size_t row_id = perms[i];
             if constexpr (std::is_same_v<ColumnType, ColumnVector<T>> ||
-                          std::is_same_v<
-                                  ColumnType,
-                                  ColumnDecimal<typename PrimitiveTypeTraits<T>::ColumnItemType>>) {
+                          std::is_same_v<ColumnType, ColumnDecimal<T>>) {
                 permutation_for_column[i].inline_value = column.get_data()[row_id];
             } else if constexpr (std::is_same_v<ColumnType, ColumnString> ||
                                  std::is_same_v<ColumnType, ColumnString64>) {

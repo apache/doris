@@ -259,8 +259,7 @@ struct DecimalBinaryOperation {
 
     using ResultType = typename PrimitiveTypeTraits<ResultPType>::ColumnItemType;
     using Traits = NumberTraits::BinaryOperatorTraits<LeftDataPType, RightDataPType>;
-    using ArrayC = typename ColumnDecimal<
-            typename PrimitiveTypeTraits<ResultPType>::ColumnItemType>::Container;
+    using ArrayC = typename ColumnDecimal<ResultPType>::Container;
     using NativeResultType = typename PrimitiveTypeTraits<ResultPType>::CppNativeType;
 
 private:
@@ -436,7 +435,7 @@ public:
         auto type_result =
                 assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 1,
                 assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
@@ -471,7 +470,7 @@ public:
                         *res_data_type);
         auto column_left_ptr =
                 check_and_get_column<typename Traits::ColumnVectorA>(column_left.get());
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 column_left->size(),
                 assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
@@ -507,7 +506,7 @@ public:
                         *res_data_type);
         auto column_right_ptr =
                 check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 column_right->size(),
                 assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
@@ -546,8 +545,8 @@ public:
 
         const auto& type_result =
                 assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
-        auto column_result =
-                ColumnDecimal<ResultType>::create(column_left->size(), type_result.get_scale());
+        auto column_result = ColumnDecimal<ResultType::PType>::create(column_left->size(),
+                                                                      type_result.get_scale());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         if constexpr (check_overflow && !is_to_null_type &&

@@ -35,7 +35,7 @@
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris

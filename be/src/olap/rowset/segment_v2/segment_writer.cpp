@@ -59,7 +59,6 @@
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"

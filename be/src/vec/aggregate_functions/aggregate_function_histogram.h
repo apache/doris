@@ -35,7 +35,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"

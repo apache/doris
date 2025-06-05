@@ -45,7 +45,7 @@ class RuntimeState;
 
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;

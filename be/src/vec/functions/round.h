@@ -26,7 +26,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -164,7 +163,7 @@ private:
     using NativeType = typename T::NativeType;
     using Op = IntegerRoundingComputation<Type, rounding_mode, ScaleMode::Negative,
                                           tie_breaking_mode, NativeType>;
-    using Container = typename ColumnDecimal<T>::Container;
+    using Container = typename ColumnDecimal<Type>::Container;
 
 public:
     static NO_INLINE void apply(const Container& in, UInt32 in_scale, Container& out,

@@ -48,7 +48,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;

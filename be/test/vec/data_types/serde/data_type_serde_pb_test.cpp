@@ -43,7 +43,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -337,9 +336,7 @@ inline void serialize_and_deserialize_pb_test() {
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);

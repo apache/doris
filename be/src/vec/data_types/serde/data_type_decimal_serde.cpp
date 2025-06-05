@@ -47,7 +47,7 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto& col = assert_cast<const ColumnDecimal<FieldType>&>(*ptr);
+    auto& col = assert_cast<const ColumnDecimal<T>&>(*ptr);
     if constexpr (T != TYPE_DECIMALV2) {
         FieldType value = col.get_element(row_num);
         auto decimal_str = value.to_string(scale);
@@ -70,7 +70,7 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnDecimal<FieldType>&>(column).get_data();
+    auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     FieldType val = {};
     ReadBuffer rb(slice.data, slice.size);
     StringParser::ParseResult res =
@@ -90,7 +90,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column,
                                                       arrow::ArrayBuilder* array_builder,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
-    auto& col = reinterpret_cast<const ColumnDecimal<FieldType>&>(column);
+    auto& col = reinterpret_cast<const ColumnDecimal<T>&>(column);
     if constexpr (T == TYPE_DECIMALV2) {
         auto& builder = reinterpret_cast<arrow::Decimal128Builder&>(*array_builder);
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
@@ -190,7 +190,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
-    auto& column_data = static_cast<ColumnDecimal<FieldType>&>(column).get_data();
+    auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
     // Decimal<Int128> for decimalv2
     // Decimal<Int128I> for deicmalv3
     if constexpr (T == TYPE_DECIMALV2) {
@@ -246,7 +246,7 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
                                                        MysqlRowBuffer<is_binary_format>& result,
                                                        int64_t row_idx, bool col_const,
                                                        const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnDecimal<FieldType>&>(column).get_data();
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (T == TYPE_DECIMALV2) {
         DecimalV2Value decimal_val(data[col_index]);
@@ -285,7 +285,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
                                                     std::vector<StringRef>& buffer_list) const {
-    auto& col_data = assert_cast<const ColumnDecimal<FieldType>&>(column).get_data();
+    auto& col_data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
 
     if constexpr (T == TYPE_DECIMALV2 || T == TYPE_DECIMAL128I || T == TYPE_DECIMAL256) {
         orc::Decimal128VectorBatch* cur_batch =
@@ -336,7 +336,7 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
     if (times < 1) [[unlikely]] {
         return;
     }
-    auto& col = static_cast<ColumnDecimal<FieldType>&>(column);
+    auto& col = static_cast<ColumnDecimal<T>&>(column);
     auto sz = col.size();
 
     FieldType val = col.get_element(sz - 1);

@@ -21,7 +21,6 @@
 #include <stddef.h>
 
 #include "runtime/decimalv2_value.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"

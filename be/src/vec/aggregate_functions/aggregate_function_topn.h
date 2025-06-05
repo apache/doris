@@ -39,7 +39,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_ref.h"
@@ -55,7 +54,7 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris
