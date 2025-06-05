@@ -26,14 +26,10 @@ import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
@@ -458,9 +454,6 @@ public class TempPartitionTest {
         stmtStr = "alter table db2.tbl2 add temporary partition p2 values less than('20');";
         alterTable(stmtStr, false);
 
-        TempPartitions tempPartitions = Deencapsulation.getField(tbl2, "tempPartitions");
-        testSerializeTempPartitions(tempPartitions);
-
         stmtStr = "alter table db2.tbl2 replace partition (tp1, tp2) with temporary partition (p2)"
                 + " properties('strict_range' = 'false');";
         alterTable(stmtStr, false);
@@ -831,9 +824,6 @@ public class TempPartitionTest {
         stmtStr = "alter table db4.tbl4 add temporary partition p2 values in ('1', '2', '3', '4', '5', '6');";
         alterTable(stmtStr, false);
 
-        TempPartitions tempPartitions = Deencapsulation.getField(tbl4, "tempPartitions");
-        testSerializeTempPartitions(tempPartitions);
-
         stmtStr = "alter table db4.tbl4 replace partition (tp1, tp2) with temporary partition (p2);";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db4.tbl4", false, 2);
@@ -1197,9 +1187,6 @@ public class TempPartitionTest {
                 + " ((\"1\",\"beijing\"), (\"1\", \"shanghai\"), (\"2\",\"beijing\"), (\"2\", \"shanghai\"));";
         alterTable(stmtStr, false);
 
-        TempPartitions tempPartitions = Deencapsulation.getField(tbl5, "tempPartitions");
-        testSerializeTempPartitions(tempPartitions);
-
         stmtStr = "alter table db5.tbl5 replace partition (tp1, tp2) with temporary partition (p2);";
         alterTable(stmtStr, false);
         checkShowPartitionsResultNum("db5.tbl5", false, 2);
@@ -1289,28 +1276,5 @@ public class TempPartitionTest {
         Assert.assertEquals(tbl.getId(), readTbl.getId());
         Assert.assertEquals(tbl.getAllTempPartitions().size(), readTbl.getAllTempPartitions().size());
         file.delete();
-    }
-
-    private void testSerializeTempPartitions(TempPartitions tempPartitionsInstance) throws IOException {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
-        metaContext.setThreadLocalInfo();
-
-        // 1. Write objects to file
-        File file = new File(tempPartitionFile);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-
-        Text.writeString(out, GsonUtils.GSON.toJson(tempPartitionsInstance));
-        out.flush();
-        out.close();
-
-        // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
-
-        TempPartitions readTempPartition = TempPartitions.read(in);
-        List<Partition> partitions = readTempPartition.getAllPartitions();
-        Assert.assertEquals(1, partitions.size());
-        Assert.assertEquals(2, partitions.get(0).getMaterializedIndices(IndexExtState.VISIBLE).size());
     }
 }

@@ -18,8 +18,6 @@
 package org.apache.doris.fsv2;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonPreProcessable;
 
@@ -27,8 +25,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -60,32 +56,6 @@ public abstract class PersistentFileSystem implements FileSystem, GsonPreProcess
 
     public StorageBackend.StorageType getStorageType() {
         return type;
-    }
-
-    /**
-     *
-     * @param in persisted data
-     * @return file systerm
-     */
-    @Deprecated
-    public static PersistentFileSystem read(DataInput in) throws IOException {
-        Text.readString(in);
-        Map<String, String> properties = Maps.newHashMap();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
-        }
-        if (properties.containsKey(STORAGE_TYPE)) {
-            properties.remove(STORAGE_TYPE);
-        }
-        try {
-            return FileSystemFactory.get(properties);
-        } catch (UserException e) {
-            // do we ignore this exception?
-            throw new IOException("Failed to create file system from properties: " + properties, e);
-        }
     }
 
     @Override

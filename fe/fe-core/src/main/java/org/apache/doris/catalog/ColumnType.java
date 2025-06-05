@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -27,7 +26,6 @@ import com.google.common.base.Preconditions;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -291,42 +289,6 @@ public abstract class ColumnType {
     }
 
     public static Type read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Type.class);
-        } else {
-            PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
-            if (primitiveType == PrimitiveType.ARRAY) {
-                Type itermType = read(in);
-                boolean containsNull = in.readBoolean();
-                return ArrayType.create(itermType, containsNull);
-            } else if (primitiveType == PrimitiveType.MAP) {
-                Type keyType = read(in);
-                Type valueType = read(in);
-                boolean keyContainsNull = in.readBoolean();
-                boolean valueContainsNull = in.readBoolean();
-                return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
-            } else if (primitiveType == PrimitiveType.STRUCT) {
-                int size = in.readInt();
-                ArrayList<StructField> fields = new ArrayList<>();
-                for (int i = 0; i < size; ++i) {
-                    String name = Text.readString(in);
-                    Type type = read(in);
-                    String comment = Text.readString(in);
-                    int pos = in.readInt();
-                    boolean containsNull = in.readBoolean();
-                    StructField field = new StructField(name, type, comment, containsNull);
-                    field.setPosition(pos);
-                    fields.add(field);
-                }
-                return new StructType(fields);
-            } else {
-                int scale = in.readInt();
-                int precision = in.readInt();
-                int len = in.readInt();
-                // Useless, just for back compatible
-                in.readBoolean();
-                return ScalarType.createType(primitiveType, len, precision, scale);
-            }
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Type.class);
     }
 }

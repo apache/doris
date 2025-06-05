@@ -29,11 +29,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.base.Preconditions;
@@ -44,9 +41,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -54,7 +48,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-public class Role implements Writable, GsonPostProcessable {
+public class Role implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Role.class);
 
     // operator is responsible for operating cluster, such as add/drop node
@@ -1044,55 +1038,9 @@ public class Role implements Writable, GsonPostProcessable {
         return sb.toString();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static Role read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
-            Role role = new Role();
-            try {
-                role.readFields(in);
-            } catch (DdlException e) {
-                LOG.warn("grant failed,", e);
-            }
-            return role;
-        } else {
-            String json = Text.readString(in);
-            Role r = GsonUtils.GSON.fromJson(json, Role.class);
-            return r;
-        }
-    }
-
     // should be removed after version 3.0
     private void removeClusterPrefix() {
         roleName = ClusterNamespace.getNameFromFullName(roleName);
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException, DdlException {
-        roleName = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            TablePattern tblPattern = TablePattern.read(in);
-            PrivBitSet privs = PrivBitSet.read(in);
-            tblPatternToPrivs.put(tblPattern, privs);
-            grantPrivs(tblPattern, privs.copy());
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            ResourcePattern resourcePattern = ResourcePattern.read(in);
-            PrivBitSet privs = PrivBitSet.read(in);
-            resourcePatternToPrivs.put(resourcePattern, privs);
-            grantPrivs(resourcePattern, privs.copy());
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            UserIdentity userIdentity = UserIdentity.read(in);
-            users.add(userIdentity);
-        }
-
     }
 
     @Override

@@ -40,8 +40,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.sql.Timestamp;
@@ -944,26 +942,6 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIME;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        short dateLiteralType = in.readShort();
-        if (dateLiteralType == DateLiteralType.DATETIME.value()) {
-            fromPackedDatetime(in.readLong());
-            this.type = Type.DATETIME;
-        } else if (dateLiteralType == DateLiteralType.DATE.value()) {
-            fromPackedDatetime(in.readLong());
-            this.type = Type.DATE;
-        } else if (dateLiteralType == DateLiteralType.DATETIMEV2.value()) {
-            fromPackedDatetimeV2(in.readLong());
-            this.type = ScalarType.createDatetimeV2Type(in.readInt());
-        } else if (dateLiteralType == DateLiteralType.DATEV2.value()) {
-            fromPackedDateV2(in.readLong());
-            this.type = Type.DATEV2;
-        } else {
-            throw new IOException("Error date literal type : " + type);
-        }
-    }
-
     private boolean isLeapYear() {
         return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year > 0));
     }
@@ -996,12 +974,6 @@ public class DateLiteral extends LiteralExpr {
                 throw new AnalysisException("DateLiteral has invalid microsecond value: " + microsecond);
             }
         }
-    }
-
-    public static DateLiteral read(DataInput in) throws IOException {
-        DateLiteral literal = new DateLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     public long unixTimestamp(TimeZone timeZone) {
