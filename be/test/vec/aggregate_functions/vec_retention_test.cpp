@@ -112,19 +112,19 @@ TEST_F(VRetentionTest, testEmpty) {
 TEST_F(VRetentionTest, testSample) {
     const int batch_size = 4;
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
+    auto column_event3 = ColumnUInt8::create();
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
@@ -162,19 +162,19 @@ TEST_F(VRetentionTest, testSample) {
 TEST_F(VRetentionTest, testNoMerge) {
     const int batch_size = 4;
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
+    auto column_event3 = ColumnUInt8::create();
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
@@ -205,15 +205,15 @@ TEST_F(VRetentionTest, testNoMerge) {
 TEST_F(VRetentionTest, testSerialize) {
     const int batch_size = 2;
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
+    auto column_event3 = ColumnUInt8::create();
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
@@ -251,15 +251,15 @@ TEST_F(VRetentionTest, testSerialize) {
         }
     }
 
-    auto column_event4 = ColumnVector<UInt8>::create();
+    auto column_event4 = ColumnUInt8::create();
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event5 = ColumnVector<UInt8>::create();
+    auto column_event5 = ColumnUInt8::create();
     column_event5->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event5->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event6 = ColumnVector<UInt8>::create();
+    auto column_event6 = ColumnUInt8::create();
     column_event6->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event6->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 

@@ -81,17 +81,17 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     }
     // call function
     auto num_columns_without_result = block->columns();
-    auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+    auto res_data_column = ColumnUInt8::create(block->rows());
 
     ColumnPtr argument_column =
             block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
-    auto* ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
+    auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
     _filter->find_fixed_len(argument_column, ptr);
 
     if (_data_type->is_nullable()) {
-        auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
+        auto null_map = ColumnUInt8::create(block->rows(), 0);
         block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
                        _data_type, _expr_name});
     } else {

@@ -299,11 +299,11 @@ TEST_F(AggLinearHistogramTest, test_empty) {
     test_agg_linear_histogram<DataTypeFloat32>(0, 0.5, 0);
     test_agg_linear_histogram<DataTypeFloat64>(0, 0.5, 0);
 
-    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(0, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(0, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(0, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(0, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal32>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal64>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimalV2>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal128>(0, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal256>(0, 0.5, 0);
 }
 
 TEST_F(AggLinearHistogramTest, test_with_data) {
@@ -316,11 +316,11 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0);
     test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0);
 
-    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(5, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(5, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(5, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(5, 0.5, 0);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal32>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimalV2>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0);
+    test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0);
 
     GTEST_LOG_(INFO) << "has offset";
     test_agg_linear_histogram<DataTypeInt8>(100, 10, 5);
@@ -331,11 +331,11 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeFloat32>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeFloat64>(5, 0.5, 0.25);
 
-    test_agg_linear_histogram<DataTypeDecimal<Decimal32>>(5, 0.5, 0.25);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal64>>(5, 0.5, 0.25);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V2>>(5, 0.5, 0.25);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal128V3>>(5, 0.5, 0.25);
-    test_agg_linear_histogram<DataTypeDecimal<Decimal256>>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal32>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimalV2>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0.25);
+    test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0.25);
 }
 
 } // namespace doris::vectorized

@@ -467,25 +467,33 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
     if (typeid_cast<const ColumnUInt8*>(data.get()))
-        return filter_number<UInt8>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt16*>(data.get()))
-        return filter_number<UInt16>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt32*>(data.get()))
-        return filter_number<UInt32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt64*>(data.get()))
-        return filter_number<UInt64>(filt, result_size_hint);
+        return filter_number<TYPE_BOOLEAN>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt8*>(data.get()))
-        return filter_number<Int8>(filt, result_size_hint);
+        return filter_number<TYPE_TINYINT>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt16*>(data.get()))
-        return filter_number<Int16>(filt, result_size_hint);
+        return filter_number<TYPE_SMALLINT>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt32*>(data.get()))
-        return filter_number<Int32>(filt, result_size_hint);
+        return filter_number<TYPE_INT>(filt, result_size_hint);
     if (typeid_cast<const ColumnInt64*>(data.get()))
-        return filter_number<Int64>(filt, result_size_hint);
+        return filter_number<TYPE_BIGINT>(filt, result_size_hint);
     if (typeid_cast<const ColumnFloat32*>(data.get()))
-        return filter_number<Float32>(filt, result_size_hint);
+        return filter_number<TYPE_FLOAT>(filt, result_size_hint);
     if (typeid_cast<const ColumnFloat64*>(data.get()))
-        return filter_number<Float64>(filt, result_size_hint);
+        return filter_number<TYPE_DOUBLE>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDate*>(data.get()))
+        return filter_number<TYPE_DATE>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDateV2*>(data.get()))
+        return filter_number<TYPE_DATEV2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDateTime*>(data.get()))
+        return filter_number<TYPE_DATETIME>(filt, result_size_hint);
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
+        return filter_number<TYPE_DATETIMEV2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnTimeV2*>(data.get()))
+        return filter_number<TYPE_TIMEV2>(filt, result_size_hint);
+    if (typeid_cast<const ColumnTime*>(data.get()))
+        return filter_number<TYPE_TIME>(filt, result_size_hint);
+    if (typeid_cast<const ColumnIPv4*>(data.get()))
+        return filter_number<TYPE_IPV4>(filt, result_size_hint);
     if (typeid_cast<const ColumnString*>(data.get())) return filter_string(filt, result_size_hint);
     //if (typeid_cast<const ColumnTuple *>(data.get()))      return filterTuple(filt, result_size_hint);
     if (typeid_cast<const ColumnNullable*>(data.get()))
@@ -494,36 +502,25 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
 }
 
 size_t ColumnArray::filter(const Filter& filter) {
-    if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return filter_number<UInt8>(filter);
-    } else if (typeid_cast<const ColumnUInt16*>(data.get())) {
-        return filter_number<UInt16>(filter);
-    } else if (typeid_cast<const ColumnUInt32*>(data.get())) {
-        return filter_number<UInt32>(filter);
-    } else if (typeid_cast<const ColumnUInt64*>(data.get())) {
-        return filter_number<UInt64>(filter);
-    } else if (typeid_cast<const ColumnInt8*>(data.get())) {
-        return filter_number<Int8>(filter);
-    } else if (typeid_cast<const ColumnInt16*>(data.get())) {
-        return filter_number<Int16>(filter);
-    } else if (typeid_cast<const ColumnInt32*>(data.get())) {
-        return filter_number<Int32>(filter);
-    } else if (typeid_cast<const ColumnInt64*>(data.get())) {
-        return filter_number<Int64>(filter);
-    } else if (typeid_cast<const ColumnFloat32*>(data.get())) {
-        return filter_number<Float32>(filter);
-    } else if (typeid_cast<const ColumnFloat64*>(data.get())) {
-        return filter_number<Float64>(filter);
-    } else if (typeid_cast<const ColumnString*>(data.get())) {
-        return filter_string(filter);
-    } else if (typeid_cast<const ColumnNullable*>(data.get())) {
-        return filter_nullable(filter);
-    } else {
-        return filter_generic(filter);
-    }
+    if (typeid_cast<const ColumnUInt8*>(data.get())) return filter_number<TYPE_BOOLEAN>(filter);
+    if (typeid_cast<const ColumnInt8*>(data.get())) return filter_number<TYPE_TINYINT>(filter);
+    if (typeid_cast<const ColumnInt16*>(data.get())) return filter_number<TYPE_SMALLINT>(filter);
+    if (typeid_cast<const ColumnInt32*>(data.get())) return filter_number<TYPE_INT>(filter);
+    if (typeid_cast<const ColumnInt64*>(data.get())) return filter_number<TYPE_BIGINT>(filter);
+    if (typeid_cast<const ColumnFloat32*>(data.get())) return filter_number<TYPE_FLOAT>(filter);
+    if (typeid_cast<const ColumnFloat64*>(data.get())) return filter_number<TYPE_DOUBLE>(filter);
+    if (typeid_cast<const ColumnDate*>(data.get())) return filter_number<TYPE_DATE>(filter);
+    if (typeid_cast<const ColumnDateV2*>(data.get())) return filter_number<TYPE_DATEV2>(filter);
+    if (typeid_cast<const ColumnDateTime*>(data.get())) return filter_number<TYPE_DATETIME>(filter);
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get()))
+        return filter_number<TYPE_DATETIMEV2>(filter);
+    if (typeid_cast<const ColumnTimeV2*>(data.get())) return filter_number<TYPE_TIMEV2>(filter);
+    if (typeid_cast<const ColumnTime*>(data.get())) return filter_number<TYPE_TIME>(filter);
+    if (typeid_cast<const ColumnIPv4*>(data.get())) return filter_number<TYPE_IPV4>(filter);
+    return filter_generic(filter);
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hint) const {
     if (get_offsets().empty()) return ColumnArray::create(data);
 
@@ -532,15 +529,15 @@ ColumnPtr ColumnArray::filter_number(const Filter& filt, ssize_t result_size_hin
     auto& res_elems = assert_cast<ColumnVector<T>&>(res->get_data()).get_data();
     auto& res_offsets = res->get_offsets();
 
-    filter_arrays_impl<T, Offset64>(
+    filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
             get_offsets(), res_elems, res_offsets, filt, result_size_hint);
     return res;
 }
 
-template <typename T>
+template <PrimitiveType T>
 size_t ColumnArray::filter_number(const Filter& filter) {
-    return filter_arrays_impl<T, Offset64>(
+    return filter_arrays_impl<typename PrimitiveTypeTraits<T>::ColumnItemType, Offset64>(
             assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*data).get_data(),
             get_offsets(), filter);
 }
@@ -798,58 +795,67 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
 
     // keep ColumnUInt8 for ColumnNullable::null_map
     if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return replicate_number<UInt8>(replicate_offsets);
+        return replicate_number<TYPE_BOOLEAN>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt8*>(data.get())) {
-        return replicate_number<Int8>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt8*>(data.get())) {
-        return replicate_number<UInt8>(replicate_offsets);
+        return replicate_number<TYPE_TINYINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt16*>(data.get())) {
-        return replicate_number<Int16>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt16*>(data.get())) {
-        return replicate_number<UInt16>(replicate_offsets);
+        return replicate_number<TYPE_SMALLINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt32*>(data.get())) {
-        return replicate_number<Int32>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt32*>(data.get())) {
-        return replicate_number<UInt32>(replicate_offsets);
+        return replicate_number<TYPE_INT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt64*>(data.get())) {
-        return replicate_number<Int64>(replicate_offsets);
-    }
-    if (typeid_cast<const ColumnUInt64*>(data.get())) {
-        return replicate_number<UInt64>(replicate_offsets);
+        return replicate_number<TYPE_BIGINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnInt128*>(data.get())) {
-        return replicate_number<Int128>(replicate_offsets);
+        return replicate_number<TYPE_LARGEINT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnIPv4*>(data.get())) {
-        return replicate_number<IPv4>(replicate_offsets);
+        return replicate_number<TYPE_IPV4>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnIPv6*>(data.get())) {
+        return replicate_number<TYPE_IPV6>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDate*>(data.get())) {
+        return replicate_number<TYPE_DATE>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDateTime*>(data.get())) {
+        return replicate_number<TYPE_DATETIME>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDateV2*>(data.get())) {
+        return replicate_number<TYPE_DATEV2>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnDateTimeV2*>(data.get())) {
+        return replicate_number<TYPE_DATETIMEV2>(replicate_offsets);
     }
     if (typeid_cast<const ColumnFloat32*>(data.get())) {
-        return replicate_number<Float32>(replicate_offsets);
+        return replicate_number<TYPE_FLOAT>(replicate_offsets);
     }
     if (typeid_cast<const ColumnFloat64*>(data.get())) {
-        return replicate_number<Float64>(replicate_offsets);
+        return replicate_number<TYPE_DOUBLE>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnTime*>(data.get())) {
+        return replicate_number<TYPE_TIME>(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnTimeV2*>(data.get())) {
+        return replicate_number<TYPE_TIMEV2>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal32*>(data.get())) {
-        return replicate_number<Decimal32>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL32>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal64*>(data.get())) {
-        return replicate_number<Decimal64>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL64>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
-        return replicate_number<Decimal128V2>(replicate_offsets);
+        return replicate_number<TYPE_DECIMALV2>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
-        return replicate_number<Decimal128V3>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL128I>(replicate_offsets);
     }
     if (typeid_cast<const ColumnDecimal256*>(data.get())) {
-        return replicate_number<Decimal256>(replicate_offsets);
+        return replicate_number<TYPE_DECIMAL256>(replicate_offsets);
     }
     if (typeid_cast<const ColumnString*>(data.get())) {
         return replicate_string(replicate_offsets);
@@ -860,7 +866,7 @@ ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) cons
     return replicate_generic(replicate_offsets);
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offsets) const {
     size_t col_size = size();
     column_match_offsets_size(col_size, replicate_offsets.size());
@@ -873,12 +879,13 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
 
     auto& res_arr = assert_cast<ColumnArray&>(*res);
 
-    const typename ColumnVectorOrDecimal<T>::Container& src_data =
-            assert_cast<const ColumnVectorOrDecimal<T>&>(*data).get_data();
+    const typename PrimitiveTypeTraits<T>::ColumnType::Container& src_data =
+            assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&>(*data).get_data();
     const auto& src_offsets = get_offsets();
 
-    typename ColumnVectorOrDecimal<T>::Container& res_data =
-            assert_cast<ColumnVectorOrDecimal<T>&>(res_arr.get_data()).get_data();
+    typename PrimitiveTypeTraits<T>::ColumnType::Container& res_data =
+            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(res_arr.get_data())
+                    .get_data();
     auto& res_offsets = res_arr.get_offsets();
 
     res_data.reserve(data->size() / col_size * replicate_offsets.back());
@@ -899,7 +906,7 @@ ColumnPtr ColumnArray::replicate_number(const IColumn::Offsets& replicate_offset
             if (value_size) {
                 res_data.resize(res_data.size() + value_size);
                 memcpy(&res_data[res_data.size() - value_size], &src_data[prev_data_offset],
-                       value_size * sizeof(T));
+                       value_size * sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType));
             }
         }
 

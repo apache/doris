@@ -337,6 +337,7 @@ import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowConvertLscContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateDatabaseContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateFunctionContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
@@ -702,6 +703,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -5860,6 +5862,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new ShowCreateDatabaseCommand(new DbName(catalogName, databaseName));
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateFunction(ShowCreateFunctionContext ctx) {
+        SetType statementScope = visitStatementScope(ctx.statementScope());
+        FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
+        String dbName = null;
+        FunctionArgTypesInfo functionArgTypesInfo;
+        if (ctx.functionArguments() != null) {
+            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
+        } else {
+            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
+        }
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        return new ShowCreateFunctionCommand(dbName, statementScope, function, functionArgTypesInfo);
     }
 
     @Override

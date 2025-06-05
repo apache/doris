@@ -27,13 +27,13 @@
 #include "runtime/primitive_type.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
+#include "util/simd/vstring_function.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -775,6 +775,11 @@ void ColumnStr<T>::insert(const Field& x) {
     memcpy(chars.data() + old_size, s.data, size_to_append);
     offsets.push_back(new_size);
     sanity_check_simple();
+}
+
+template <typename T>
+bool ColumnStr<T>::is_ascii() const {
+    return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
 }
 
 template class ColumnStr<uint32_t>;

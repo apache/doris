@@ -117,6 +117,12 @@ suite("test_nereids_show_export") {
         checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where id = 123 order by JobId limit 1")
         checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where id = 123 order by Label")
         checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where id = 123 order by Label limit 1")
+        checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where JobId = 123")
+        checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where JobId = 123 limit 1")
+        checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where JobId = 123 order by JobId")
+        checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where JobId = 123 order by JobId limit 1")
+        checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where JobId = 123 order by Label")
+        checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where JobId = 123 order by Label limit 1")
         checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where label like 'F%'")
         checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where label like 'F%' limit 1")
         checkNereidsExecute("SHOW EXPORT FROM test_nereids_show_export_db where label like 'F%' order by JobId")
@@ -158,6 +164,9 @@ suite("test_nereids_show_export") {
         def res9 = sql """SHOW EXPORT FROM test_nereids_show_export_db where LABEL like 'label_xxyyzz_%' order by LABEL limit 1"""
         assertEquals(1, res9.size())
         assertEquals("label_xxyyzz_1", res9.get(0).get(1))
+        def jobid = res2.get(0).get(0)
+        def res10 = sql """SHOW EXPORT FROM test_nereids_show_export_db where jobid = ${jobid}"""
+        assertEquals(1, res10.size())
     } finally {
         try_sql("DROP TABLE IF EXISTS test_nereids_show_export")
         try_sql("DROP DATABASE IF EXISTS test_nereids_show_export_db")

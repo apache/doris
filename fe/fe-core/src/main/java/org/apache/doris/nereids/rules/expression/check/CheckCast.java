@@ -129,6 +129,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (targetType.isNullType()) {
             return false;
         }
+        // only allowed [integer, float, string] cast to time
         if (targetType.isTimeLikeType() && !(originalType.isIntegralType()
                 || originalType.isStringLikeType() || originalType.isFloatLikeType())) {
             return false;

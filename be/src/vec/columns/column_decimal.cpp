@@ -168,7 +168,17 @@ void ColumnDecimal<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primi
     DCHECK(s == size());
 
     if constexpr (!IsDecimalV2<T>) {
-        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        // TODO(gabriel)
+        if (null_data == nullptr) {
+            for (size_t i = 0; i < s; i++) {
+                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);
+            }
+        } else {
+            for (size_t i = 0; i < s; i++) {
+                if (null_data[i] == 0)
+                    hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);
+            }
+        }
     } else {
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {

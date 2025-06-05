@@ -469,7 +469,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
     }
 };
 
-template <typename NumberType, typename DecimalType>
+template <PrimitiveType NumberType, typename DecimalType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
@@ -489,7 +489,8 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
             if constexpr (std::is_same_v<DecimalType, Decimal256>) {
                 value = src_data[i];
             } else {
-                value = cast_set<ValueCopyType, NumberType, false>(src_data[i]);
+                value = cast_set<ValueCopyType, typename PrimitiveTypeTraits<NumberType>::CppType,
+                                 false>(src_data[i]);
             }
 
             data[start_idx + i] = (DecimalType)value;
@@ -507,7 +508,7 @@ class Int32ToDate : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->reserve(start_idx + rows);
 
-        auto& src_data = static_cast<const ColumnVector<int32>*>(src_col.get())->get_data();
+        auto& src_data = static_cast<const ColumnInt32*>(src_col.get())->get_data();
         auto& data = static_cast<ColumnDateV2*>(dst_col.get())->get_data();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
@@ -530,8 +531,8 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto src_data = static_cast<const ColumnVector<int64_t>*>(src_col.get())->get_data().data();
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+        auto src_data = static_cast<const ColumnInt64*>(src_col.get())->get_data().data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
@@ -551,11 +552,11 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         MutableColumnPtr dst_col = remove_nullable(src_logical_column)->assume_mutable();
 
         size_t rows = src_col->size() / sizeof(ParquetInt96);
-        auto& src_data = static_cast<const ColumnVector<Int8>*>(src_col.get())->get_data();
+        auto& src_data = static_cast<const ColumnInt8*>(src_col.get())->get_data();
         auto ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = static_cast<ColumnVector<UInt64>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col.get())->get_data();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];
