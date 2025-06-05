@@ -25,6 +25,11 @@ suite("test_time") {
     qt_sql_wrong_input4 """ select time('2025-1-32 12:12:12') """
     qt_sql_wrong_input5 """ select time('2025-13-1 12:12:12') """
 
+    testFoldConst("select time('2025-1-1 12:00:00');")
+    testFoldConst("select time('2025-1-2 12:00:00');")
+    testFoldConst("select time('2025-1-1 23:59:59');")
+    testFoldConst("select time('2025-1-1 00:00:00');")
+
     def tableName = "test_time_function"
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
