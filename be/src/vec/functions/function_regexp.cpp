@@ -107,6 +107,7 @@ private:
             std::string error_str;
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
+
             if (!st) {
                 context->add_warning(error_str.c_str());
                 null_map[index_now] = true;
@@ -192,7 +193,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto result_data_column = ColumnInt64::create();
         auto& result_data = result_data_column->get_data();
