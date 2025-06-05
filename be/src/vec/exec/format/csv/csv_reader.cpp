@@ -260,7 +260,7 @@ Status CsvReader::init_reader(bool is_load) {
     }
 
     RETURN_IF_ERROR(_init_options());
-    RETURN_IF_ERROR(_create_file_reader());
+    RETURN_IF_ERROR(_create_file_reader(false));
     RETURN_IF_ERROR(_create_decompressor());
     RETURN_IF_ERROR(_create_line_reader());
 
@@ -498,10 +498,10 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-Status CsvReader::_create_file_reader() {
+Status CsvReader::_create_file_reader(bool need_schema) {
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(
-                FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state, false));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state,
+                                                        need_schema));
     } else {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
@@ -733,7 +733,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     }
 
     RETURN_IF_ERROR(_init_options());
-    RETURN_IF_ERROR(_create_file_reader());
+    RETURN_IF_ERROR(_create_file_reader(true));
     RETURN_IF_ERROR(_create_decompressor());
     RETURN_IF_ERROR(_create_line_reader());
     return Status::OK();

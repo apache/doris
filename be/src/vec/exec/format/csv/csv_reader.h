@@ -221,7 +221,7 @@ protected:
 
 private:
     Status _create_decompressor();
-    Status _create_file_reader();
+    Status _create_file_reader(bool need_schema);
     Status _fill_dest_columns(const Slice& line, Block* block,
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns, size_t* rows);
