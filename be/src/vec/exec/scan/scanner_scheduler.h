@@ -18,7 +18,6 @@
 #pragma once
 
 #include <atomic>
-#include <cstdint>
 #include <memory>
 
 #include "common/be_mock_util.h"
@@ -30,6 +29,7 @@ class ExecEnv;
 
 namespace vectorized {
 class Scanner;
+class Block;
 } // namespace vectorized
 
 template <typename T>
@@ -82,6 +82,8 @@ private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
 
+    static void _make_sure_virtual_col_is_materialized(const std::shared_ptr<Scanner>& scanner,
+                                                       vectorized::Block* block);
     // execution thread pool
     // _local_scan_thread_pool is for local scan task(typically, olap scanner)
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)

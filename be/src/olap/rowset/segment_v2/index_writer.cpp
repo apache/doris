@@ -64,7 +64,6 @@
 #include "util/faststring.h"
 #include "util/slice.h"
 #include "util/string_util.h"
-#include "vector/diskann_vector_index.h"
 #include "vector/vector_index.h"
 
 namespace doris {

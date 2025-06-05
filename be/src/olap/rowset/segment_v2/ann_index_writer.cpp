@@ -110,17 +110,15 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const CollectionValue* values,
                                               size_t count) {
-    return Status::OK();
+    return Status::InternalError("Ann index should not be used on nullable column");
 }
 
 Status AnnIndexColumnWriter::add_nulls(uint32_t count) {
-    // 实现逻辑
-    return Status::OK();
+    return Status::InternalError("Ann index should not be used on nullable column");
 }
 
 Status AnnIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t row_id) {
-    // 实现逻辑
-    return Status::OK();
+    return Status::InternalError("Ann index should not be used on nullable column");
 }
 
 int64_t AnnIndexColumnWriter::size() const {

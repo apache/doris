@@ -97,11 +97,6 @@ Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
             continue;
         }
         auto column_ptr = slot_desc->get_empty_mutable_column();
-        if (slot_desc->get_virtual_column_expr() != nullptr) {
-            // Make sure virtual column is assigend with a ColumnNothing
-            std::ignore = assert_cast<const ColumnNothing*>(column_ptr.get());
-        }
-
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
                                      slot_desc->col_name()));

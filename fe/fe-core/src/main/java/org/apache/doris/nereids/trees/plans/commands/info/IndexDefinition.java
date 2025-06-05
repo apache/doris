@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -137,6 +138,9 @@ public class IndexDefinition {
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.ANN) {
+            if (column.isNullable()) {
+                throw new AnalysisException("ANN index must be built on a column that is not nullable");
+            }
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
@@ -235,6 +239,10 @@ public class IndexDefinition {
                         "index name too long, the index name length at most is 128.");
             }
             return;
+        }
+
+        if (indexType == IndexDef.IndexType.ANN) {
+            AnnIndexPropertiesChecker.checkProperties(this.properties);
         }
 
         if (indexType == IndexDef.IndexType.BITMAP || indexType == IndexDef.IndexType.INVERTED) {

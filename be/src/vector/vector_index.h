@@ -58,34 +58,6 @@ class VectorIndex {
 public:
     enum class Metric { L2, INNER_PRODUCT, UNKNOWN };
 
-    /** Add n vectors of dimension d to the index.
-     *
-     * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
-     * This function slices the input vectors in chunks smaller than
-     * blocksize_add and calls add_core.
-     * @param n      number of vectors
-     * @param x      input matrix, size n * d
-     */
-    virtual doris::Status add(int n, const float* x) = 0;
-
-    virtual doris::Status ann_topn_search(const float* query_vec, int k,
-                                          const IndexSearchParameters& params,
-                                          IndexSearchResult& result) = 0;
-    /**
-        * Search for the nearest neighbors of a query vector within a given radius.
-        * @param query_vec  input vector, size d
-        * @param radius  search radius
-        * @param result  output search result
-        * @return       status of the operation
-        */
-    virtual doris::Status range_search(const float* query_vec, const float& radius,
-                                       const IndexSearchParameters& params,
-                                       IndexSearchResult& result) = 0;
-
-    virtual doris::Status save(lucene::store::Directory*) = 0;
-
-    virtual doris::Status load(lucene::store::Directory*) = 0;
-
     static std::string metric_to_string(Metric metric) {
         switch (metric) {
         case Metric::L2:
@@ -105,7 +77,44 @@ public:
             return Metric::UNKNOWN;
         }
     }
+
     virtual ~VectorIndex() = default;
+
+    /** Add n vectors of dimension d vectors to the index.
+     *
+     * Vectors are implicitly assigned labels ntotal .. ntotal + n - 1
+     * This function slices the input vectors in chunks smaller than
+     * blocksize_add and calls add_core.
+     * @param n      number of vectors
+     * @param x      input matrix, size n * d
+     */
+    virtual doris::Status add(int n, const float* x) = 0;
+
+    /** Return approximate nearest neighbors of a query vector.
+     * The result is stored in the result object.
+     * @param query_vec  input vector, size d
+     * @param k          number of nearest neighbors to return
+     * @param params     search parameters
+     * @param result     output search result
+     * @return          status of the operation
+    */
+    virtual doris::Status ann_topn_search(const float* query_vec, int k,
+                                          const IndexSearchParameters& params,
+                                          IndexSearchResult& result) = 0;
+    /**
+    * Search for the nearest neighbors of a query vector within a given radius.
+    * @param query_vec  input vector, size d
+    * @param radius  search radius
+    * @param result  output search result
+    * @return       status of the operation
+    */
+    virtual doris::Status range_search(const float* query_vec, const float& radius,
+                                       const IndexSearchParameters& params,
+                                       IndexSearchResult& result) = 0;
+
+    virtual doris::Status save(lucene::store::Directory*) = 0;
+
+    virtual doris::Status load(lucene::store::Directory*) = 0;
 
     size_t get_dimension() const { return _dimension; }
 

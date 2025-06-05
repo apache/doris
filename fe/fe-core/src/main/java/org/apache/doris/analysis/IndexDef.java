@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -217,6 +218,10 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
+    public boolean isAnnIndex() {
+        return (this.indexType == IndexType.ANN);
+    }
+
     // Check if the column type is supported for inverted index
     public boolean isSupportIdxType(Type colType) {
         if (colType.isArrayType()) {
@@ -235,8 +240,27 @@ public class IndexDef {
 
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.ANN) {
+            if (column.isAllowNull()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException("ANN index must be built on a column that is not nullable");
+            }
+
+            String indexColName = column.getName();
+            caseSensitivityColumns.add(indexColName);
+            PrimitiveType primitiveType = column.getDataType();
+            if (!primitiveType.isArrayType()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException("ANN index column must be array type");
+            }
+            Type columnType = column.getType();
+            Type itemType = ((ArrayType) columnType).getItemType();
+            if (!itemType.isFloatingPointType()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException("ANN index column item type must be float type");
+            }
+            return;
+        }
+
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
-                || indexType == IndexType.NGRAM_BF || indexType == IndexType.ANN) {
+                || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();

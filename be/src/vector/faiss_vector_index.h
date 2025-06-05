@@ -26,7 +26,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/metrics.h"
 #include "vector_index.h"
 
 namespace doris::segment_v2 {
@@ -36,9 +35,8 @@ struct FaissBuildParameter {
     enum class Quantilizer { FLAT, PQ };
 
     enum class MetricType {
-        L2,    // Euclidean distance
-        IP,    // Inner product
-        COSINE // Cosine similarity
+        L2, // Euclidean distance
+        IP, // Inner product
     };
 
     static IndexType string_to_index_type(const std::string& type) {
@@ -66,9 +64,8 @@ struct FaissBuildParameter {
             return MetricType::L2;
         } else if (type == "ip") {
             return MetricType::IP;
-        } else if (type == "cosine") {
-            return MetricType::COSINE;
         }
+
         return MetricType::L2; // default
     }
 

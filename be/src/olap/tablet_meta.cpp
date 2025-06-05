@@ -268,6 +268,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                         break;
                     }
                 }
+                // TODO: Why not add a flag for inverted index?
             }
         }
     }

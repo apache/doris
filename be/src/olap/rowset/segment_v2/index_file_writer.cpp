@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "olap/rowset/segment_v2/tmp_file_dirs.h"
 #include "olap/tablet_schema.h"
 
 namespace doris::segment_v2 {
