@@ -320,9 +320,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 
     s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
-                .set_min_threads(config::fragment_mgr_asynic_work_pool_thread_num_min)
-                .set_max_threads(config::fragment_mgr_asynic_work_pool_thread_num_max)
-                .set_max_queue_size(config::fragment_mgr_asynic_work_pool_queue_size)
+                .set_min_threads(config::fragment_mgr_async_work_pool_thread_num_min)
+                .set_max_threads(config::fragment_mgr_async_work_pool_thread_num_max)
+                .set_max_queue_size(config::fragment_mgr_async_work_pool_queue_size)
                 .build(&_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
