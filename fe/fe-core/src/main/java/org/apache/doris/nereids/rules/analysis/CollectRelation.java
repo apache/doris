@@ -19,12 +19,15 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -52,6 +55,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -189,6 +193,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         LOG.info("collect table {} from {}", nameParts, tableFrom);
         if (tableFrom == TableFrom.QUERY) {
+            collectMVCandidates(table, cascadesContext);
             collectMTMVCandidates(table, cascadesContext);
         }
         if (tableFrom == TableFrom.INSERT_TARGET) {
@@ -203,6 +208,22 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
     }
 
+    // collect sync materialized view which maybe used for rewrite later
+    private void collectMVCandidates(TableIf tableIf, CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(statementContext);
+        if (shouldCollect && tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            long baseIndexId = olapTable.getBaseIndexId();
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                if (entry.getKey() != baseIndexId) {
+                    statementContext.getCandidateMVs().add(entry.getValue());
+                }
+            }
+        }
+    }
+
+    // collect async materialized view which maybe used for rewrite later
     private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
         boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(
                 cascadesContext.getStatementContext());

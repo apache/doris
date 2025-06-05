@@ -226,8 +226,7 @@ public class CascadesContext implements ScheduleContext {
     public void toMemo() {
         this.memo = new Memo(getConnectContext(), plan);
         List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
-        boolean initMultiPlanMemo = Memo.needInitMultiPlanMemo(this);
-        if (initMultiPlanMemo) {
+        if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
             // copy tmp plan for mv rewrite firstly
             for (Plan rewrittenPlan : rewrittenPlansByMv) {
                 // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties

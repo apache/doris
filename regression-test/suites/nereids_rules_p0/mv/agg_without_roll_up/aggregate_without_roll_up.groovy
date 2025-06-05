@@ -419,19 +419,22 @@ suite("aggregate_without_roll_up") {
             "o_orderdate, " +
             "l_partkey, " +
             "l_suppkey"
-    def query14_0 = "select l_partkey, l_suppkey, o_orderdate, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*), " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) " +
-            "from lineitem t1 " +
-            "left join (select * from orders where o_orderdate = '2023-12-08') t2 " +
-            "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
-            "group by " +
-            "o_orderdate, " +
-            "l_partkey, " +
-            "l_suppkey"
+    def query14_0 = """
+            select l_partkey, l_suppkey, o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from lineitem t1
+            left join (select * from orders where o_orderdate = '2023-12-08') t2
+            on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+            """
+
     order_qt_query14_0_before "${query14_0}"
     async_mv_rewrite_success(db, mv14_0, query14_0, "mv14_0", [TRY_IN_RBO, FORCE_IN_RBO])
     async_mv_rewrite_success(db, mv14_0, query14_0, "mv14_0", [NOT_IN_RBO])
