@@ -653,7 +653,12 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testCreateRepository() {
         NereidsParser nereidsParser = new NereidsParser();
-        String sql = "create repository a with S3 on location 's3://xxx' properties('k'='v')";
+        String sql = "create repository a with S3 on location 's3://s3-repo' "
+                + "properties("
+                + "'AWS_ENDPOINT' = 'http://s3.us-east-1.amazonaws.com',"
+                + "'AWS_ACCESS_KEY' = 'akk',"
+                + "'AWS_SECRET_KEY'='skk',"
+                + "'AWS_REGION' = 'us-east-1')";
         nereidsParser.parseSingle(sql);
     }
 

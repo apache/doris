@@ -28,7 +28,6 @@
 #include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"

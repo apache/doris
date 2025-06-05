@@ -2128,6 +2128,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String originStmt = request.getLoadSql();
         HttpStreamParams httpStreamParams;
         try {
+            while (DebugPointUtil.isEnable("FE.FrontendServiceImpl.initHttpStreamPlan.block")) {
+                Thread.sleep(1000);
+                LOG.info("block initHttpStreamPlan");
+            }
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             ctx.setExecutor(executor);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
@@ -2146,7 +2150,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.setParams(coord.getStreamLoadPlan());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
-            throw new UserException("exec sql error" + e);
+            throw e;
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
@@ -2221,7 +2225,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
-            throw new UserException("exec sql error" + e);
+            throw e;
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);

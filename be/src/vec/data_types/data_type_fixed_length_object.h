@@ -38,6 +38,7 @@ class IColumn;
 class DataTypeFixedLengthObject final : public IDataType {
 public:
     using ColumnType = ColumnFixedLengthObject;
+    static constexpr PrimitiveType PType = INVALID_TYPE;
 
     DataTypeFixedLengthObject() = default;
 

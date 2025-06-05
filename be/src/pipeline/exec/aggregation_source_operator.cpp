@@ -133,7 +133,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
                         agg_method.init_iterator();
                         auto& data = *agg_method.hash_table;
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
                         if (shared_state.values.size() < size + 1) {
                             shared_state.values.resize(size + 1);
@@ -257,7 +257,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
                         auto& data = *agg_method.hash_table;
                         agg_method.init_iterator();
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
                         if (shared_state.values.size() < size) {
                             shared_state.values.resize(size);

@@ -49,6 +49,10 @@ public class JobExecutionConfiguration {
      */
     private Integer maxConcurrentTaskNum;
 
+    public void initParams() {
+        initTimerDefinition();
+    }
+
     public void checkParams() {
         if (executeType == null) {
             throw new IllegalArgumentException("executeType cannot be null");
@@ -84,6 +88,12 @@ public class JobExecutionConfiguration {
                     "timerDefinition cannot be null when executeType is not instant or manual");
         }
         timerDefinition.checkParams();
+    }
+
+    private void initTimerDefinition() {
+        if (timerDefinition != null) {
+            timerDefinition.initParams();
+        }
     }
 
     private void validateStartTimeMs() {

@@ -184,5 +184,6 @@ BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_check_failed("checker", "
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker", "leaked_delete_bitmaps");
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps("checker", "abnormal_delete_bitmaps");
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned("checker", "delete_bitmap_keys_scanned");
+BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version("checker", "max_rowsets_with_useless_delete_bitmap_version");
 
 // clang-format on

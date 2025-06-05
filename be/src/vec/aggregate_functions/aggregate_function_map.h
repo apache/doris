@@ -24,7 +24,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -190,7 +189,7 @@ public:
             : IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>>(
                       argument_types_) {}
 
-    std::string get_name() const override { return "map_agg"; }
+    std::string get_name() const override { return "map_agg_v1"; }
 
     DataTypePtr get_return_type() const override {
         /// keys and values column of `ColumnMap` are always nullable.

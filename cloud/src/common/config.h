@@ -90,6 +90,8 @@ CONF_Bool(enable_delete_bitmap_inverted_check, "false");
 // checks if https://github.com/apache/doris/pull/40204 works as expected
 CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");
 CONF_mInt64(delete_bitmap_storage_optimize_check_version_gap, "1000");
+CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
@@ -222,6 +224,9 @@ CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 CONF_mBool(enable_distinguish_hdfs_path, "true");
 
+// If enabled, the txn status will be checked when preapre/commit rowset
+CONF_mBool(enable_load_txn_status_check, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,
@@ -290,6 +295,9 @@ CONF_Strings(recycler_storage_vault_white_list, "");
 
 // for test only
 CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
+
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 
 // aws sdk log level
 //    Off = 0,

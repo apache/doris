@@ -169,7 +169,7 @@ Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& c
         int64_t val = p._grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!p._output_slots[cur_col]->is_nullable());
-        auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
+        auto* col = assert_cast<vectorized::ColumnInt64*>(column_ptr);
         col->insert_many_vals(val, rows);
         cur_col++;
     }
