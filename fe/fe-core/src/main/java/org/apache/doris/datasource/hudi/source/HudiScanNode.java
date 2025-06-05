@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.fsv2.DirectoryLister;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -56,13 +57,11 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
-import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -125,8 +124,8 @@ public class HudiScanNode extends HiveScanNode {
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
-            SessionVariable sv) {
-        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv, sv);
+            SessionVariable sv, DirectoryLister directoryLister) {
+        super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv, sv, directoryLister);
         isCowTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
             if (isCowTable) {
@@ -198,7 +197,7 @@ public class HudiScanNode extends HiveScanNode {
             if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
                 throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
             }
-            queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
+            queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {
@@ -217,7 +216,9 @@ public class HudiScanNode extends HiveScanNode {
             .getExtMetaCacheMgr()
             .getFsViewProcessor(hmsTable.getCatalog())
             .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
-        params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        if (hudiSchemaCacheValue.isEnableSchemaEvolution()) {
+            params.setHistorySchemaInfo(new ConcurrentHashMap<>());
+        }
     }
 
     @Override
@@ -258,8 +259,8 @@ public class HudiScanNode extends HiveScanNode {
         THudiFileDesc fileDesc = new THudiFileDesc();
         if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI) {
             fileDesc.setInstantTime(hudiSplit.getInstantTime());
-            fileDesc.setInputFormat(hudiSplit.getInputFormat());
             fileDesc.setSerde(hudiSplit.getSerde());
+            fileDesc.setInputFormat(hudiSplit.getInputFormat());
             fileDesc.setBasePath(hudiSplit.getBasePath());
             fileDesc.setDataFilePath(hudiSplit.getDataFilePath());
             fileDesc.setDataFileLength(hudiSplit.getFileLength());
@@ -277,20 +278,8 @@ public class HudiScanNode extends HiveScanNode {
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
                 params.history_schema_info.computeIfAbsent(
                         internalSchema.schemaId(),
-                        k -> HudiUtils.getSchemaInfo(internalSchema)); //for schema change. (native reader)
-                fileDesc.setSchemaId(internalSchema.schemaId());
-            } else {
-                try {
-                    TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
-                    InternalSchema internalSchema =
-                            AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
-                    params.history_schema_info.computeIfAbsent(
-                            internalSchema.schemaId(),
-                            k -> HudiUtils.getSchemaInfo(internalSchema)); // Handle column name case for BE.
-                    fileDesc.setSchemaId(internalSchema.schemaId());
-                } catch (Exception e) {
-                    throw new RuntimeException("Cannot get hudi table schema.", e);
-                }
+                        k -> HudiUtils.getSchemaInfo(internalSchema));
+                fileDesc.setSchemaId(internalSchema.schemaId()); //for schema change. (native reader)
             }
         }
         tableFormatFileDesc.setHudiParams(fileDesc);
@@ -302,13 +291,14 @@ public class HudiScanNode extends HiveScanNode {
     }
 
     private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) {
-        NameMapping nameMapping = hmsTable.getOrBuildNameMapping();
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
         if (!partitionColumnTypes.isEmpty()) {
             this.totalPartitionNum = selectedPartitions.totalPartitionNum;
             Map<String, PartitionItem> prunedPartitions = selectedPartitions.selectedPartitions;
             this.selectedPartitionNum = prunedPartitions.size();
 
+            String dbName = hmsTable.getDbName();
+            String tblName = hmsTable.getName();
             String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
             String basePath = metaClient.getBasePathV2().toString();
 
@@ -317,7 +307,7 @@ public class HudiScanNode extends HiveScanNode {
                     (key, value) -> {
                         String path = basePath + "/" + key;
                         hivePartitions.add(new HivePartition(
-                                nameMapping, false, inputFormat, path,
+                                dbName, tblName, false, inputFormat, path,
                                 ((ListPartitionItem) value).getItems().get(0).getPartitionValuesAsStringList(),
                                 Maps.newHashMap()));
                     }
@@ -327,7 +317,7 @@ public class HudiScanNode extends HiveScanNode {
         // unpartitioned table, create a dummy partition to save location and
         // inputformat,
         // so that we can unify the interface.
-        HivePartition dummyPartition = new HivePartition(nameMapping, true,
+        HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                 hmsTable.getRemoteTable().getSd().getInputFormat(),
                 hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
         this.totalPartitionNum = 1;
@@ -418,14 +408,7 @@ public class HudiScanNode extends HiveScanNode {
             partitionInit = true;
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-        try {
-            hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
-                getPartitionsSplits(prunedPartitions, splits);
-                return null;
-            });
-        } catch (Exception e) {
-            throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        getPartitionsSplits(prunedPartitions, splits);
         return splits;
     }
 
