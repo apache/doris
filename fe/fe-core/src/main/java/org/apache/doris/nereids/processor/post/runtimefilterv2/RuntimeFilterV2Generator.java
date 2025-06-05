@@ -80,13 +80,13 @@ public class RuntimeFilterV2Generator extends PlanPostProcessor {
 
     /**
      *
-     * do not use complex data type column, such as array, map, struct and json
+     * do not use metric data type column (such as array, map, struct, json, bitmap, ...) as runtime filter source
      *
      */
     private List<Integer> chooseSourceSlots(PhysicalSetOperation setOp) {
         List<Slot> output = setOp.getOutput();
         for (int i = 0; i < output.size(); i++) {
-            if (!output.get(i).getDataType().isComplexType()) {
+            if (!output.get(i).getDataType().isOnlyMetricType()) {
                 return ImmutableList.of(i);
             }
         }
