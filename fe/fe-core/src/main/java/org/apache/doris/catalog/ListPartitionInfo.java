@@ -26,17 +26,12 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ListUtil;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -63,17 +58,6 @@ public class ListPartitionInfo extends PartitionInfo {
         if (exprs != null) {
             this.partitionExprs.addAll(exprs);
         }
-    }
-
-    @Deprecated
-    public static PartitionInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), ListPartitionInfo.class);
-        }
-
-        PartitionInfo partitionInfo = new ListPartitionInfo();
-        partitionInfo.readFields(in);
-        return partitionInfo;
     }
 
     @Override
@@ -143,33 +127,6 @@ public class ListPartitionInfo extends PartitionInfo {
     public void checkPartitionItemListsConflict(List<PartitionItem> list1,
             List<PartitionItem> list2) throws DdlException {
         ListUtil.checkListsConflict(list1, list2);
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            Column column = Column.read(in);
-            partitionColumns.add(column);
-        }
-
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            ListPartitionItem partitionItem = ListPartitionItem.read(in);
-            idToItem.put(partitionId, partitionItem);
-        }
-
-        counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            long partitionId = in.readLong();
-            ListPartitionItem partitionItem = ListPartitionItem.read(in);
-            idToTempItem.put(partitionId, partitionItem);
-        }
     }
 
     public static void checkPartitionColumn(Column column) throws AnalysisException {

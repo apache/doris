@@ -20,9 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 
-import java.io.DataInput;
-import java.io.IOException;
-
 public final class MaxLiteral extends LiteralExpr {
 
     public static final MaxLiteral MAX_VALUE = new MaxLiteral();
@@ -71,12 +68,5 @@ public final class MaxLiteral extends LiteralExpr {
     @Override
     protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return null;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-    }
-
-    public static MaxLiteral read(DataInput in) throws IOException {
-        return MAX_VALUE;
     }
 }

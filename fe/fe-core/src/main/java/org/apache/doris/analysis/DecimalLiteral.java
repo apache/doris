@@ -24,7 +24,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDecimalLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -33,8 +32,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
@@ -314,29 +311,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
                     : value.setScale(scale, RoundingMode.HALF_UP);
             this.value = Objects.requireNonNull(adjustedValue);
         }
-    }
-
-    public void tryToReduceType() {
-        if (this.type.isDecimalV3()) {
-            try {
-                value = new BigDecimal(value.longValueExact());
-            } catch (ArithmeticException e) {
-                // ignore
-            }
-            this.type = ScalarType.createDecimalV3Type(
-                    Math.max(this.value.scale(), this.value.precision()), this.value.scale());
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = new BigDecimal(Text.readString(in));
-    }
-
-    public static DecimalLiteral read(DataInput in) throws IOException {
-        DecimalLiteral dec = new DecimalLiteral();
-        dec.readFields(in);
-        return dec;
     }
 
     // To be compatible with OLAP, only need 9 digits.

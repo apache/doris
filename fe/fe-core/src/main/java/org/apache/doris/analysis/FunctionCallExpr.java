@@ -62,8 +62,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2338,16 +2336,6 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        fnName = FunctionName.read(in);
-        fnParams = FunctionParams.read(in);
-        if (fnParams.exprs() != null) {
-            children.addAll(fnParams.exprs());
-        }
-        isAnalyticFnCall = in.readBoolean();
-        isMergeAggFn = in.readBoolean();
-    }
-
     @Override
     protected void normalize(TExprNode msg, Normalizer normalizer) {
         String functionName = fnName.getFunction().toUpperCase();
@@ -2357,12 +2345,6 @@ public class FunctionCallExpr extends Expr {
             throw new IllegalStateException("Can not normalize non deterministic functions");
         }
         super.normalize(msg, normalizer);
-    }
-
-    public static FunctionCallExpr read(DataInput in) throws IOException {
-        FunctionCallExpr func = new FunctionCallExpr();
-        func.readFields(in);
-        return func;
     }
 
     @Override

@@ -28,7 +28,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Pair;
@@ -45,8 +44,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -474,23 +471,6 @@ public class CastExpr extends Expr {
             return new BoolLiteral(value.getStringValue());
         }
         return this;
-    }
-
-    public static CastExpr read(DataInput input) throws IOException {
-        CastExpr castExpr = new CastExpr();
-        castExpr.readFields(input);
-        return castExpr;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        isImplicit = in.readBoolean();
-        ScalarType scalarType = TypeUtils.readScalaType(in);
-        targetTypeDef = new TypeDef(scalarType);
-        int counter = in.readInt();
-        for (int i = 0; i < counter; i++) {
-            children.add(Expr.readIn(in));
-        }
     }
 
     public CastExpr rewriteExpr(List<String> parameters, List<Expr> inputParamsExprs) throws AnalysisException {
