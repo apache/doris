@@ -176,7 +176,17 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         return whereClauseItem.toMVColumn(olapTable);
     }
 
-    private void validate(ConnectContext ctx) throws Exception {
+    public MVColumnItem getWhereClauseItem() {
+        return whereClauseItem;
+    }
+
+    /**
+     * validate
+     *
+     * @param ctx
+     * @throws Exception
+     */
+    public void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
         Pair<LogicalPlan, CascadesContext> result = analyzeLogicalPlan(logicalPlan, ctx);
         CheckPrivileges checkPrivileges = new CheckPrivileges();
