@@ -470,18 +470,29 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
             throw e;
         } finally {
-            long lockId = getTxnLockId(dbId, transactionId);
-            if (lockId != -1) {
-                // this txn use CachedDeleteBitmapLock
-                int maxTimes = Config.share_mow_lock_for_load_threshold;
-                long tableId = mowTableList.get(0).getId();
-                CachedDeleteBitmapLock cachedLock = cachedDeleteBitmapLockMgr.get(dbId).get(tableId);
-                LOG.info("txn {}, tableId {}, use cached delete bitmap lock, cnt is {}, maxTimes is {}",
-                        transactionId, tableId, cachedLock.getCnt(), maxTimes);
-                if (maxTimes > 0 && cachedLock.getCnt() >= maxTimes) {
-                    LOG.warn("txn {}, tableId {}, use cached delete bitmap lock, cnt is {}, maxTimes is {}, "
-                            + "so remove the dbm lock in ms", transactionId, tableId, cachedLock.getCnt(), maxTimes);
-                    removeDeleteBitmapUpdateLock(dbId, mowTableList, transactionId);
+            if (!mowTableList.isEmpty()) {
+                maybeReleaseDeleteBitmapLock(dbId, transactionId, mowTableList);
+            }
+        }
+    }
+
+    private void maybeReleaseDeleteBitmapLock(long dbId, long transactionId, List<OlapTable> mowTableList) {
+        long lockId = getTxnLockId(dbId, transactionId);
+        if (lockId != -1) {
+            // this txn use CachedDeleteBitmapLock
+            int maxTimes = Config.share_mow_lock_for_load_threshold;
+            long tableId = mowTableList.get(0).getId();
+            if (cachedDeleteBitmapLockMgr.containsKey(dbId)) {
+                Map<Long, CachedDeleteBitmapLock> tableLocks = cachedDeleteBitmapLockMgr.get(dbId);
+                CachedDeleteBitmapLock cachedLock = tableLocks.get(tableId);
+                if (cachedLock != null) {
+                    LOG.info("txn {}, tableId {}, use cached lock, cnt is {}, maxTimes is {}",
+                            transactionId, tableId, cachedLock.getCnt(), maxTimes);
+                    if (maxTimes > 0 && cachedLock.getCnt() >= maxTimes) {
+                        LOG.warn("txn {}, tableId {}, use cached lock, cnt is {}, maxTimes is {}, so remove "
+                                + "the dbm lock in ms", transactionId, tableId, cachedLock.getCnt(), maxTimes);
+                        removeDeleteBitmapUpdateLock(dbId, mowTableList, transactionId);
+                    }
                 }
             }
         }
@@ -1191,8 +1202,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void removeDeleteBitmapUpdateLock(long dbId, List<OlapTable> tableList, long transactionId) {
-        for (OlapTable table : tableList) {
+        tableList.forEach(table -> {
             clearTableCachedDeleteBitmapLock(dbId, table.getId());
+        });
+        for (OlapTable table : tableList) {
             RemoveDeleteBitmapUpdateLockRequest.Builder builder = RemoveDeleteBitmapUpdateLockRequest.newBuilder();
             builder.setTableId(table.getId())
                     .setLockId(transactionId)
