@@ -103,12 +103,31 @@ public class PreMaterializedViewRewriter {
     }
 
     /**
-     * Calc need pre mv rewrite or not
+     * Calc need to record tmp plan for rewrite or not, this would be calculated in RBO phase
+     * if needed should return true, or would return false
+     */
+    public static boolean needRecordTmpPlanForRewrite(CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
+                cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
+        if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
+            return false;
+        }
+        if (statementContext.isForceRecordTmpPlan()) {
+            return true;
+        }
+        if (!MaterializedViewUtils.containMaterializedViewHook(statementContext)) {
+            // current statement context doesn't have hook, doesn't use pre RBO materialized view rewrite
+            return false;
+        }
+        return !statementContext.getCandidateMVs().isEmpty() || !statementContext.getCandidateMTMVs().isEmpty();
+    }
+
+    /**
+     * Calc need pre mv rewrite or not, this would be calculated after RBO phase
      */
     public static boolean needPreRewrite(CascadesContext cascadesContext) {
         StatementContext statementContext = cascadesContext.getStatementContext();
-        PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
-                statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
         if (statementContext.getTmpPlanForMvRewrite().isEmpty()) {
             return false;
         }
@@ -127,10 +146,16 @@ public class PreMaterializedViewRewriter {
             // if tmp plan has no same logical properties to the finalRewritePlan, should not be written in rbo
             return false;
         }
+        if (Optimizer.isDpHyp(cascadesContext)) {
+            // dp hyper only support one group expression in each group when init
+            return false;
+        }
         // if rewrite success rule not in NeedPreRewriteRule, should not be written in rbo
         BitSet appliedRules = statementContext.getNeedPreMvRewriteRuleMasks();
         BitSet needPreRewriteRuleSet = (BitSet) getNeedPreRewriteRule().clone();
         needPreRewriteRuleSet.and(appliedRules);
+        PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
+                statementContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
         return !needPreRewriteRuleSet.isEmpty() || PreRewriteStrategy.FORCE_IN_RBO.equals(preRewriteStrategy);
     }
 

@@ -23,7 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
-import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter.PreRewriteStrategy;
+import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
@@ -31,8 +31,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.Map;
 
 /**
  * Record plan for later mv rewrite
@@ -45,26 +43,7 @@ public class RecordPlanForMvPreRewrite extends DefaultPlanRewriter<Void> impleme
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         StatementContext statementContext = cascadesContext.getStatementContext();
-        PreRewriteStrategy preRewriteStrategy = PreRewriteStrategy.getEnum(
-                cascadesContext.getConnectContext().getSessionVariable().getPreMaterializedViewRewriteStrategy());
-        if (PreRewriteStrategy.NOT_IN_RBO.equals(preRewriteStrategy)) {
-            return plan;
-        }
-        // This is to generate mv cache, should always record tmp plan
-        boolean forceRecordTmpPlan = statementContext.isForceRecordTmpPlan();
-        if (!forceRecordTmpPlan
-                && !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
-            // current statement context doesn't have hook, doesn't use pre RBO materialized view rewrite
-            return plan;
-        }
-        Map<Integer, Integer> queryUsedScanMap = statementContext.getRelationIdToCommonTableIdMap();
-        if (!forceRecordTmpPlan && (queryUsedScanMap.size() > 1 && statementContext.getCandidateMTMVs().isEmpty())) {
-            // if query used more than one scan, but multi table materialized view is empty, doesn't use pre RBO
-            // materialized view rewrite
-            return plan;
-        }
-        if (!forceRecordTmpPlan && queryUsedScanMap.size() == 1) {
-            // if query used only one scan doesn't use pre RBO materialized view rewrite
+        if (!PreMaterializedViewRewriter.needRecordTmpPlanForRewrite(cascadesContext)) {
             return plan;
         }
         // plan pre normalize
