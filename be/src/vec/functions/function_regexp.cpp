@@ -71,7 +71,7 @@ struct RegexpCountImpl {
 
     static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
                                         size_t input_rows_count,
-+                                        ColumnInt64::Container& result_data, NullMap& null_map) {
+                                         ColumnInt64::Container& result_data, NullMap& null_map) {
         const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
 
@@ -89,12 +89,12 @@ private:
     template <bool Const>
     static int64_t _execute_inner_loop(FunctionContext* context, const ColumnString* str,
                                        const ColumnString* pattern, NullMap& null_map,
-+                                       const size_t index_now) {
+                                        const size_t index_now) {
         re2::RE2* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
 
-        if (str->is_null_at(index_now) || 
+        if (str->is_null_at(index_now) ||
             pattern->is_null_at(index_check_const(index_now, Const))) {
             null_map[index_now] = true;
             return 0;
