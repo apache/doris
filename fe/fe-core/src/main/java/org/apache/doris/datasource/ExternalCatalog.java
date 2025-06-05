@@ -1279,7 +1279,7 @@ public abstract class ExternalCatalog
         return transactionManager;
     }
 
-    public ThreadPoolExecutor getThreadPoolWithPreAuth() {
+    public ThreadPoolExecutor getThreadPoolExecutor() {
         return threadPoolWithPreAuth;
     }
 }
