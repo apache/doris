@@ -129,7 +129,11 @@ public class DefaultRemote extends RemoteBase {
                 credentials = AwsBasicCredentials.create(obj.getAk(), obj.getSk());
             }
             StaticCredentialsProvider scp = StaticCredentialsProvider.create(credentials);
-            URI endpointUri = URI.create("http://" + obj.getEndpoint());
+            String endpoint = obj.getEndpoint();
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                endpoint = "http://" + endpoint;
+            }
+            URI endpointUri = URI.create(endpoint);
             s3Client = S3Client.builder().endpointOverride(endpointUri).credentialsProvider(scp)
                     .region(Region.of(obj.getRegion())).build();
         }

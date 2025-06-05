@@ -606,13 +606,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private void checkEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
-            String urlStr = endpoint;
-            // Add default protocol if not specified
-            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-                urlStr = "http://" + endpoint;
-            }
-            SecurityChecker.getInstance().startSSRFChecking(urlStr);
-            URL url = new URL(urlStr);
+            SecurityChecker.getInstance().startSSRFChecking(endpoint);
+            URL url = new URL(endpoint);
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(10000);
             connection.connect();
@@ -646,6 +641,11 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
                 && brokerDescProperties.containsKey(S3Properties.Env.REGION)) {
             String endpoint = brokerDescProperties.get(S3Properties.Env.ENDPOINT);
             checkWhiteList(endpoint);
+            // Add default protocol if not specified
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                endpoint = "http://" + endpoint;
+            }
+            brokerDescProperties.put(S3Properties.Env.ENDPOINT, endpoint);
             if (AzureProperties.checkAzureProviderPropertyExist(brokerDescProperties)) {
                 return;
             }
