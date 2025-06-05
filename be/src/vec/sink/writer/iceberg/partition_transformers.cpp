@@ -55,23 +55,23 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                                                                                 parsed_width);
             }
             case TYPE_DECIMALV2: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal128V2>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMALV2>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL32: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal32>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL32>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL64: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal64>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL64>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL128I: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal128V3>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL128I>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL256: {
-                return std::make_unique<DecimalTruncatePartitionColumnTransform<Decimal256>>(
+                return std::make_unique<DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL256>>(
                         source_type, parsed_width);
             }
             default: {
@@ -105,23 +105,23 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                                                                                  parsed_width);
             }
             case TYPE_DECIMALV2: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal128V2>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMALV2>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL32: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal32>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL32>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL64: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal64>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL64>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL128I: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal128V3>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL128I>>(
                         source_type, parsed_width);
             }
             case TYPE_DECIMAL256: {
-                return std::make_unique<DecimalBucketPartitionColumnTransform<Decimal256>>(
+                return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMAL256>>(
                         source_type, parsed_width);
             }
             default: {

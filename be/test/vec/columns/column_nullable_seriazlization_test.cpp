@@ -23,9 +23,9 @@
 
 #include "column_nullable_test.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"

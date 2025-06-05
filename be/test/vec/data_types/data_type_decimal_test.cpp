@@ -31,7 +31,6 @@
 #include "common/exception.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"

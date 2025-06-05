@@ -478,12 +478,11 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 precicion_fr
 // convert between decimal types
 template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
           bool narrow_integral>
-void convert_decimal_cols(
-        const typename ColumnDecimal<
-                typename FromDataType::FieldType>::Container::value_type* __restrict vec_from,
-        typename ColumnDecimal<typename ToDataType::FieldType>::Container::value_type* vec_to,
-        const UInt32 precision_from, const UInt32 scale_from, const UInt32 precision_to,
-        const UInt32 scale_to, const size_t sz) {
+void convert_decimal_cols(const typename ColumnDecimal<
+                                  FromDataType::PType>::Container::value_type* __restrict vec_from,
+                          typename ColumnDecimal<ToDataType::PType>::Container::value_type* vec_to,
+                          const UInt32 precision_from, const UInt32 scale_from,
+                          const UInt32 precision_to, const UInt32 scale_to, const size_t sz) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
