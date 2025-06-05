@@ -2777,9 +2777,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (sortExpr instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) sortExpr;
                 if (sortColumn.equals(slotRef.getColumn())) {
-                    // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
-                    // since NULLS is at file head but data is at tail
-                    if (sortColumn.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                    // [ORDER BY DESC NULLS FIRST] or [ORDER BY ASC NULLS LAST] can not be optimized
+                    // to only read file tail, since NULLS is at file head but data is at tail
+                    if (sortColumn.isAllowNull() && nullsFirsts.get(i) != isAscOrders.get(i)) {
                         return false;
                     }
                 } else {
