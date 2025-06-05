@@ -67,7 +67,7 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
     Block block;
     ColumnNumbers arguments = {0};
     size_t result_idx = 1;
-    auto col_dec_v2 = ColumnDecimal<Decimal128V2>::create(0, 9);
+    auto col_dec_v2 = ColumnDecimal128V2::create(0, 9);
     auto col_res_expected = ColumnString::create();
     for (const auto& input_and_expected : input_dec_str_and_expected_str) {
         DecimalV2Value dec_v2_value(input_and_expected.first);

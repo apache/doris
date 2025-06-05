@@ -21,7 +21,6 @@
 #pragma once
 
 #include "vec/columns/column_const.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 

@@ -36,7 +36,6 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"

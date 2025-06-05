@@ -49,7 +49,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -180,9 +179,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -738,9 +735,7 @@ TEST(BlockTest, dump_data) {
 
     vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
     auto decimal_column = decimal_data_type->create_column();
-    auto& decimal_data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+    auto& decimal_data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
     for (int i = 0; i < 1024; ++i) {
         __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
         decimal_data.push_back(value);

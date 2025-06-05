@@ -70,7 +70,6 @@
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
