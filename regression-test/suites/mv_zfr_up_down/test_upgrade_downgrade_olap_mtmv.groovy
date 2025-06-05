@@ -89,9 +89,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
         logger.info("origin_res: " + origin_res)
+        def origin_res_explain = sql "explain " + stmt
+        logger.info("origin_res_explain: " + origin_res_explain)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt
+        def mv_origin_res_explain = sql "explain " + stmt
         logger.info("mv_origin_res: " + mv_origin_res)
+        logger.info("mv_origin_res_explain: " + mv_origin_res_explain)
         assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
         for (int row = 0; row < mv_origin_res.size(); row++) {
             assertTrue(mv_origin_res[row].size() == origin_res[row].size())
@@ -121,11 +125,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+        def part_res = """show partitions from ${mtmvName5}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName5}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(test_sql5 + " order by 1,2,3")
     }
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+        def part_res = """show partitions from ${mtmvName5}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName5}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(test_sql5 + " order by 1,2,3")
     }
 
@@ -141,12 +153,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+        def part_res = """show partitions from ${mtmvName3}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName3}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+        def part_res = """show partitions from ${mtmvName3}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName3}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
@@ -155,12 +175,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+        def part_res = """show partitions from ${mtmvName3}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName3}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+        def part_res = """show partitions from ${mtmvName3}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName3}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
@@ -227,12 +255,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+        def part_res = """show partitions from ${mtmvName2}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName2}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+        def part_res = """show partitions from ${mtmvName2}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName2}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(sql2 + " order by 1,2,3")
     }
 
@@ -261,12 +297,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+        def part_res = """show partitions from ${mtmvName2}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName2}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(sql2 + " order by 1,2,3")
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
         sql """use ${dbName}"""
         mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+        def part_res = """show partitions from ${mtmvName2}"""
+        logger.info("part_res: " + part_res)
+        def mtmv_data = """select * from ${mtmvName2}"""
+        logger.info("mtmv_data: " + mtmv_data)
         compare_res(sql2 + " order by 1,2,3")
     }
 
@@ -299,12 +343,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql4, mtmvName4)
+            def part_res = """show partitions from ${mtmvName4}"""
+            logger.info("part_res: " + part_res)
+            def mtmv_data = """select * from ${mtmvName4}"""
+            logger.info("mtmv_data: " + mtmv_data)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql4, mtmvName4)
+            def part_res = """show partitions from ${mtmvName4}"""
+            logger.info("part_res: " + part_res)
+            def mtmv_data = """select * from ${mtmvName4}"""
+            logger.info("mtmv_data: " + mtmv_data)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
@@ -317,12 +369,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
             mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
+            def part_res = """show partitions from ${mtmvName4}"""
+            logger.info("part_res: " + part_res)
+            def mtmv_data = """select * from ${mtmvName4}"""
+            logger.info("mtmv_data: " + mtmv_data)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
             mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
+            def part_res = """show partitions from ${mtmvName4}"""
+            logger.info("part_res: " + part_res)
+            def mtmv_data = """select * from ${mtmvName4}"""
+            logger.info("mtmv_data: " + mtmv_data)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
@@ -335,12 +395,20 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr","p0,mtmv,restart_fe") {
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql4, mtmvName4)
+            def part_res = """show partitions from ${mtmvName4}"""
+            logger.info("part_res: " + part_res)
+            def mtmv_data = """select * from ${mtmvName4}"""
+            logger.info("mtmv_data: " + mtmv_data)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql4, mtmvName4)
+            def part_res = """show partitions from ${mtmvName4}"""
+            logger.info("part_res: " + part_res)
+            def mtmv_data = """select * from ${mtmvName4}"""
+            logger.info("mtmv_data: " + mtmv_data)
             compare_res(test_sql4 + " order by 1,2,3")
         }
 
