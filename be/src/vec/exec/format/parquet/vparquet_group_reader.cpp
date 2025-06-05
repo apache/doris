@@ -43,7 +43,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/core/block.h"
@@ -390,7 +389,7 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
         bool is_dict_filter = false;
         for (auto& _dict_filter_col : _dict_filter_cols) {
             if (_dict_filter_col.first == read_col_name) {
-                MutableColumnPtr dict_column = ColumnVector<Int32>::create();
+                MutableColumnPtr dict_column = ColumnInt32::create();
                 size_t pos = block->get_position_by_name(read_col_name);
                 if (column_type->is_nullable()) {
                     block->get_by_position(pos).type =

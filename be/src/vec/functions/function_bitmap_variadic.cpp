@@ -31,7 +31,6 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -120,7 +119,7 @@ namespace doris::vectorized {
         static constexpr auto name = #FUNCTION_NAME;                                              \
         using ResultDataType = DataTypeInt64;                                                     \
         using TData = std::vector<BitmapValue>;                                                   \
-        using ResTData = typename ColumnVector<Int64>::Container;                                 \
+        using ResTData = typename ColumnInt64::Container;                                         \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
                                     size_t input_rows_count, ResTData& res, IColumn* res_nulls) { \
             TData vals;                                                                           \
@@ -231,7 +230,7 @@ public:
         using ResultType = typename ResultDataType::FieldType; //BitmapValue or Int64
         using ColVecResult =
                 std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
-                                   ColumnVector<ResultType>>;
+                                   ColumnVector<ResultDataType::PType>>;
         typename ColVecResult::MutablePtr col_res = nullptr;
 
         typename ColumnUInt8::MutablePtr col_res_nulls;

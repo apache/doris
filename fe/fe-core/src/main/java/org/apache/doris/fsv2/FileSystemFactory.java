@@ -24,6 +24,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fsv2.remote.BrokerFileSystem;
 import org.apache.doris.fsv2.remote.RemoteFileSystem;
 
+import java.util.List;
 import java.util.Map;
 
 public class FileSystemFactory {
@@ -50,6 +51,22 @@ public class FileSystemFactory {
     // It will be removed when broker properties are officially supported.
     public static RemoteFileSystem get(String name, Map<String, String> properties) {
         return new BrokerFileSystem(name, properties);
+    }
+
+    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties,
+                                       String bindBrokerName)
+            throws UserException {
+        if (fileSystemType == FileSystemType.BROKER) {
+            return new BrokerFileSystem(bindBrokerName, properties);
+        }
+        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(properties);
+
+        for (StorageProperties storageProperties : storagePropertiesList) {
+            if (storageProperties.getStorageName().equalsIgnoreCase(fileSystemType.name())) {
+                return StorageTypeMapper.create(storageProperties);
+            }
+        }
+        throw new RuntimeException("Unsupported file system type: " + fileSystemType);
     }
 
     public static RemoteFileSystem get(BrokerDesc brokerDesc) {

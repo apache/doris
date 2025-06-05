@@ -85,10 +85,8 @@ public:
                     ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
             _shared_state->rpc_status = Status::InternalError(err);
         } else {
-            LOG(INFO) << "happen lee call before query id:" << _query_id;
             _shared_state->rpc_status =
                     Status::create(doris::DummyBrpcCallback<Response>::response_->status());
-            LOG(INFO) << "happen lee call after query id:" << _query_id;
         }
         ((CountedFinishDependency*)_shared_state->source_deps.back().get())->sub();
     }

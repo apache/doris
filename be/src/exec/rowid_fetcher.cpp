@@ -173,9 +173,9 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                 }
             }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                vectorized::JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values, {});
+                        col_uid_to_idx, *output_block, default_values, {}));
             }
             return Status::OK();
         }
@@ -496,9 +496,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
         auto id_file_map =
                 ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
+        // if id_file_map is null, means the BE not have scan range, just return ok
         if (!id_file_map) {
-            return Status::InternalError("Backend:{} id_file_map is null, query_id: {}",
-                                         BackendOptions::get_localhost(), print_id(tquery_id));
+            // padding empty block to response
+            for (int i = 0; i < request.request_block_descs_size(); ++i) {
+                response->add_blocks();
+            }
+            return Status::OK();
         }
 
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
@@ -793,10 +797,10 @@ Status RowIdStorageReader::read_doris_format_row(
                 },
                 lookup_row_data_ms));
 
-        vectorized::JsonbSerializeUtil::jsonb_to_block(
+        RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                 row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                 row_store_read_struct.row_store_buffer.size(), row_store_read_struct.col_uid_to_idx,
-                result_block, row_store_read_struct.default_values, {});
+                result_block, row_store_read_struct.default_values, {}));
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             vectorized::MutableColumnPtr column =

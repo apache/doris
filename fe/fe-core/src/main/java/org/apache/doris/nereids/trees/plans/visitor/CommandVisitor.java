@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -107,6 +108,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -121,6 +123,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -155,6 +158,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -172,6 +176,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowDictionariesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEncryptKeysCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -181,6 +186,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
@@ -214,6 +220,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletStorageFormatCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
@@ -539,6 +546,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(command, context);
     }
 
+    default R visitCreateStorageVaultCommand(CreateStorageVaultCommand createStorageVaultCommand, C context) {
+        return visitCommand(createStorageVaultCommand, context);
+    }
+
     default R visitCreateTableLikeCommand(CreateTableLikeCommand createTableLikeCommand, C context) {
         return visitCommand(createTableLikeCommand, context);
     }
@@ -605,6 +616,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowPartitionIdCommand(ShowPartitionIdCommand showPartitionIdCommand, C context) {
         return visitCommand(showPartitionIdCommand, context);
+    }
+
+    default R visitShowPartitionsCommand(ShowPartitionsCommand showPartitionsCommand, C context) {
+        return visitCommand(showPartitionsCommand, context);
     }
 
     default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
@@ -706,6 +721,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowCreateDatabaseCommand(ShowCreateDatabaseCommand showCreateDatabaseCommand, C context) {
         return visitCommand(showCreateDatabaseCommand, context);
+    }
+
+    default R visitShowCreateFunctionCommand(ShowCreateFunctionCommand showCreateFunctionCommand, C context) {
+        return visitCommand(showCreateFunctionCommand, context);
     }
 
     default R visitShowCreateViewCommand(ShowCreateViewCommand showCreateViewCommand, C context) {
@@ -840,6 +859,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropTableCommand, context);
     }
 
+    default R visitDropViewCommand(DropViewCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
         return visitCommand(dropRoleCommand, context);
     }
@@ -895,6 +918,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowEventsCommand(ShowEventsCommand showEventsCommand, C context) {
         return visitCommand(showEventsCommand, context);
+    }
+
+    default R visitShowExportCommand(ShowExportCommand showExportCommand, C context) {
+        return visitCommand(showExportCommand, context);
     }
 
     default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
@@ -970,6 +997,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitUseCommand(UseCommand useCommand, C context) {
         return visitCommand(useCommand, context);
+    }
+
+    default R visitLockTablesCommand(LockTablesCommand lockTablesCommand, C context) {
+        return visitCommand(lockTablesCommand, context);
     }
 
     default R visitAlterDatabaseRenameCommand(AlterDatabaseRenameCommand alterDatabaseRenameCommand, C context) {
@@ -1185,6 +1216,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {
         return visitCommand(dropStageCommand, context);
+    }
+
+    default R visitShowTransactionCommand(ShowTransactionCommand showTransactionCommand, C context) {
+        return visitCommand(showTransactionCommand, context);
     }
 
     default R visitShowReplicaStatusCommand(ShowReplicaStatusCommand showReplicaStatusCommand, C context) {
