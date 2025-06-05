@@ -510,21 +510,23 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                 logicalProject(
                                     logicalJoin(
                                         logicalProject(logicalJoin(
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicate().toSql().contains("k3 = 3"))
-                                        ),
-                                        logicalProject(
-                                                logicalFilter(
-                                                        logicalOlapScan()
-                                                ).when(filter -> filter.getPredicate().toSql().contains("k1 = 3"))
-                                        )
+                                            logicalProject(
+                                                    logicalFilter(
+                                                            logicalOlapScan()
+                                                    ).when(filter -> filter.getPredicate().toSql().contains("k3 = 3"))
+                                            ),
+                                            logicalProject(
+                                                    logicalFilter(
+                                                            logicalOlapScan()
+                                                    ).when(filter -> filter.getPredicate().toSql().contains("k1 = 3"))
+                                            )
                                         )),
                                         logicalAggregate(
                                             logicalProject(
                                                     logicalOlapScan()
+                                            )
                                         )
+                                    )
                                 )
                         ))
                 );
