@@ -46,11 +46,11 @@ template <typename T>
 class DecimalField;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
-template <typename T>
+template <PrimitiveType T>
 class ColumnComplexType;
-using ColumnBitmap = ColumnComplexType<BitmapValue>;
-using ColumnHLL = ColumnComplexType<HyperLogLog>;
-using ColumnQuantileState = ColumnComplexType<QuantileState>;
+using ColumnBitmap = ColumnComplexType<TYPE_BITMAP>;
+using ColumnHLL = ColumnComplexType<TYPE_HLL>;
+using ColumnQuantileState = ColumnComplexType<TYPE_QUANTILE_STATE>;
 template <PrimitiveType T>
 class DataTypeNumber;
 using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
