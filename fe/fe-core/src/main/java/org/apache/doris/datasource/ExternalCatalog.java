@@ -1249,4 +1249,8 @@ public abstract class ExternalCatalog
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
         }
     }
+
+    public ThreadPoolExecutor getThreadPoolExecutor() {
+        return threadPoolWithPreAuth;
+    }
 }
