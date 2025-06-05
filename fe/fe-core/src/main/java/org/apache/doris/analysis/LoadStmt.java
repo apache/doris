@@ -572,7 +572,11 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     private void checkEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
-            String urlStr = "http://" + endpoint;
+            String urlStr = endpoint;
+            // Add default protocol if not specified
+            if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+                urlStr = "http://" + endpoint;
+            }
             SecurityChecker.getInstance().startSSRFChecking(urlStr);
             URL url = new URL(urlStr);
             connection = (HttpURLConnection) url.openConnection();
@@ -629,6 +633,8 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void checkWhiteList(String endpoint) throws UserException {
+        endpoint = endpoint.replaceFirst("^http://", "");
+        endpoint = endpoint.replaceFirst("^https://", "");
         List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
         whiteList.removeIf(String::isEmpty);
         if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
