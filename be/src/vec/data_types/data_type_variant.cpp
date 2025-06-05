@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeObject.cpp
 // and modified by Doris
 
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 
 #include <gen_cpp/data.pb.h>
 #include <string.h>
@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
@@ -199,13 +199,13 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
 std::string DataTypeVariant::to_string(const IColumn& column, size_t row_num) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
     std::string res;
-    static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), &res));
+    THROW_IF_ERROR(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), &res));
     return res;
 }
 
 void DataTypeVariant::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
-    static_cast<void>(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), ostr));
+    THROW_IF_ERROR(variant.serialize_one_row_to_string(cast_set<Int32>(row_num), ostr));
 }
 
 } // namespace doris::vectorized

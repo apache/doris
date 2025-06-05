@@ -3387,12 +3387,46 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
 
         res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
         ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        std::string pending_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
+        res_code = update_delete_bitmap(meta_service.get(), table_id, partition_id, new_tablet_id,
+                                        -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+        // schema change job should write pending delete bitmap key
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_OK);
+        PendingDeleteBitmapPB pending_info;
+        ASSERT_TRUE(pending_info.ParseFromString(pending_val));
+        ASSERT_EQ(pending_info.delete_bitmap_keys_size(), 3);
+        for (int i = 0; i < 3; ++i) {
+            std::string_view k1 = pending_info.delete_bitmap_keys(i);
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[3])), new_tablet_id);
+            ASSERT_EQ(std::get<std::string>(std::get<0>(out[4])),
+                      "0200000003ea308a3647dbea83220ed4b8897f2288244a91");
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[5])), i);
+            ASSERT_EQ(std::get<std::int64_t>(std::get<0>(out[6])), 0);
+        }
+
         finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job1", "be1",
                                  output_rowsets, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
         ASSERT_EQ(res_code, MetaServiceCode::LOCK_EXPIRED);
         res.Clear();
+
+        // pending delete bitmap key on new tablet should be removed after schema change job finishes
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(pending_key, &pending_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
 
     {

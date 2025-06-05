@@ -594,11 +594,10 @@ struct UnixTimeStampDateImpl {
                 UInt32 scale = static_cast<const DataTypeNullable*>(arguments[0].type.get())
                                        ->get_nested_type()
                                        ->get_scale();
-                return make_nullable(
-                        std::make_shared<DataTypeDecimal<Decimal64>>(10 + scale, scale));
+                return make_nullable(std::make_shared<DataTypeDecimal64>(10 + scale, scale));
             }
             UInt32 scale = arguments[0].type->get_scale();
-            return std::make_shared<DataTypeDecimal<Decimal64>>(10 + scale, scale);
+            return std::make_shared<DataTypeDecimal64>(10 + scale, scale);
         } else {
             if (arguments[0].type->is_nullable()) {
                 return make_nullable(std::make_shared<DataTypeInt32>());
@@ -687,7 +686,7 @@ struct UnixTimeStampStrImpl {
     }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
-        return make_nullable(std::make_shared<DataTypeDecimal<Decimal64>>(16, 6));
+        return make_nullable(std::make_shared<DataTypeDecimal64>(16, 6));
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
