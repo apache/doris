@@ -17,7 +17,7 @@ import org.junit.Assert
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
+suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
@@ -37,7 +37,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
 
     String compress_type = "gz" 
     qt_gz_1 """
-    select * from local(
+    select * from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -46,7 +46,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
     """
     
     qt_gz_2 """
-    select * from local(
+    select * from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -58,7 +58,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
 
     compress_type = "bz2" 
     qt_bz2_1 """
-    select * from local(
+    select * from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -66,7 +66,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 15;            
     """
     qt_bz2_2 """
-    select c1,c4 from local(
+    select c1,c4 from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -80,7 +80,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
     compress_type = "lz4";
     
     qt_lz4_1 """
-    select * from local(
+    select * from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -88,7 +88,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
         "compress_type" ="${compress_type}FRAME") order by c1,c2,c3,c4,c5 limit 20;            
     """
     qt_lz4_2 """
-    select c2,c3 from local(
+    select c2,c3 from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -100,7 +100,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
 
     compress_type = "deflate";
     qt_deflate_1 """ 
-        select * from local(
+        select * from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -108,7 +108,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 12 ;            
     """
     qt_deflate_2 """ 
-        select c4,count(*) from local(
+        select c4,count(*) from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -120,7 +120,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
     
     compress_type = "snappy";
     qt_snappy_1 """ 
-        select * from local(
+        select * from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -128,7 +128,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
         "compress_type" ="${compress_type}block") order by c1,c2,c3,c4,c5  limit 22 ;            
     """    
     qt_snappy_2 """ 
-        select c2,c3 from local(
+        select c2,c3 from file(
         "file_path" = "${outFilePath}/${filename}.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -138,7 +138,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
 
     // test empty snapppy file
     qt_snappy_empty """ 
-        select * from local(
+        select * from file(
         "file_path" = "${outFilePath}/test_empty_snappy.${compress_type}",
         "backend_id" = "${be_id}",
         "format" = "csv",
@@ -146,21 +146,10 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
         "compress_type" ="${compress_type}block");            
     """
 
-    // test fs.local.support
-    qt_fs_local_support """ 
-        select * from local(
-        "fs.local.support" = "true",
-        "file_path" = "${outFilePath}/${filename}.${compress_type}",
-        "backend_id" = "${be_id}",
-        "format" = "csv",
-        "column_separator" = ",",
-        "compress_type" ="${compress_type}block") order by c1,c2,c3,c4,c5  limit 22 ;            
-    """   
-
     // test error case
     test {
         sql """
-        select count(*) from local(
+        select count(*) from file(
             "file_path" = "../be.out",
             "backend_id" = "${be_id}",
             "column_separator" = ",",
@@ -173,7 +162,7 @@ suite("test_local_tvf_compression", "p0,tvf,external,external_docker") {
 
     test {
         sql """
-        select count(*) from local(
+        select count(*) from file(
             "file_path" = "./xx.out",
             "backend_id" = "${be_id}",
             "column_separator" = ",",
