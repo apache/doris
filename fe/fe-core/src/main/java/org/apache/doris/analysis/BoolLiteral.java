@@ -30,8 +30,6 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -145,17 +143,6 @@ public class BoolLiteral extends LiteralExpr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.BOOL_LITERAL;
         msg.bool_literal = new TBoolLiteral(value);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        this.setValue(in.readBoolean());
-    }
-
-    public static BoolLiteral read(DataInput in) throws IOException {
-        BoolLiteral literal = new BoolLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

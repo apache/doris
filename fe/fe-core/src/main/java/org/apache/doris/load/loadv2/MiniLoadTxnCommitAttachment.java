@@ -17,14 +17,10 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
     @SerializedName(value = "lr")
@@ -49,15 +45,5 @@ public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
 
     public String getErrorLogUrl() {
         return errorLogUrl;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        filteredRows = in.readLong();
-        loadedRows = in.readLong();
-        if (in.readBoolean()) {
-            errorLogUrl = Text.readString(in);
-        }
     }
 }

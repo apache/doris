@@ -25,11 +25,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -724,7 +722,8 @@ public class LoadJob implements Writable {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
-            pullLoadSourceInfo.write(out);
+            // for compatibility, write a 0, not persist it
+            out.writeInt(0);
         }
 
         out.writeLong(execMemLimit);
@@ -777,8 +776,6 @@ public class LoadJob implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        long version = Env.getCurrentEnvJournalVersion();
-
         id = in.readLong();
         dbId = in.readLong();
         label = Text.readString(in);
@@ -862,7 +859,9 @@ public class LoadJob implements Writable {
         }
         // Pull load
         if (in.readBoolean()) {
-            this.pullLoadSourceInfo = BrokerFileGroupAggInfo.read(in);
+            // always 0, for compatibility
+            in.readInt();
+            this.pullLoadSourceInfo = new BrokerFileGroupAggInfo();
         }
 
         this.execMemLimit = in.readLong();
@@ -899,13 +898,8 @@ public class LoadJob implements Writable {
         for (int i = 0; i < size; i++) {
             tableNames.add(Text.readString(in));
         }
-        if (version >= FeMetaVersion.VERSION_117) {
-            this.user = Text.readString(in);
-            this.comment = Text.readString(in);
-        } else {
-            this.user = "";
-            this.comment = "";
-        }
+        this.user = Text.readString(in);
+        this.comment = Text.readString(in);
     }
 
     @Override

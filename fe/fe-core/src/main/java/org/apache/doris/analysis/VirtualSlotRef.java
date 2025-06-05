@@ -20,9 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import java.io.DataInput;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -54,12 +51,6 @@ public class VirtualSlotRef extends SlotRef {
         super(desc);
     }
 
-    public static VirtualSlotRef read(DataInput in) throws IOException {
-        VirtualSlotRef virtualSlotRef = new VirtualSlotRef(null, Type.BIGINT, null, new ArrayList<>());
-        virtualSlotRef.readFields(in);
-        return virtualSlotRef;
-    }
-
     public String getRealColumnName() {
         if (getColumnName().startsWith(GroupingInfo.GROUPING_PREFIX)) {
             return getColumnName().substring(GroupingInfo.GROUPING_PREFIX.length());
@@ -69,17 +60,6 @@ public class VirtualSlotRef extends SlotRef {
 
     @Override
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int realSlotsSize = in.readInt();
-        if (realSlotsSize > 0) {
-            for (int i = 0; i < realSlotsSize; i++) {
-                realSlots.add(SlotRef.read(in));
-            }
-        }
     }
 
     public List<Expr> getRealSlots() {

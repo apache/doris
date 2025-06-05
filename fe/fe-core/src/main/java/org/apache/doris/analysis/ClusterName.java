@@ -25,7 +25,6 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Strings;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -61,10 +60,5 @@ public class ClusterName implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, cluster);
         Text.writeString(out, db);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        cluster = Text.readString(in);
-        db = Text.readString(in);
     }
 }
