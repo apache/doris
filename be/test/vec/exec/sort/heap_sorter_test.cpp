@@ -117,7 +117,7 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
 
     {
         Block block;
-        bool eos;
+        bool eos = false;
         EXPECT_TRUE(sorter->get_next(&_state, &block, &eos));
         EXPECT_EQ(block.rows(), 5);
         EXPECT_EQ(eos, false);
