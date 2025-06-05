@@ -48,7 +48,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -1020,10 +1019,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
-    /**
-     * ExpressionToExpr for function
-     */
-    public static class ExpressionToExpr extends ExpressionTranslator {
+    private static class ExpressionToExpr extends ExpressionTranslator {
         @Override
         public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
@@ -1036,11 +1032,6 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         @Override
         public Expr visitBoundFunction(BoundFunction function, PlanTranslatorContext context) {
             return makeFunctionCallExpr(function, function.getName(), function.hasVarArguments(), context);
-        }
-
-        @Override
-        public Expr visitUnboundFunction(UnboundFunction function, PlanTranslatorContext context) {
-            return makeFunctionCallExpr(function, function.getName(), false, context);
         }
 
         @Override
