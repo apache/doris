@@ -35,3 +35,12 @@ PhysicalResultSink
 --------PhysicalProject
 ----------PhysicalOlapScan[c] RFV2: RF2 RF3
 
+-- !except --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalExcept RFV2: RF0[a1->b1] RF1[a1->b1]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[a]
+------PhysicalDistribute[DistributionSpecHash]
+--------PhysicalOlapScan[b] RFV2: RF0 RF1
+
