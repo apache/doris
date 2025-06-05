@@ -76,9 +76,11 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
             callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
             std::cerr << "thrift error, reason=" << e.what();
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "retrying call frontend service after "
                          << config::thrift_client_retry_interval_ms << " ms, address=" << address
                          << ", reason=" << e.what();
+#endif
             std::this_thread::sleep_for(
                     std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
