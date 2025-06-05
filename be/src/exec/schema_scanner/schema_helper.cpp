@@ -160,4 +160,21 @@ Status SchemaHelper::fetch_schema_table_data(const std::string& ip, const int32_
             });
 }
 
+Status SchemaHelper::fetch_backends(const std::string& ip, const int32_t port,
+                                    const TFetchBackendsRequest& request,
+                                    TFetchBackendsResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchBackends(*result, request);
+            });
+}
+
+Status SchemaHelper::fetch_frontends(const std::string& ip, const int32_t port,
+                                     const TFetchFrontendsRequest& request,
+                                     TFetchFrontendsResult* result) {
+    return ThriftRpcHelper::rpc<FrontendServiceClient>(
+            ip, port, [&request, &result](FrontendServiceConnection& client) {
+                client->fetchFrontends(*result, request);
+            });
+
 } // namespace doris

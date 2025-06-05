@@ -29,6 +29,7 @@
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
+#include "exec/schema_scanner/schema_backends_scanner.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
@@ -36,6 +37,7 @@
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
+#include "exec/schema_scanner/schema_frontends_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
 #include "exec/schema_scanner/schema_partitions_scanner.h"
 #include "exec/schema_scanner/schema_processlist_scanner.h"
@@ -230,6 +232,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
+    case TSchemaTableType::SCH_BACKENDS:
+        return SchemaBackendsScanner::create_unique();
+    case TSchemaTableType::SCH_FRONTENDS:
+        return SchemaFrontendsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
