@@ -159,21 +159,17 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL && context->is_col_constant(1)) {
             const auto pattern_col = context->get_constant_col(1)->column_ptr;
             const auto& pattern = pattern->get_data_at(0);
-
             if (pattern.size == 0) {
                 return Status::OK();
             }
-
             std::string error_str;
             std::unique_ptr<re2::RE2> scoped_re;
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
-            
             if (!st) {
                 context->set_error(error_str.c_str());
                 return Status::InvalidArgument(error_str);
             }
-
             std::shared_ptr<re2::RE2> re(scoped_re.release());
             context->set_function_state(scope, std::static_pointer_cast<void>(re));
         }
@@ -197,14 +193,11 @@ public:
         auto result_data_column = ColumnInt64::create();
         auto& result_data = result_data_column->get_data();
         result_data.resize(input_rows_count);
-
         bool col_const[2];
         ColumnPtr argument_columns[2];
-        
         for (int i = 0; i < 2; ++i) {
             col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
         }
-        
         argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
                                                      *block.get_by_position(arguments[0]).column)
                                                      .convert_to_full_column()
