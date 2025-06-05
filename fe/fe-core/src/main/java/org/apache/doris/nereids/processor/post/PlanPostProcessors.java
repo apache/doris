@@ -18,11 +18,8 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
-<<<<<<< HEAD
 import org.apache.doris.nereids.processor.post.materialize.LazyMaterializeTopN;
-=======
 import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterV2Generator;
->>>>>>> 697891e3de (set-filter-fe-part)
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterMode;

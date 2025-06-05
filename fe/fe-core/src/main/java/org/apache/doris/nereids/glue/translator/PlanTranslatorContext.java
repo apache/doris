@@ -353,7 +353,6 @@ public class PlanTranslatorContext {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
 
-<<<<<<< HEAD
     public boolean isTopMaterializeNode() {
         return isTopMaterializeNode;
     }
@@ -362,9 +361,7 @@ public class PlanTranslatorContext {
         isTopMaterializeNode = topMaterializeNode;
     }
 
-=======
     public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
         return runtimeFilterV2Context;
     }
->>>>>>> 697891e3de (set-filter-fe-part)
 }
