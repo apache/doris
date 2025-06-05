@@ -48,6 +48,7 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -73,7 +74,7 @@ public class LogicalHudiScan extends LogicalFileScan {
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
-            List<Slot> operativeSlots) {
+            Collection<Slot> operativeSlots) {
         super(id, table, qualifier, groupExpression, logicalProperties,
                 selectedPartitions, tableSample, tableSnapshot, operativeSlots);
         Objects.requireNonNull(scanParams, "scanParams should not null");
@@ -83,7 +84,7 @@ public class LogicalHudiScan extends LogicalFileScan {
     }
 
     public LogicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
-            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot, List<Slot> operativeSlots) {
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 ((HMSExternalTable) table).initHudiSelectedPartitions(tableSnapshot), tableSample, tableSnapshot,
                 Optional.empty(), Optional.empty(),
@@ -165,6 +166,14 @@ public class LogicalHudiScan extends LogicalFileScan {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalHudiScan(this, context);
+    }
+
+    @Override
+    public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
+        return new LogicalHudiScan(relationId, (ExternalTable) table, qualifier,
+                groupExpression, Optional.of(getLogicalProperties()),
+                selectedPartitions, tableSample, tableSnapshot, scanParams, incrementalRelation,
+                operativeSlots);
     }
 
     /**
