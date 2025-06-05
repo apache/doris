@@ -2385,6 +2385,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
 
+    @ConfField(mutable = true)
+    public static boolean enable_query_iceberg_views = true;
+
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
      */
