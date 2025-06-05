@@ -166,18 +166,26 @@ class ConstantPropagationTest {
         // for `a is not null`, if this Not isGeneratedIsNotNull, then will not rewrite it
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true);
         Expression expr1 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), false));
-        Expression rewrittenExpr1 = executor.replaceConstantsAndRewriteExpr(student, expr1, exprRewriteContext);
+        Expression rewrittenExpr1 = executor.replaceConstantsAndRewriteExpr(student, expr1, true, exprRewriteContext);
         Expression expectExpr1 = new EqualTo(a, new IntegerLiteral(1));
         Assertions.assertEquals(expectExpr1, rewrittenExpr1);
         Expression expr2 = ExpressionUtils.and(new EqualTo(a, new IntegerLiteral(1)), new Not(new IsNull(a), true));
-        Expression rewrittenExpr2 = executor.replaceConstantsAndRewriteExpr(student, expr2, exprRewriteContext);
+        Expression rewrittenExpr2 = executor.replaceConstantsAndRewriteExpr(student, expr2, true, exprRewriteContext);
         Assertions.assertEquals(expr2, rewrittenExpr2);
 
         // for `a match_any xx`, don't replace it, because the match require left child is column, not literal
         SlotReference b = new SlotReference("b", StringType.INSTANCE, true);
         Expression expr3 = ExpressionUtils.and(new EqualTo(b, new StringLiteral("hello")), new MatchAny(b, new StringLiteral("%ll%")));
-        Expression rewrittenExpr3 = executor.replaceConstantsAndRewriteExpr(student, expr3, exprRewriteContext);
+        Expression rewrittenExpr3 = executor.replaceConstantsAndRewriteExpr(student, expr3, true, exprRewriteContext);
         Assertions.assertEquals(expr3, rewrittenExpr3);
+    }
+
+    @Test
+    void testUseInnerInferConstants() {
+        // `a = 1` will propagate to `a * 3 = 10` => `3 * 3 = 10` => `FALSE`
+        assertRewrite("a = 1 and a * 3 = 10", "FALSE", true);
+        // `a = 1` will not propagate.
+        assertRewrite("a = 1 and a * 3 = 10", "a = 1 and a * 3 = 10", false);
     }
 
     @Test
@@ -422,10 +430,15 @@ class ConstantPropagationTest {
     }
 
     private void assertRewrite(String expression, String expected) {
+        assertRewrite(expression, expected, true);
+    }
+
+    private void assertRewrite(String expression, String expected, boolean useInnerInferConstants) {
         Expression rewriteExpression = parser.parseExpression(expression);
         rewriteExpression = ExpressionRewriteTestHelper.typeCoercion(
                 ExpressionRewriteTestHelper.replaceUnboundSlot(rewriteExpression, Maps.newHashMap()));
-        rewriteExpression = executor.replaceConstantsAndRewriteExpr(student, rewriteExpression, exprRewriteContext);
+        rewriteExpression = executor.replaceConstantsAndRewriteExpr(student, rewriteExpression,
+                useInnerInferConstants, exprRewriteContext);
         Expression expectedExpression = parser.parseExpression(expected);
         Assertions.assertEquals(expectedExpression.toSql(), rewriteExpression.toSql());
     }

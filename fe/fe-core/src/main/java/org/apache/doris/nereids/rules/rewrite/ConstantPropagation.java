@@ -96,7 +96,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, ExpressionRewriteContext context) {
         filter = visitChildren(this, filter, context);
         Expression oldPredicate = filter.getPredicate();
-        Expression newPredicate = replaceConstantsAndRewriteExpr(filter, oldPredicate, context);
+        Expression newPredicate = replaceConstantsAndRewriteExpr(filter, oldPredicate, true, context);
         if (isExprEqualIgnoreOrder(oldPredicate, newPredicate)) {
             return filter;
         } else {
@@ -109,7 +109,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     public Plan visitLogicalHaving(LogicalHaving<? extends Plan> having, ExpressionRewriteContext context) {
         having = visitChildren(this, having, context);
         Expression oldPredicate = having.getPredicate();
-        Expression newPredicate = replaceConstantsAndRewriteExpr(having, oldPredicate, context);
+        Expression newPredicate = replaceConstantsAndRewriteExpr(having, oldPredicate, true, context);
         if (isExprEqualIgnoreOrder(oldPredicate, newPredicate)) {
             return having;
         } else {
@@ -139,7 +139,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         // so after replaced, we need to remove the constant expr.
         List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
                 .map(key -> key.withExpression(
-                        replaceConstants(key.getExpr(), context, childEqualTrait.first, childEqualTrait.second)))
+                        replaceConstants(key.getExpr(), false, context, childEqualTrait.first, childEqualTrait.second)))
                 .filter(key -> !key.getExpr().isConstant())
                 .collect(ImmutableList.toImmutableList());
         if (newOrderKeys.isEmpty()) {
@@ -160,7 +160,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         List<Expression> oldGroupByExprs = aggregate.getGroupByExpressions();
         List<Expression> newGroupByExprs = Lists.newArrayListWithExpectedSize(oldGroupByExprs.size());
         for (Expression expr : oldGroupByExprs) {
-            Expression newExpr = replaceConstants(expr, context, childEqualTrait.first, childEqualTrait.second);
+            Expression newExpr = replaceConstants(expr, false, context, childEqualTrait.first, childEqualTrait.second);
             if (!newExpr.isConstant()) {
                 newGroupByExprs.add(newExpr);
             }
@@ -190,7 +190,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         for (NamedExpression expr : oldOutputExprs) {
             // ColumnPruning will also add all group by expression into output expressions
             // agg output need contains group by expression
-            Expression replacedExpr = replaceConstants(expr, context, childEqualTrait.first, childEqualTrait.second);
+            Expression replacedExpr = replaceConstants(expr, false, context,
+                    childEqualTrait.first, childEqualTrait.second);
             Expression newOutputExpr = newGroupByExprSet.contains(expr) ? expr : replacedExpr;
             if (newOutputExpr instanceof NamedExpression) {
                 newOutputExprs.add((NamedExpression) newOutputExpr);
@@ -232,7 +233,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
                         join.getOtherJoinConjuncts().stream())
                 .collect(ImmutableList.toImmutableList());
         Expression oldPredicate = ExpressionUtils.and(allJoinConjuncts);
-        Expression newPredicate = replaceConstantsAndRewriteExpr(join, oldPredicate, context);
+        Expression newPredicate = replaceConstantsAndRewriteExpr(join, oldPredicate, true, context);
         if (isExprEqualIgnoreOrder(oldPredicate, newPredicate)) {
             return join;
         }
@@ -285,7 +286,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
      */
     @VisibleForTesting
     public Expression replaceConstantsAndRewriteExpr(LogicalPlan plan, Expression expression,
-            ExpressionRewriteContext context) {
+            boolean useInnerInfer, ExpressionRewriteContext context) {
         // for expression `a = 1 and a + b = 2 and b + c = 2 and c + d =2 and ...`:
         // propagate constant `a = 1`, then get `1 + b = 2`, after rewrite this expression, will get `b = 1`;
         // then propagate constant `b = 1`, then get `1 + c = 2`, after rewrite this expression, will get `c = 1`,
@@ -295,7 +296,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         Expression afterExpression = expression;
         for (int i = 0; i < 100; i++) {
             Expression beforeExpression = afterExpression;
-            afterExpression = replaceConstants(beforeExpression, context,
+            afterExpression = replaceConstants(beforeExpression, useInnerInfer, context,
                     childEqualTrait.first, childEqualTrait.second);
             if (isExprEqualIgnoreOrder(beforeExpression, afterExpression)) {
                 break;
@@ -332,7 +333,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             return expr;
         }
 
-        Expression newExpr = replaceConstants(expr, context, equalSet, constants);
+        Expression newExpr = replaceConstants(expr, false, context, equalSet, constants);
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;
         } else {
@@ -340,12 +341,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         }
     }
 
-    private Expression replaceConstants(Expression expression, ExpressionRewriteContext context,
+    private Expression replaceConstants(Expression expression, boolean useInnerInfer, ExpressionRewriteContext context,
             ImmutableEqualSet<Slot> parentEqualSet, Map<Slot, Literal> parentConstants) {
         if (expression instanceof And) {
-            return replaceAndConstants((And) expression, context, parentEqualSet, parentConstants);
+            return replaceAndConstants((And) expression, useInnerInfer, context, parentEqualSet, parentConstants);
         } else if (expression instanceof Or) {
-            return replaceOrConstants((Or) expression, context, parentEqualSet, parentConstants);
+            return replaceOrConstants((Or) expression, useInnerInfer, context, parentEqualSet, parentConstants);
         } else if (!parentConstants.isEmpty()
                 && expression.anyMatch(e -> e instanceof Slot && parentConstants.containsKey(e))) {
             Expression newExpr = ExpressionUtils.replaceIf(expression, parentConstants, this::canReplaceExpression);
@@ -359,11 +360,11 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     }
 
     // process AND expression
-    private Expression replaceAndConstants(And expression, ExpressionRewriteContext context,
+    private Expression replaceAndConstants(And expression, boolean useInnerInfer, ExpressionRewriteContext context,
             ImmutableEqualSet<Slot> parentEqualSet, Map<Slot, Literal> parentConstants) {
         List<Expression> conjunctions = ExpressionUtils.extractConjunction(expression);
         Optional<Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>>> equalAndConstantOptions =
-                expandEqualSetAndConstants(conjunctions, parentEqualSet, parentConstants);
+                expandEqualSetAndConstants(conjunctions, useInnerInfer, parentEqualSet, parentConstants);
         // infer conflict constants like a = 10 and a = 30
         if (!equalAndConstantOptions.isPresent()) {
             return BooleanLiteral.FALSE;
@@ -387,7 +388,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             // for the first conjunction `a = 10`, no need to replace because after replace will get `10 = 10`,
             // for the second conjunction `a > b`, need replace and got `10 > b`
             if (needReplaceWithConstant(newChild, newConstants, myInferConstantSlots)) {
-                newChild = replaceConstants(newChild, context, newEqualSet, newConstants);
+                newChild = replaceConstants(newChild, useInnerInfer, context, newEqualSet, newConstants);
             }
             if (newChild.equals(BooleanLiteral.FALSE)) {
                 return BooleanLiteral.FALSE;
@@ -410,12 +411,12 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     }
 
     // process OR expression
-    private Expression replaceOrConstants(Or expression, ExpressionRewriteContext context,
+    private Expression replaceOrConstants(Or expression, boolean useInnerInfer, ExpressionRewriteContext context,
             ImmutableEqualSet<Slot> parentEqualSet, Map<Slot, Literal> parentConstants) {
         List<Expression> disjunctions = ExpressionUtils.extractDisjunction(expression);
         ImmutableList.Builder<Expression> builder = ImmutableList.builderWithExpectedSize(disjunctions.size());
         for (Expression child : disjunctions) {
-            Expression newChild = replaceConstants(child, context, parentEqualSet, parentConstants);
+            Expression newChild = replaceConstants(child, useInnerInfer, context, parentEqualSet, parentConstants);
             if (newChild.equals(BooleanLiteral.TRUE)) {
                 return BooleanLiteral.TRUE;
             }
@@ -507,6 +508,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
     // If met conflict constants relation, return optional.empty().
     private Optional<Pair<ImmutableEqualSet<Slot>, Map<Slot, Literal>>> expandEqualSetAndConstants(
             List<Expression> conjunctions,
+            boolean useInnerInfer,
             ImmutableEqualSet<Slot> parentEqualSet,
             Map<Slot, Literal> parentConstants) {
         Map<Slot, Literal> newConstants = Maps.newLinkedHashMapWithExpectedSize(parentConstants.size());
@@ -519,6 +521,14 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
             }
             Slot slot = equalItem.get().first;
             Expression expr = equalItem.get().second;
+            // for expression `a = 1 and a * 3 = 10`
+            // if it's in LogicalFilter, then we can infer constant relation `a = 1`, then have:
+            // `a = 1 and 3 * 3 = 10` => `a = 1 and FALSE` => `FALSE`
+            // but if it's in LogicalProject, then we shouldn't propagate `a=1` to this expression,
+            // because a may be null, then `a=1 and a * 3 = 10` should evaluate to `NULL` in the project.
+            if (!useInnerInfer && (slot.nullable() || expr.nullable())) {
+                continue;
+            }
             if (expr instanceof Slot) {
                 newEqualSetBuilder.addEqualPair(slot, (Slot) expr);
             } else if (!addConstant(newConstants, slot, (Literal) expr)) {
