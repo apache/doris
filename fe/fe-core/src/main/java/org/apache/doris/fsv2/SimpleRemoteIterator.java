@@ -15,22 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
 
-import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.fsv2.FileSystemProvider;
+package org.apache.doris.fsv2;
 
-import java.util.concurrent.Executor;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
-public class TransactionManagerFactory {
+import java.util.Iterator;
+import java.util.Objects;
+// This file is copied from
+// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/SimpleRemoteIterator.java
+// and modified by Doris
 
-    public static TransactionManager createHiveTransactionManager(HiveMetadataOps ops,
-            FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
-        return new HiveTransactionManager(ops, fileSystemProvider, fileSystemExecutor);
+class SimpleRemoteIterator implements RemoteIterator<RemoteFile> {
+    private final Iterator<RemoteFile> iterator;
+
+    public SimpleRemoteIterator(Iterator<RemoteFile> iterator) {
+        this.iterator = Objects.requireNonNull(iterator, "iterator is null");
     }
 
-    public static TransactionManager createIcebergTransactionManager(IcebergMetadataOps ops) {
-        return new IcebergTransactionManager(ops);
+    @Override
+    public boolean hasNext() throws FileSystemIOException {
+        return iterator.hasNext();
+    }
+
+    @Override
+    public RemoteFile next() throws FileSystemIOException {
+        return iterator.next();
     }
 }
