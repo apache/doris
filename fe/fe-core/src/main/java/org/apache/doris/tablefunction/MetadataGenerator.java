@@ -39,6 +39,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
@@ -67,9 +68,12 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
@@ -125,6 +129,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class MetadataGenerator {
@@ -147,6 +152,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> META_CACHE_STATS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> VIEW_DEPENDENCE_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -209,6 +216,13 @@ public class MetadataGenerator {
             partitionsBuilder.put(partitionsColList.get(i).getName().toLowerCase(), i);
         }
         PARTITIONS_COLUMN_TO_INDEX = partitionsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> mvDependenceBuilder = new ImmutableMap.Builder();
+        List<Column> mvDependenceBuilderColList = SchemaTable.TABLE_MAP.get("view_dependence").getFullSchema();
+        for (int i = 0; i < mvDependenceBuilderColList.size(); i++) {
+            mvDependenceBuilder.put(mvDependenceBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        VIEW_DEPENDENCE_COLUMN_TO_INDEX = mvDependenceBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -317,6 +331,10 @@ public class MetadataGenerator {
             case PARTITIONS:
                 result = partitionsMetadataResult(schemaTableParams);
                 columnIndex = PARTITIONS_COLUMN_TO_INDEX;
+                break;
+            case VIEW_DEPENDENCE:
+                result = viewDependenceMetadataResult(schemaTableParams);
+                columnIndex = VIEW_DEPENDENCE_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -638,6 +656,59 @@ public class MetadataGenerator {
             dataBatch.add(trow);
         }
 
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult viewDependenceMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            List<? extends TableIf> tables = db.getTables();
+            String dbName = db.getFullName();
+            for (TableIf table : tables) {
+                if (table instanceof MTMV) {
+                    String tableName = table.getName();
+                    MTMVRelation relation = ((MTMV) table).getRelation();
+                    Set<BaseTableInfo> tablesOneLevel = relation.getBaseTablesOneLevel();
+                    for (BaseTableInfo info : tablesOneLevel) {
+                        TRow trow = new TRow();
+                        trow.addToColumnValue(new TCell().setStringVal("internal"));
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getCtlName()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getDbName()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getTableName()));
+                        trow.addToColumnValue(new TCell().setStringVal(info.getType()));
+                        dataBatch.add(trow);
+                    }
+                } else if (table instanceof View) {
+                    String tableName = table.getName();
+                    String inlineViewDef = ((View) table).getInlineViewDef();
+                    Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
+                    for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
+                        List<String> fullName = info.getKey();
+                        TableIf tbl = info.getValue();
+                        TRow trow = new TRow();
+                        trow.addToColumnValue(new TCell().setStringVal("internal"));
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(0)));
+                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(1)));
+                        trow.addToColumnValue(new TCell().setStringVal(fullName.get(2)));
+                        trow.addToColumnValue(new TCell().setStringVal(tbl.getType().name()));
+                        dataBatch.add(trow);
+                    }
+                }
+            }
+        }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
