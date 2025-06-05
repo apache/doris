@@ -80,7 +80,7 @@ suite("test_insert_with_index", "p0, nonConcurrent") {
     }
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
-    setFeConfigTemporary([enable_inverted_index_v1_for_variant: false]) {
+    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
         if (isCloudMode()) {
             return;
         }

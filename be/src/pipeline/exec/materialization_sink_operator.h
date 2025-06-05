@@ -48,9 +48,8 @@ public:
     using Base = DataSinkOperatorX<MaterializationSinkLocalState>;
 
     friend class MaterializationSinkLocalState;
-    MaterializationSinkOperatorX(int child_id, int sink_id, ObjectPool* pool,
-                                 const TPlanNode& tnode)
-            : Base(sink_id, tnode.node_id, child_id) {
+    MaterializationSinkOperatorX(int dest_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode)
+            : Base(sink_id, tnode.node_id, dest_id) {
         _name = "MATERIALIZATION_SINK_OPERATOR";
     }
     ~MaterializationSinkOperatorX() override = default;

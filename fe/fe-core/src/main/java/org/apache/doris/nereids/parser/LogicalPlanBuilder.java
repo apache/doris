@@ -337,6 +337,7 @@ import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowConvertLscContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateDatabaseContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateFunctionContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
@@ -652,6 +653,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -702,6 +704,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -5863,6 +5866,31 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowCreateFunction(ShowCreateFunctionContext ctx) {
+        SetType statementScope = visitStatementScope(ctx.statementScope());
+        FunctionName function = visitFunctionIdentifier(ctx.functionIdentifier());
+        String dbName = null;
+        FunctionArgTypesInfo functionArgTypesInfo;
+        if (ctx.functionArguments() != null) {
+            functionArgTypesInfo = visitFunctionArguments(ctx.functionArguments());
+        } else {
+            functionArgTypesInfo = new FunctionArgTypesInfo(new ArrayList<>(), false);
+        }
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        return new ShowCreateFunctionCommand(dbName, statementScope, function, functionArgTypesInfo);
+    }
+
+    @Override
     public LogicalPlan visitCleanAllProfile(CleanAllProfileContext ctx) {
         return new CleanAllProfileCommand();
     }
@@ -6029,6 +6057,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean forceDrop = ctx.FORCE() != null;
         TableNameInfo tblNameInfo = new TableNameInfo(ctlName, dbName, tableName);
         return new DropTableCommand(ifExists, tblNameInfo, forceDrop);
+    }
+
+    @Override
+    public LogicalPlan visitDropView(DorisParser.DropViewContext ctx) {
+        String ctlName = null;
+        String dbName = null;
+        String tableName = null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 1) {
+            tableName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            tableName = nameParts.get(1);
+        } else if (nameParts.size() == 3) {
+            ctlName = nameParts.get(0);
+            dbName = nameParts.get(1);
+            tableName = nameParts.get(2);
+        } else {
+            throw new AnalysisException("nameParts in drop view should be [ctl.][db.]tbl");
+        }
+
+        TableNameInfo tblNameInfo = new TableNameInfo(ctlName, dbName, tableName);
+        return new DropViewCommand(ctx.EXISTS() != null, tblNameInfo);
     }
 
     @Override

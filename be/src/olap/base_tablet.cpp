@@ -924,8 +924,8 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
         default_values[i] = tablet_column.default_value();
         serdes[i] = type->get_serde();
     }
-    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
-                                                   default_values, {});
+    RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+            serdes, *string_column, col_uid_to_idx, block, default_values, {}));
     return Status::OK();
 }
 

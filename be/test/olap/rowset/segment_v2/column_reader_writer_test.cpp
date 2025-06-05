@@ -145,9 +145,6 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = iter->init(iter_opts);
             EXPECT_TRUE(st.ok());
 
-            st = iter->seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
@@ -323,9 +320,6 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         EXPECT_TRUE(st.ok());
         // sequence read
         {
-            st = iter->seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
@@ -458,9 +452,6 @@ void test_read_default_value(string value, void* result) {
         EXPECT_TRUE(st.ok());
         // sequence read
         {
-            st = iter.seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::Arena pool;
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
@@ -545,7 +536,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
     } else if (type == FieldType::OLAP_FIELD_TYPE_DATETIME) {
         return vectorized::DataTypeDateTime().create_column();
     } else if (type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-        return vectorized::DataTypeDecimal<vectorized::Decimal128V2>(27, 9).create_column();
+        return vectorized::DataTypeDecimalV2(27, 9).create_column();
     }
     return vectorized::DataTypeNothing().create_column();
 }
@@ -567,9 +558,6 @@ void test_v_read_default_value(string value, void* result) {
 
         // sequence read
         {
-            st = iter.seek_to_first();
-            EXPECT_TRUE(st.ok()) << st.to_string();
-
             vectorized::MutableColumnPtr mcp = create_vectorized_column_ptr(type);
 
             size_t rows_read = 16;

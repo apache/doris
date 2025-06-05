@@ -34,7 +34,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"

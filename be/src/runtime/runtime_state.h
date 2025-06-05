@@ -49,7 +49,6 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/columns_number.h"
 
 namespace doris {
 class RuntimeFilter;

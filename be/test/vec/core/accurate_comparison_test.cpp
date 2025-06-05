@@ -23,6 +23,7 @@
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/primitive_type.h"
 
 namespace doris::vectorized {
 TEST(VAccurateComparison, TestsOP) {

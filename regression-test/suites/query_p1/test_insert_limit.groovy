@@ -43,6 +43,13 @@ suite("test_insert_limit") {
             }
         }
 
+        qt_select """
+        select k1, length(group_concat_merge(k2)) from `tbl_test_insert_limit` group by k1;
+        """
+        qt_select """
+        select k1, length(k2) from `tbl_test_insert_limit`;
+        """
+
         if (error != "") {
             break
         }
@@ -50,6 +57,9 @@ suite("test_insert_limit") {
 
     assertTrue(error != "")
 
+    qt_select """
+        select k1, length(group_concat_merge(k2)) from `tbl_test_insert_limit` group by k1;
+    """
     qt_select """
         select k1, length(k2) from `tbl_test_insert_limit`;
     """

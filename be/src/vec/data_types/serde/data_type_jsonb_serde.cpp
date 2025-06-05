@@ -106,7 +106,7 @@ Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
 Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     JsonBinaryValue value;
-    RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
+    RETURN_IF_ERROR(value.init_from_json_string(slice.data, slice.size));
 
     auto& column_string = assert_cast<ColumnString&>(column);
     column_string.insert_data(value.value(), value.size());
@@ -291,8 +291,7 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     column_string.reserve(column_string.size() + arg.string_value_size());
     JsonBinaryValue value;
     for (int i = 0; i < arg.string_value_size(); ++i) {
-        RETURN_IF_ERROR(
-                value.from_json_string(arg.string_value(i).c_str(), arg.string_value(i).size()));
+        RETURN_IF_ERROR(value.init_from_json_string(arg.string_value(i)));
         column_string.insert_data(value.value(), value.size());
     }
     return Status::OK();
