@@ -1175,4 +1175,8 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy.put(key, policy);
         }
     }
+
+    public ThreadPoolExecutor getThreadPoolExecutor() {
+        return threadPoolWithPreAuth;
+    }
 }
