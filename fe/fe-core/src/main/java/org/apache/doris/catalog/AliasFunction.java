@@ -21,19 +21,13 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand.ExpressionToExpr;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
@@ -87,38 +81,26 @@ public class AliasFunction extends Function {
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        String oriStmt = "concat(left(id,3),'****',right(id,4));";
-        try {
-            /**
-             * Please ensure that the condition checks in {@link #analyze} are satisfied
-             */
-            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
-                    false, Lists.newArrayList("id"), getExpr(oriStmt), true, false));
 
-            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
-                    false, Lists.newArrayList("id"), getExpr(oriStmt), true, true));
+        /**
+         * Please ensure that the condition checks in {@link #analyze} are satisfied
+         */
+        functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
+                false, Lists.newArrayList("id"), getConcatFunctionExpr(), true, false));
 
-        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
-            LOG.error("Add builtin alias function error {}", e);
-        }
+        functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
+                false, Lists.newArrayList("id"), getConcatFunctionExpr(), true, true));
+
     }
 
-    public static Expr getExpr(String sql) {
-        NereidsParser nereidsParser = new NereidsParser();
-        Expression expression = nereidsParser.parseExpression(sql);
-        return translateToLegacyExpr(expression);
-    }
-
-    private static Expr translateToLegacyExpr(Expression expression) {
-        StatementContext statementContext = new StatementContext();
-        LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                statementContext.getNextRelationId(),
-                new ArrayList<>());
-        CascadesContext cascadesContext = CascadesContext.initContext(statementContext, plan,
-                PhysicalProperties.ANY);
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        ExpressionTranslator translator = new ExpressionToExpr();
-        return expression.accept(translator, planTranslatorContext);
+    public static Expr getConcatFunctionExpr() {
+        // "concat(left(id,3),'****',right(id,4));";
+        FunctionCallExpr left = new FunctionCallExpr("left",
+                new FunctionParams(Lists.newArrayList(new SlotRef(null, "id"), new IntLiteral(3))));
+        FunctionCallExpr right = new FunctionCallExpr("right",
+                new FunctionParams(Lists.newArrayList(new SlotRef(null, "id"), new IntLiteral(4))));
+        return new FunctionCallExpr("concat",
+                new FunctionParams(Lists.newArrayList(left, new StringLiteral("****"), right)));
     }
 
     private static AliasFunction createBuiltin(String name, ArrayList<Type> argTypes, Type retType,
