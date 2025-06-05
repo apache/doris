@@ -22,7 +22,6 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/block.h"
@@ -113,25 +112,19 @@ public:
     static bool compare(typename PrimitiveTypeTraits<A>::ColumnItemType a,
                         typename PrimitiveTypeTraits<B>::ColumnItemType b, UInt32 scale_a,
                         UInt32 scale_b) {
-        static const UInt32 max_scale = max_decimal_precision<Decimal256>();
+        static const UInt32 max_scale = max_decimal_precision<TYPE_DECIMAL256>();
         if (scale_a > max_scale || scale_b > max_scale) {
             throw Exception(Status::FatalError("Bad scale of decimal field"));
         }
 
         Shift shift;
         if (scale_a < scale_b) {
-            shift.a = typename PrimitiveTypeTraits<B>::DataType(
-                              max_decimal_precision<
-                                      typename PrimitiveTypeTraits<B>::ColumnItemType>(),
-                              scale_b)
+            shift.a = typename PrimitiveTypeTraits<B>::DataType(max_decimal_precision<B>(), scale_b)
                               .get_scale_multiplier(scale_b - scale_a)
                               .value;
         }
         if (scale_a > scale_b) {
-            shift.b = typename PrimitiveTypeTraits<A>::DataType(
-                              max_decimal_precision<
-                                      typename PrimitiveTypeTraits<A>::ColumnItemType>(),
-                              scale_a)
+            shift.b = typename PrimitiveTypeTraits<A>::DataType(max_decimal_precision<A>(), scale_a)
                               .get_scale_multiplier(scale_a - scale_b)
                               .value;
         }
@@ -161,18 +154,16 @@ private:
     template <PrimitiveType T, PrimitiveType U>
         requires(is_decimal(T) && is_decimal(U))
     static Shift getScales(const DataTypePtr& left_type, const DataTypePtr& right_type) {
-        const typename PrimitiveTypeTraits<T>::DataType* decimal0 =
-                check_decimal<typename PrimitiveTypeTraits<T>::ColumnItemType>(*left_type);
-        const typename PrimitiveTypeTraits<U>::DataType* decimal1 =
-                check_decimal<typename PrimitiveTypeTraits<U>::ColumnItemType>(*right_type);
+        const typename PrimitiveTypeTraits<T>::DataType* decimal0 = check_decimal<T>(*left_type);
+        const typename PrimitiveTypeTraits<U>::DataType* decimal1 = check_decimal<U>(*right_type);
 
         Shift shift;
         if (decimal0 && decimal1) {
-            using Type = std::conditional_t<
+            constexpr PrimitiveType Type =
                     sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) >=
-                            sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType),
-                    typename PrimitiveTypeTraits<T>::ColumnItemType,
-                    typename PrimitiveTypeTraits<U>::ColumnItemType>;
+                                    sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType)
+                            ? T
+                            : U;
             auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
             const DataTypeDecimal<Type>* result_type = check_decimal<Type>(*type_ptr);
             shift.a = result_type->scale_factor_for(*decimal0).value;
@@ -191,7 +182,7 @@ private:
     static Shift getScales(const DataTypePtr& left_type, const DataTypePtr&) {
         Shift shift;
         const typename PrimitiveTypeTraits<T>::DataTypeType* decimal0 =
-                check_decimal<typename PrimitiveTypeTraits<T>::ColumnItemType>(*left_type);
+                check_decimal<T>(*left_type);
         if (decimal0) {
             shift.b = decimal0->get_scale_multiplier().value;
         }
@@ -202,8 +193,7 @@ private:
         requires(!is_decimal(T) && is_decimal(U))
     static Shift getScales(const DataTypePtr&, const DataTypePtr& right_type) {
         Shift shift;
-        const typename PrimitiveTypeTraits<U>::DataType* decimal1 =
-                check_decimal<typename PrimitiveTypeTraits<U>::ColumnItemType>(*right_type);
+        const typename PrimitiveTypeTraits<U>::DataType* decimal1 = check_decimal<U>(*right_type);
         if (decimal1) {
             shift.a = decimal1->get_scale_multiplier().value;
         }

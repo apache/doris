@@ -28,7 +28,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
@@ -961,9 +960,9 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
         const int precision = test_case.first.first;
         const int scale = test_case.first.second;
         const size_t input_rows_count = test_case.second.size();
-        auto col_general = ColumnDecimal<DecimalType>::create(input_rows_count, scale);
+        auto col_general = ColumnDecimal<DecimalType::PType>::create(input_rows_count, scale);
         auto col_scale = ColumnInt32::create();
-        auto col_res_expected = ColumnDecimal<DecimalType>::create(input_rows_count, scale);
+        auto col_res_expected = ColumnDecimal<DecimalType::PType>::create(input_rows_count, scale);
         size_t rid = 0;
 
         for (const auto& test_date : test_case.second) {
@@ -978,20 +977,21 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
 
         if (decimal_col_is_const) {
             block.insert({ColumnConst::create(col_general->clone_resized(1), 1),
-                          std::make_shared<DataTypeDecimal<DecimalType>>(precision, scale),
+                          std::make_shared<DataTypeDecimal<DecimalType::PType>>(precision, scale),
                           "col_general_const"});
         } else {
             block.insert({col_general->clone(),
-                          std::make_shared<DataTypeDecimal<DecimalType>>(precision, scale),
+                          std::make_shared<DataTypeDecimal<DecimalType::PType>>(precision, scale),
                           "col_general"});
         }
 
         block.insert({col_scale->clone(), std::make_shared<DataTypeInt32>(), "col_scale"});
-        block.insert({nullptr, std::make_shared<DataTypeDecimal<DecimalType>>(precision, scale),
+        block.insert({nullptr,
+                      std::make_shared<DataTypeDecimal<DecimalType::PType>>(precision, scale),
                       "col_res"});
 
         auto status = func->execute_impl(context, block, arguments, res_idx, input_rows_count);
-        auto col_res = assert_cast<const ColumnDecimal<DecimalType>&>(
+        auto col_res = assert_cast<const ColumnDecimal<DecimalType::PType>&>(
                 *(block.get_by_position(res_idx).column));
         EXPECT_TRUE(status.ok());
 

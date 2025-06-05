@@ -45,7 +45,7 @@ namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class DataTypeNumber;
@@ -55,6 +55,7 @@ class ColumnVector;
 template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    static constexpr PrimitiveType ResultPType = T;
     typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
     UInt64 count = 0;
 
@@ -114,14 +115,12 @@ public:
             T == TYPE_DECIMALV2, Decimal128V2,
             std::conditional_t<is_decimal(T), typename Data::ResultType, Float64>>;
     using ResultDataType = std::conditional_t<
-            T == TYPE_DECIMALV2, DataTypeDecimal<Decimal128V2>,
-            std::conditional_t<is_decimal(T), DataTypeDecimal<typename Data::ResultType>,
-                               DataTypeFloat64>>;
+            T == TYPE_DECIMALV2, DataTypeDecimalV2,
+            std::conditional_t<is_decimal(T), DataTypeDecimal<Data::ResultPType>, DataTypeFloat64>>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = std::conditional_t<
-            T == TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>,
-            std::conditional_t<is_decimal(T), ColumnDecimal<typename Data::ResultType>,
-                               ColumnFloat64>>;
+            T == TYPE_DECIMALV2, ColumnDecimal128V2,
+            std::conditional_t<is_decimal(T), ColumnDecimal<Data::ResultPType>, ColumnFloat64>>;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
     // an implicit cast to float.

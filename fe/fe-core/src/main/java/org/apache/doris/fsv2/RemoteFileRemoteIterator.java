@@ -15,36 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.types;
+package org.apache.doris.fsv2;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.PrimitiveType;
-import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
-/**
- * Datetime type in Nereids.
- */
-public class TimeType extends PrimitiveType implements RangeScalable {
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 
-    public static final TimeType INSTANCE = new TimeType();
+public class RemoteFileRemoteIterator
+        implements RemoteIterator<RemoteFile> {
+    private final List<RemoteFile> remoteFileList;
+    private int currentIndex = 0;
 
-    private static final int WIDTH = 8;
-
-    private TimeType() {
+    public RemoteFileRemoteIterator(List<RemoteFile> remoteFileList) {
+        this.remoteFileList = Objects.requireNonNull(remoteFileList, "iterator is null");
     }
 
     @Override
-    public Type toCatalogDataType() {
-        return Type.TIME;
+    public boolean hasNext() throws FileSystemIOException {
+        return currentIndex < remoteFileList.size();
     }
 
     @Override
-    public boolean equals(Object o) {
-        return o instanceof TimeType;
-    }
-
-    @Override
-    public int width() {
-        return WIDTH;
+    public RemoteFile next() throws FileSystemIOException {
+        if (!hasNext()) {
+            throw new NoSuchElementException("No more elements in RemoteFileRemoteIterator");
+        }
+        return remoteFileList.get(currentIndex++);
     }
 }

@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.fsv2;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 
-/**
- * some function PropagateNullable when args are datev2 or datetimev2
- * and AlwaysNullable when other type parameters
- */
-public interface PropagateNullableOnDateLikeV2Args extends PropagateNullable, AlwaysNullable {
-    @Override
-    default boolean nullable() {
-        if (children().stream().anyMatch(e -> e.getDataType().isDateV2LikeType())) {
-            return PropagateNullable.super.nullable();
-        } else {
-            return AlwaysNullable.super.nullable();
-        }
+public class RemoteFiles {
+
+    private final List<RemoteFile> files;
+
+    public RemoteFiles(List<RemoteFile> files) {
+        this.files = files;
     }
 
-    List<Expression> children();
+    public List<RemoteFile> files() {
+        return files;
+    }
 }

@@ -108,6 +108,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -157,6 +158,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConvertLSCCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCopyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -200,6 +202,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
@@ -722,6 +725,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showCreateDatabaseCommand, context);
     }
 
+    default R visitShowCreateFunctionCommand(ShowCreateFunctionCommand showCreateFunctionCommand, C context) {
+        return visitCommand(showCreateFunctionCommand, context);
+    }
+
     default R visitShowCreateViewCommand(ShowCreateViewCommand showCreateViewCommand, C context) {
         return visitCommand(showCreateViewCommand, context);
     }
@@ -852,6 +859,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropTableCommand(DropTableCommand dropTableCommand, C context) {
         return visitCommand(dropTableCommand, context);
+    }
+
+    default R visitDropViewCommand(DropViewCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
@@ -1247,6 +1258,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowRoutineLoadCommand(ShowRoutineLoadCommand showRoutineLoadCommand, C context) {
         return visitCommand(showRoutineLoadCommand, context);
+    }
+
+    default R visitShowRoutineLoadTaskCommand(ShowRoutineLoadTaskCommand showRoutineLoadTaskCommand, C context) {
+        return visitCommand(showRoutineLoadTaskCommand, context);
     }
 
     default R visitShowWarmupCommand(ShowWarmUpCommand showWarmUpCommand, C context) {

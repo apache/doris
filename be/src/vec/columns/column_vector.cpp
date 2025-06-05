@@ -29,7 +29,6 @@
 
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -208,7 +207,20 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
             }
         }
     } else {
-        DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
+        if (null_data == nullptr) {
+            for (size_t i = 0; i < s; i++) {
+                hashes[i] = HashUtil::zlib_crc_hash(
+                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
+                        hashes[i]);
+            }
+        } else {
+            for (size_t i = 0; i < s; i++) {
+                if (null_data[i] == 0)
+                    hashes[i] = HashUtil::zlib_crc_hash(
+                            &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),
+                            hashes[i]);
+            }
+        }
     }
 }
 

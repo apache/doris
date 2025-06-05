@@ -1727,17 +1727,17 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     case PrimitiveType::TYPE_INT:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
     case PrimitiveType::TYPE_DECIMAL32:
-        return _decode_decimal_column<Decimal32, is_filter>(col_name, data_column, data_type, cvb,
-                                                            num_values);
+        return _decode_decimal_column<TYPE_DECIMAL32, is_filter>(col_name, data_column, data_type,
+                                                                 cvb, num_values);
     case PrimitiveType::TYPE_DECIMAL64:
-        return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
-                                                            num_values);
+        return _decode_decimal_column<TYPE_DECIMAL64, is_filter>(col_name, data_column, data_type,
+                                                                 cvb, num_values);
     case PrimitiveType::TYPE_DECIMALV2:
-        return _decode_decimal_column<Decimal128V2, is_filter>(col_name, data_column, data_type,
-                                                               cvb, num_values);
+        return _decode_decimal_column<TYPE_DECIMALV2, is_filter>(col_name, data_column, data_type,
+                                                                 cvb, num_values);
     case PrimitiveType::TYPE_DECIMAL128I:
-        return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
-                                                               cvb, num_values);
+        return _decode_decimal_column<TYPE_DECIMAL128I, is_filter>(col_name, data_column, data_type,
+                                                                   cvb, num_values);
     case PrimitiveType::TYPE_DATEV2:
         return _decode_time_column<DateV2Value<DateV2ValueType>, TYPE_DATEV2, orc::LongVectorBatch,
                                    is_filter>(col_name, data_column, cvb, num_values);
