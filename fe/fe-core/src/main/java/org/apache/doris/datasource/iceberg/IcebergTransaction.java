@@ -155,7 +155,7 @@ public class IcebergTransaction implements Transaction {
 
     private void commitAppendTxn(Table table, List<WriteResult> pendingResults) {
         // commit append files.
-        AppendFiles appendFiles = table.newAppend();
+        AppendFiles appendFiles = table.newAppend().scanManifestsWith(ops.getThreadPoolWithPreAuth());
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files for append.");
@@ -171,7 +171,7 @@ public class IcebergTransaction implements Transaction {
             // 1. if dst_tb is a partitioned table, it will return directly.
             // 2. if dst_tb is an unpartitioned table, the `dst_tb` table will be emptied.
             if (!table.spec().isPartitioned()) {
-                OverwriteFiles overwriteFiles = table.newOverwrite();
+                OverwriteFiles overwriteFiles = table.newOverwrite().scanManifestsWith(ops.getThreadPoolWithPreAuth());
                 try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
                     fileScanTasks.forEach(f -> overwriteFiles.deleteFile(f.file()));
                 } catch (IOException e) {
