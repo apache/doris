@@ -737,9 +737,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                                ? ","
                                                : http_req->header(HTTP_COLUMN_SEPARATOR);
 
-        std::string format =
-                http_req->header("format").empty() ? "csv" : http_req->header("format");
-
+	std::string format =
+    http_req->header("format").empty() ? "csv" : http_req->header("format");
         std::vector<std::string> column_vector = split(columns, std::string(","));
         std::string column_list = "(" + join(column_vector, ", ") + ")";
 
