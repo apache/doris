@@ -27,6 +27,7 @@
 #include <google/protobuf/util/json_util.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/schema.h>
+#include <snappy.h>
 
 #include <algorithm>
 #include <chrono>
@@ -91,7 +92,9 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    {
+        TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
+    }
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -288,7 +291,9 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        {
+            TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
+        }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -1397,11 +1402,52 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
+
+    // test only: compress rowset meta value
+
+    size_t compressed_size = 0;
+
+    int64_t compress_time;
+    int64_t decompress_time;
+    std::string compressed_val;
+    {
+        StopWatch sw;
+        auto tmp_rs_val_copy = tmp_rs_val;
+        compressed_val.resize(tmp_rs_val_copy.size());
+        snappy::RawCompress(tmp_rs_val_copy.data(), tmp_rs_val_copy.size(), compressed_val.data(),
+                            &compressed_size);
+        sw.pause();
+        compress_time = sw.elapsed_us();
+    }
+
+    {
+        size_t uncompressed_size = 0;
+        std::string uncompressed_data;
+        StopWatch sw;
+        bool success = snappy::GetUncompressedLength(compressed_val.data(), compressed_size,
+                                                     &uncompressed_size);
+        DCHECK(success) << "snappy::GetUncompressedLength failed";
+        DCHECK(uncompressed_size == tmp_rs_val.size())
+                << "uncompressed size mismatch, expected: " << tmp_rs_val.size()
+                << ", actual: " << uncompressed_size;
+        uncompressed_data.resize(uncompressed_size);
+        success = snappy::RawUncompress(compressed_val.data(), compressed_size,
+                                        uncompressed_data.data());
+        sw.pause();
+        decompress_time = sw.elapsed_us();
+
+        DCHECK(uncompressed_data == tmp_rs_val)
+                << "uncompressed data mismatch, expected: " << tmp_rs_val
+                << ", actual: " << uncompressed_data;
+    }
+
     txn->put(tmp_rs_key, tmp_rs_val);
     std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
     LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
-              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
-              << request->txn_id() << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
+              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " compressed_size "
+              << compressed_size << " compress_cost " << compress_time << " decompress_cost "
+              << decompress_time << " txn_id " << request->txn_id() << " segment_key_bounds_bytes "
+              << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
