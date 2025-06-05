@@ -27,7 +27,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
-import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
@@ -36,7 +35,6 @@ import org.apache.iceberg.types.Types.StructType;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,41 +44,6 @@ import java.util.List;
 import java.util.Map;
 
 public class IcebergUtilsTest {
-    @Test
-    public void testParseTableName() {
-        try {
-            IcebergHMSExternalCatalog c1 =
-                    new IcebergHMSExternalCatalog(1, "name", null, new HashMap<>(), "");
-            HiveCatalog i1 = IcebergUtils.createIcebergHiveCatalog(c1, "i1");
-            Assert.assertTrue(getListAllTables(i1));
-
-            IcebergHMSExternalCatalog c2 =
-                    new IcebergHMSExternalCatalog(1, "name", null,
-                            new HashMap<String, String>() {{
-                                    put("list-all-tables", "true");
-                                }},
-                            "");
-            HiveCatalog i2 = IcebergUtils.createIcebergHiveCatalog(c2, "i1");
-            Assert.assertTrue(getListAllTables(i2));
-
-            IcebergHMSExternalCatalog c3 =
-                    new IcebergHMSExternalCatalog(1, "name", null,
-                            new HashMap<String, String>() {{
-                                    put("list-all-tables", "false");
-                                }},
-                        "");
-            HiveCatalog i3 = IcebergUtils.createIcebergHiveCatalog(c3, "i1");
-            Assert.assertFalse(getListAllTables(i3));
-        } catch (Exception e) {
-            Assert.fail();
-        }
-    }
-
-    private boolean getListAllTables(HiveCatalog hiveCatalog) throws IllegalAccessException, NoSuchFieldException {
-        Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
-        declaredField.setAccessible(true);
-        return declaredField.getBoolean(hiveCatalog);
-    }
 
     @Test
     public void testGetMatchingManifest() {

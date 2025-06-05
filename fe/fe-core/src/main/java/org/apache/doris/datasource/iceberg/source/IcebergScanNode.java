@@ -357,7 +357,6 @@ public class IcebergScanNode extends FileQueryScanNode {
                         break;
                     }
                 }
-                setPushDownCount(countFromSnapshot);
                 assignCountToSplits(splits, countFromSnapshot);
                 return splits;
             } else {

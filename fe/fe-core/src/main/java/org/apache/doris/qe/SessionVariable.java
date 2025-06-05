@@ -4753,11 +4753,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
     }
-}
-
-    public boolean getEnableLocalMergeSort() {
-        return enableLocalMergeSort;
-    }
 
     public boolean getEnableExternalTableBatchMode() {
         return enableExternalTableBatchMode;
