@@ -632,6 +632,8 @@ DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DECLARE_mBool(enable_stream_load_record);
+// Whether to enable http_stream load support. Default is false.
+DECLARE_mBool(enable_http_stream_load);
 // batch size of stream load record reported to FE
 DECLARE_mInt32(stream_load_record_batch_size);
 // expire time of stream load record in rocksdb.

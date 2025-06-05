@@ -724,6 +724,48 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
+    if (config::enable_http_stream_load) {
+        std::string table_name = ctx->table;
+        std::string database_name = request.db;
+
+        std::string columns = http_req->header(HTTP_COLUMNS);
+        if (columns.empty()) {
+            return Status::InvalidArgument("Missing required HTTP header: columns");
+        }
+
+        std::string column_separator = http_req->header(HTTP_COLUMN_SEPARATOR).empty()
+                                               ? ","
+                                               : http_req->header(HTTP_COLUMN_SEPARATOR);
+
+        std::string format =
+                http_req->header("format").empty() ? "csv" : http_req->header("format");
+
+        std::vector<std::string> column_vector = split(columns, std::string(","));
+        std::string column_list = "(" + join(column_vector, ", ") + ")";
+
+        std::vector<std::string> sql_parts;
+        sql_parts.emplace_back("SELECT " + join(column_vector, ", "));
+
+        std::string http_stream_params = "http_stream('format' = '" + format +
+                                         "', 'column_separator' = '" + column_separator + "')";
+
+        sql_parts.emplace_back("FROM " + http_stream_params);
+
+        if (!http_req->header(HTTP_WHERE).empty()) {
+            sql_parts.emplace_back("WHERE " + http_req->header(HTTP_WHERE));
+        }
+
+        std::string full_sql =
+                "INSERT INTO " + database_name + "." + table_name + " " + column_list + " ";
+        for (size_t i = 0; i < sql_parts.size(); i++) {
+            full_sql += sql_parts[i];
+            if (i != sql_parts.size() - 1) full_sql += " ";
+        }
+
+        ctx->sql_str = full_sql;
+        LOG(INFO) << "Generated SQL: " << full_sql << ctx->to_json();
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
