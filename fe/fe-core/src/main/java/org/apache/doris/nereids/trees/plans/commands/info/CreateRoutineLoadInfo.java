@@ -411,6 +411,7 @@ public class CreateRoutineLoadInfo {
      * @return legacy create routine load statement
      */
     public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
+        LOG.info("origin statement: {}", ctx.getStatementContext().getOriginStatement());
         return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
             ctx.getStatementContext().getOriginStatement(), ctx.getCurrentUserIdentity(),
             jobProperties, typeName, routineLoadDesc,

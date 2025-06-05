@@ -78,6 +78,7 @@ public class CreateRoutineLoadCommand extends Command implements ForwardWithSync
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        LOG.info("origin statement: {}", ctx.getStatementContext().getOriginStatement());
         createRoutineLoadInfo.validate(ctx);
         CreateRoutineLoadStmt createRoutineLoadStmt = createRoutineLoadInfo.translateToLegacyStmt(ctx);
         Env.getCurrentEnv().getRoutineLoadManager().createRoutineLoadJob(createRoutineLoadStmt);
