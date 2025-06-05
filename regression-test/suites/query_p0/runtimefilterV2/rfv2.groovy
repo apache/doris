@@ -78,4 +78,10 @@ suite("rfv2") {
         (select b1, b2, b3 from b intersect select c1, c2, c3 from c)
         ) t;
     """
+
+    qt_except """
+    explain shape plan
+    select * from ((select a1, a2, a3 from a) except (select b1, b2, b3 from b)) t;
+    """
+
 }
