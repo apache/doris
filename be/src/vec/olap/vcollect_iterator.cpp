@@ -495,7 +495,6 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
-    LOG_INFO("Level0Iterator refresh current row begin");
     RuntimeState* runtime_state = nullptr;
     if (_reader != nullptr) {
         runtime_state = _reader->_reader_context.runtime_state;
@@ -533,7 +532,6 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
     _ref.row_pos = -1;
     _current = -1;
     _rs_reader = nullptr;
-    LOG_INFO("Level0Iterator refresh current row end");
     return Status::Error<END_OF_FILE>("");
 }
 
@@ -567,33 +565,6 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         }
         auto res = _rs_reader->next_block(block);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
-            // // replace column nothing with real column
-            // const auto idx_to_datatype = _reader->_reader_context.vir_col_idx_to_type;
-            // for (const auto& pair : _reader->_reader_context.vir_cid_to_idx_in_block) {
-            //     size_t idx = pair.second;
-            //     auto type = idx_to_datatype.find(idx)->second;
-
-            //     block->replace_by_position(idx, type->create_column());
-            //     LOG_INFO(
-            //             "Level0Iterator next block replace column nothing with real column "
-            //             "idx {}, type {}",
-            //             idx, type->get_name());
-            // }
-
-            // size_t idx = 0;
-            // for (const auto& entry : *block) {
-            //     if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
-            //                 entry.column.get())) {
-            //         LOG_ERROR(
-            //                 "Column in idx {} is nothing, block columns {}, normal_columns "
-            //                 "{}, ",
-            //                 idx, block->columns(), _reader->_return_columns.size());
-
-            //         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Column in idx {} is nothing",
-            //                                idx);
-            //     }
-            //     idx++;
-            // }
             return res;
         }
         if (res.is<END_OF_FILE>() && block->rows() == 0) {

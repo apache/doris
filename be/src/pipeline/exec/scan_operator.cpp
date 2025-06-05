@@ -265,15 +265,13 @@ Status ScanLocalState<Derived>::_normalize_predicate(
     if (conjunct_expr_root != nullptr) {
         if (is_leaf(conjunct_expr_root)) {
             auto impl = conjunct_expr_root->get_impl();
-            // If impl is not null, which means this a conjuncts from runtime filter.
+            // If impl is not null, which means this is a conjunct from runtime filter.
             vectorized::VExpr* cur_expr = impl ? impl.get() : conjunct_expr_root.get();
             if (dynamic_cast<vectorized::VirtualSlotRef*>(cur_expr)) {
                 // If the expr has virtual slot ref, we need to keep it in the tree.
                 output_expr = conjunct_expr_root;
                 return Status::OK();
             }
-
-            // select funcA(col) from t where
 
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;

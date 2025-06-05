@@ -19,8 +19,7 @@
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vector")
 
 set(VECTOR_LIB_SRC
-        vector_index.h
-        stream_wrapper.h
+    vector_index.h
 )
 
 set(VECTOR_LIB_DEPENDENCIES)

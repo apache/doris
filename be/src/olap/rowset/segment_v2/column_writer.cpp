@@ -20,6 +20,7 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 
@@ -534,6 +535,14 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
+Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
+    RETURN_IF_CATCH_EXCEPTION(
+            { return _internal_append_data_in_current_page(*data, num_written); });
+
+    *data += get_field()->size() * (*num_written);
+    return Status::OK();
+}
+
 Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
                                                                  size_t* num_written) {
     RETURN_IF_ERROR(_page_builder->add(data, num_written));
@@ -558,12 +567,6 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
     if (is_nullable()) {
         _null_bitmap_builder->add_run(false, *num_written);
     }
-    return Status::OK();
-}
-
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
-    RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
-    *data += get_field()->size() * (*num_written);
     return Status::OK();
 }
 
@@ -930,7 +933,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
     auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
     // total number length
-    size_t element_cnt = size_t((unsigned long)(*data_ptr));
+    size_t element_cnt = (*data_ptr);
     auto offset_data = *(data_ptr + 1);
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
     auto data = *(data_ptr + 2);

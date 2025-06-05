@@ -52,6 +52,7 @@
 #include "olap/options.h"
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/tmp_file_dirs.h"
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"

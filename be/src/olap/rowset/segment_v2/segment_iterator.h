@@ -371,6 +371,8 @@ private:
 
     void _clear_iterators();
 
+    void _init_virtual_columns(vectorized::Block* block);
+
     Status _materialization_of_virtual_column(vectorized::Block* block);
 
     class BitmapRangeIterator;

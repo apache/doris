@@ -241,6 +241,8 @@ public:
     IntCounter* runtime_filter_consumer_wait_ready_ms = nullptr;
     IntGauge* runtime_filter_consumer_timeout_num = nullptr;
 
+    IntGauge* ann_index_adding_vector_count = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;

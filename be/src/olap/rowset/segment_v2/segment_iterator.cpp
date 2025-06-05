@@ -2155,62 +2155,23 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 }
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
-    // Append virtual columns to block
-    if (block->columns() < _schema->num_column_ids() + _virtual_column_exprs.size()) {
-        std::vector<size_t> vir_col_pos;
-        for (auto pair1 : _vir_cid_to_idx_in_block) {
-            vir_col_pos.push_back(pair1.second);
-        }
-        std::sort(vir_col_pos.begin(), vir_col_pos.end());
-        for (size_t i = 0; i < vir_col_pos.size(); ++i) {
-            DCHECK(_opts.vir_col_idx_to_type.find(vir_col_pos[i]) !=
-                   _opts.vir_col_idx_to_type.end());
-            block->insert({vectorized::ColumnNothing::create(0),
-                           _opts.vir_col_idx_to_type[vir_col_pos[i]],
-                           fmt::format("_VIR_COL_{}", i)});
-        }
-    } else {
-        // Before get next batch. make sure all virtual columns has type ColumnNothing.
-        std::vector<size_t> vir_col_pos;
-        for (const auto& pair : _vir_cid_to_idx_in_block) {
-            vir_col_pos.push_back(pair.second);
-            block->replace_by_position(pair.second, vectorized::ColumnNothing::create(0));
-        }
-    }
+    // Append virtual columns to the end of block before getting each batch.
+    _init_virtual_columns(block);
 
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
             auto res = _next_batch_internal(block);
 
             if (res.is<END_OF_FILE>() && block->rows() == 0) {
-                // replace column nothing with real column
-                const auto idx_to_datatype = _opts.vir_col_idx_to_type;
+                // Since we have a type check at the caller.
+                // So a replacement of nothing column with real column is needed.
+                const auto& idx_to_datatype = _opts.vir_col_idx_to_type;
                 for (const auto& pair : _vir_cid_to_idx_in_block) {
                     size_t idx = pair.second;
                     auto type = idx_to_datatype.find(idx)->second;
 
                     block->replace_by_position(idx, type->create_column());
-                    LOG_INFO(
-                            "SegmentIterator next block replace column nothing with real column "
-                            "idx {}, type {}",
-                            idx, type->get_name());
                 }
-
-                size_t idx = 0;
-                for (const auto& entry : *block) {
-                    if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
-                                entry.column.get())) {
-                        LOG_ERROR(
-                                "Column in idx {} is nothing, block columns {}, normal_columns "
-                                "{}, ",
-                                idx, block->columns(), _schema->column_ids().size());
-
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                               "Column in idx {} is nothing", idx);
-                    }
-                    idx++;
-                }
-
                 return res;
             }
 
@@ -2928,6 +2889,31 @@ bool SegmentIterator::_can_opt_topn_reads() {
     })
 
     return all_true;
+}
+
+void SegmentIterator::_init_virtual_columns(vectorized::Block* block) {
+    const size_t num_virtual_columns = _virtual_column_exprs.size();
+    if (block->columns() < _schema->num_column_ids() + num_virtual_columns) {
+        std::vector<size_t> vir_col_idx;
+        for (const auto& pair : _vir_cid_to_idx_in_block) {
+            vir_col_idx.push_back(pair.second);
+        }
+        std::sort(vir_col_idx.begin(), vir_col_idx.end());
+        for (size_t i = 0; i < num_virtual_columns; ++i) {
+            auto iter = _opts.vir_col_idx_to_type.find(vir_col_idx[i]);
+            DCHECK(iter != _opts.vir_col_idx_to_type.end());
+            // Name of virtual currently is not used, so we just use a dummy name.
+            block->insert({vectorized::ColumnNothing::create(0), iter->second,
+                           fmt::format("VIRTUAL_COLUMN_{}", i)});
+        }
+    } else {
+        // Before get next batch. make sure all virtual columns has type ColumnNothing.
+        std::vector<size_t> vir_col_pos;
+        for (const auto& pair : _vir_cid_to_idx_in_block) {
+            vir_col_pos.push_back(pair.second);
+            block->replace_by_position(pair.second, vectorized::ColumnNothing::create(0));
+        }
+    }
 }
 
 Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* block) {

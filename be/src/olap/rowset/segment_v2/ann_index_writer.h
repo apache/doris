@@ -34,7 +34,6 @@
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 #include "runtime/collection_value.h"
-#include "vector/diskann_vector_index.h"
 #include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
