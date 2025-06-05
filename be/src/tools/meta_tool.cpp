@@ -305,6 +305,7 @@ void show_segment_footer(const std::string& file_name) {
 }
 
 int main(int argc, char** argv) {
+    SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
     google::ParseCommandLineFlags(&argc, &argv, true);
