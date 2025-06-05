@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fsv2.remote;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fsv2.FileSystem;
+import org.apache.doris.fsv2.FileSystemCache;
 
 import java.util.List;
 import java.util.Map;
@@ -121,16 +123,10 @@ public class SwitchingFileSystem implements FileSystem {
     }
 
     public FileSystem fileSystem(String location) {
-        // todo: This method is currently unused.
-        // LocationPath has already been adapted to the new V2 logic.
-        // We’re keeping this code commented out for now, but it will be fully removed once
-        // V2 is finalized and fully adopted.
-        /* return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
+        return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(
                         LocationPath.getFSIdentity(location, properties,
-                                bindBrokerName), properties, bindBrokerName));*/
-        //
-        return null;
+                                bindBrokerName), properties, bindBrokerName));
     }
 }
 
