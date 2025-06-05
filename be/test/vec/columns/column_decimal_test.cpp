@@ -24,7 +24,6 @@
 #include <cstddef>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
@@ -563,7 +562,7 @@ TEST_F(ColumnDecimalTest, replicate) {
     _column_decimal_common_test_with_type(assert_column_vector_replicate_callback, false);
 }
 
-template <typename T>
+template <PrimitiveType T>
 void insert_value_test(ColumnDecimal<T>* src_col) {
     auto col = src_col->clone_empty();
     auto* dec_col = assert_cast<ColumnDecimal<T>*>(col.get());

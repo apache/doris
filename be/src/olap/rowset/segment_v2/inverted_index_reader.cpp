@@ -240,7 +240,7 @@ Status InvertedIndexReader::handle_searcher_cache(
         // to avoid open directory additionally for null_bitmap
         // TODO: handle null bitmap procedure in new format.
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        static_cast<void>(read_null_bitmap(io_ctx, stats, &null_bitmap_cache_handle, dir.get()));
+        RETURN_IF_ERROR(read_null_bitmap(io_ctx, stats, &null_bitmap_cache_handle, dir.get()));
         size_t reader_size = 0;
         auto index_searcher_builder =
                 DORIS_TRY(IndexSearcherBuilder::create_index_searcher_builder(type()));

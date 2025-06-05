@@ -259,8 +259,7 @@ struct DecimalBinaryOperation {
 
     using ResultType = typename PrimitiveTypeTraits<ResultPType>::ColumnItemType;
     using Traits = NumberTraits::BinaryOperatorTraits<LeftDataPType, RightDataPType>;
-    using ArrayC = typename ColumnDecimal<
-            typename PrimitiveTypeTraits<ResultPType>::ColumnItemType>::Container;
+    using ArrayC = typename ColumnDecimal<ResultPType>::Container;
     using NativeResultType = typename PrimitiveTypeTraits<ResultPType>::CppNativeType;
 
 private:
@@ -434,12 +433,13 @@ public:
                                                      const ResultType& scale_diff_multiplier,
                                                      DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
-        auto column_result = ColumnDecimal<ResultType>::create(
-                1, assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
-                           *res_data_type)
-                           .get_scale());
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
+                1,
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
+                        *res_data_type)
+                        .get_scale());
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
@@ -466,13 +466,13 @@ public:
                                                    const ResultType& scale_diff_multiplier,
                                                    DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
         auto column_left_ptr =
                 check_and_get_column<typename Traits::ColumnVectorA>(column_left.get());
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 column_left->size(),
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
                         .get_scale());
         DCHECK(column_left_ptr != nullptr);
@@ -502,13 +502,13 @@ public:
                                                    const ResultType& scale_diff_multiplier,
                                                    DataTypePtr res_data_type) {
         auto type_result =
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type);
         auto column_right_ptr =
                 check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
-        auto column_result = ColumnDecimal<ResultType>::create(
+        auto column_result = ColumnDecimal<ResultType::PType>::create(
                 column_right->size(),
-                assert_cast<const DataTypeDecimal<ResultType>&, TypeCheckOnRelease::DISABLE>(
+                assert_cast<const DataTypeDecimal<ResultType::PType>&, TypeCheckOnRelease::DISABLE>(
                         *res_data_type)
                         .get_scale());
         DCHECK(column_right_ptr != nullptr);
@@ -543,9 +543,10 @@ public:
         auto column_right_ptr =
                 check_and_get_column<typename Traits::ColumnVectorB>(column_right.get());
 
-        const auto& type_result = assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
-        auto column_result =
-                ColumnDecimal<ResultType>::create(column_left->size(), type_result.get_scale());
+        const auto& type_result =
+                assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
+        auto column_result = ColumnDecimal<ResultType::PType>::create(column_left->size(),
+                                                                      type_result.get_scale());
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         if constexpr (check_overflow && !is_to_null_type &&
@@ -598,10 +599,9 @@ private:
                 // TODO handle overflow gracefully
                 if (UNLIKELY(Op::template apply<ResultPType>(a, b, res))) {
                     if constexpr (OpTraits::is_plus_minus) {
-                        auto result_str =
-                                DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                             type_result.get_scale()}
-                                        .to_string(Decimal256(res));
+                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                              type_result.get_scale()}
+                                                  .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                 type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
                                 result_str, type_result.get_name());
@@ -623,8 +623,8 @@ private:
                         if (res256 > wide::Int256(max_result_number.value) ||
                             res256 < wide::Int256(-max_result_number.value)) {
                             auto result_str =
-                                    DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                                 type_result.get_scale()}
+                                    DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                        type_result.get_scale()}
                                             .to_string(Decimal256(res256));
                             THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                     type_left.to_string(A(a)), Name::name,
@@ -633,10 +633,9 @@ private:
                             res = res256;
                         }
                     } else {
-                        auto result_str =
-                                DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                             type_result.get_scale()}
-                                        .to_string(Decimal256(res));
+                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                              type_result.get_scale()}
+                                                  .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                 type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
                                 result_str, type_result.get_name());
@@ -653,10 +652,9 @@ private:
                         }
                     }
                     if (res > max_result_number.value || res < -max_result_number.value) {
-                        auto result_str =
-                                DataTypeDecimal<Decimal256> {BeConsts::MAX_DECIMAL256_PRECISION,
-                                                             type_result.get_scale()}
-                                        .to_string(Decimal256(res));
+                        auto result_str = DataTypeDecimal256 {BeConsts::MAX_DECIMAL256_PRECISION,
+                                                              type_result.get_scale()}
+                                                  .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
                                 type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
                                 result_str, type_result.get_name());
@@ -850,18 +848,18 @@ private:
     // is {p1 + p2, s1 + s2}, but if the precision or scale is overflow, FE will adjust
     // the result precsion and scale to the values specified in type_result, so
     // we need to adjust the multiply result accordingly.
+    template <PrimitiveType PT>
     static std::pair<ResultType, ResultType> get_max_and_multiplier(
             const LeftDataType& type_left, const RightDataType& type_right,
-            const DataTypeDecimal<ResultType>& type_result) {
+            const DataTypeDecimal<PT>& type_result) {
         auto max_result_number =
-                DataTypeDecimal<ResultType>::get_max_digits_number(type_result.get_precision());
+                DataTypeDecimal<PT>::get_max_digits_number(type_result.get_precision());
 
         auto orig_result_scale = type_left.get_scale() + type_right.get_scale();
         auto result_scale = type_result.get_scale();
         DCHECK(orig_result_scale >= result_scale);
         auto scale_diff_multiplier =
-                DataTypeDecimal<ResultType>::get_scale_multiplier(orig_result_scale - result_scale)
-                        .value;
+                DataTypeDecimal<PT>::get_scale_multiplier(orig_result_scale - result_scale).value;
         return {ResultType(max_result_number), ResultType(scale_diff_multiplier)};
     }
 
@@ -876,7 +874,7 @@ private:
 
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
 
             column_result = OperationImpl::adapt_decimal_constant_constant(
@@ -901,7 +899,7 @@ private:
 
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
             return OperationImpl::adapt_decimal_vector_constant(
                     column_left->get_ptr(), column_right_ptr->template get_value<B>(), type_left,
@@ -920,7 +918,7 @@ private:
 
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
             return OperationImpl::adapt_decimal_constant_vector(
                     column_left_ptr->template get_value<A>(), column_right->get_ptr(), type_left,
@@ -936,7 +934,7 @@ private:
                                    DataTypePtr res_data_type) {
         if constexpr (result_is_decimal) {
             const auto& type_result =
-                    assert_cast<const DataTypeDecimal<ResultType>&>(*res_data_type);
+                    assert_cast<const DataTypeDecimal<ResultType::PType>&>(*res_data_type);
             auto max_and_multiplier = get_max_and_multiplier(type_left, type_right, type_result);
             return OperationImpl::adapt_decimal_vector_vector(
                     column_left->get_ptr(), column_right->get_ptr(), type_left, type_right,
@@ -966,9 +964,9 @@ class FunctionBinaryArithmetic : public IFunction {
     static bool cast_type(const IDataType* type, F&& f) {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
-                                   DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V3>,
-                                   DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
+                                   DataTypeDecimal32, DataTypeDecimal64, DataTypeDecimalV2,
+                                   DataTypeDecimal128, DataTypeDecimal256>(type,
+                                                                           std::forward<F>(f));
     }
 
     template <typename F>

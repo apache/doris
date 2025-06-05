@@ -14,22 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Columns/ColumnsNumber.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.fsv2;
 
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_vector.h"
-#include "vec/core/types.h"
+import org.apache.doris.datasource.SessionContext;
 
-namespace doris::vectorized {
-
-using ColumnDecimal32 = ColumnDecimal<Decimal32>;
-using ColumnDecimal64 = ColumnDecimal<Decimal64>;
-using ColumnDecimal128V2 = ColumnDecimal<Decimal128V2>;
-using ColumnDecimal128V3 = ColumnDecimal<Decimal128V3>;
-using ColumnDecimal256 = ColumnDecimal<Decimal256>;
-
-} // namespace doris::vectorized
+public interface FileSystemProvider {
+    FileSystem get(SessionContext ctx);
+}

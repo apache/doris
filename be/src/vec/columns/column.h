@@ -39,21 +39,6 @@
 
 class SipHash;
 
-#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                                       \
-    if (null_data == nullptr) {                                                                    \
-        for (size_t i = 0; i < s; i++) {                                                           \
-            hashes[i] = HashUtil::zlib_crc_hash(                                                   \
-                    &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType), hashes[i]); \
-        }                                                                                          \
-    } else {                                                                                       \
-        for (size_t i = 0; i < s; i++) {                                                           \
-            if (null_data[i] == 0)                                                                 \
-                hashes[i] = HashUtil::zlib_crc_hash(                                               \
-                        &data[i], sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType),         \
-                        hashes[i]);                                                                \
-        }                                                                                          \
-    }
-
 namespace doris::vectorized {
 
 class Arena;
@@ -668,13 +653,38 @@ public:
 
 protected:
     template <typename Derived>
-    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
+    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+        append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
+    }
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
-                                      size_t end) const;
+                                      size_t end) const {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {} is larger than size of column: {}",
+                                   selector.size(), num_rows);
+        }
+        DCHECK_GE(end, begin);
+        DCHECK_LE(end, selector.size());
+        // here wants insert some value from this column, and the nums is (end - begin)
+        // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
+        // so can't call res->reserve(num_rows), it's will be too mush waste memory
+        res->reserve(res->size() + (end - begin));
+
+        for (size_t i = begin; i < end; ++i) {
+            static_cast<Derived&>(*res).insert_from(*this, selector[i]);
+        }
+    }
     template <typename Derived>
     void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
-                                       const std::vector<size_t>& positions);
+                                       const std::vector<size_t>& positions) {
+        reserve(size() + srcs.size());
+        for (size_t i = 0; i < srcs.size(); ++i) {
+            static_cast<Derived&>(*this).insert_from(*srcs[i], positions[i]);
+        }
+    }
 };
 
 using ColumnPtr = IColumn::Ptr;

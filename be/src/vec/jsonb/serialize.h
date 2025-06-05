@@ -42,14 +42,14 @@ public:
                                int num_cols, const DataTypeSerDeSPtrs& serdes,
                                const std::unordered_set<int32_t>& row_store_cids);
     // batch rows
-    static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
-                               const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                               Block& dst, const std::vector<std::string>& default_values,
-                               const std::unordered_set<int>& include_cids);
+    static Status jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
+                                 const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
+                                 Block& dst, const std::vector<std::string>& default_values,
+                                 const std::unordered_set<int>& include_cids);
     // single row
-    static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
-                               const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
-                               Block& dst, const std::vector<std::string>& default_values,
-                               const std::unordered_set<int>& include_cids);
+    static Status jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
+                                 const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
+                                 Block& dst, const std::vector<std::string>& default_values,
+                                 const std::unordered_set<int>& include_cids);
 };
 } // namespace doris::vectorized

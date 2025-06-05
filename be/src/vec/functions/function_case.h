@@ -31,9 +31,8 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
-#include "vec/columns/columns_number.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -381,20 +380,20 @@ public:
             return execute_get_when_null<ColumnFloat64>(data_type, block, arguments, result,
                                                         input_rows_count);
         case PrimitiveType::TYPE_DECIMAL32:
-            return execute_get_when_null<ColumnDecimal<Decimal32>>(data_type, block, arguments,
-                                                                   result, input_rows_count);
+            return execute_get_when_null<ColumnDecimal32>(data_type, block, arguments, result,
+                                                          input_rows_count);
         case PrimitiveType::TYPE_DECIMAL64:
-            return execute_get_when_null<ColumnDecimal<Decimal64>>(data_type, block, arguments,
-                                                                   result, input_rows_count);
+            return execute_get_when_null<ColumnDecimal64>(data_type, block, arguments, result,
+                                                          input_rows_count);
         case PrimitiveType::TYPE_DECIMAL256:
-            return execute_get_when_null<ColumnDecimal<Decimal256>>(data_type, block, arguments,
-                                                                    result, input_rows_count);
+            return execute_get_when_null<ColumnDecimal256>(data_type, block, arguments, result,
+                                                           input_rows_count);
         case PrimitiveType::TYPE_DECIMAL128I:
-            return execute_get_when_null<ColumnDecimal<Decimal128V3>>(data_type, block, arguments,
-                                                                      result, input_rows_count);
+            return execute_get_when_null<ColumnDecimal128V3>(data_type, block, arguments, result,
+                                                             input_rows_count);
         case PrimitiveType::TYPE_DECIMALV2:
-            return execute_get_when_null<ColumnDecimal<Decimal128V2>>(data_type, block, arguments,
-                                                                      result, input_rows_count);
+            return execute_get_when_null<ColumnDecimal128V2>(data_type, block, arguments, result,
+                                                             input_rows_count);
         case PrimitiveType::TYPE_STRING:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:

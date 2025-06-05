@@ -37,9 +37,9 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.FileSystemProviderImpl;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.fsv2.FileSystemProvider;
+import org.apache.doris.fsv2.FileSystemProviderImpl;
+import org.apache.doris.fsv2.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
