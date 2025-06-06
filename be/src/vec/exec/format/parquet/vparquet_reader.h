@@ -39,6 +39,7 @@
 #include "util/runtime_profile.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/parquet/parquet_common.h"
+#include "vec/exec/format/table/table_format_reader.h"
 #include "vparquet_column_reader.h"
 #include "vparquet_group_reader.h"
 
@@ -117,7 +118,7 @@ public:
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-            bool filter_groups = true, const bool hive_use_column_names = true);
+            bool filter_groups = true);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -150,12 +151,17 @@ public:
 
     const FieldDescriptor get_file_metadata_schema();
     void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
-        _table_col_to_file_col = map;
+        //        _table_col_to_file_col = map;
     }
 
     void set_row_id_column_iterator(
             std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
+    }
+
+    void set_table_info_node_ptr(
+            std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr) {
+        _table_info_node_ptr = table_info_node_ptr;
     }
 
 protected:
@@ -259,14 +265,21 @@ private:
     bool _row_group_eof = true;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
-    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+    //    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
+            TableSchemaChangeHelper::ConstNode::get_instance();
+
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 
     // During initialization, multiple vfile_scanner's _colname_to_value_range will point to the same object,
     // so the content in the object cannot be modified (there is a multi-threading problem).
     // _colname_to_value_range_index_read used when _hive_use_column_names = false.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range_index_read;
-    std::vector<std::string> _read_columns;
+    //sequence in file
+    std::vector<std::string> _read_table_columns;
+    std::vector<std::string> _read_file_columns;
+
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
@@ -301,7 +314,6 @@ private:
     const std::unordered_map<std::string, int>* _colname_to_slot_id = nullptr;
     const VExprContextSPtrs* _not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts = nullptr;
-    bool _hive_use_column_names = false;
     std::unordered_map<tparquet::Type::type, bool> _ignored_stats;
 
     std::vector<std::vector<RowRange>> _read_line_mode_row_ranges;

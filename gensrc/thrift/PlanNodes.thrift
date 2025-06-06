@@ -23,6 +23,7 @@ include "Types.thrift"
 include "Opcodes.thrift"
 include "Partitions.thrift"
 include "Descriptors.thrift"
+include "ExternalTableSchema.thrift"
 
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
@@ -454,7 +455,9 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
-    25: optional map<i64, map<i32, string>> history_schema_info // paimon/hudi map<schema id, map<column unique id , column name>> : for schema change. (native reader)
+
+    25: optional i64 current_schema_id;
+    26: optional list<ExternalTableSchema.TSchema> history_schema_info 
 }
 
 struct TFileRangeDesc {

@@ -600,10 +600,7 @@ public class Column implements GsonPostProcessable {
         return onUpdateDefaultValueExprDef.getExpr(type);
     }
 
-    public TColumn toThrift() {
-        TColumn tColumn = new TColumn();
-        tColumn.setColumnName(removeNamePrefix(this.name));
-
+    public TColumnType columnTypeToThrift() {
         TColumnType tColumnType = new TColumnType();
         tColumnType.setType(this.getDataType().toThrift());
         tColumnType.setLen(this.getStrLen());
@@ -611,8 +608,13 @@ public class Column implements GsonPostProcessable {
         tColumnType.setScale(this.getScale());
 
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
+        return tColumnType;
+    }
 
-        tColumn.setColumnType(tColumnType);
+    public TColumn toThrift() {
+        TColumn tColumn = new TColumn();
+        tColumn.setColumnName(removeNamePrefix(this.name));
+        tColumn.setColumnType(columnTypeToThrift());
         if (null != this.aggregationType) {
             tColumn.setAggregationType(this.aggregationType.toThrift());
         } else {
@@ -1212,4 +1214,5 @@ public class Column implements GsonPostProcessable {
         this.defaultValueExprDef = refColumn.defaultValueExprDef;
         this.realDefaultValue = refColumn.realDefaultValue;
     }
+
 }

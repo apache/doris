@@ -32,6 +32,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -137,15 +138,13 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     auto& root_schema = t_schemas[0];
     _fields.resize(root_schema.num_children);
     _next_schema_pos = 1;
+
     for (int i = 0; i < root_schema.num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &_fields[i]));
         if (_name_to_field.find(_fields[i].name) != _name_to_field.end()) {
             return Status::InvalidArgument("Duplicated field name: {}", _fields[i].name);
         }
         _name_to_field.emplace(_fields[i].name, &_fields[i]);
-        if (_fields[i].field_id != -1) {
-            _field_id_name_mapping.emplace(_fields[i].field_id, _fields[i].name);
-        }
     }
 
     if (_next_schema_pos != t_schemas.size()) {
@@ -156,13 +155,13 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     return Status::OK();
 }
 
-const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
-    auto const it = _field_id_name_mapping.find(id);
-    if (it == _field_id_name_mapping.end()) {
-        return {};
-    }
-    return doris::Slice {it->second.data()};
-}
+//const doris::Slice FieldDescriptor::get_column_name_from_field_id(int32_t id) const {
+//    auto const it = _field_id_name_mapping.find(id);
+//    if (it == _field_id_name_mapping.end()) {
+//        return {};
+//    }
+//    return doris::Slice {it->second.data()};
+//}
 
 Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaElement>& t_schemas,
                                          size_t curr_pos, FieldSchema* node_field) {

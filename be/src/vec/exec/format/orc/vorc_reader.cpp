@@ -278,6 +278,10 @@ void OrcReader::_init_profile() {
 }
 
 Status OrcReader::_create_file_reader() {
+    if (_reader != nullptr) {
+        return Status::OK();
+    }
+
     if (_file_input_stream == nullptr) {
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
@@ -326,8 +330,8 @@ Status OrcReader::init_reader(
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         const bool hive_use_column_names) {
-    _column_names = column_names;
-    _missing_column_names_set.insert(missing_column_names.begin(), missing_column_names.end());
+    _table_column_names = column_names;
+    //    _missing_column_names_set.insert(missing_column_names.begin(), missing_column_names.end());
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
@@ -362,7 +366,7 @@ Status OrcReader::init_reader(
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<DataTypePtr>* col_types) {
     RETURN_IF_ERROR(_create_file_reader());
-    const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
+    const auto& root_type = _is_acid ? remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
         col_types->emplace_back(convert_to_doris_type(root_type.getSubtype(i)));
@@ -370,117 +374,85 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
-Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_names,
-                                                std::vector<int32_t>* col_attributes,
-                                                const std::string& attribute,
-                                                bool* exist_attribute) {
-    RETURN_IF_ERROR(_create_file_reader());
-    *exist_attribute = true;
-    const auto& root_type = _reader->getType();
-    for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        col_names->emplace_back(get_field_name_lower_case(&root_type, i));
-
-        if (!root_type.getSubtype(i)->hasAttributeKey(attribute)) {
-            *exist_attribute = false;
-            return Status::OK();
-        }
-        col_attributes->emplace_back(
-                std::stoi(root_type.getSubtype(i)->getAttributeValue(attribute)));
-    }
-    return Status::OK();
-}
+//Status OrcReader::get_schema_col_name_attribute(TSchemaInfoNode& root, const std::string& attribute, bool* exist_attribute) {
+//    RETURN_IF_ERROR(_create_file_reader());
+//    *exist_attribute = true;
+//
+//    std::function<void(const orc::Type*, TSchemaInfoNode& )>
+//        loop = [&](const orc::Type* orc_type, TSchemaInfoNode& root_node) {
+//        if (orc_type->getKind() == orc::TypeKind::STRUCT) {
+//            for (int i = 0; i< orc_type->getSubtypeCount(); i++) {
+//                const auto& field_name = orc_type->getFieldName(i);
+//
+//                if (!orc_type->getSubtype(i)->hasAttributeKey(attribute)) {
+//                    *exist_attribute = false;
+//                    return;
+//                }
+//
+//                TSchemaInfoNode field_node;
+//                field_node.name = field_name;
+//                loop(orc_type->getSubtype(i), field_node);
+//                root_node.children.emplace(std::stoi(orc_type->getSubtype(i)->getAttributeValue(attribute)), field_node);
+//            }
+//        }else if (orc_type->getKind() == orc::TypeKind::LIST) {
+//
+//            TSchemaInfoNode element_node;
+//            element_node.name = "element";
+//            loop(orc_type->getSubtype(0), element_node);
+//            root_node.children.emplace(0, element_node);
+//
+//        } else if (orc_type->getKind() == orc::TypeKind::MAP) {
+//            {
+//                TSchemaInfoNode key_node;
+//                key_node.name = "key";
+//                loop(orc_type->getSubtype(0),key_node);
+//                root_node.children.emplace(0,key_node);
+//            }
+//            {
+//                TSchemaInfoNode value_node;
+//                value_node.name = "value";
+//                loop(orc_type->getSubtype(1),value_node);
+//                root_node.children.emplace(1,value_node);
+//            }
+//        }
+//    };
+//    const auto& root_type = _reader->getType();
+//    loop(&root_type, root);
+//    return Status::OK();
+//}
 
 Status OrcReader::_init_read_columns() {
     const auto& root_type = _reader->getType();
-    std::vector<std::string> orc_cols;
-    std::vector<std::string> orc_cols_lower_case;
-    bool is_hive1_orc = false;
-    _init_orc_cols(root_type, orc_cols, orc_cols_lower_case, _type_map, &is_hive1_orc, false);
+    if (_is_acid) {
+        for (uint64_t i = 0; i < root_type.getSubtypeCount(); ++i) {
+            if (root_type.getSubtype(i)->getKind() == orc::TypeKind::STRUCT) {
+                auto row_orc_type = root_type.getSubtype(i);
+                for (uint64_t j = 0; j < row_orc_type->getSubtypeCount(); j++) {
+                    _type_map.emplace("row." + row_orc_type->getFieldName(j),
+                                      row_orc_type->getSubtype(j));
+                }
+            } else {
+                _type_map.emplace(root_type.getFieldName(i), root_type.getSubtype(i));
+            }
+        }
+    } else {
+        for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
+            _type_map.emplace(root_type.getFieldName(i), root_type.getSubtype(i));
+        }
+    }
 
-    // In old version slot_name_to_schema_pos may not be set in _scan_params
-    // TODO, should be removed in 2.2 or later
-    _is_hive1_orc_or_use_idx = (is_hive1_orc || _is_hive1_orc_or_use_idx) &&
-                               _scan_params.__isset.slot_name_to_schema_pos;
-    for (size_t i = 0; i < _column_names->size(); ++i) {
-        const auto& col_name = (*_column_names)[i];
-        if (_missing_column_names_set.contains(col_name)) {
-            _missing_cols.emplace_back(col_name);
+    for (size_t i = 0; i < _table_column_names->size(); ++i) {
+        const auto& table_column_name = (*_table_column_names)[i];
+        if (!table_info_node_ptr->children_column_exists(table_column_name)) {
+            _missing_cols.emplace_back(table_column_name);
             continue;
         }
-
-        if (_is_hive1_orc_or_use_idx) {
-            auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
-            if (iter != _scan_params.slot_name_to_schema_pos.end()) {
-                int pos = iter->second;
-                if (_is_acid && i < _column_names->size() - TransactionalHive::READ_PARAMS.size()) {
-                    if (TransactionalHive::ROW_OFFSET + 1 + pos < orc_cols_lower_case.size()) {
-                        // shift TransactionalHive::ROW_OFFSET + 1 offset, 1 is row struct col
-                        orc_cols_lower_case[TransactionalHive::ROW_OFFSET + 1 + pos] = iter->first;
-                    }
-                } else {
-                    if (pos < orc_cols_lower_case.size()) {
-                        orc_cols_lower_case[pos] = iter->first;
-                    }
-                }
-            }
-        }
-        auto iter = std::find(orc_cols_lower_case.begin(), orc_cols_lower_case.end(), col_name);
-        if (iter == orc_cols_lower_case.end()) {
-            _missing_cols.emplace_back(col_name);
-        } else {
-            auto pos = std::distance(orc_cols_lower_case.begin(), iter);
-            std::string read_col;
-            if (_is_acid && i < _column_names->size() - TransactionalHive::READ_PARAMS.size()) {
-                read_col = fmt::format(
-                        "{}.{}",
-                        TransactionalHive::ACID_COLUMN_NAMES[TransactionalHive::ROW_OFFSET],
-                        orc_cols[pos]);
-                _read_cols.emplace_back(read_col);
-            } else {
-                read_col = orc_cols[pos];
-                _read_cols.emplace_back(read_col);
-            }
-            _read_cols_lower_case.emplace_back(col_name);
-            // For hive engine, store the orc column name to schema column name map.
-            // This is for Hive 1.x orc file with internal column name _col0, _col1...
-            if (_is_hive1_orc_or_use_idx) {
-                _removed_acid_file_col_name_to_schema_col[orc_cols[pos]] = col_name;
-            }
-
-            _col_name_to_file_col_name[col_name] = read_col;
-        }
+        const auto file_column_name =
+                table_info_node_ptr->children_file_column_name(table_column_name);
+        _read_file_cols.emplace_back(file_column_name);
+        _read_table_cols.emplace_back(table_column_name);
     }
     return Status::OK();
-}
-
-void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
-                               std::vector<std::string>& orc_cols_lower_case,
-                               std::unordered_map<std::string, const orc::Type*>& type_map,
-                               bool* is_hive1_orc, bool should_add_acid_prefix) const {
-    bool hive1_orc = true;
-    for (int i = 0; i < type.getSubtypeCount(); ++i) {
-        orc_cols.emplace_back(type.getFieldName(i));
-        auto filed_name_lower_case = get_field_name_lower_case(&type, i);
-        if (hive1_orc) {
-            hive1_orc = _is_hive1_col_name(filed_name_lower_case);
-        }
-        orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
-        auto file_name = type.getFieldName(i);
-        if (should_add_acid_prefix) {
-            file_name = fmt::format(
-                    "{}.{}", TransactionalHive::ACID_COLUMN_NAMES[TransactionalHive::ROW_OFFSET],
-                    file_name);
-        }
-        type_map.emplace(std::move(file_name), type.getSubtype(i));
-        if (_is_acid) {
-            const orc::Type* sub_type = type.getSubtype(i);
-            if (sub_type->getKind() == orc::TypeKind::STRUCT) {
-                _init_orc_cols(*sub_type, orc_cols, orc_cols_lower_case, type_map, is_hive1_orc,
-                               true);
-            }
-        }
-    }
-    *is_hive1_orc = hive1_orc;
 }
 
 bool OrcReader::_check_acid_schema(const orc::Type& type) {
@@ -503,7 +475,7 @@ bool OrcReader::_check_acid_schema(const orc::Type& type) {
     return true;
 }
 
-const orc::Type& OrcReader::_remove_acid(const orc::Type& type) {
+const orc::Type& OrcReader::remove_acid(const orc::Type& type) {
     if (_check_acid_schema(type)) {
         return *(type.getSubtype(TransactionalHive::ROW_OFFSET));
     } else {
@@ -662,10 +634,11 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    DCHECK(_col_name_to_file_col_name.contains(slot_ref->expr_name()));
-    auto file_col_name = _col_name_to_file_col_name[slot_ref->expr_name()];
+    DCHECK(table_info_node_ptr->children_column_exists(slot_ref->expr_name()));
+    auto file_col_name = table_info_node_ptr->children_file_column_name(slot_ref->expr_name());
     if (!_type_map.contains(file_col_name)) {
-        LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
+        LOG(WARNING) << "Column " << slot_ref->expr_name() << "in file name" << file_col_name
+                     << " not found in _type_map";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
     DCHECK(_type_map.contains(file_col_name));
@@ -738,10 +711,15 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
     }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in orc file and not partition column
-    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) ||
-        _lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name())) {
+    if (_lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name()) ||
+        (!table_info_node_ptr->children_column_exists(slot_ref->expr_name()))) {
         return false;
     }
+
+    //    if (!_col_name_to_file_col_name.contains(slot_ref->expr_name()) ||
+    //        _lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name())) {
+    //        return false;
+    //    }
     auto [valid, _, predicate_type] = _make_orc_literal(slot_ref, nullptr);
     if (valid) {
         _vslot_ref_to_orc_predicate_data_type[slot_ref] = predicate_type;
@@ -840,7 +818,8 @@ void OrcReader::_build_less_than(const VExprSPtr& expr,
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-    builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+    builder->lessThan(table_info_node_ptr->children_file_column_name(slot_ref->expr_name()),
+                      predicate_type, orc_literal);
 }
 
 void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
@@ -854,7 +833,8 @@ void OrcReader::_build_less_than_equals(const VExprSPtr& expr,
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-    builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+    builder->lessThanEquals(table_info_node_ptr->children_file_column_name(slot_ref->expr_name()),
+                            predicate_type, orc_literal);
 }
 
 void OrcReader::_build_equals(const VExprSPtr& expr,
@@ -868,7 +848,8 @@ void OrcReader::_build_equals(const VExprSPtr& expr,
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
     DCHECK(_vliteral_to_orc_literal.contains(literal));
     auto orc_literal = _vliteral_to_orc_literal.find(literal)->second;
-    builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+    builder->equals(table_info_node_ptr->children_file_column_name(slot_ref->expr_name()),
+                    predicate_type, orc_literal);
 }
 
 void OrcReader::_build_filter_in(const VExprSPtr& expr,
@@ -889,9 +870,11 @@ void OrcReader::_build_filter_in(const VExprSPtr& expr,
     }
     DCHECK(!literals.empty());
     if (literals.size() == 1) {
-        builder->equals(slot_ref->expr_name(), predicate_type, literals[0]);
+        builder->equals(table_info_node_ptr->children_file_column_name(slot_ref->expr_name()),
+                        predicate_type, literals[0]);
     } else {
-        builder->in(slot_ref->expr_name(), predicate_type, literals);
+        builder->in(table_info_node_ptr->children_file_column_name(slot_ref->expr_name()),
+                    predicate_type, literals);
     }
 }
 
@@ -902,7 +885,8 @@ void OrcReader::_build_is_null(const VExprSPtr& expr,
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     DCHECK(_vslot_ref_to_orc_predicate_data_type.contains(slot_ref));
     auto predicate_type = _vslot_ref_to_orc_predicate_data_type[slot_ref];
-    builder->isNull(slot_ref->expr_name(), predicate_type);
+    builder->isNull(table_info_node_ptr->children_file_column_name(slot_ref->expr_name()),
+                    predicate_type);
 }
 
 bool OrcReader::_build_search_argument(const VExprSPtr& expr,
@@ -1029,16 +1013,16 @@ Status OrcReader::set_fill_columns(
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
-    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (auto* slot_ref = typeid_cast<VSlotRef*>(expr)) {
             auto expr_name = slot_ref->expr_name();
-            auto iter = _table_col_to_file_col.find(expr_name);
-            if (iter != _table_col_to_file_col.end()) {
-                expr_name = iter->second;
-            }
-            predicate_columns.emplace(expr_name,
-                                      std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
+            //            auto iter = _table_col_to_file_col.find(expr_name);
+            //            if (iter != _table_col_to_file_col.end()) {
+            //                expr_name = iter->second;
+            //            }
+            predicate_table_columns.emplace(
+                    expr_name, std::make_pair(slot_ref->column_id(), slot_ref->slot_id()));
             if (slot_ref->column_id() == 0) {
                 _lazy_read_ctx.resize_first_column = false;
             }
@@ -1076,24 +1060,27 @@ Status OrcReader::set_fill_columns(
                 TransactionalHive::READ_ROW_COLUMN_NAMES.end());
     }
 
-    for (auto& read_col : _read_cols_lower_case) {
-        _lazy_read_ctx.all_read_columns.emplace_back(read_col);
-        if (!predicate_columns.empty()) {
-            auto iter = predicate_columns.find(read_col);
-            if (iter == predicate_columns.end()) {
+    for (auto& read_table_col : _read_table_cols) {
+        _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
+        if (!predicate_table_columns.empty()) {
+            auto iter = predicate_table_columns.find(read_table_col);
+            if (iter == predicate_table_columns.end()) {
                 if (!_is_acid ||
                     std::find(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                               TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end(),
-                              read_col) ==
+                              read_table_col) ==
                             TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end()) {
-                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_col);
+                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
                 }
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
+
                 _lazy_read_ctx.predicate_orc_columns.emplace_back(
-                        _col_name_to_file_col_name[iter->first]);
-                _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
+                        table_info_node_ptr->children_file_column_name(iter->first));
+                // _col_name_to_file_col_name[iter->first]
+
+                //                _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
             }
         }
     }
@@ -1109,18 +1096,18 @@ Status OrcReader::set_fill_columns(
     }
 
     for (const auto& kv : partition_columns) {
-        auto iter = predicate_columns.find(kv.first);
-        if (iter == predicate_columns.end()) {
+        auto iter = predicate_table_columns.find(kv.first);
+        if (iter == predicate_table_columns.end()) {
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
         } else {
             _lazy_read_ctx.predicate_partition_columns.emplace(kv.first, kv.second);
-            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
+            //            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
     }
 
     for (const auto& kv : missing_columns) {
-        auto iter = predicate_columns.find(kv.first);
-        if (iter == predicate_columns.end()) {
+        auto iter = predicate_table_columns.find(kv.first);
+        if (iter == predicate_table_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
             //For check missing column :   missing column == xx, missing column is null,missing column is not null.
@@ -1128,15 +1115,35 @@ Status OrcReader::set_fill_columns(
                 _slot_id_to_filter_conjuncts->end()) {
                 for (const auto& ctx :
                      _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
-                    _filter_conjuncts.emplace_back(ctx);
+                    _filter_conjuncts.emplace_back(ctx); //  todo ??????
                 }
             }
 
             // predicate_missing_columns is VLiteral.To fill in default values for missing columns.
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
+            //            _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
+        }
+    }
+
+    /*
+     *     for (auto& kv : missing_columns) {
+        auto iter = predicate_columns.find(kv.first);
+        if (iter == predicate_columns.end()) {
+            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
+        } else {
+            //For check missing column :   missing column == xx, missing column is null,missing column is not null.
+            if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
+                _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
+                    _lazy_read_ctx.missing_columns_conjuncts.emplace_back(ctx);
+                }
+            }
+
+            _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
     }
+     */
 
     if (_enable_lazy_mat && !_lazy_read_ctx.predicate_columns.first.empty() &&
         !_lazy_read_ctx.lazy_read_columns.empty()) {
@@ -1163,7 +1170,7 @@ Status OrcReader::set_fill_columns(
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
         _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-        _row_reader_options.include(_read_cols);
+        _row_reader_options.include(_read_file_cols);
         _row_reader_options.setEnableLazyDecoding(true);
 
         uint64_t number_of_stripes = _reader->getNumberOfStripes();
@@ -1230,7 +1237,30 @@ Status OrcReader::set_fill_columns(
         _batch = _row_reader->createRowBatch(_batch_size);
         const auto& selected_type = _row_reader->getSelectedType();
         int idx = 0;
-        RETURN_IF_ERROR(_init_select_types(selected_type, idx));
+        //        RETURN_IF_ERROR(_init_select_types(selected_type, idx));
+
+        //        for(auto file_col :_read_file_cols) {
+        //            _colname_to_idx[file_col] = idx++;
+        //        }
+        if (_is_acid) {
+            for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
+                auto sub_type = selected_type.getSubtype(i);
+                if (sub_type->getKind() == orc::TypeKind::STRUCT) {
+                    for (int j = 0; j < sub_type->getSubtypeCount(); ++j) {
+                        _col_orc_type.emplace_back(sub_type->getSubtype(j));
+                        _colname_to_idx["row." + sub_type->getFieldName(j)] = idx++;
+                    }
+                } else {
+                    _colname_to_idx[selected_type.getFieldName(i)] = idx++;
+                    _col_orc_type.emplace_back(sub_type);
+                }
+            }
+        } else {
+            for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
+                _col_orc_type.emplace_back(selected_type.getSubtype(i));
+                _colname_to_idx[selected_type.getFieldName(i)] = idx++;
+            }
+        }
 
         _remaining_rows = _row_reader->getNumberOfRows();
 
@@ -1265,22 +1295,29 @@ Status OrcReader::set_fill_columns(
 }
 
 Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
-    for (int i = 0; i < type.getSubtypeCount(); ++i) {
-        std::string name;
-        // For hive engine, translate the column name in orc file to schema column name.
-        // This is for Hive 1.x which use internal column name _col0, _col1...
-        if (_is_hive1_orc_or_use_idx) {
-            name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
-        } else {
-            name = get_field_name_lower_case(&type, i);
-        }
-        _colname_to_idx[name] = idx++;
-        const orc::Type* sub_type = type.getSubtype(i);
-        _col_orc_type.push_back(sub_type);
-        if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
-            RETURN_IF_ERROR(_init_select_types(*sub_type, idx));
-        }
-    }
+    //    for (int i = 0; i < type.getSubtypeCount(); ++i) {
+    //        std::string name;
+    //        // For hive engine, translate the column name in orc file to schema column name.
+    //        // This is for Hive 1.x which use internal column name _col0, _col1...
+    //        if (_is_hive1_orc_or_use_idx) {
+    //            name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
+    //        } else {
+    //            name = get_field_name_lower_case(&type, i);
+    //        }
+    //        _colname_to_idx[name] = idx++;
+    //        const orc::Type* sub_type = type.getSubtype(i);
+    //        _col_orc_type.push_back(sub_type);
+    //        if (_is_acid && sub_type->getKind() == orc::TypeKind::STRUCT) {
+    //            RETURN_IF_ERROR(_init_select_types(*sub_type, idx));
+    //        }
+    //    }
+    //
+    //    if (_is_acid) {
+    //
+    //    } else {
+    //
+    //    }
+
     return Status::OK();
 }
 
@@ -1715,6 +1752,7 @@ template <bool is_filter>
 Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                           MutableColumnPtr& data_column,
                                           const DataTypePtr& data_type,
+                                          std::shared_ptr<TableSchemaChangeHelper::Node> root_node,
                                           const orc::Type* orc_column_type,
                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
     auto logical_type = data_type->get_primitive_type();
@@ -1769,7 +1807,8 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         std::string element_name = col_name + ".element";
         return _orc_column_to_doris_column<false>(
                 element_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
-                nested_orc_type, orc_list->elements.get(), element_size);
+                root_node->get_element_node(), nested_orc_type, orc_list->elements.get(),
+                element_size);
     }
     case PrimitiveType::TYPE_MAP: {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
@@ -1793,12 +1832,13 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
-        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(key_col_name, doris_key_column,
-                                                           doris_key_type, orc_key_type,
-                                                           orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<false>(value_col_name, doris_value_column,
-                                                  doris_value_type, orc_value_type,
-                                                  orc_map->elements.get(), element_size);
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
+                key_col_name, doris_key_column, doris_key_type, root_node->get_key_node(),
+
+                orc_key_type, orc_map->keys.get(), element_size));
+        return _orc_column_to_doris_column<false>(
+                value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
+                orc_value_type, orc_map->elements.get(), element_size);
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
@@ -1812,21 +1852,36 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         std::set<int> missing_fields;
         const auto* doris_struct_type =
                 assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+
         for (int i = 0; i < doris_struct.tuple_size(); ++i) {
-            bool is_missing_col = true;
-            for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
-                if (boost::iequals(doris_struct_type->get_name_by_position(i),
-                                   orc_column_type->getFieldName(j))) {
-                    read_fields[i] = j;
-                    is_missing_col = false;
-                    break;
-                }
-            }
-            if (is_missing_col) {
+            const auto& table_column_name = doris_struct_type->get_name_by_position(i);
+            if (!root_node->children_column_exists(table_column_name)) {
                 missing_fields.insert(i);
+                continue;
+            }
+            const auto& file_column_name = root_node->children_file_column_name(table_column_name);
+            for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
+                if (boost::iequals(orc_column_type->getFieldName(j), file_column_name)) {
+                    read_fields[i] = j;
+                }
             }
         }
 
+        //        for (int i = 0; i < doris_struct.tuple_size(); ++i) {
+        //            bool is_missing_col = true;
+        //            for (int j = 0; j < orc_column_type->getSubtypeCount(); ++j) {
+        //                if (boost::iequals(doris_struct_type->get_name_by_position(i),
+        //                                   orc_column_type->getFieldName(j))) {
+        //                    read_fields[i] = j;
+        //                    is_missing_col = false;
+        //                    break;
+        //                }
+        //            }
+        //            if (is_missing_col) {
+        //                missing_fields.insert(i);
+        //            }
+        //        }
+        //
         for (int missing_field : missing_fields) {
             ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
             if (!doris_field->is_nullable()) {
@@ -1838,7 +1893,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                     ->insert_many_defaults(num_values);
         }
 
-        for (auto read_field : read_fields) {
+        for (auto read_field : read_fields) { /// todo ???   table_idx   file_idx;
             orc::ColumnVectorBatch* orc_field = orc_struct->fields[read_field.second];
             const orc::Type* orc_type = orc_column_type->getSubtype(read_field.second);
             std::string field_name =
@@ -1846,7 +1901,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
             ColumnPtr& doris_field = doris_struct.get_column_ptr(read_field.first);
             const DataTypePtr& doris_type = doris_struct_type->get_element(read_field.first);
             RETURN_IF_ERROR(_orc_column_to_doris_column<is_filter>(
-                    field_name, doris_field, doris_type, orc_type, orc_field, num_values));
+                    field_name, doris_field, doris_type,
+                    root_node->get_children_node(
+                            doris_struct_type->get_name_by_position(read_field.first)),
+                    orc_type, orc_field, num_values));
         }
         return Status::OK();
     }
@@ -1857,11 +1915,10 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
 }
 
 template <bool is_filter>
-Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, ColumnPtr& doris_column,
-                                              const DataTypePtr& data_type,
-                                              const orc::Type* orc_column_type,
-                                              const orc::ColumnVectorBatch* cvb,
-                                              size_t num_values) {
+Status OrcReader::_orc_column_to_doris_column(
+        const std::string& col_name, ColumnPtr& doris_column, const DataTypePtr& data_type,
+        std::shared_ptr<TableSchemaChangeHelper::Node> root_node, const orc::Type* orc_column_type,
+        const orc::ColumnVectorBatch* cvb, size_t num_values) {
     auto src_type = convert_to_doris_type(orc_column_type);
     bool is_dict_filter_col = false;
     for (const std::pair<std::string, int>& dict_col : _dict_filter_cols) {
@@ -1918,7 +1975,7 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name, Colum
     }
 
     RETURN_IF_ERROR(_fill_doris_data_column<is_filter>(col_name, data_column,
-                                                       remove_nullable(resolved_type),
+                                                       remove_nullable(resolved_type), root_node,
                                                        orc_column_type, cvb, num_values));
     // resolve schema change
     auto converted_column = doris_column->assume_mutable();
@@ -2010,16 +2067,19 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
 
         std::vector<orc::ColumnVectorBatch*> batch_vec;
         _fill_batch_vec(batch_vec, _batch.get(), 0);
+
         for (auto& col_name : _lazy_read_ctx.lazy_read_columns) {
             auto& column_with_type_and_name = block->get_by_name(col_name);
             auto& column_ptr = column_with_type_and_name.column;
             auto& column_type = column_with_type_and_name.type;
-            auto orc_col_idx = _colname_to_idx.find(col_name);
+            auto file_column_name = table_info_node_ptr->children_file_column_name(col_name);
+            auto orc_col_idx = _colname_to_idx.find(file_column_name);
             if (orc_col_idx == _colname_to_idx.end()) {
                 return Status::InternalError("Wrong read column '{}' in orc file", col_name);
             }
             RETURN_IF_ERROR(_orc_column_to_doris_column<true>(
-                    col_name, column_ptr, column_type, _col_orc_type[orc_col_idx->second],
+                    col_name, column_ptr, column_type,
+                    table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
                     batch_vec[orc_col_idx->second], _batch->numElements));
         }
 
@@ -2103,12 +2163,14 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
             auto& column_with_type_and_name = block->get_by_name(col_name);
             auto& column_ptr = column_with_type_and_name.column;
             auto& column_type = column_with_type_and_name.type;
-            auto orc_col_idx = _colname_to_idx.find(col_name);
+            auto file_column_name = table_info_node_ptr->children_file_column_name(col_name);
+            auto orc_col_idx = _colname_to_idx.find(file_column_name);
             if (orc_col_idx == _colname_to_idx.end()) {
                 return Status::InternalError("Wrong read column '{}' in orc file", col_name);
             }
             RETURN_IF_ERROR(_orc_column_to_doris_column(
-                    col_name, column_ptr, column_type, _col_orc_type[orc_col_idx->second],
+                    col_name, column_ptr, column_type,
+                    table_info_node_ptr->get_children_node(col_name), _type_map[file_column_name],
                     batch_vec[orc_col_idx->second], _batch->numElements));
         }
 
@@ -2187,10 +2249,19 @@ Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof
 
 void OrcReader::_fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                                 orc::ColumnVectorBatch* batch, int idx) {
-    for (auto* field : dynamic_cast<const orc::StructVectorBatch*>(batch)->fields) {
-        result.push_back(field);
-        if (_is_acid && _col_orc_type[idx++]->getKind() == orc::TypeKind::STRUCT) {
-            _fill_batch_vec(result, field, idx);
+    if (_is_acid) {
+        for (auto* field : dynamic_cast<const orc::StructVectorBatch*>(batch)->fields) {
+            if (dynamic_cast<const orc::StructVectorBatch*>(field) != nullptr) {
+                for (auto* row_field : dynamic_cast<const orc::StructVectorBatch*>(field)->fields) {
+                    result.push_back(row_field);
+                }
+            } else {
+                result.push_back(field);
+            }
+        }
+    } else {
+        for (auto* field : dynamic_cast<const orc::StructVectorBatch*>(batch)->fields) {
+            result.push_back(field);
         }
     }
 }
@@ -2246,24 +2317,26 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
     std::vector<orc::ColumnVectorBatch*> batch_vec;
     _fill_batch_vec(batch_vec, &data, 0);
-    std::vector<string> col_names;
-    col_names.insert(col_names.end(), _lazy_read_ctx.predicate_columns.first.begin(),
-                     _lazy_read_ctx.predicate_columns.first.end());
+    std::vector<string> table_col_names;
+    table_col_names.insert(table_col_names.end(), _lazy_read_ctx.predicate_columns.first.begin(),
+                           _lazy_read_ctx.predicate_columns.first.end());
     if (_is_acid) {
-        col_names.insert(col_names.end(),
-                         TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
-                         TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
+        table_col_names.insert(table_col_names.end(),
+                               TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
+                               TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
     }
-    for (auto& col_name : col_names) {
-        auto& column_with_type_and_name = block->get_by_name(col_name);
+    for (auto& table_col_name : table_col_names) {
+        auto& column_with_type_and_name = block->get_by_name(table_col_name);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
-        auto orc_col_idx = _colname_to_idx.find(col_name);
+        auto file_column_name = table_info_node_ptr->children_file_column_name(table_col_name);
+        auto orc_col_idx = _colname_to_idx.find(file_column_name);
         if (orc_col_idx == _colname_to_idx.end()) {
-            return Status::InternalError("Wrong read column '{}' in orc file", col_name);
+            return Status::InternalError("Wrong read column '{}' in orc file", table_col_name);
         }
         RETURN_IF_ERROR(_orc_column_to_doris_column(
-                col_name, column_ptr, column_type, _col_orc_type[orc_col_idx->second],
+                table_col_name, column_ptr, column_type,
+                table_info_node_ptr->get_children_node(table_col_name), _type_map[file_column_name],
                 batch_vec[orc_col_idx->second], data.numElements));
     }
     RETURN_IF_ERROR(
@@ -2303,7 +2376,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
 
     if (can_filter_all) {
-        for (auto& col : col_names) {
+        for (auto& col : table_col_names) {
             // clean block to read predicate columns and acid columns
             block->get_by_name(col).column->assume_mutable()->clear();
         }
@@ -2346,7 +2419,8 @@ Status OrcReader::fill_dict_filter_column_names(
         int slot_id = predicate_col_slot_ids[i];
         if (!_disable_dict_filter && _can_filter_by_dict(slot_id)) {
             _dict_filter_cols.emplace_back(predicate_col_name, slot_id);
-            column_names.emplace_back(_col_name_to_file_col_name[predicate_col_name]);
+            column_names.emplace_back(
+                    table_info_node_ptr->children_file_column_name(predicate_col_name));
         } else {
             if (_slot_id_to_filter_conjuncts->find(slot_id) !=
                 _slot_id_to_filter_conjuncts->end()) {
@@ -2415,8 +2489,8 @@ Status OrcReader::on_string_dicts_loaded(
             msg << "_slot_id_to_filter_conjuncts: slot_id [" << slot_id << "] not found";
             return Status::NotFound(msg.str());
         }
-        auto file_column_name_to_dict_map_iter =
-                file_column_name_to_dict_map.find(_col_name_to_file_col_name[dict_filter_col_name]);
+        auto file_column_name_to_dict_map_iter = file_column_name_to_dict_map.find(
+                table_info_node_ptr->children_file_column_name(dict_filter_col_name));
         if (file_column_name_to_dict_map_iter == file_column_name_to_dict_map.end()) {
             it = _dict_filter_cols.erase(it);
             for (auto& ctx : ctxs) {
@@ -2628,7 +2702,10 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
             size_t pos = block->get_position_by_name(dict_filter_cols.first);
             ColumnWithTypeAndName& column_with_type_and_name = block->get_by_position(pos);
             const ColumnPtr& column = column_with_type_and_name.column;
-            auto orc_col_idx = _colname_to_idx.find(dict_filter_cols.first);
+
+            auto file_column_name =
+                    table_info_node_ptr->children_file_column_name(dict_filter_cols.first);
+            auto orc_col_idx = _colname_to_idx.find(file_column_name);
             if (orc_col_idx == _colname_to_idx.end()) {
                 return Status::InternalError("Wrong read column '{}' in orc file",
                                              dict_filter_cols.first);
@@ -2643,7 +2720,7 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
                 if (batch_vec != nullptr) {
                     string_column = _convert_dict_column_to_string_column(
                             dict_column, &null_map, (*batch_vec)[orc_col_idx->second],
-                            _col_orc_type[orc_col_idx->second]);
+                            _type_map[file_column_name]);
                 } else {
                     string_column = ColumnString::create();
                 }
@@ -2659,7 +2736,7 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
                 if (batch_vec != nullptr) {
                     string_column = _convert_dict_column_to_string_column(
                             dict_column, nullptr, (*batch_vec)[orc_col_idx->second],
-                            _col_orc_type[orc_col_idx->second]);
+                            _type_map[file_column_name]);
                 } else {
                     string_column = ColumnString::create();
                 }
