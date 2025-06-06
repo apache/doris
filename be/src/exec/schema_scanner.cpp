@@ -28,6 +28,7 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_configuration_scanner.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
