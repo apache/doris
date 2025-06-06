@@ -68,22 +68,21 @@ public:
     Field get_default() const override {
         std::string default_json = "null";
         // convert default_json to binary
-        JsonBinaryValue binary_val;
-        THROW_IF_ERROR(binary_val.init_from_json_string(default_json.c_str(),
-                                                        static_cast<Int32>(default_json.size())));
+        JsonBinaryValue jsonb_value;
+        THROW_IF_ERROR(jsonb_value.from_json_string(default_json));
         // Throw exception if default_json.size() is large than INT32_MAX
         // JsonbField keeps its own memory
         return Field::create_field<TYPE_JSONB>(
-                JsonbField(binary_val.value(), cast_set<Int32>(binary_val.size())));
+                JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
     }
 
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
         DCHECK(node.__isset.json_literal);
-        JsonBinaryValue value;
-        THROW_IF_ERROR(value.init_from_json_string(node.json_literal.value));
+        JsonBinaryValue jsonb_value;
+        THROW_IF_ERROR(jsonb_value.from_json_string(node.json_literal.value));
         return Field::create_field<TYPE_JSONB>(
-                JsonbField(value.value(), cast_set<Int32>(value.size())));
+                JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
     }
 
     bool equals(const IDataType& rhs) const override;

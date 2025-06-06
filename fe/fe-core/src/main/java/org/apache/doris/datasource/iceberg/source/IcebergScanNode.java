@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg.source;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -228,7 +229,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    public void doStartSplit() {
+    public void doStartSplit() throws UserException {
         TableScan scan = createTableScan();
         CompletableFuture.runAsync(() -> {
             AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
@@ -269,7 +270,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    public TableScan createTableScan() {
+    public TableScan createTableScan() throws UserException {
         if (icebergTableScan != null) {
             return icebergTableScan;
         }
@@ -277,9 +278,13 @@ public class IcebergScanNode extends FileQueryScanNode {
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
-        Long snapshotId = getSpecifiedSnapshot();
-        if (snapshotId != null) {
-            scan = scan.useSnapshot(snapshotId);
+        IcebergTableQueryInfo info = getSpecifiedSnapshot();
+        if (info != null) {
+            if (info.getRef() != null) {
+                scan = scan.useRef(info.getRef());
+            } else {
+                scan = scan.useSnapshot(info.getSnapshotId());
+            }
         }
 
         // set filter
@@ -361,7 +366,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public boolean isBatchMode() {
+    public boolean isBatchMode() throws UserException {
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
         if (aggOp.equals(TPushAggOp.COUNT)) {
             countFromSnapshot = getCountFromSnapshot();
@@ -407,10 +412,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    public Long getSpecifiedSnapshot() {
+    public IcebergTableQueryInfo getSpecifiedSnapshot() throws UserException {
         TableSnapshot tableSnapshot = getQueryTableSnapshot();
-        if (tableSnapshot != null) {
-            return IcebergUtils.getQuerySpecSnapshot(icebergTable, tableSnapshot);
+        TableScanParams scanParams = getScanParams();
+        Optional<TableScanParams> params = Optional.ofNullable(scanParams);
+        if (tableSnapshot != null || IcebergUtils.isIcebergBranchOrTag(params)) {
+            return IcebergUtils.getQuerySpecSnapshot(
+                icebergTable,
+                Optional.ofNullable(tableSnapshot),
+                params);
         }
         return null;
     }
@@ -492,11 +502,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @VisibleForTesting
-    public long getCountFromSnapshot() {
-        Long specifiedSnapshot = getSpecifiedSnapshot();
+    public long getCountFromSnapshot() throws UserException {
+        IcebergTableQueryInfo info = getSpecifiedSnapshot();
 
-        Snapshot snapshot = specifiedSnapshot == null
-                ? icebergTable.currentSnapshot() : icebergTable.snapshot(specifiedSnapshot);
+        Snapshot snapshot = info == null
+                ? icebergTable.currentSnapshot() : icebergTable.snapshot(info.getSnapshotId());
 
         // empty table
         if (snapshot == null) {
