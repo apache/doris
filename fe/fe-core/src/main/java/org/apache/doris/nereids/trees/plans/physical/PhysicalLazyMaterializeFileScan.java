@@ -41,7 +41,8 @@ public class PhysicalLazyMaterializeFileScan extends PhysicalFileScan {
         super(scan.getRelationId(), scan.getTable(), scan.getQualifier(), scan.getDistributionSpec(),
                 Optional.empty(), null, null, scan.getStats(),
                 scan.selectedPartitions, scan.getTableSample(),
-                scan.getTableSnapshot(), scan.getOperativeSlots());
+                scan.getTableSnapshot(), scan.getOperativeSlots(),
+                scan.getScanParams());
         this.scan = scan;
         this.rowId = rowId;
         this.lazySlots = lazySlots;

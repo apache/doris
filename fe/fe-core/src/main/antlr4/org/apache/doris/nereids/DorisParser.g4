@@ -77,7 +77,6 @@ unsupportedStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
-    | unsupportedCancelStatement
     | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
@@ -571,6 +570,8 @@ supportedCancelStatement
     : CANCEL LOAD ((FROM | IN) database=identifier)? wildWhere?                     #cancelLoad
     | CANCEL EXPORT ((FROM | IN) database=identifier)? wildWhere?                   #cancelExport
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUpJob
+    | CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
+        (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     | CANCEL BACKUP ((FROM | IN) database=identifier)?                              #cancelBackup
     | CANCEL RESTORE ((FROM | IN) database=identifier)?                             #cancelRestore
     | CANCEL BUILD INDEX ON tableName=multipartIdentifier
@@ -579,11 +580,6 @@ supportedCancelStatement
     | CANCEL ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         FROM tableName=multipartIdentifier (LEFT_PAREN jobIds+=INTEGER_VALUE
             (COMMA jobIds+=INTEGER_VALUE)* RIGHT_PAREN)?                            #cancelAlterTable
-    ;
-
-unsupportedCancelStatement
-    : CANCEL DECOMMISSION BACKEND hostPorts+=STRING_LITERAL
-        (COMMA hostPorts+=STRING_LITERAL)*                                          #cancelDecommisionBackend
     ;
 
 supportedAdminStatement
@@ -1324,7 +1320,7 @@ identifierSeq
     ;
 
 optScanParams
-    : ATSIGN funcName=identifier LEFT_PAREN (properties=propertyItemList)? RIGHT_PAREN
+    : ATSIGN funcName=identifier LEFT_PAREN (mapParams=propertyItemList | listParams=identifierSeq)? RIGHT_PAREN
     ;
 
 relationPrimary
@@ -1741,7 +1737,7 @@ sampleMethod
     ;
 
 tableSnapshot
-    : FOR VERSION AS OF version=INTEGER_VALUE
+    : FOR VERSION AS OF version=(INTEGER_VALUE | STRING_LITERAL)
     | FOR TIME AS OF time=STRING_LITERAL
     ;
 

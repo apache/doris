@@ -30,9 +30,33 @@ ROW FORMAT SERDE
 STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/csv/csv_json_table_simple';
 
+CREATE TABLE open_csv_table_null_format (
+  id INT,
+  name STRING
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_table_null_format';
+
+CREATE TABLE open_csv_complex_type (
+  id INT,
+  arr_col ARRAY<INT>,
+  map_col MAP<STRING, INT>,
+  struct_col STRUCT<name:STRING, age:INT>
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+WITH SERDEPROPERTIES (
+  "separatorChar" = ",",
+  "quoteChar"     = "\"",
+  "escapeChar"    = "\\"
+)
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_complex_type';
+
 create database if not exists openx_json;
 use openx_json;
-
 
 CREATE TABLE IF NOT EXISTS json_table (
     id INT,
