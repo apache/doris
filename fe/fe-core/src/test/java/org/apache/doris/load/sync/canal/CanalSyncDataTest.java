@@ -29,7 +29,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -87,8 +86,6 @@ public class CanalSyncDataTest {
     Env env;
     @Mocked
     Backend backend;
-    @Mocked
-    StreamLoadTask streamLoadTask;
     @Mocked
     NereidsStreamLoadPlanner streamLoadPlanner;
     @Mocked
