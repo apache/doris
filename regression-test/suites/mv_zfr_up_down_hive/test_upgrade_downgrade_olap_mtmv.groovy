@@ -125,13 +125,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     def fe_old = 0
     def fe_new = 0
     for (int i = 0; i < be_res.size(); i++) {
-        if (be_res[i][21].indexOf(new_version) != -1) {
+        if (be_res[i][21].toString().indexOf(new_version) != -1) {
             be_status = 1
             break
         }
     }
     for (int i = 0; i < fe_res.size(); i++) {
-        if (fe_res[i][21].indexOf(old_version) != -1) {
+        if (fe_res[i][21].toString().indexOf(old_version) != -1) {
             fe_old ++
         } else {
             fe_new++
