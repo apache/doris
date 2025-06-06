@@ -275,8 +275,8 @@ public:
                                           DeleteBitmapPtr& new_delete_bitmap,
                                           std::map<std::string, int64_t>& pre_rowset_to_versions);
 
-    bool need_remove_delete_bitmap();
-    void remove_delete_bitmap();
+    bool need_remove_unused_rowsets();
+    void remove_unused_rowsets();
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version

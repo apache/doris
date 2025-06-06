@@ -502,14 +502,14 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     return expired_rowsets.size();
 }
 
-bool CloudTablet::need_remove_delete_bitmap() {
+bool CloudTablet::need_remove_unused_rowsets() {
     std::lock_guard<std::mutex> lock(_gc_mutex);
     return !_unused_rowsets.empty() || !_unused_delete_bitmap.empty();
 }
 
-void CloudTablet::remove_delete_bitmap() {
+void CloudTablet::remove_unused_rowsets() {
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    // 1. remove delete bitmap of unused rowsets
+    // 1. remove unused rowsets and delete bitmap
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
         auto&& rs = it->second;
         if (rs.use_count() > 1) {
