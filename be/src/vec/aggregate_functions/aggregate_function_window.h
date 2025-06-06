@@ -403,6 +403,20 @@ public:
     void set_is_null() { this->_data_value.reset(); }
 };
 
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
+struct NthValueData : public FirstLastData<ColVecType, result_is_nullable, arg_is_nullable> {
+public:
+    void reset() {
+        this->_data_value.reset();
+        this->_has_value = false;
+        this->_frame_start_pose = 0;
+        this->_frame_total_rows = 0;
+    }
+
+    int64_t _frame_start_pose = 0;
+    int64_t _frame_total_rows = 0;
+};
+
 template <typename ColVecType, bool arg_is_nullable>
 struct BaseValue : public Value<ColVecType, arg_is_nullable> {
 public:
@@ -603,16 +617,20 @@ struct WindowFunctionNthValueImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         DCHECK_LE(frame_start, frame_end);
-        frame_start = std::max<int64_t>(frame_start, partition_start);
-        frame_end = std::min<int64_t>(frame_end, partition_end);
+        int64_t real_frame_start = std::max<int64_t>(frame_start, partition_start);
+        int64_t real_frame_end = std::min<int64_t>(frame_end, partition_end);
+        this->_frame_start_pose =
+                this->_frame_total_rows ? this->_frame_start_pose : real_frame_start;
+        this->_frame_total_rows += real_frame_end - real_frame_start;
         int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                  .get_data()[0] -
                          1;
-        if (frame_end - frame_start <= offset) {
+        if (offset >= this->_frame_total_rows) {
+            // offset is beyond the frame, so set null
             this->set_is_null();
             return;
         }
-        this->set_value(columns, offset + frame_start);
+        this->set_value(columns, offset + this->_frame_start_pose);
     }
 
     static const char* name() { return "nth_value"; }
