@@ -45,7 +45,7 @@ namespace doris::vectorized {
 class DataTypeIPv4 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV4> {
 public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_IPV4; }
-    const char* get_family_name() const override { return "IPv4"; }
+    const std::string get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
 
     doris::FieldType get_storage_field_type() const override {

@@ -981,7 +981,7 @@ TEST(BlockTest, same_bit) {
 TEST(BlockTest, dump) {
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
     auto types = block.dump_types();
-    ASSERT_TRUE(types.find("Int32") != std::string::npos);
+    ASSERT_TRUE(types.find("INT") != std::string::npos);
 
     block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
     types = block.dump_types();
@@ -990,7 +990,7 @@ TEST(BlockTest, dump) {
     block.insert(
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({}));
     types = block.dump_types();
-    ASSERT_TRUE(types.find("Float64") != std::string::npos);
+    ASSERT_TRUE(types.find("DOUBLE") != std::string::npos);
 
     auto names = block.get_names();
     for (const auto& name : names) {
