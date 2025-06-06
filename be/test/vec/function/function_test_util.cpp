@@ -375,10 +375,12 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         case PrimitiveType::TYPE_JSONB: {
             auto str = any_cast<ut_type::STRING>(cell);
             JsonBinaryValue jsonb_val;
-            if (!jsonb_val.init_from_json_string(str.c_str(), str.size()).ok()) {
-                return false;
+            auto st = jsonb_val.from_json_string(str);
+            if (st.ok()) {
+                column->insert_data(jsonb_val.value(), jsonb_val.size());
+            } else {
+                column->insert_default();
             }
-            column->insert_data(jsonb_val.value(), jsonb_val.size());
             break;
         }
         case PrimitiveType::TYPE_BITMAP: {

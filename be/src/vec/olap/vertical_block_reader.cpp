@@ -36,7 +36,6 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/olap/vertical_merge_iterator.h"

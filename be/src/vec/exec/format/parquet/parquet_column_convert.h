@@ -352,9 +352,10 @@ public:
     }
 };
 
-template <typename DecimalType>
+template <PrimitiveType DecimalPType>
 class FixedSizeToDecimal : public PhysicalToLogicalConverter {
 public:
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
     FixedSizeToDecimal(int32_t type_length) : _type_length(type_length) {}
 
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
@@ -416,7 +417,7 @@ public:
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data();
         size_t offset = 0;
         for (int i = 0; i < rows; i++) {
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -437,8 +438,9 @@ private:
     int32_t _type_length;
 };
 
-template <typename DecimalType>
+template <PrimitiveType DecimalPType>
 class StringToDecimal : public PhysicalToLogicalConverter {
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -450,7 +452,7 @@ class StringToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto& data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data();
+        auto& data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data();
         for (int i = 0; i < rows; i++) {
             size_t len = offset[i] - offset[i - 1];
             // When Decimal in parquet is stored in byte arrays, binary and fixed,
@@ -469,8 +471,9 @@ class StringToDecimal : public PhysicalToLogicalConverter {
     }
 };
 
-template <PrimitiveType NumberType, typename DecimalType>
+template <PrimitiveType NumberType, PrimitiveType DecimalPType>
 class NumberToDecimal : public PhysicalToLogicalConverter {
+    using DecimalType = typename PrimitiveTypeTraits<DecimalPType>::ColumnItemType;
     Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
         using ValueCopyType = typename DecimalType::NativeType;
         ColumnPtr src_col = remove_nullable(src_physical_col);
@@ -482,7 +485,7 @@ class NumberToDecimal : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
-        auto* data = static_cast<ColumnDecimal<DecimalType>*>(dst_col.get())->get_data().data();
+        auto* data = static_cast<ColumnDecimal<DecimalPType>*>(dst_col.get())->get_data().data();
 
         for (int i = 0; i < rows; i++) {
             ValueCopyType value;

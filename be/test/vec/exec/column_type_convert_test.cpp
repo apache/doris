@@ -321,7 +321,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         auto& src_data = src_col->get_data();
         // Test normal values
         src_data.resize(0);
@@ -333,7 +333,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal64>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal64&>(*mutable_dst).get_data();
         ASSERT_EQ(2, dst_data.size());
         EXPECT_EQ(12345, dst_data[0].value);
         EXPECT_EQ(-12345, dst_data[1].value);
@@ -351,7 +351,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         src_col->resize(0);
         auto& src_data = src_col->get_data();
         // Test normal values
@@ -364,7 +364,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnDecimal<Decimal128V3>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal128V3&>(*mutable_dst).get_data();
         ASSERT_EQ(2, dst_data.size());
         EXPECT_EQ(1234500000000L, dst_data[0].value);  // 12345 scaled to 123.45000000
         EXPECT_EQ(-6789000000000L, dst_data[1].value); // -67890 scaled to -678.90000000
@@ -382,7 +382,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal64>::create(18, 4);
+        auto src_col = ColumnDecimal64::create(18, 4);
         src_col->resize(0);
         auto& src_data = src_col->get_data();
 
@@ -397,7 +397,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnDecimal<Decimal256>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal256&>(*mutable_dst).get_data();
         ASSERT_EQ(2, dst_data.size());
         // Verify data
         EXPECT_EQ("1234567890.12340000000000000000000000000000000",
@@ -418,7 +418,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         src_data.push_back(Decimal32(12345));  // 123.45
@@ -457,7 +457,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal128V3>::create(36, 4);
+        auto src_col = ColumnDecimal128V3::create(36, 4);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         src_data.push_back(Decimal128V3(102345));
@@ -496,7 +496,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal256>::create(70, 4);
+        auto src_col = ColumnDecimal256::create(70, 4);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         src_data.push_back(Decimal256(-102345));
@@ -551,7 +551,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal64>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal64&>(*mutable_dst).get_data();
         ASSERT_EQ(3, dst_data.size());
         EXPECT_EQ(1234500, dst_data[0].value);  // 1234500 represents 123.45
         EXPECT_EQ(-6789000, dst_data[1].value); // -6789000 represents -678.90
@@ -581,7 +581,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal128V3>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal128V3&>(*mutable_dst).get_data();
         ASSERT_EQ(3, dst_data.size());
         EXPECT_EQ(1234500000, dst_data[0].value);
         EXPECT_EQ(-6789000000, dst_data[1].value);
@@ -611,7 +611,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
 
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal256>&>(*mutable_dst).get_data();
+        auto& dst_data = static_cast<ColumnDecimal256&>(*mutable_dst).get_data();
         ASSERT_EQ(3, dst_data.size());
         EXPECT_EQ(1230000000000, dst_data[0].value);
         EXPECT_EQ(-1230000000000, dst_data[1].value);
@@ -645,8 +645,8 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         null_map.resize_fill(src_data.size(), 0);
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
-        auto& dst_data = static_cast<ColumnDecimal<Decimal256>&>(nullable_col.get_nested_column())
-                                 .get_data();
+        auto& dst_data =
+                static_cast<ColumnDecimal256&>(nullable_col.get_nested_column()).get_data();
         ASSERT_EQ(3, dst_data.size());
         ASSERT_EQ(1, null_map[0]);
         ASSERT_EQ(1, null_map[1]);
@@ -667,7 +667,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal64>::create(18, 4);
+        auto src_col = ColumnDecimal64::create(18, 4);
         auto& src_data = src_col->get_data();
         src_data.resize(0);
         // Add test values
@@ -701,7 +701,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal64>::create(18, 4);
+        auto src_col = ColumnDecimal64::create(18, 4);
         auto& src_data = src_col->get_data();
         // Add test values
         src_data.resize(0);
@@ -714,7 +714,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto mutable_dst = dst_col->assume_mutable();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
-        auto& nested_col = static_cast<ColumnDecimal<Decimal32>&>(nullable_col.get_nested_column());
+        auto& nested_col = static_cast<ColumnDecimal32&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_data.size(), 0);
 
@@ -759,7 +759,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto mutable_dst = dst_col->assume_mutable();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
-        auto& nested_col = static_cast<ColumnDecimal<Decimal64>&>(nullable_col.get_nested_column());
+        auto& nested_col = static_cast<ColumnDecimal64&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_data.size(), 0);
 
@@ -808,7 +808,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         auto mutable_dst = dst_col->assume_mutable();
 
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
-        auto& nested_col = static_cast<ColumnDecimal<Decimal64>&>(nullable_col.get_nested_column());
+        auto& nested_col = static_cast<ColumnDecimal64&>(nullable_col.get_nested_column());
         auto& null_map = nullable_col.get_null_map_data();
         null_map.resize_fill(src_col->size(), 0);
 
@@ -942,7 +942,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         ASSERT_TRUE(converter->support());
         ASSERT_FALSE(converter->is_consistent());
 
-        auto src_col = ColumnDecimal<Decimal32>::create(9, 2);
+        auto src_col = ColumnDecimal32::create(9, 2);
         auto& src_data = src_col->get_data();
         // Add test values
         src_data.resize(0);

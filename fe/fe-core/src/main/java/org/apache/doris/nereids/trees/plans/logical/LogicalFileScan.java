@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
@@ -47,6 +48,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     protected final SelectedPartitions selectedPartitions;
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
+    protected final Optional<TableScanParams> scanParams;
 
     /**
      * Constructor for LogicalFileScan.
@@ -54,19 +56,23 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     protected LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
-            Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
+            Optional<TableSnapshot> tableSnapshot,
+            Collection<Slot> operativeSlots,
+            Optional<TableScanParams> scanParams) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties, operativeSlots);
         this.selectedPartitions = selectedPartitions;
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
+        this.scanParams = scanParams;
     }
 
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
-            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot, Collection<Slot> operativeSlots) {
+                           Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
+                           Collection<Slot> operativeSlots,
+                           Optional<TableScanParams> scanParams) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
-                tableSample, tableSnapshot,
-                operativeSlots);
+                tableSample, tableSnapshot, operativeSlots, scanParams);
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -79,6 +85,10 @@ public class LogicalFileScan extends LogicalCatalogRelation {
 
     public Optional<TableSnapshot> getTableSnapshot() {
         return tableSnapshot;
+    }
+
+    public Optional<TableScanParams> getScanParams() {
+        return scanParams;
     }
 
     @Override
@@ -101,7 +111,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, groupExpression,
                 Optional.of(getLogicalProperties()), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override
@@ -109,20 +119,20 @@ public class LogicalFileScan extends LogicalCatalogRelation {
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 groupExpression, logicalProperties, selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.of(getLogicalProperties()), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override
     public LogicalFileScan withRelationId(RelationId relationId) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, Optional.empty(),
                 Optional.empty(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override
@@ -193,7 +203,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()),
                 selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots);
+                operativeSlots, scanParams);
     }
 
     @Override

@@ -18,10 +18,8 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.FileSystemCache;
 
 import java.util.List;
 import java.util.Map;
@@ -36,7 +34,7 @@ public class SwitchingFileSystem implements FileSystem {
     private final Map<String, String> properties;
 
     public SwitchingFileSystem(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-            Map<String, String> properties) {
+                               Map<String, String> properties) {
         this.extMetaCacheMgr = extMetaCacheMgr;
         this.bindBrokerName = bindBrokerName;
         this.properties = properties;
@@ -123,10 +121,16 @@ public class SwitchingFileSystem implements FileSystem {
     }
 
     public FileSystem fileSystem(String location) {
-        return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
+        // todo: This method is currently unused.
+        // LocationPath has already been adapted to the new V2 logic.
+        // We’re keeping this code commented out for now, but it will be fully removed once
+        // V2 is finalized and fully adopted.
+        /* return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(
                         LocationPath.getFSIdentity(location, properties,
-                                bindBrokerName), properties, bindBrokerName));
+                                bindBrokerName), properties, bindBrokerName));*/
+        //
+        return null;
     }
 }
 

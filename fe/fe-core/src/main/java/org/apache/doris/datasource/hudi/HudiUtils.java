@@ -269,7 +269,7 @@ public class HudiUtils {
                 // Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`";
                 return partitionValues;
             }
-            String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
+            String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
             try {
                 partitionValues = hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() ->
                         processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
