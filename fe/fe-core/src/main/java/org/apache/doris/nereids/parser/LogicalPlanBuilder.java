@@ -920,6 +920,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -7969,6 +7970,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             wildWhere = getWildWhere(ctx.wildWhere());
         }
         return new ShowTransactionCommand(dbName, wildWhere);
+    }
+
+    public LogicalPlan visitRefreshLdap(DorisParser.RefreshLdapContext ctx) {
+        String user = "";
+        if (ctx.user != null) {
+            user = visitIdentifierOrText(ctx.user);
+        }
+        return new RefreshLdapCommand(ctx.ALL() != null, user);
     }
 
     @Override
