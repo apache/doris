@@ -29,7 +29,7 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (!local_state._shared_state->rpc_status.ok()) {
-        return local_state._shared_state->rpc_status;
+        return local_state._shared_state->rpc_status.status();
     }
 
     // clear origin block, do merge response to build a ret block

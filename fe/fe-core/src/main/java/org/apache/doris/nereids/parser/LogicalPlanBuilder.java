@@ -592,6 +592,7 @@ import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
@@ -2319,16 +2320,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         TableScanParams scanParams = null;
         if (ctx.optScanParams() != null) {
-            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().properties);
-            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map);
+            Map<String, String> map = visitPropertyItemList(ctx.optScanParams().mapParams);
+            List<String> list;
+            if (ctx.optScanParams().listParams != null) {
+                list = visitIdentifierSeq(ctx.optScanParams().listParams);
+            } else {
+                list = ImmutableList.of();
+            }
+            scanParams = new TableScanParams(ctx.optScanParams().funcName.getText(), map, list);
         }
 
         TableSnapshot tableSnapshot = null;
         if (ctx.tableSnapshot() != null) {
             if (ctx.tableSnapshot().TIME() != null) {
-                tableSnapshot = new TableSnapshot(stripQuotes(ctx.tableSnapshot().time.getText()));
+                tableSnapshot = TableSnapshot.timeOf(stripQuotes(ctx.tableSnapshot().time.getText()));
             } else {
-                tableSnapshot = new TableSnapshot(Long.parseLong(ctx.tableSnapshot().version.getText()));
+                tableSnapshot = TableSnapshot.versionOf(stripQuotes(ctx.tableSnapshot().version.getText()));
             }
         }
 
@@ -5581,10 +5588,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new ShowProcCommand(path);
     }
 
-    private TableScanParams visitOptScanParamsContex(OptScanParamsContext ctx) {
+    private TableScanParams visitOptScanParamsContext(OptScanParamsContext ctx) {
         if (ctx != null) {
-            Map<String, String> map = visitPropertyItemList(ctx.properties);
-            return new TableScanParams(ctx.funcName.getText(), map);
+            Map<String, String> map = visitPropertyItemList(ctx.mapParams);
+            List<String> list;
+            if (ctx.listParams == null) {
+                list = ImmutableList.of();
+            } else {
+                list = visitIdentifierSeq(ctx.listParams);
+            }
+            return new TableScanParams(ctx.funcName.getText(), map, list);
         }
         return null;
     }
@@ -5592,9 +5605,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private TableSnapshot visitTableSnapshotContext(TableSnapshotContext ctx) {
         if (ctx != null) {
             if (ctx.TIME() != null) {
-                return new TableSnapshot(stripQuotes(ctx.time.getText()));
+                return TableSnapshot.timeOf(stripQuotes(ctx.time.getText()));
             } else {
-                return new TableSnapshot(Long.parseLong(ctx.version.getText()));
+                return TableSnapshot.versionOf(stripQuotes(ctx.version.getText()));
             }
         }
         return null;
@@ -5636,7 +5649,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private TableRefInfo visitBaseTableRefContext(BaseTableRefContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
-        TableScanParams scanParams = visitOptScanParamsContex(ctx.optScanParams());
+        TableScanParams scanParams = visitOptScanParamsContext(ctx.optScanParams());
         TableSnapshot tableSnapShot = visitTableSnapshotContext(ctx.tableSnapshot());
         PartitionNamesInfo partitionNameInfo = visitSpecifiedPartitionContext(ctx.specifiedPartition());
         List<Long> tabletIdList = visitTabletListContext(ctx.tabletList());
@@ -7994,6 +8007,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitCancelDecommisionBackend(DorisParser.CancelDecommisionBackendContext ctx) {
+        List<String> hostPorts = ctx.hostPorts.stream()
+                .map(e -> stripQuotes(e.getText()))
+                .collect(Collectors.toList());
+        return new CancelDecommissionBackendCommand(hostPorts);
     }
 
     @Override

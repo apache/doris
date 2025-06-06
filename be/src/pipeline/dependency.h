@@ -830,7 +830,8 @@ public:
     void create_counter_dependency(int operator_id, int node_id, const std::string& name);
 
     bool rpc_struct_inited = false;
-    Status rpc_status = Status::OK();
+    AtomicStatus rpc_status;
+
     bool last_block = false;
     // empty materialization sink block not need to merge block
     bool need_merge_block = true;
