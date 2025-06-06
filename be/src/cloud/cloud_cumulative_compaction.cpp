@@ -390,11 +390,6 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
-    if (config::enable_delete_bitmap_merge_on_compaction &&
-        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
-        RETURN_IF_ERROR(process_old_version_delete_bitmap());
-    }
     // agg delete bitmap for pre rowsets
     if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&
         _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
@@ -441,6 +436,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     return Status::OK();
 }
 
+<<<<<<< HEAD
 Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     // agg previously rowset old version delete bitmap
     std::vector<RowsetSharedPtr> pre_rowsets {};
