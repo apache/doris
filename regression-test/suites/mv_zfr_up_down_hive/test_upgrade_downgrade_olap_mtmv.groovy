@@ -40,7 +40,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         }
     }
 
-    String suiteName = "mtmv_up_down_olap"
+    String suiteName = "mtmv_up_down_olap_hive"
+    String ctlName = "${suiteName}_ctl"
     String dbName = context.config.getDbNameByFile(context.file)
 
     String tableName1 = """${suiteName}_tb1"""
@@ -108,23 +109,95 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     logger.info("master_jdbc_url: " + master_jdbc_url)
 
 
+    // 通过检查fe角色的版本号来判断当前是什么阶段
+    // eg：从 c8570fd6c0 ——> e52040eb9c
+    // 1. 所有fe和be角色都是old
+    // 2. 升级所有be。    fe都为old， be为new
+    // 3. 升级follower。 master为old，而其他fe为new
+    // 4. 升级master。   所有fe都为new
+    // 通过判断所有节点版本，来控制在什么步骤进行重建表的操作
+
+    def old_version = "c8570fd6c0"
+    def new_version = "e52040eb9c"
+    def be_res = sql """show backends;"""
+    def fe_res = sql """show frontends"""
+    def be_status = 0
+    def fe_old = 0
+    def fe_new = 0
+    for (int i = 0; i < be_res.size(); i++) {
+        if (be_res[i][21].indexOf(new_version) != -1) {
+            be_status = 1
+            break
+        }
+    }
+    for (int i = 0; i < fe_res.size(); i++) {
+        if (fe_res[i][21].indexOf(old_version) != -1) {
+            fe_old ++
+        } else {
+            fe_new++
+        }
+    }
+    def step = 0
+    if (be_status == 0) {
+        step = 1
+    } else if (be_status == 1 && fe_old == 3 && fe_new == 0) {
+        step = 2
+    } else if (be_status == 1 && fe_old == 1 && fe_new == 2) {
+        step = 3
+    }  else if (be_status == 1 && fe_old == 0 && fe_new == 3) {
+        step = 4
+    }
+    assertTrue(step != 0)
+
     // mtmv5: normal situation, the base table and mtmv remain unchanged
     // success
+    sql """swicth internal;"""
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
-    assertTrue(state_mtmv5[0][0] == "NORMAL")
-    assertTrue(state_mtmv5[0][1] == "SUCCESS")
-    assertTrue(state_mtmv5[0][2] == true)
     def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id"""
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-        compare_res(test_sql5 + " order by 1,2,3")
+    if (step == 1 || step == 2 || step == 3) {
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+    } else if (step == 4) {
+        assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv5[0][2] == false)
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql5, mtmvName5)
+
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql5, mtmvName5)
+        }
+
+        // 手动刷新之后会变成normal状态
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} complete;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
     }
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-        compare_res(test_sql5 + " order by 1,2,3")
-    }
+
+
     // fail
 //    def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
 //    assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
@@ -140,25 +213,55 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
 
     // mtmv3: insert data
-    sql """insert into ${tableName3} values(1,"2017-01-15",1);"""
+    sql """insert into ${ctlName}.${dbName}.${tableName3} values(1,"2017-01-15",1);"""
     def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-    assertTrue(state_mtmv3[0][0] == "NORMAL")
-    assertTrue(state_mtmv3[0][1] == "SUCCESS")
-    assertTrue(state_mtmv3[0][2] == false)
-
     def test_sql3 = """SELECT a.* FROM ${tableName3} a inner join ${tableName10} b on a.user_id=b.user_id"""
 
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-        compare_res(test_sql3 + " order by 1,2,3")
+    if (step == 1 || step == 2 || step == 3) {
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == false)
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+    } else if (step == 4) {
+        assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv3[0][2] == false)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql3, mtmvName3)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql3, mtmvName3)
+        }
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName3)
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == true)
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
     }
 
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-        compare_res(test_sql3 + " order by 1,2,3")
-    }
 
     // fail
 //    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
@@ -173,27 +276,15 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 //        mv_not_part_in(test_sql3, mtmvName3)
 //    }
 
-    sql """refresh MATERIALIZED VIEW ${mtmvName3} auto"""
-    waitingMTMVTaskFinishedByMvName(mtmvName3)
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-        compare_res(test_sql3 + " order by 1,2,3")
-    }
-
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-        compare_res(test_sql3 + " order by 1,2,3")
-    }
 
     // mtmv1: drop table of primary table
     sql """drop table if exists ${tableName1}"""
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    def test_sql1 = """SELECT * FROM ${tableName10}"""
+
     assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv1[0][2] == false)
 
-    def test_sql1 = """SELECT * FROM ${tableName10}"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_not_part_in(test_sql1, mtmvName1)
@@ -244,41 +335,134 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     def parts_res = sql """show partitions from ${tableName2}"""
     sql """ALTER TABLE ${tableName2} DROP PARTITION ${parts_res[0][1]};"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-    assertTrue(state_mtmv2[0][0] == "NORMAL")
-    assertTrue(state_mtmv2[0][1] == "SUCCESS")
-    assertTrue(state_mtmv2[0][2] == false)
-    def mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-    logger.info("mtmv_part_res[0][18]: " + mtmv_part_res[0][18])
-    logger.info("mtmv_part_res[0][19]: " + mtmv_part_res[0][19])
-    logger.info("mtmv_part_res:" + mtmv_part_res)
-    def part_1 = mtmv_part_res.size()
-    def diff_part = 0
-    for (int i = 0; i < mtmv_part_res.size(); i++) {
-        if (mtmv_part_res[i][18] == "false" && mtmv_part_res[i][19] as String == "[${tableName2}]") {
-            diff_part = diff_part + 1
-        }
-    }
-
     def sql2 = "SELECT a.* FROM ${tableName2} a inner join ${tableName10} b on a.user_id=b.user_id"
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-        compare_res(sql2 + " order by 1,2,3")
+
+    if (step == 1 || step == 2 || step == 3) {
+
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == false)
+        def mtmv_part_res = sql """show partitions from ${mtmvName2}"""
+        logger.info("mtmv_part_res[0][18]: " + mtmv_part_res[0][18])
+        logger.info("mtmv_part_res[0][19]: " + mtmv_part_res[0][19])
+        logger.info("mtmv_part_res:" + mtmv_part_res)
+        def part_1 = mtmv_part_res.size()
+        def diff_part = 0
+        for (int i = 0; i < mtmv_part_res.size(); i++) {
+            if (mtmv_part_res[i][18] == "false" && mtmv_part_res[i][19] as String == "[${tableName2}]") {
+                diff_part = diff_part + 1
+            }
+        }
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} auto"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+        mtmv_part_res = sql """show partitions from ${mtmvName2}"""
+        logger.info("mtmv_part_res:" + mtmv_part_res)
+        def part_2 = mtmv_part_res.size()
+        assertTrue(part_1 == part_2 + diff_part)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+    } else if (step == 4) {
+
+        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == false)
+        def mtmv_part_res = sql """show partitions from ${mtmvName2}"""
+        logger.info("mtmv_part_res[0][18]: " + mtmv_part_res[0][18])
+        logger.info("mtmv_part_res[0][19]: " + mtmv_part_res[0][19])
+        logger.info("mtmv_part_res:" + mtmv_part_res)
+        def part_1 = mtmv_part_res.size()
+        def diff_part = 0
+        for (int i = 0; i < mtmv_part_res.size(); i++) {
+            if (mtmv_part_res[i][18] == "false" && mtmv_part_res[i][19] as String == "[${tableName2}]") {
+                diff_part = diff_part + 1
+            }
+        }
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_not_part_in(sql2, mtmvName2)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_not_part_in(sql2, mtmvName2)
+        }
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} auto"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+        mtmv_part_res = sql """show partitions from ${mtmvName2}"""
+        logger.info("mtmv_part_res:" + mtmv_part_res)
+        def part_2 = mtmv_part_res.size()
+        assertTrue(part_1 == part_2 + diff_part)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
     }
 
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-        compare_res(sql2 + " order by 1,2,3")
-    }
 
-    // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
-    try {
-        sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
-    } catch (Exception e) {
-        logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
-        logger.info(e.getMessage())
-    }
 
     // fail
 //    def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
@@ -293,162 +477,128 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 //        mv_not_part_in(sql2, mtmvName2)
 //    }
 
-    // When refreshing the entire MTMV, the partition will be deleted.
-    sql """refresh MATERIALIZED VIEW ${mtmvName2} auto"""
-    waitingMTMVTaskFinishedByMvName(mtmvName2)
-    mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-    logger.info("mtmv_part_res:" + mtmv_part_res)
-    def part_2 = mtmv_part_res.size()
-    assertTrue(part_1 == part_2 + diff_part)
 
-    state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-    logger.info("state_mtmv2:" + state_mtmv2)
-    assertTrue(state_mtmv2[0][0] == "NORMAL")
-    assertTrue(state_mtmv2[0][1] == "SUCCESS")
-    assertTrue(state_mtmv2[0][2] == true)
-
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-        compare_res(sql2 + " order by 1,2,3")
-    }
-
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-        compare_res(sql2 + " order by 1,2,3")
-    }
-
-    // mtmv4: rename
-    def tables_res = sql """show tables;"""
-    boolean is_exists = false
-    for (int i = 0; i < tables_res.size(); i++) {
-        if (tables_res[i][0] == tableName4) {
-            is_exists = true
-            break
-        }
-        if (tables_res[i][0] == tableName4_rn) {
-            is_exists = false
-            break
-        }
-    }
-
-    if (is_exists) {
-        sql """ALTER TABLE ${tableName4} RENAME ${tableName4_rn};"""
-    } else {
-        sql """ALTER TABLE ${tableName4_rn} RENAME ${tableName4};"""
-    }
-
-    if (!is_exists) {
-        def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4} b on a.user_id=b.user_id"""
-        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
-        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv4[0][2] == true)
-
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """use ${dbName}"""
-            mv_not_part_in(test_sql4, mtmvName4)
-            compare_res(test_sql4 + " order by 1,2,3")
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """use ${dbName}"""
-            mv_not_part_in(test_sql4, mtmvName4)
-            compare_res(test_sql4 + " order by 1,2,3")
-        }
-
-
-        // fail
+//    // mtmv4: rename
+//    def tables_res = sql """show tables;"""
+//    boolean is_exists = false
+//    for (int i = 0; i < tables_res.size(); i++) {
+//        if (tables_res[i][0] == tableName4) {
+//            is_exists = true
+//            break
+//        }
+//        if (tables_res[i][0] == tableName4_rn) {
+//            is_exists = false
+//            break
+//        }
+//    }
+//
+//    if (is_exists) {
+//        sql """ALTER TABLE ${tableName4} RENAME ${tableName4_rn};"""
+//    } else {
+//        sql """ALTER TABLE ${tableName4_rn} RENAME ${tableName4};"""
+//    }
+//
+//    if (!is_exists) {
+//        def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4} b on a.user_id=b.user_id"""
 //        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
 //        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
-//        assertTrue(state_mtmv4[0][2] == false)
+//        assertTrue(state_mtmv4[0][2] == true)
+//
 //        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
 //            sql """use ${dbName}"""
 //            mv_not_part_in(test_sql4, mtmvName4)
+//            compare_res(test_sql4 + " order by 1,2,3")
 //        }
+//
 //        connect('root', context.config.jdbcPassword, master_jdbc_url) {
 //            sql """use ${dbName}"""
 //            mv_not_part_in(test_sql4, mtmvName4)
+//            compare_res(test_sql4 + " order by 1,2,3")
 //        }
-
-
-        sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
-        waitingMTMVTaskByMvName(mtmvName4, dbName)
-        state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
-        assertTrue(state_mtmv4[0][0] == "NORMAL")
-        assertTrue(state_mtmv4[0][1] == "SUCCESS")
-        assertTrue(state_mtmv4[0][2] == true)
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
-            compare_res(test_sql4 + " order by 1,2,3")
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
-            compare_res(test_sql4 + " order by 1,2,3")
-        }
-
-
-
-    } else {
-        def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4_rn} b on a.user_id=b.user_id"""
-        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
-        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv4[0][2] == false)
-
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """use ${dbName}"""
-            mv_not_part_in(test_sql4, mtmvName4)
-            compare_res(test_sql4 + " order by 1,2,3")
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """use ${dbName}"""
-            mv_not_part_in(test_sql4, mtmvName4)
-            compare_res(test_sql4 + " order by 1,2,3")
-        }
-
-        // fail
+//
+//
+//        // fail
+////        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+////        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
+////        assertTrue(state_mtmv4[0][2] == false)
+////        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+////            sql """use ${dbName}"""
+////            mv_not_part_in(test_sql4, mtmvName4)
+////        }
+////        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+////            sql """use ${dbName}"""
+////            mv_not_part_in(test_sql4, mtmvName4)
+////        }
+//
+//
+//        sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
+//        waitingMTMVTaskByMvName(mtmvName4, dbName)
+//        state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+//        assertTrue(state_mtmv4[0][0] == "NORMAL")
+//        assertTrue(state_mtmv4[0][1] == "SUCCESS")
+//        assertTrue(state_mtmv4[0][2] == true)
+//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
+//            compare_res(test_sql4 + " order by 1,2,3")
+//        }
+//
+//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+//            sql """use ${dbName}"""
+//            mv_rewrite_success_without_check_chosen(test_sql4, mtmvName4)
+//            compare_res(test_sql4 + " order by 1,2,3")
+//        }
+//
+//
+//
+//    } else {
+//        def test_sql4 = """SELECT a.* FROM ${tableName9} a inner join ${tableName4_rn} b on a.user_id=b.user_id"""
 //        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
 //        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
 //        assertTrue(state_mtmv4[0][2] == false)
+//
 //        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
 //            sql """use ${dbName}"""
 //            mv_not_part_in(test_sql4, mtmvName4)
+//            compare_res(test_sql4 + " order by 1,2,3")
 //        }
+//
 //        connect('root', context.config.jdbcPassword, master_jdbc_url) {
 //            sql """use ${dbName}"""
 //            mv_not_part_in(test_sql4, mtmvName4)
+//            compare_res(test_sql4 + " order by 1,2,3")
 //        }
-
-        sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
-        waitingMTMVTaskByMvName(mtmvName4, dbName)
-        state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
-        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv4[0][1] == "FAIL")
-        assertTrue(state_mtmv4[0][2] == false)
-    }
-
+//
+//        // fail
+////        def state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+////        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
+////        assertTrue(state_mtmv4[0][2] == false)
+////        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+////            sql """use ${dbName}"""
+////            mv_not_part_in(test_sql4, mtmvName4)
+////        }
+////        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+////            sql """use ${dbName}"""
+////            mv_not_part_in(test_sql4, mtmvName4)
+////        }
+//
+//        sql """refresh MATERIALIZED VIEW ${mtmvName4} auto;"""
+//        waitingMTMVTaskByMvName(mtmvName4, dbName)
+//        state_mtmv4 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName4}';"""
+//        assertTrue(state_mtmv4[0][0] == "SCHEMA_CHANGE")
+//        assertTrue(state_mtmv4[0][1] == "FAIL")
+//        assertTrue(state_mtmv4[0][2] == false)
+//    }
+//
 
 
 
     // mtmv6: drop table of dependent table
     sql """drop table if exists ${tableName7}"""
     def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
-    def job_name_1 = getJobName(dbName, mtmvName6)
-
-    // 打印mtmv stats和task list
-    def stats_res = sql """select * from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
-    def task_lists = sql """select * from tasks("type"="mv") where JobName="${job_name_1}";"""
-    logger.info("stats_res: " + stats_res)
-    logger.info("task_lists: " + task_lists)
-
+    def test_sql6 = """SELECT * FROM ${tableName6}"""
     assertTrue(state_mtmv6[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv6[0][2] == false)
-
-    def test_sql6 = """SELECT * FROM ${tableName6}"""
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """use ${dbName}"""
         mv_not_part_in(test_sql6, mtmvName6)

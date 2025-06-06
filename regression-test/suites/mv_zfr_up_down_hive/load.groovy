@@ -33,8 +33,19 @@ create an MTMV with the undeleted base table and check if it can be created and 
 corresponding rewriting meets the expectations.
  */
 suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
-    String suiteName = "mtmv_up_down_olap"
+    String suiteName = "mtmv_up_down_olap_hive"
+    String ctlName = "${suiteName}_ctl"
     String dbName = context.config.getDbNameByFile(context.file)
+    sql """create catalog if not exists ${ctlName} properties (
+        "type"="hms",
+        'hive.metastore.uris' = 'thrift://172.20.48.119:9383',
+        'fs.defaultFS' = 'hdfs://172.20.48.119:8320',
+        'hadoop.username' = 'hadoop',
+        'enable.auto.analyze' = 'false'
+        );"""
+    sql """switch ${ctlName}"""
+    sql """create database if not exists ${dbName}"""
+    sql """use ${dbName}"""
 
     String tableName1 = """${suiteName}_tb1"""
     String tableName2 = """${suiteName}_tb2"""
@@ -75,55 +86,29 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName1}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `date`, `num`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
-        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
-        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
-        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
-        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
-        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
-        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
-        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
-        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
-        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `date` DATE COMMENT '\"数据灌入日期时间\"',
+          `num` INT COMMENT '\"数量\"'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
-        insert into ${tableName1} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
+        insert into ${tableName1} values (1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
         """
 
     sql """
         CREATE TABLE `${tableName2}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `date`, `num`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
-        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
-        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
-        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
-        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
-        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
-        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
-        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
-        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
-        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `date` DATE COMMENT '\"数据灌入日期时间\"',
+          `num` INT COMMENT '\"数量\"'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName2} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
@@ -131,27 +116,14 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName3}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `date`, `num`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
-        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
-        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
-        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
-        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
-        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
-        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
-        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
-        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
-        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `date` DATE COMMENT '\"数据灌入日期时间\"',
+          `num` INT COMMENT '\"数量\"'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName3} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
@@ -159,13 +131,12 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName4}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `age` SMALLINT NOT NULL COMMENT '\"年龄\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `age`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `age` INT COMMENT '\"年龄\"'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName4} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
@@ -173,27 +144,14 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName5}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `date`, `num`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
-        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
-        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
-        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
-        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
-        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
-        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
-        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
-        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
-        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `date` DATE COMMENT '\"数据灌入日期时间\"',
+          `num` INT COMMENT '\"数量\"'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName5} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
@@ -201,99 +159,72 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName6}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `date`, `num`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
-        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
-        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
-        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
-        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
-        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
-        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
-        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
-        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
-        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `date` DATE COMMENT '\"数据灌入日期时间\"',
+          `num` INT COMMENT '\"数量\"'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName6} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
         """
     sql """
         CREATE TABLE `${tableName7}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `age` SMALLINT NOT NULL COMMENT '\"年龄\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `age`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `age` INT COMMENT '\"年龄\"'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName7} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
         """
     sql """
         CREATE TABLE `${tableName8}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `age` SMALLINT NOT NULL COMMENT '\"年龄\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `age`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `age` INT COMMENT '\"年龄\"'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName8} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
         """
     sql """
         CREATE TABLE `${tableName9}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
-          `num` SMALLINT NOT NULL COMMENT '\"数量\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `date`, `num`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`date`)
-        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
-        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
-        PARTITION p201703_3000 VALUES [('2017-03-01'), ('2017-04-01')),
-        PARTITION p201704_4000 VALUES [('2017-04-01'), ('2017-05-01')),
-        PARTITION p201705_5000 VALUES [('2017-05-01'), ('2017-06-01')),
-        PARTITION p201706_6000 VALUES [('2017-06-01'), ('2017-07-01')),
-        PARTITION p201707_7000 VALUES [('2017-07-01'), ('2017-08-01')),
-        PARTITION p201708_8000 VALUES [('2017-08-01'), ('2017-09-01')),
-        PARTITION p201709_9000 VALUES [('2017-09-01'), ('2017-10-01')),
-        PARTITION p201710_1000 VALUES [('2017-10-01'), ('2017-11-01')),
-        PARTITION p201711_1100 VALUES [('2017-11-01'), ('2017-12-01')),
-        PARTITION p201712_1200 VALUES [('2017-12-01'), ('2018-01-01')))
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `date` DATE COMMENT '\"数据灌入日期时间\"',
+          `num` INT COMMENT '\"数量\"'
+        ) ENGINE=hive
+        PARTITION BY LIST (date) ()
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName9} values(1,"2017-01-15",1),(2,"2017-02-15",2),(3,"2017-03-15",3),(4,"2017-04-15",4),(5,"2017-05-15",5),(6,"2017-06-15",6),(7,"2017-07-15",7),(8,"2017-08-15",8),(9,"2017-09-15",9),(10,"2017-10-15",10),(11,"2017-11-15",11),(12,"2017-12-15",12);
         """
     sql """
         CREATE TABLE `${tableName10}` (
-          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-          `age` SMALLINT NOT NULL COMMENT '\"年龄\"'
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`user_id`, `age`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
-        PROPERTIES ('replication_num' = '1') ;
+          `user_id` INT COMMENT '\"用户id\"',
+          `age` INT COMMENT '\"年龄\"'
+        ) ENGINE=hive
+        PROPERTIES (
+            'file_format'='parquet'
+        );
         """
     sql """
         insert into ${tableName10} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
         """
 
 
+    sql """switch internal;"""
+    sql """use ${dbName}"""
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName1}
             REFRESH AUTO ON MANUAL
@@ -301,7 +232,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName1} a inner join ${tableName10} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName1} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName1)
 
@@ -312,7 +243,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName2} a inner join ${tableName10} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName2)
 
@@ -323,7 +254,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName3} a inner join ${tableName10} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName3)
 
@@ -334,7 +265,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName9} a inner join ${tableName4} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName9} a inner join ${ctlName}.${dbName}.${tableName4} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName4)
 
@@ -345,7 +276,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName5)
 
@@ -356,7 +287,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${tableName6} a inner join ${tableName7} b on a.user_id=b.user_id;
+            SELECT a.* FROM ${ctlName}.${dbName}.${tableName6} a inner join ${ctlName}.${dbName}.${tableName7} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName6)
 
