@@ -81,7 +81,6 @@ import org.apache.doris.analysis.ShowPrivilegesStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
-import org.apache.doris.analysis.ShowQueryStatsStmt;
 import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowReplicaDistributionStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
@@ -382,8 +381,6 @@ public class ShowExecutor {
             handleShowUserProperty();
         } else if (stmt instanceof ShowDataStmt) {
             handleShowData();
-        } else if (stmt instanceof ShowQueryStatsStmt) {
-            handleShowQueryStats();
         } else if (stmt instanceof ShowCharsetStmt) {
             handleShowCharset();
         } else if (stmt instanceof ShowCollationStmt) {
@@ -1907,11 +1904,6 @@ public class ShowExecutor {
 
     private void handleShowData() throws AnalysisException {
         ShowDataStmt showStmt = (ShowDataStmt) stmt;
-        resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
-    }
-
-    private void handleShowQueryStats() throws AnalysisException {
-        ShowQueryStatsStmt showStmt = (ShowQueryStatsStmt) stmt;
         resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
     }
 
