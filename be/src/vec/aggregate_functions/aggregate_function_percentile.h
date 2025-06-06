@@ -256,11 +256,11 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& weight =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& quantile =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[2]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
 
         this->data(place).init(quantile.get_element(0));
         this->data(place).add_with_weight(sources.get_element(row_num),
@@ -289,13 +289,13 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& weight =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& quantile =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[2]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
         const auto& compression =
-                assert_cast<const ColumnVector<Float64>&, TypeCheckOnRelease::DISABLE>(*columns[3]);
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[3]);
 
         this->data(place).init(quantile.get_element(0), compression.get_element(0));
         this->data(place).add_with_weight(sources.get_element(row_num),

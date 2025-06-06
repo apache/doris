@@ -64,6 +64,7 @@ public final class GlobalVariable {
     public static final String AUDIT_PLUGIN_MAX_BATCH_BYTES = "audit_plugin_max_batch_bytes";
     public static final String AUDIT_PLUGIN_MAX_BATCH_INTERVAL_SEC = "audit_plugin_max_batch_interval_sec";
     public static final String AUDIT_PLUGIN_MAX_SQL_LENGTH = "audit_plugin_max_sql_length";
+    public static final String AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH = "audit_plugin_max_insert_stmt_length";
     public static final String AUDIT_PLUGIN_LOAD_TIMEOUT = "audit_plugin_load_timeout";
 
     public static final String ENABLE_GET_ROW_COUNT_FROM_FILE_LIST = "enable_get_row_count_from_file_list";
@@ -153,6 +154,16 @@ public final class GlobalVariable {
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
     public static int auditPluginMaxSqlLength = 4096;
+
+    @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VariableMgr.GLOBAL,
+            description = {"专门用于限制 INSERT 语句的长度。如果该值大于 AUDIT_PLUGIN_MAX_SQL_LENGTH，"
+                    + "则使用 AUDIT_PLUGIN_MAX_SQL_LENGTH 的值。"
+                    + "如果 INSERT 语句超过该长度，将会被截断。",
+                    "This is specifically used to limit the length of INSERT statements. "
+                            + "If this value is greater than AUDIT_PLUGIN_MAX_SQL_LENGTH, "
+                            + "it will use the value of AUDIT_PLUGIN_MAX_SQL_LENGTH. "
+                            + "If an INSERT statement exceeds this length, it will be truncated."})
+    public static int auditPluginMaxInsertStmtLength = Integer.MAX_VALUE;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_LOAD_TIMEOUT, flag = VariableMgr.GLOBAL)
     public static int auditPluginLoadTimeoutS = 600;

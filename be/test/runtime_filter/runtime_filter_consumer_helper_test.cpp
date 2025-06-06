@@ -28,7 +28,6 @@
 #include "runtime/descriptors.h"
 #include "runtime_filter/runtime_filter_consumer.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
 

@@ -54,7 +54,8 @@ class DataTypeNumberBase : public IDataType {
 
 public:
     static constexpr bool is_parametric = false;
-    using ColumnType = ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>;
+    static constexpr PrimitiveType PType = T;
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
 
     static std::string to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType& value);

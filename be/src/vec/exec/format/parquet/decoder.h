@@ -32,7 +32,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"

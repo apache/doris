@@ -41,7 +41,8 @@ public class LogicalFileScanToPhysicalFileScan extends OneImplementationRuleFact
                     fileScan.getLogicalProperties(),
                     fileScan.getSelectedPartitions(),
                     fileScan.getTableSample(),
-                    fileScan.getTableSnapshot())
+                    fileScan.getTableSnapshot(),
+                    fileScan.getOperativeSlots())
         ).toRule(RuleType.LOGICAL_FILE_SCAN_TO_PHYSICAL_FILE_SCAN_RULE);
     }
 }

@@ -30,7 +30,6 @@
 #include "level_decoder.h"
 #include "util/slice.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"

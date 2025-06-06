@@ -43,7 +43,7 @@ import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fsv2.DirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -225,7 +225,9 @@ public class HiveScanNode extends FileQueryScanNode {
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
-                            splitAssignment.addToQueue(allFiles);
+                            if (splitAssignment.needMoreSplit()) {
+                                splitAssignment.addToQueue(allFiles);
+                            }
                         } catch (Exception e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {

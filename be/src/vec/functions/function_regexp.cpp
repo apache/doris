@@ -35,7 +35,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -310,8 +309,7 @@ struct RegexpExtractImpl {
                              ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col =
-                check_and_get_column<ColumnVector<Int64>>(argument_columns[2].get());
+        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
@@ -333,8 +331,7 @@ struct RegexpExtractImpl {
                                         ColumnString::Offsets& result_offset, NullMap& null_map) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* index_col =
-                check_and_get_column<ColumnVector<Int64>>(argument_columns[2].get());
+        const auto* index_col = check_and_get_column<ColumnInt64>(argument_columns[2].get());
 
         const auto& index_data = index_col->get_int(0);
         if (index_data < 0) {

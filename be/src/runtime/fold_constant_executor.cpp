@@ -50,7 +50,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -67,7 +66,7 @@ namespace doris {
 static std::unordered_set<PrimitiveType> PRIMITIVE_TYPE_SET {
         TYPE_BOOLEAN,  TYPE_TINYINT, TYPE_SMALLINT,   TYPE_INT,      TYPE_BIGINT,
         TYPE_LARGEINT, TYPE_FLOAT,   TYPE_DOUBLE,     TYPE_TIMEV2,   TYPE_CHAR,
-        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_OBJECT,   TYPE_DATE,
+        TYPE_VARCHAR,  TYPE_STRING,  TYPE_HLL,        TYPE_BITMAP,   TYPE_DATE,
         TYPE_DATETIME, TYPE_DATEV2,  TYPE_DATETIMEV2, TYPE_DECIMALV2};
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
@@ -246,7 +245,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size,
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_BITMAP: {
         result = std::string((char*)src, size);
         break;
     }

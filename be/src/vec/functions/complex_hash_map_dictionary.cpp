@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/columns/columns_number.h"
 #include "vec/functions/dictionary.h"
 
 namespace doris::vectorized {

@@ -28,7 +28,7 @@ namespace doris::vectorized {
 template <PrimitiveType T>
 class DataTypeNumber final : public DataTypeNumberBase<T> {
 public:
-    using ColumnType = ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>;
+    using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 

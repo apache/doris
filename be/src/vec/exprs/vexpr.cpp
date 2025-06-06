@@ -36,7 +36,6 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -161,6 +160,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
         break;
     }
+    case TYPE_TIMEV2: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node));
+        break;
+    }
     default:
         throw Exception(ErrorCode::INTERNAL_ERROR, "runtime filter meet invalid type {}",
                         int(type));
@@ -256,6 +259,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:
+        case TExprNodeType::TIMEV2_LITERAL:
         case TExprNodeType::STRING_LITERAL:
         case TExprNodeType::JSON_LITERAL:
         case TExprNodeType::NULL_LITERAL: {

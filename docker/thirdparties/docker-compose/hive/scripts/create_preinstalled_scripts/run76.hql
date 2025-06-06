@@ -1,3 +1,4 @@
+create database if not exists multi_catalog;
 use multi_catalog;
 
 CREATE TABLE text_table_normal_skip_header (
@@ -19,6 +20,15 @@ FIELDS TERMINATED BY '\t'
 STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/text/text_table_compressed_skip_header'
 TBLPROPERTIES ("skip.header.line.count"="5");
+
+CREATE TABLE csv_json_table_simple (
+  id STRING,
+  status_json STRING
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/csv_json_table_simple';
 
 create database if not exists openx_json;
 use openx_json;

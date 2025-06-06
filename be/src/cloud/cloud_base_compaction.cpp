@@ -302,7 +302,9 @@ Status CloudBaseCompaction::execute_compact() {
             .tag("output_segments", _output_rowset->num_segments())
             .tag("output_rowset_data_size", _output_rowset->data_disk_size())
             .tag("output_rowset_index_size", _output_rowset->index_disk_size())
-            .tag("output_rowset_total_size", _output_rowset->total_disk_size());
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size())
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     //_compaction_succeed = true;
     _state = CompactionState::SUCCESS;
