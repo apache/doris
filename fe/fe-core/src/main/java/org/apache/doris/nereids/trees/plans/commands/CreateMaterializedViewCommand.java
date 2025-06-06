@@ -603,7 +603,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             }
             Expr expr = translateToLegacyExpr(defineExpr, ctx.planTranslatorContext);
             return new MVColumnItem(mvDataType.toCatalogDataType(), mvAggType, expr,
-                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql()));
+                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
         }
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
