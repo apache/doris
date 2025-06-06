@@ -21,16 +21,16 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -43,7 +43,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -343,26 +342,20 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         if (defineStmt == null) {
             return;
         }
-        // parse the define stmt to schema
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(defineStmt.originStmt),
-                SqlModeHelper.MODE_DEFAULT));
-        CreateMaterializedViewStmt stmt;
         try {
-            stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            stmt.setIsReplay(true);
-            if (analyzer != null) {
-                try {
-                    stmt.analyze(analyzer);
-                } catch (Exception e) {
-                    LOG.warn("CreateMaterializedViewStmt analyze failed, mv=" + defineStmt.originStmt + ", reason=", e);
-                    return;
-                }
+            NereidsParser nereidsParser = new NereidsParser();
+            CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
+                    defineStmt.originStmt);
+            command.validate(new ConnectContext());
+            if (command.getWhereClauseItem() != null) {
+                setWhereClause(command.getWhereClauseItem().getDefineExpr());
             }
-
-            setWhereClause(stmt.getWhereClause());
-            stmt.rewriteToBitmapWithCheck();
             try {
-                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
+                List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
+                Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
+                for (MVColumnItem item : mvColumnItemList) {
+                    columnNameToDefineExpr.put(item.getName(), item.getDefineExpr());
+                }
                 setColumnsDefineExpr(columnNameToDefineExpr);
             } catch (Exception e) {
                 LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
