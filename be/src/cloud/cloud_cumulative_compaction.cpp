@@ -383,11 +383,6 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
-    if (config::enable_delete_bitmap_merge_on_compaction &&
-        _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-        _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
-        RETURN_IF_ERROR(process_old_version_delete_bitmap());
-    }
     return Status::OK();
 }
 

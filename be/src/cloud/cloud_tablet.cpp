@@ -446,7 +446,6 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> stale_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
-    std::vector<std::string> version_to_delete;
     {
         std::unique_lock wlock(_meta_lock);
 
@@ -485,12 +484,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 end_version = v_ts->version().second;
                 _tablet_meta->delete_stale_rs_meta_by_version(v_ts->version());
             }
-            Version version(start_version, end_version);
-            version_to_delete.emplace_back(version.to_string());
         }
         _reconstruct_version_tracker_if_necessary();
     }
-    _tablet_meta->delete_bitmap()->remove_stale_delete_bitmap_from_queue(version_to_delete);
     auto recycled_rowsets = recycle_cached_data(expired_rowsets);
     if (!recycled_rowsets.empty()) {
         auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
