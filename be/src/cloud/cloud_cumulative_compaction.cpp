@@ -53,7 +53,6 @@ Status CloudCumulativeCompaction::prepare_compact() {
     Defer defer_set_st([&] {
         if (!st.ok()) {
             cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
-            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
         }
     });
     if (_tablet->tablet_state() != TABLET_RUNNING &&
