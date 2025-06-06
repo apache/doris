@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fsv2.obj;
+package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.Status;
@@ -24,10 +24,9 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.obj.MockedS3Client;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.remote.RemoteFile;
-import org.apache.doris.fsv2.remote.S3FileSystem;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fs.remote.S3FileSystem;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -171,8 +170,7 @@ public class S3FileSystemTest {
 
     @Test
     public void testRepositoryUpload() throws IOException {
-        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem,
-                null);
+        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem);
         File localFile = File.createTempFile("s3unittest", ".dat");
         localFile.deleteOnExit();
         String remote = bucket + basePath + "/" + localFile.getName();

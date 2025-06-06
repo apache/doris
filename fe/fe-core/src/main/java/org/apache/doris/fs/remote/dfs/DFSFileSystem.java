@@ -20,9 +20,9 @@ package org.apache.doris.fs.remote.dfs;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -55,7 +55,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -63,14 +62,19 @@ public class DFSFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
     private HadoopAuthenticator authenticator = null;
+    private HdfsCompatibleProperties hdfsProperties;
 
-    public DFSFileSystem(Map<String, String> properties) {
-        this(StorageBackend.StorageType.HDFS, properties);
+    public DFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
+        super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
+        this.properties.putAll(hdfsProperties.getOrigProps());
+        this.storageProperties = hdfsProperties;
+        this.hdfsProperties = hdfsProperties;
     }
 
-    public DFSFileSystem(StorageBackend.StorageType type, Map<String, String> properties) {
-        super(type.name(), type);
-        this.properties.putAll(properties);
+    public DFSFileSystem(HdfsCompatibleProperties hdfsProperties, StorageBackend.StorageType storageType) {
+        super(storageType.name(), storageType);
+        this.properties.putAll(hdfsProperties.getOrigProps());
+        this.hdfsProperties = hdfsProperties;
     }
 
     @VisibleForTesting
@@ -85,12 +89,11 @@ public class DFSFileSystem extends RemoteFileSystem {
                     throw new UserException("FileSystem is closed.");
                 }
                 if (dfsFileSystem == null) {
-                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
-                    for (Map.Entry<String, String> propEntry : properties.entrySet()) {
-                        conf.set(propEntry.getKey(), propEntry.getValue());
-                    }
-                    AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
-                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
+                    Configuration conf = hdfsProperties.getHadoopConfiguration();
+                    // TODO: Temporarily disable the HDFS file system cache to prevent instances from being closed by
+                    //  each other in V1. This line can be removed once V1 and V2 are unified.
+                    conf.set("fs.hdfs.impl.disable.cache", "true");
+                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
                             try {
