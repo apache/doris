@@ -1306,6 +1306,14 @@ public class MetadataGenerator {
                 }
 
                 Map<String, String> propertiesMap = property.getProperties();
+                // make [dynamic_partition.]replication_allocation properties same as SHOW CREATE TABLE stmt
+                propertiesMap.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        property.getReplicaAllocation().toCreateStmt());
+                DynamicPartitionProperty dynamicProperty = property.getDynamicPartitionProperty();
+                if (dynamicProperty != null && dynamicProperty.isExist()) {
+                    propertiesMap.put(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX,
+                            dynamicProperty.getReplicaAllocation().toCreateStmt());
+                }
                 propertiesMap.forEach((key, value) -> {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
