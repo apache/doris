@@ -260,27 +260,12 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         }
     }
 
-
-    // fail
-//    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-//    assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
-//    assertTrue(state_mtmv3[0][2] == false)
-//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-//        sql """use ${dbName}"""
-//        mv_not_part_in(test_sql3, mtmvName3)
-//    }
-//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-//        sql """use ${dbName}"""
-//        mv_not_part_in(test_sql3, mtmvName3)
-//    }
-
-
     // mtmv1: drop table of primary table
     sql """drop table if exists ${ctlName}.${dbName}.${tableName1}"""
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
     def test_sql1 = """SELECT * FROM ${ctlName}.${dbName}.${tableName10}"""
 
-    assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv1[0][0] == "NORMAL")
     assertTrue(state_mtmv1[0][2] == false)
 
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
@@ -295,19 +280,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         mv_not_part_in(test_sql1, mtmvName1)
     }
 
-    //fail
-//    def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
-//    assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
-//    assertTrue(state_mtmv1[0][2] == false)
-//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-//        sql """use ${dbName}"""
-//        mv_not_part_in(test_sql1, mtmvName1)
-//    }
-//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-//        sql """use ${dbName}"""
-//        mv_not_part_in(test_sql1, mtmvName1)
-//    }
-
     // After deleting the table, you can create a new MTMV
     def cur_mtmvName3 = mtmvName3 + UUID.randomUUID().toString().replaceAll("-", "")
     sql """
@@ -319,15 +291,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             SELECT user_id, age FROM ${ctlName}.${dbName}.${tableName10};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
-
-//    if (2.1.5) {
-//        test {
-//            waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
-//            exception ''
-//        }
-//    } else {
-//        waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
-//    }
 
 
 
