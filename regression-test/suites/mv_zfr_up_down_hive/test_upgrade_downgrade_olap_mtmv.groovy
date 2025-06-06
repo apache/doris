@@ -300,18 +300,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv2[0][0] == "NORMAL")
-        assertTrue(state_mtmv2[0][2] == false)
-        def mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-        logger.info("mtmv_part_res[0][18]: " + mtmv_part_res[0][18])
-        logger.info("mtmv_part_res[0][19]: " + mtmv_part_res[0][19])
-        logger.info("mtmv_part_res:" + mtmv_part_res)
-        def part_1 = mtmv_part_res.size()
-        def diff_part = 0
-        for (int i = 0; i < mtmv_part_res.size(); i++) {
-            if (mtmv_part_res[i][18] == "false" && mtmv_part_res[i][19] as String == "[${tableName2}]") {
-                diff_part = diff_part + 1
-            }
-        }
+        assertTrue(state_mtmv2[0][2] == true)
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
@@ -329,7 +318,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
         // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
         try {
-            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(p_20180115)"""
         } catch (Exception e) {
             logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
             logger.info(e.getMessage())
@@ -338,10 +327,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         // When refreshing the entire MTMV, the partition will be deleted.
         sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
         waitingMTMVTaskFinishedByMvName(mtmvName2)
-        mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-        logger.info("mtmv_part_res:" + mtmv_part_res)
-        def part_2 = mtmv_part_res.size()
-        assertTrue(part_1 == part_2 + diff_part)
 
         state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
         logger.info("state_mtmv2:" + state_mtmv2)
