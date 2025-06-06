@@ -36,6 +36,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/id_manager.h"
 #include "olap/storage_engine.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
@@ -306,7 +307,7 @@ Status RuntimeState::create_error_log_file() {
             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
             // shorten the path as much as possible to prevent the length of the presigned URL from
             // exceeding the MySQL error packet size limit
-            ss << "error_log/" << std::hex << _query_id.hi;
+            ss << "error_log/" << std::hex << _fragment_instance_id.lo;
             _s3_error_log_file_path = ss.str();
         }
     }
@@ -528,5 +529,8 @@ bool RuntimeState::low_memory_mode() const {
     return _query_ctx->low_memory_mode();
 }
 
+void RuntimeState::set_id_file_map() {
+    _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
+}
 #include "common/compile_check_end.h"
 } // end namespace doris

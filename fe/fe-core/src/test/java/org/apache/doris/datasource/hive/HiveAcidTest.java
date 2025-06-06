@@ -19,7 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
-import org.apache.doris.fs.LocalDfsFileSystem;
+import org.apache.doris.fsv2.LocalDfsFileSystem;
 
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;

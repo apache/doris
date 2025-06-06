@@ -57,7 +57,6 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.QuantileStateType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -164,7 +163,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeType.INSTANCE, NullType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateV2Type.INSTANCE, NullType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, NullType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(TimeType.INSTANCE, NullType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(TimeV2Type.INSTANCE, NullType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(HllType.INSTANCE, NullType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(BitmapType.INSTANCE, NullType.INSTANCE, BitmapType.INSTANCE);
@@ -187,7 +185,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, BooleanType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BooleanType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, BooleanType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, BooleanType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BooleanType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BooleanType.INSTANCE, BitmapType.INSTANCE);
@@ -210,7 +207,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, TinyIntType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TinyIntType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TinyIntType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TinyIntType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TinyIntType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TinyIntType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TinyIntType.INSTANCE, BitmapType.INSTANCE);
@@ -233,7 +229,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, SmallIntType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, SmallIntType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, SmallIntType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, SmallIntType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, SmallIntType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, SmallIntType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, SmallIntType.INSTANCE, BitmapType.INSTANCE);
@@ -256,7 +251,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, IntegerType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(IntegerType.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, IntegerType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, IntegerType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, IntegerType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, IntegerType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, IntegerType.INSTANCE, BitmapType.INSTANCE);
@@ -279,7 +273,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, BigIntType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(BigIntType.INSTANCE, BigIntType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BigIntType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, BigIntType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, BigIntType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BigIntType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BigIntType.INSTANCE, BitmapType.INSTANCE);
@@ -302,7 +295,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(LargeIntType.INSTANCE, LargeIntType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, LargeIntType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, LargeIntType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, LargeIntType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, LargeIntType.INSTANCE, BitmapType.INSTANCE);
@@ -328,7 +320,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, DecimalV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT,
                 DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DecimalV2Type.SYSTEM_DEFAULT, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DecimalV2Type.SYSTEM_DEFAULT, BitmapType.INSTANCE);
@@ -356,7 +347,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, DecimalV3Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT,
                 DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, DecimalV3Type.SYSTEM_DEFAULT, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DecimalV3Type.SYSTEM_DEFAULT, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DecimalV3Type.SYSTEM_DEFAULT, BitmapType.INSTANCE);
@@ -379,7 +369,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, FloatType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, FloatType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, FloatType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, FloatType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, FloatType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, FloatType.INSTANCE, BitmapType.INSTANCE);
@@ -402,7 +391,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DoubleType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, DoubleType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DoubleType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DoubleType.INSTANCE, BitmapType.INSTANCE);
@@ -427,7 +415,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, CharType.SYSTEM_DEFAULT, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, CharType.SYSTEM_DEFAULT, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, CharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, CharType.SYSTEM_DEFAULT, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, CharType.SYSTEM_DEFAULT, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, CharType.SYSTEM_DEFAULT, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, CharType.SYSTEM_DEFAULT, BitmapType.INSTANCE);
@@ -452,7 +439,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, VarcharType.SYSTEM_DEFAULT, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, VarcharType.SYSTEM_DEFAULT, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, VarcharType.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, VarcharType.SYSTEM_DEFAULT, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, VarcharType.SYSTEM_DEFAULT, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, VarcharType.SYSTEM_DEFAULT, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, VarcharType.SYSTEM_DEFAULT, BitmapType.INSTANCE);
@@ -475,7 +461,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, StringType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, StringType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, StringType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, StringType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, StringType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, StringType.INSTANCE, BitmapType.INSTANCE);
@@ -498,7 +483,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeType.INSTANCE, DateType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateV2Type.INSTANCE, DateType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, DateType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateType.INSTANCE, BitmapType.INSTANCE);
@@ -522,7 +506,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeType.INSTANCE,
                 DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeType.INSTANCE, BitmapType.INSTANCE);
@@ -545,7 +528,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateV2Type.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, DateV2Type.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateV2Type.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateV2Type.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateV2Type.INSTANCE, BitmapType.INSTANCE);
@@ -572,34 +554,10 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT,
                 DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeV2Type.SYSTEM_DEFAULT, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeV2Type.SYSTEM_DEFAULT, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeV2Type.SYSTEM_DEFAULT, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeV2Type.SYSTEM_DEFAULT, BitmapType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, DateTimeV2Type.SYSTEM_DEFAULT, QuantileStateType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(TimeType.INSTANCE, TimeType.INSTANCE, NullType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, BooleanType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, TinyIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, SmallIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, IntegerType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, BigIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, LargeIntType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV2Type.SYSTEM_DEFAULT, TimeType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DecimalV3Type.SYSTEM_DEFAULT, TimeType.INSTANCE, DecimalV3Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, FloatType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeType.INSTANCE, DoubleType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, TimeType.INSTANCE, CharType.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, TimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(StringType.INSTANCE, TimeType.INSTANCE, StringType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, DateType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, DateTimeType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, DateV2Type.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(TimeType.INSTANCE, TimeType.INSTANCE, TimeType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(TimeV2Type.INSTANCE, TimeType.INSTANCE, TimeV2Type.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, HllType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, BitmapType.INSTANCE);
-        testFindCommonPrimitiveTypeForCaseWhen(null, TimeType.INSTANCE, QuantileStateType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE, NullType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeV2Type.INSTANCE, BooleanType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(DoubleType.INSTANCE, TimeV2Type.INSTANCE, TinyIntType.INSTANCE);
@@ -618,7 +576,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, TimeV2Type.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TimeV2Type.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TimeV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TimeV2Type.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, TimeV2Type.INSTANCE, BitmapType.INSTANCE);
@@ -641,7 +598,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, HllType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, HllType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, HllType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, HllType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, HllType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(HllType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, HllType.INSTANCE, BitmapType.INSTANCE);
@@ -664,7 +620,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, BitmapType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BitmapType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BitmapType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, BitmapType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BitmapType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, BitmapType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(BitmapType.INSTANCE, BitmapType.INSTANCE, BitmapType.INSTANCE);
@@ -687,7 +642,6 @@ public class TypeCoercionUtilsTest {
         testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, DateTimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, DateV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT);
-        testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, TimeType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, TimeV2Type.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, HllType.INSTANCE);
         testFindCommonPrimitiveTypeForCaseWhen(null, QuantileStateType.INSTANCE, BitmapType.INSTANCE);

@@ -85,13 +85,13 @@ public class RevokeResourcePrivilegeCommand extends Command implements ForwardWi
      */
     public void validate() throws AnalysisException {
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
-            throw new AnalysisException("Grant is prohibited when Ranger is enabled.");
+            throw new AnalysisException("Revoke is prohibited when Ranger is enabled.");
         }
 
         if (userIdentity.isPresent()) {
             userIdentity.get().analyze();
         } else {
-            FeNameFormat.checkRoleName(role.get(), false /* can not be admin */, "Can not grant to role");
+            FeNameFormat.checkRoleName(role.get(), false /* can not be superuser */, "Can not revoke from role");
         }
 
         if (resourcePattern.isPresent()) {

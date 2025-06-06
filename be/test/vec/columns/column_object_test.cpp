@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column_object.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "vec/columns/column_variant.h"
 #include "vec/columns/common_column_test.h"
 
 namespace doris::vectorized {

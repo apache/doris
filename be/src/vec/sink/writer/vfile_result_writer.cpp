@@ -361,12 +361,12 @@ Status VFileResultWriter::_fill_result_block() {
                         ->type()
                         ->get_primitive_type()) {
         case TYPE_INT: {
-            auto column = ColumnVector<int32_t>::create();
+            auto column = ColumnInt32::create();
             INSERT_TO_COLUMN;
             break;
         }
         case TYPE_BIGINT: {
-            auto column = ColumnVector<int64_t>::create();
+            auto column = ColumnInt64::create();
             INSERT_TO_COLUMN;
             break;
         }

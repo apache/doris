@@ -214,6 +214,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -4383,6 +4384,12 @@ public class Env {
         catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
     }
 
+    public void dropView(String catalogName, String dbName, String tableName, boolean ifExists) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.dropTable(dbName, tableName, true, false, ifExists, false);
+    }
+
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
                                       Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
@@ -6504,6 +6511,14 @@ public class Env {
             editLog.logUninstallPlugin(info);
         }
         LOG.info("uninstall plugin = " + stmt.getPluginName());
+    }
+
+    public void uninstallPlugin(UninstallPluginCommand cmd) throws IOException, UserException {
+        PluginInfo info = pluginMgr.uninstallPlugin(cmd.getPluginName());
+        if (null != info) {
+            editLog.logUninstallPlugin(info);
+        }
+        LOG.info("uninstall plugin = " + cmd.getPluginName());
     }
 
     public void replayUninstallPlugin(PluginInfo pluginInfo) throws MetaNotFoundException {

@@ -30,12 +30,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
-
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
@@ -111,31 +106,33 @@ Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
 Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     JsonBinaryValue value;
-    RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
+    RETURN_IF_ERROR(value.init_from_json_string(slice.data, slice.size));
 
     auto& column_string = assert_cast<ColumnString&>(column);
     column_string.insert_data(value.value(), value.size());
     return Status::OK();
 }
 
-void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                               arrow::ArrayBuilder* array_builder, int64_t start,
-                                               int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                 arrow::ArrayBuilder* array_builder, int64_t start,
+                                                 int64_t end, const cctz::time_zone& ctz) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
         std::string json_string =
                 JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-        checkArrowStatus(builder.Append(json_string.data(),
-                                        cast_set<int, size_t, false>(json_string.size())),
-                         column.get_name(), array_builder->type()->name());
+        RETURN_IF_ERROR(
+                checkArrowStatus(builder.Append(json_string.data(),
+                                                cast_set<int, size_t, false>(json_string.size())),
+                                 column.get_name(), array_builder->type()->name()));
     }
+    return Status::OK();
 }
 
 Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
@@ -294,8 +291,7 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     column_string.reserve(column_string.size() + arg.string_value_size());
     JsonBinaryValue value;
     for (int i = 0; i < arg.string_value_size(); ++i) {
-        RETURN_IF_ERROR(
-                value.from_json_string(arg.string_value(i).c_str(), arg.string_value(i).size()));
+        RETURN_IF_ERROR(value.init_from_json_string(arg.string_value(i)));
         column_string.insert_data(value.value(), value.size());
     }
     return Status::OK();

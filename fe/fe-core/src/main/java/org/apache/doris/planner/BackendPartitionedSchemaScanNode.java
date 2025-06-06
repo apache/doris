@@ -73,6 +73,7 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         BACKEND_TABLE.add("backend_kerberos_ticket_cache");
 
         BACKEND_TABLE.add("backend_tablets");
+        BACKEND_TABLE.add("backend_configuration");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {

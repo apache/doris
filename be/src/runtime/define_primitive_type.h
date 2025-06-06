@@ -50,7 +50,7 @@ enum PrimitiveType : PrimitiveNative {
 
     TYPE_TIME [[deprecated]], /*TYPE_TIMEV2*/
 
-    TYPE_OBJECT,          /* 22, bitmap */
+    TYPE_BITMAP,          /* 22, bitmap */
     TYPE_STRING,          /* 23 */
     TYPE_QUANTILE_STATE,  /* 24 */
     TYPE_DATEV2,          /* 25 */
@@ -65,7 +65,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_AGG_STATE,       /* 34 */
     TYPE_DECIMAL256,      /* 35 */
     TYPE_IPV4,            /* 36 */
-    TYPE_IPV6             /* 37 */
+    TYPE_IPV6,            /* 37 */
+    TYPE_UINT32,          /* 38, used as offset */
+    TYPE_UINT64           /* 39, used as offset */
 };
 
 } // namespace doris

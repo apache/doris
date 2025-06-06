@@ -82,7 +82,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<TableSample> tableSample,
             Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statistics);
+                groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots);
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
@@ -247,5 +247,10 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
                 groupExpression, getLogicalProperties(), getPhysicalProperties(), statistics,
                 tableSample, operativeSlots);
+    }
+
+    @Override
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
     }
 }

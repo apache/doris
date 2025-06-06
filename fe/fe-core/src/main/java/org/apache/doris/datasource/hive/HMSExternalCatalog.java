@@ -37,9 +37,9 @@ import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.fs.FileSystemProvider;
-import org.apache.doris.fs.FileSystemProviderImpl;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.fsv2.FileSystemProvider;
+import org.apache.doris.fsv2.FileSystemProviderImpl;
+import org.apache.doris.fsv2.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -181,11 +181,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
         }
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
-            ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
-            Integer.MAX_VALUE,
-            String.format("hms_iceberg_catalog_%s_executor_pool", name),
-            true,
-            preExecutionAuthenticator);
+                ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
+                Integer.MAX_VALUE,
+                String.format("hms_iceberg_catalog_%s_executor_pool", name),
+                true,
+                preExecutionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                 this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,

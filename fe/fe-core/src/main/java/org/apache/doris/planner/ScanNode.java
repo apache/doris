@@ -89,7 +89,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected static final int NUM_SPLITS_PER_PARTITION = 10;
     protected static final int NUM_SPLITTERS_ON_FLIGHT = Config.max_external_cache_loader_thread_pool_size;
-    protected final TupleDescriptor desc;
+    protected TupleDescriptor desc;
     // for distribution prunner
     protected Map<String, PartitionColumnFilter> columnFilters = new CaseInsensitiveMap();
     // Use this if partition_prune_algorithm_version is 2.
@@ -869,5 +869,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     @Override
     public boolean hasSerialScanChildren() {
         return isSerialOperator();
+    }
+
+    public void setDesc(TupleDescriptor desc) {
+        this.desc = desc;
     }
 }

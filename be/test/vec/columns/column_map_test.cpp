@@ -28,7 +28,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -106,8 +105,8 @@ TEST_F(ColumnMapTest, MapTypeTesterase) {
     EXPECT_EQ(column_map->size(), 2);
     auto* column_result = assert_cast<ColumnMap*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
 
     auto& column_data_res = assert_cast<ColumnInt64&>(
             assert_cast<ColumnNullable&>(assert_cast<ColumnMap&>(*column_res).get_values())
@@ -197,8 +196,8 @@ TEST_F(ColumnMapTest, MapTypeTest2erase) {
     EXPECT_EQ(column_map->size(), 3);
     auto* column_result = assert_cast<ColumnMap*>(column_res.get());
     auto& column_offsets_res = column_result->get_offsets_column();
-    auto& offset_data_res = assert_cast<ColumnUInt64&>(column_offsets_res);
-    auto& offset_data = assert_cast<ColumnUInt64&>(column_offsets);
+    auto& offset_data_res = assert_cast<ColumnOffset64&>(column_offsets_res);
+    auto& offset_data = assert_cast<ColumnOffset64&>(column_offsets);
 
     auto& column_data_res = assert_cast<ColumnInt64&>(
             assert_cast<ColumnNullable&>(assert_cast<ColumnMap&>(*column_res).get_values())
