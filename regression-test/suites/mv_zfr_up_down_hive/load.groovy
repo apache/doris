@@ -76,12 +76,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """drop table if exists `${tableName8}`"""
     sql """drop table if exists `${tableName9}`"""
     sql """drop table if exists `${tableName10}`"""
-    sql """drop materialized view if exists ${mtmvName1};"""
-    sql """drop materialized view if exists ${mtmvName2};"""
-    sql """drop materialized view if exists ${mtmvName3};"""
-    sql """drop materialized view if exists ${mtmvName4};"""
-    sql """drop materialized view if exists ${mtmvName5};"""
-    sql """drop materialized view if exists ${mtmvName6};"""
+
 
 
     sql """
@@ -225,6 +220,12 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """switch internal;"""
     sql """use ${dbName}"""
+    sql """drop materialized view if exists ${mtmvName1};"""
+    sql """drop materialized view if exists ${mtmvName2};"""
+    sql """drop materialized view if exists ${mtmvName3};"""
+    sql """drop materialized view if exists ${mtmvName4};"""
+    sql """drop materialized view if exists ${mtmvName5};"""
+    sql """drop materialized view if exists ${mtmvName6};"""
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName1}
             REFRESH AUTO ON MANUAL
