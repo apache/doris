@@ -151,7 +151,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
     // mtmv5: normal situation, the base table and mtmv remain unchanged
     // success
-    sql """swicth internal;"""
+    sql """switch internal;"""
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
     def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id"""
     if (step == 1 || step == 2 || step == 3) {
