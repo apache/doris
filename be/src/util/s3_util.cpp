@@ -448,6 +448,9 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     case cloud::ObjectStoreInfoPB_Provider_AZURE:
         type = io::ObjStorageType::AZURE;
         break;
+    case cloud::ObjectStoreInfoPB_Provider_TOS:
+        type = io::ObjStorageType::TOS;
+        break;
     default:
         __builtin_unreachable();
         LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
@@ -510,6 +513,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
         break;
     case TObjStorageType::GCP:
         type = io::ObjStorageType::GCP;
+        break;
+    case TObjStorageType::TOS:
+        type = io::ObjStorageType::TOS;
         break;
     default:
         LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());
