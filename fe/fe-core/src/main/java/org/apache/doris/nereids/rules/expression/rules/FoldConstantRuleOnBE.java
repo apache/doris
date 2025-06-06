@@ -103,11 +103,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Constant evaluation of an expression.
@@ -526,6 +528,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isMapType()) {
             MapType mapType = (MapType) type;
             int childCount = resultContent.getChildElementCount();
+            Map<Literal, Literal> map = new LinkedHashMap<>();
             List<Literal> allKeys = new ArrayList<>();
             List<Literal> allValues = new ArrayList<>();
             for (int i = 0; i < childCount; i = i + 2) {
@@ -536,7 +539,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
             int offsetCount = resultContent.getChildOffsetCount();
             if (offsetCount == 1) {
-                MapLiteral mapLiteral = new MapLiteral(allKeys, allValues, mapType);
+                AtomicInteger pos = new AtomicInteger(0);
+                allKeys.forEach(k -> map.put(k, allValues.get(pos.getAndIncrement())));
+                MapLiteral mapLiteral = new MapLiteral(map, mapType);
                 res.add(mapLiteral);
             } else {
                 for (int i = 0; i < offsetCount; ++i) {
@@ -548,7 +553,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                         keyLiteral.add(allKeys.get(off));
                         valueLiteral.add(allValues.get(off));
                     }
-                    MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral, mapType);
+                    AtomicInteger pos = new AtomicInteger(0);
+                    keyLiteral.forEach(k -> map.put(k, valueLiteral.get(pos.getAndIncrement())));
+                    MapLiteral mapLiteral = new MapLiteral(map, mapType);
                     res.add(mapLiteral);
                 }
             }
