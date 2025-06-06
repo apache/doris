@@ -1479,7 +1479,11 @@ public class MetadataGenerator {
                     Pair<Double, String> sizePair = DebugUtil.getByteUint(partition.getDataSize(false));
                     String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
-                    trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // DATA_SIZE
+                    trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // LOCAL_DATA_SIZE
+                    sizePair = DebugUtil.getByteUint(partition.getRemoteDataSize());
+                    readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                            + sizePair.second;
+                    trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // REMOTE_DATA_SIZE
                     trow.addToColumnValue(new TCell().setStringVal(partition.getState().toString())); // STATE
                     trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getReplicaAllocation(partitionId)
                             .toCreateStmt())); // REPLICA_ALLOCATION
