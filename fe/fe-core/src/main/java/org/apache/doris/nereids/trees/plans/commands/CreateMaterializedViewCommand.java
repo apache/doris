@@ -183,8 +183,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
     /**
      * validate
      *
-     * @param ctx
-     * @throws Exception
+     * @param ctx ConnectContext
+     * @throws Exception auth denied
      */
     public void validate(ConnectContext ctx) throws Exception {
         name.analyze(ctx);
