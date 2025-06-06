@@ -34,7 +34,6 @@ import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
-import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
 import org.apache.doris.analysis.ShowCloudWarmUpStmt;
@@ -486,8 +485,6 @@ public class ShowExecutor {
             handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
-        } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
-            handleShowCatalogRecycleBin();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
         } else if (stmt instanceof ShowBuildIndexStmt) {
@@ -3337,17 +3334,6 @@ public class ShowExecutor {
         } finally {
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
         }
-    }
-
-    private void handleShowCatalogRecycleBin() throws AnalysisException {
-        ShowCatalogRecycleBinStmt showStmt = (ShowCatalogRecycleBinStmt) stmt;
-
-        Predicate<String> predicate = showStmt.getNamePredicate();
-        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()
-                .filter(x -> predicate.test(x.get(1)))
-                .collect(Collectors.toList());
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
     private void handleShowTypeCastStmt() throws AnalysisException {
