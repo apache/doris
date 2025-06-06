@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -84,6 +86,14 @@ public class EncryptKeyRef extends Expr {
 
     @Override
     protected String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(encryptKeyName.toSql());
+        return sb.toString();
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder sb = new StringBuilder();
         sb.append(encryptKeyName.toSql());
         return sb.toString();
