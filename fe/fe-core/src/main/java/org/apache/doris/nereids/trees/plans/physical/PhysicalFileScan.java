@@ -129,7 +129,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
-                "operativeCols", getOperativeSlots(),"RFV2", rfV2
+                "operativeCols", getOperativeSlots(), "RFV2", rfV2
         );
     }
 
