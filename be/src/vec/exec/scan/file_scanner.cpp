@@ -80,6 +80,8 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/stringop_substring.h"
+#include <signal.h>
+#include <unistd.h>
 
 namespace cctz {
 class time_zone;
@@ -755,6 +757,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     return fmt::to_string(error_msg);
                                 }));
                         } else if (!slot_desc->is_nullable()) {
+                            raise(SIGABRT);
                             filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {

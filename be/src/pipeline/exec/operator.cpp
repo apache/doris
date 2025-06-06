@@ -718,6 +718,7 @@ template <typename Writer, typename Parent>
     requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              bool eos) {
+    LOG(INFO) << "sink block: " << _parent->_child->debug_string() << "query_id: " << print_id(state->query_id());
     return _writer->sink(block, eos);
 }
 
