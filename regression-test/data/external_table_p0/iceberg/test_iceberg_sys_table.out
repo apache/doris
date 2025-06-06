@@ -24,7 +24,7 @@ snapshot_id	bigint	No	false	\N	NONE
 parent_id	bigint	No	false	\N	NONE
 operation	text	No	false	\N	NONE
 manifest_list	text	No	false	\N	NONE
-summary	text	No	false	\N	NONE
+summary	map<text,text>	No	false	\N	NONE
 
 -- !desc_systable2 --
 committed_at	datetime	No	false	\N	NONE
@@ -32,7 +32,7 @@ snapshot_id	bigint	No	false	\N	NONE
 parent_id	bigint	No	false	\N	NONE
 operation	text	No	false	\N	NONE
 manifest_list	text	No	false	\N	NONE
-summary	text	No	false	\N	NONE
+summary	map<text,text>	No	false	\N	NONE
 
 -- !desc_systable3 --
 committed_at	datetime	No	false	\N	NONE
@@ -40,7 +40,7 @@ snapshot_id	bigint	No	false	\N	NONE
 parent_id	bigint	No	false	\N	NONE
 operation	text	No	false	\N	NONE
 manifest_list	text	No	false	\N	NONE
-summary	text	No	false	\N	NONE
+summary	map<text,text>	No	false	\N	NONE
 
 -- !sql_tbl2 --
 2

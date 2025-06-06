@@ -534,6 +534,10 @@ struct TIcebergMetadataParams {
   2: optional string catalog
   3: optional string database
   4: optional string table
+  5: optional string serialized_table
+  6: optional string serialized_split
+  7: optional map<string, string> schema
+  8: optional map<string, string> hadoop_props
 }
 
 struct THudiMetadataParams {
