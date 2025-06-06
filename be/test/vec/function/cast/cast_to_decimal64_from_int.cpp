@@ -14,15 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionsConversion.h
-// and modified by Doris
-#include "vec/functions/function_cast.h"
 
-#include "vec/functions/simple_function_factory.h"
+#include <fstream>
+#include <memory>
+
+#include "cast_test.h"
+#include "cast_to_decimal.h"
+#include "common/exception.h"
+#include "olap/olap_common.h"
+#include "testutil/test_util.h"
+#include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/number_traits.h"
 
 namespace doris::vectorized {
-void register_function_cast(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionBuilderCast>();
+TEST_F(FunctionCastToDecimalTest, test_from_int_to_decimal64) {
+    from_int_test_func<Decimal64>();
 }
 } // namespace doris::vectorized
