@@ -24,6 +24,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_to_string.h"
 #include "util/mysql_global.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
@@ -67,6 +69,39 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 arrow::FloatBuilder, Float64, arrow::DoubleBuilder, void,
                 void // Add this line to represent the end of the TypeMap
                 >;
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                        BufferWritable& bw) const {
+    auto data = assert_cast<const ColumnType&>(column).get_element(row_num);
+    if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
+        to_string::primitive_to_writable<T>(data, bw);
+    } else {
+        return Status::InternalError("serialize_column_to_text not support");
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Result<ColumnString::Ptr> DataTypeNumberSerDe<T>::serialize_column_to_column_string(
+        const IColumn& column) const {
+    if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMEV2 || T == TYPE_TIME) {
+        return ResultError(
+                Status::InternalError("TYPE_DATETIMEV2 and TYPE_TIMEV2 need separate override "
+                                      "functions because they have scale parameters."));
+    } else {
+        const auto size = column.size();
+        auto column_to = ColumnString::create();
+        column_to->reserve(size * 2);
+        BufferWritable write_buffer(*column_to);
+        const auto& col = assert_cast<const ColumnType&>(column);
+        for (size_t i = 0; i < size; ++i) {
+            to_string::primitive_to_writable<T>(col.get_element(i), write_buffer);
+            write_buffer.commit();
+        }
+        return column_to;
+    }
+}
 
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,

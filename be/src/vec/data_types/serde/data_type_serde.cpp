@@ -137,5 +137,18 @@ Status DataTypeSerDe::read_one_cell_from_json(IColumn& column,
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
 const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 
+Result<ColumnString::Ptr> DataTypeSerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    column_to->reserve(size * 2);
+    BufferWritable write_buffer(*column_to);
+    for (size_t i = 0; i < size; ++i) {
+        RETURN_IF_ERROR_RESULT(serialize_column_to_text(column, i, write_buffer));
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 } // namespace vectorized
 } // namespace doris

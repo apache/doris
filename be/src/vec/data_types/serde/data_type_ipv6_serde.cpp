@@ -22,12 +22,23 @@
 #include <cstddef>
 #include <string>
 
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+Status DataTypeIPv6SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                   BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    IPv6 value = assert_cast<const ColumnIPv6&>(column).get_element(row_num);
+    to_string::primitive_to_writable<TYPE_IPV6>(value, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
 
 template <bool is_binary_format>
 Status DataTypeIPv6SerDe::_write_column_to_mysql(const IColumn& column,

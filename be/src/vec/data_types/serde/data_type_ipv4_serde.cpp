@@ -19,12 +19,22 @@
 
 #include <arrow/builder.h>
 
+#include "runtime/primitive_to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+Status DataTypeIPv4SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                   BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    IPv4 value = assert_cast<const ColumnIPv4&>(column).get_element(row_num);
+    to_string::primitive_to_writable<TYPE_IPV4>(value, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
 
 template <bool is_binary_format>
 Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,

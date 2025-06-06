@@ -16,6 +16,9 @@
 // under the License.
 
 #include "data_type_time_serde.h"
+
+#include "runtime/primitive_to_string.h"
+#include "vec/runtime/time_value.h"
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
@@ -55,5 +58,30 @@ Status DataTypeTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
     }
     return Status::OK();
 }
+
+Status DataTypeTimeV2SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                     BufferWritable& bw) const {
+    const auto& time_column = assert_cast<const ColumnTimeV2&>(column);
+    DataTypeSerDe::write_left_quotation(bw);
+    to_string::primitive_to_writable<TYPE_TIMEV2>(time_column.get_element(row_num), bw, scale);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+Result<ColumnString::Ptr> DataTypeTimeV2SerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    column_to->reserve(size * 2);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnTimeV2&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        to_string::primitive_to_writable<PrimitiveType::TYPE_TIMEV2>(col.get_element(i),
+                                                                     write_buffer, scale);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 } // namespace vectorized
 } // namespace doris

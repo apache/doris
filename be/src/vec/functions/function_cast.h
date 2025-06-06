@@ -461,12 +461,13 @@ struct ConvertImplGenericToString {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
-
-        auto col_to = ColumnString::create();
-        type.to_string_batch(col_from, *col_to);
-
-        block.replace_by_position(result, std::move(col_to));
-        return Status::OK();
+        auto res = type.get_serde()->serialize_column_to_column_string(col_from);
+        if (res.has_value()) {
+            block.get_by_position(result).column = std::move(res.value());
+            return Status::OK();
+        } else {
+            return res.error();
+        }
     }
 
     static Status execute2(FunctionContext* /*ctx*/, Block& block, const ColumnNumbers& arguments,
