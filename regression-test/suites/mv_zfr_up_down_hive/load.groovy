@@ -77,8 +77,6 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """drop table if exists `${tableName9}`"""
     sql """drop table if exists `${tableName10}`"""
 
-
-
     sql """
         CREATE TABLE `${tableName1}` (
           `user_id` INT COMMENT '用户id',
