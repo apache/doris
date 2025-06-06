@@ -204,20 +204,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     }
 
 
-    // fail
-//    def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
-//    assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
-//    assertTrue(state_mtmv5[0][2] == false)
-//    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-//        sql """use ${dbName}"""
-//        mv_not_part_in(test_sql5, mtmvName5)
-//    }
-//    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-//        sql """use ${dbName}"""
-//        mv_not_part_in(test_sql5, mtmvName5)
-//    }
-
-
     // mtmv3: insert data
     sql """insert into ${ctlName}.${dbName}.${tableName3} values(1,"2017-01-15",1);"""
     def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
