@@ -34,8 +34,12 @@ public class IPv4Literal extends Literal implements ComparableLiteral {
     private static final Pattern IPV4_STD_REGEX =
             Pattern.compile("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
 
-    // Inet4Address.toString() contains a prefix "/", like "/192.168.1.10".
-    // Add a class Inet4Addr, its toString() don't contains a prefix "/".
+    /**
+     * Add a class Inet4Addr wrap in Inet4Address,
+     * When cast ipv4 literal to string, it will call `new StringLiteral(ipv4Literal.getValue().toString())`,
+     * but Inet4Address.toString() contains a prefix "/", like "/192.168.1.10".
+     * Use Inet4Addr can solve this problem.
+     */
     public static class Inet4Addr {
         final Inet4Address address;
 
