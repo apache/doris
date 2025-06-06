@@ -49,7 +49,7 @@ public:
     // Returns false if we were shut down prior to getting the element, and there
     // are no more elements available.
     bool blocking_get(T* out) {
-        return controlled_blocking_get(out, 1000);
+        return controlled_blocking_get(out, std::chrono::milliseconds::max().count() -1);
     }
 
     // Blocking_get and blocking_put may cause deadlock,
@@ -86,7 +86,7 @@ public:
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {
-        return controlled_blocking_put(val, 1000);
+        return controlled_blocking_put(val, std::chrono::milliseconds::max().count() -1);
     }
 
     // Blocking_get and blocking_put may cause deadlock,
