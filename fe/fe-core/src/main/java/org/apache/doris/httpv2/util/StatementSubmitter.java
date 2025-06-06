@@ -17,34 +17,19 @@
 
 package org.apache.doris.httpv2.util;
 
-// Remove unused imports for SQL statement analysis
-// import org.apache.doris.analysis.CopyStmt;
-// import org.apache.doris.analysis.DdlStmt;
-// import org.apache.doris.analysis.ExportStmt;
-// import org.apache.doris.analysis.QueryStmt;
-// import org.apache.doris.analysis.ShowStmt;
-// import org.apache.doris.analysis.SqlParser;
-// import org.apache.doris.analysis.SqlScanner;
-// import org.apache.doris.analysis.StatementBase;
-// import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-// import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.httpv2.util.streamresponse.JsonStreamResponse;
 import org.apache.doris.httpv2.util.streamresponse.StreamResponseInf;
-// import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
-// import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-// import java.io.StringReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
