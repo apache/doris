@@ -165,7 +165,8 @@ public:
      * @param is_empty_tablet indicates whether the tablet has object files, can skip delete objects if tablet is empty
      * @return 0 for success otherwise error
      */
-    int recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id = -1,
+    int recycle_tablets(int64_t table_id, int64_t index_id, int64_t& total_need_recycle_data_size,
+                        std::atomic_long& total_recycle_data_size, int64_t partition_id = -1,
                         bool is_empty_tablet = false);
 
     /**
@@ -173,7 +174,15 @@ public:
      *
      * @return 0 for success otherwise error
      */
-    int recycle_tablet(int64_t tablet_id);
+    int recycle_tablet(int64_t tablet_id, bool is_recycle_partition_tablet,
+                       int64_t& total_need_recycle_data_size,
+                       std::atomic_long& total_recycle_data_size);
+
+    int scan_tablets_and_statistics(int64_t tablet_id, int64_t index_id,
+                                    int64_t& total_need_recycle_data_size,
+                                    int64_t partition_id = -1, bool is_empty_tablet = false);
+
+    int scan_tablet_and_statistics(int64_t tablet_id, int64_t& total_need_recycle_data_size);
 
     // scan and recycle useless partition version kv
     int recycle_versions();
@@ -227,8 +236,11 @@ private:
                            const std::string& rowset_id);
 
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
-                           RowsetRecyclingState type);
+    int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
+                           RowsetRecyclingState type, int64_t total_need_recycle_data_size,
+                           int64_t total_need_recycle_rowset_num,
+                           std::atomic_long& total_recycle_data_size,
+                           std::atomic_long& total_recycle_rs_num);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
