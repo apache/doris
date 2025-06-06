@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IPv4Type;
 
 import java.net.Inet4Address;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
@@ -58,6 +59,20 @@ public class IPv4Literal extends Literal implements ComparableLiteral {
         @Override
         public String toString() {
             return address.getHostAddress();
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(address);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof Inet4Addr)) {
+                return false;
+            }
+            Inet4Addr otherAddr = (Inet4Addr) other;
+            return address.equals(otherAddr.address);
         }
     }
 
