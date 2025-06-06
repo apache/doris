@@ -45,7 +45,7 @@ public:
 
     template <typename Offset>
     static ColumnPtr create_column_offsets(const std::vector<Offset>& data) {
-        auto column = ColumnVector<Offset>::create();
+        auto column = ColumnOffset64::create();
         for (const auto& datum : data) {
             column->insert_value(datum);
         }
