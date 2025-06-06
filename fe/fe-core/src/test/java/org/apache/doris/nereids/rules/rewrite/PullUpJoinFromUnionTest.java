@@ -62,7 +62,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
     }
 
     @Test
@@ -73,7 +73,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
 
         sql = "select t2.id, t1.name from t1 join t2 on t1.id = t2.id "
                 + "union all "
@@ -81,7 +81,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
     }
 
     @Test
@@ -92,7 +92,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
     }
 
     @Test
@@ -125,7 +125,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
 
         sql = "select t2.id from t1 join t2 on t1.id = t2.id where t1.name = '' "
                 + "union all "
@@ -133,7 +133,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
     }
 
     @Test
@@ -144,7 +144,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
     }
 
     @Test
@@ -155,7 +155,7 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .nonMatch(logicalJoin(logicalProject(logicalUnion()), any()));
+                .nonMatch(logicalJoin(logicalUnion(), any()));
     }
 
     @Test
@@ -166,6 +166,6 @@ class PullUpJoinFromUnionTest extends TestWithFeService implements MemoPatternMa
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalJoin(logicalProject(logicalUnion()), any()));
+                .matches(logicalJoin(logicalUnion(), any()));
     }
 }

@@ -539,4 +539,8 @@ public class CascadesContext implements ScheduleContext {
     public boolean isEnableExprTrace() {
         return isEnableExprTrace;
     }
+
+    public boolean rewritePlanContainsTypes(Class<?>... types) {
+        return getRewritePlan().containsType(types);
+    }
 }

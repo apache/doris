@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContain
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -102,6 +103,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
 
     @Override
     public Plan processRoot(Plan plan, CascadesContext ctx) {
+        if (!plan.containsType(Join.class)) {
+            return plan;
+        }
+
         Plan result = plan.accept(this, ctx);
         // try to push rf inside CTEProducer
         // collect cteProducers

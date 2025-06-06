@@ -109,6 +109,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -649,10 +650,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitAggregateExpression(AggregateExpression aggregateExpression, PlanTranslatorContext context) {
         // aggFnArguments is used to build TAggregateExpr.param_types, so backend can find the aggregate function
-        List<Expr> aggFnArguments = aggregateExpression.getFunction().children()
-                .stream()
-                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
-                .collect(ImmutableList.toImmutableList());
+        List<Expr> aggFnArguments = new ArrayList<>(aggregateExpression.getFunction().arity());
+        for (Expression arg : aggregateExpression.getFunction().children()) {
+            aggFnArguments.add(new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()));
+        }
 
         Expression child = aggregateExpression.child();
         List<Expression> currentPhaseArguments = child instanceof AggregateFunction
@@ -786,13 +787,19 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitAggregateFunction(AggregateFunction function, PlanTranslatorContext context) {
-        List<Expr> arguments = function.children().stream()
-                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
-                .collect(ImmutableList.toImmutableList());
+        List<Expr> arguments = Lists.newArrayListWithCapacity(function.arity());
+        for (Expression arg : function.children()) {
+            arguments.add(new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()));
+        }
+        List<Type> argTypes = Lists.newArrayListWithCapacity(function.arity());
+        for (Expression arg : function.getArguments()) {
+            if (!(arg instanceof OrderExpression)) {
+                argTypes.add(arg.getDataType().toCatalogDataType());
+            }
+        }
         org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
                 new FunctionName(function.getName()),
-                function.getArguments().stream().filter(arg -> !(arg instanceof OrderExpression))
-                        .map(arg -> arg.getDataType().toCatalogDataType()).collect(ImmutableList.toImmutableList()),
+                argTypes,
                 function.getDataType().toCatalogDataType(), function.getIntermediateTypes().toCatalogDataType(),
                 function.hasVarArguments(), null, "", "", null, "", null, "", null, false, false, false,
                 TFunctionBinaryType.BUILTIN, true, true,
@@ -838,18 +845,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     private Expr translateAggregateFunction(AggregateFunction function,
             List<Expression> currentPhaseArguments, List<Expr> aggFnArguments,
             AggregateParam aggregateParam, PlanTranslatorContext context) {
-        List<Expr> currentPhaseCatalogArguments = currentPhaseArguments
-                .stream()
-                .map(arg -> arg instanceof OrderExpression
-                        ? translateOrderExpression((OrderExpression) arg, context).getExpr()
-                        : arg.accept(this, context))
-                .collect(ImmutableList.toImmutableList());
+        List<Expr> currentPhaseCatalogArguments = Lists.newArrayListWithCapacity(currentPhaseArguments.size());
+        for (Expression arg : currentPhaseArguments) {
+            if (arg instanceof OrderExpression) {
+                currentPhaseCatalogArguments.add(translateOrderExpression((OrderExpression) arg, context).getExpr());
+            } else {
+                currentPhaseCatalogArguments.add(arg.accept(this, context));
+            }
+        }
 
-        List<OrderByElement> orderByElements = function.getArguments()
-                .stream()
-                .filter(arg -> arg instanceof OrderExpression)
-                .map(arg -> translateOrderExpression((OrderExpression) arg, context))
-                .collect(ImmutableList.toImmutableList());
+        List<OrderByElement> orderByElements = Lists.newArrayListWithCapacity(function.getArguments().size());
+        for (Expression arg : function.getArguments()) {
+            if (arg instanceof OrderExpression) {
+                orderByElements.add(translateOrderExpression((OrderExpression) arg, context));
+            }
+        }
 
         FunctionParams fnParams;
         FunctionParams aggFnParams;

@@ -54,7 +54,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
 
                             Plan child = checkPolicy.child();
                             // Because the unique table will automatically include a filter condition
-                            if ((child instanceof LogicalFilter) && child.bound()) {
+                            if ((child instanceof LogicalFilter)) {
                                 upperFilter = (LogicalFilter) child;
                                 if (child.child(0) instanceof LogicalRelation) {
                                     child = child.child(0);
@@ -64,8 +64,7 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                     child = child.child(0).child(0);
                                 }
                             }
-                            if ((child instanceof LogicalAggregate)
-                                    && child.bound() && child.child(0) instanceof LogicalRelation) {
+                            if ((child instanceof LogicalAggregate) && child.child(0) instanceof LogicalRelation) {
                                 upAgg = child;
                                 child = child.child(0);
                             }

@@ -2881,6 +2881,7 @@ public class ShowExecutor {
     private void getStatsForSpecifiedColumns(List<Pair<Pair<String, String>, ColumnStatistic>> columnStatistics,
             Set<String> columnNames, TableIf tableIf, boolean showCache)
             throws AnalysisException {
+        ConnectContext connectContext = ConnectContext.get();
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
@@ -2903,7 +2904,7 @@ public class ShowExecutor {
                 if (showCache) {
                     columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                         tableIf.getDatabase().getCatalog().getId(),
-                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName);
+                        tableIf.getDatabase().getId(), tableIf.getId(), indexId, colName, connectContext);
                 } else {
                     columnStatistic = StatisticsRepository.queryColumnStatisticsByName(
                         tableIf.getDatabase().getCatalog().getId(),
@@ -2920,6 +2921,7 @@ public class ShowExecutor {
         long catalogId = tableIf.getDatabase().getCatalog().getId();
         long dbId = tableIf.getDatabase().getId();
         long tableId = tableIf.getId();
+        ConnectContext ctx = ConnectContext.get();
         for (String colName : columnNames) {
             // Olap base index use -1 as index id.
             List<Long> indexIds = Lists.newArrayList();
@@ -2939,7 +2941,7 @@ public class ShowExecutor {
                 }
                 for (String partName : partitionNames) {
                     PartitionColumnStatistic partitionStatistics = Env.getCurrentEnv().getStatisticsCache()
-                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName);
+                            .getPartitionColumnStatistics(catalogId, dbId, tableId, indexId, partName, colName, ctx);
                     ret.put(new PartitionColumnStatisticCacheKey(catalogId, dbId, tableId, indexId, partName, colName),
                             partitionStatistics);
                 }

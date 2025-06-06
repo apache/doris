@@ -101,7 +101,7 @@ public class FakePlan implements Plan, BlockFuncDepsPropagation {
     }
 
     @Override
-    public String treeString() {
+    public String treeString(boolean printStates) {
         return "DUMMY";
     }
 
