@@ -210,6 +210,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFilesScanner::create_unique();
     case TSchemaTableType::SCH_PARTITIONS:
         return SchemaPartitionsScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_CONFIGURATION:
+        return SchemaBackendConfigurationScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
         return SchemaRowsetsScanner::create_unique();
     case TSchemaTableType::SCH_METADATA_NAME_IDS:
