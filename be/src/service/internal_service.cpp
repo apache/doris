@@ -133,6 +133,8 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/text/text_reader.h"
+#include "vec/functions/dictionary_factory.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -819,6 +821,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        // file_slots is no use, but the lifetime should be longer than reader
+        std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
         case TFileFormatType::FORMAT_CSV_GZ:
@@ -828,10 +832,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
-            reader = vectorized::CsvReader::create_unique(profile.get(), params, range, file_slots,
-                                                          &io_ctx);
+            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                          range, file_slots, &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_TEXT: {
+            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                           range, file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -843,14 +850,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
             st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
@@ -1572,17 +1576,17 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
         // pool here.
         _transmit_block(controller, request, response, done, Status::OK(), 0);
     } else {
-        bool ret = _light_work_pool.try_offer([this, controller, request, response, done,
-                                               receive_time]() {
-            response->set_receive_time(receive_time);
-            // Sometimes transmit block function is the last owner of PlanFragmentExecutor
-            // It will release the object. And the object maybe a JNIContext.
-            // JNIContext will hold some TLS object. It could not work correctly under bthread
-            // Context. So that put the logic into pthread.
-            // But this is rarely happens, so this config is disabled by default.
-            _transmit_block(controller, request, response, done, Status::OK(),
-                            GetCurrentTimeNanos() - receive_time);
-        });
+        bool ret = _light_work_pool.try_offer(
+                [this, controller, request, response, done, receive_time]() {
+                    response->set_receive_time(receive_time);
+                    // Sometimes transmit block function is the last owner of PlanFragmentExecutor
+                    // It will release the object. And the object maybe a JNIContext.
+                    // JNIContext will hold some TLS object. It could not work correctly under bthread
+                    // Context. So that put the logic into pthread.
+                    // But this is rarely happens, so this config is disabled by default.
+                    _transmit_block(controller, request, response, done, Status::OK(),
+                                    GetCurrentTimeNanos() - receive_time);
+                });
         if (!ret) {
             offer_failed(response, done, _light_work_pool);
             return;
