@@ -86,9 +86,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName1}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `date` DATE COMMENT '\"数据灌入日期时间\"',
-          `num` INT COMMENT '\"数量\"'
+          `user_id` INT COMMENT '用户id',
+          `date` DATE COMMENT '数据灌入日期时间',
+          `num` INT COMMENT '数量'
         ) ENGINE=hive
         PARTITION BY LIST (date) ()
         PROPERTIES (
@@ -101,9 +101,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName2}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `date` DATE COMMENT '\"数据灌入日期时间\"',
-          `num` INT COMMENT '\"数量\"'
+          `user_id` INT COMMENT '用户id',
+          `date` DATE COMMENT '数据灌入日期时间',
+          `num` INT COMMENT '数量'
         ) ENGINE=hive
         PARTITION BY LIST (date) ()
         PROPERTIES (
@@ -116,9 +116,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName3}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `date` DATE COMMENT '\"数据灌入日期时间\"',
-          `num` INT COMMENT '\"数量\"'
+          `user_id` INT COMMENT '用户id',
+          `date` DATE COMMENT '数据灌入日期时间',
+          `num` INT COMMENT '数量'
         ) ENGINE=hive
         PARTITION BY LIST (date) ()
         PROPERTIES (
@@ -131,8 +131,8 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName4}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `age` INT COMMENT '\"年龄\"'
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
         ) ENGINE=hive
         PROPERTIES (
             'file_format'='parquet'
@@ -144,9 +144,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName5}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `date` DATE COMMENT '\"数据灌入日期时间\"',
-          `num` INT COMMENT '\"数量\"'
+          `user_id` INT COMMENT '用户id',
+          `date` DATE COMMENT '数据灌入日期时间',
+          `num` INT COMMENT '数量'
         ) ENGINE=hive
         PARTITION BY LIST (date) ()
         PROPERTIES (
@@ -159,9 +159,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 
     sql """
         CREATE TABLE `${tableName6}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `date` DATE COMMENT '\"数据灌入日期时间\"',
-          `num` INT COMMENT '\"数量\"'
+          `user_id` INT COMMENT '用户id',
+          `date` DATE COMMENT '数据灌入日期时间',
+          `num` INT COMMENT '数量'
         ) ENGINE=hive
         PARTITION BY LIST (date) ()
         PROPERTIES (
@@ -173,8 +173,8 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
         """
     sql """
         CREATE TABLE `${tableName7}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `age` INT COMMENT '\"年龄\"'
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
         ) ENGINE=hive
         PROPERTIES (
             'file_format'='parquet'
@@ -185,8 +185,8 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
         """
     sql """
         CREATE TABLE `${tableName8}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `age` INT COMMENT '\"年龄\"'
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
         ) ENGINE=hive
         PROPERTIES (
             'file_format'='parquet'
@@ -197,9 +197,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
         """
     sql """
         CREATE TABLE `${tableName9}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `date` DATE COMMENT '\"数据灌入日期时间\"',
-          `num` INT COMMENT '\"数量\"'
+          `user_id` INT COMMENT '用户id',
+          `date` DATE COMMENT '数据灌入日期时间',
+          `num` INT COMMENT '数量'
         ) ENGINE=hive
         PARTITION BY LIST (date) ()
         PROPERTIES (
@@ -211,8 +211,8 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
         """
     sql """
         CREATE TABLE `${tableName10}` (
-          `user_id` INT COMMENT '\"用户id\"',
-          `age` INT COMMENT '\"年龄\"'
+          `user_id` INT COMMENT '用户id',
+          `age` INT COMMENT '年龄'
         ) ENGINE=hive
         PROPERTIES (
             'file_format'='parquet'
