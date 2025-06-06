@@ -170,9 +170,6 @@ public class HadoopHudiJniScanner extends JniScanner {
                     for (int i = 0; i < fields.length; i++) {
                         Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
                         columnValue.setRow(fieldData);
-                        // LOG.info("rows: {}, column: {}, col name: {}, col type: {}, inspector: {}",
-                        //        numRows, i, types[i].getName(), types[i].getType().name(),
-                        //        fieldInspectors[i].getTypeName());
                         columnValue.setField(types[i], fieldInspectors[i]);
                         appendData(i, columnValue);
                     }
@@ -211,9 +208,15 @@ public class HadoopHudiJniScanner extends JniScanner {
                         .boxed()
                         .collect(Collectors.toMap(i -> splitHudiColumnNames[i], i -> hudiColumnTypes[i]));
 
-        requiredTypes = Arrays.stream(requiredFields)
-                .map(field -> ColumnType.parseType(field, hudiColNameToType.get(field)))
-                .toArray(ColumnType[]::new);
+        requiredTypes = new ColumnType[requiredFields.length];
+        for (int i = 0; i < requiredFields.length; i++) {
+            String requiredField = requiredFields[i];
+            if (!hudiColNameToType.containsKey(requiredField)) {
+                throw new IllegalArgumentException(
+                        "Required field " + requiredField + " not found in Hudi column names: " + splitHudiColumnNames);
+            }
+            requiredTypes[i] = ColumnType.parseType(requiredField, hudiColNameToType.get(requiredField));
+        }
 
         requiredColumnIds = Arrays.stream(requiredFields)
                 .mapToInt(hudiColNameToIdx::get)
