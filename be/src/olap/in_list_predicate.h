@@ -320,7 +320,7 @@ public:
                                 sizeof(decimal12_t))) {
                         return true;
                     }
-                } else if constexpr (Type == PrimitiveType::TYPE_DATE) { 
+                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
                     const T* value = (const T*)(iter->get_value());
                     int64_t date_value(value->to_olap_date());
                     if (bf->test_bytes(
