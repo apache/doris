@@ -149,6 +149,10 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
         if (h->_reader->size() == 0) {
             // may be an empty file
             LOG(INFO) << "Opened inverted index file is empty, file is " << path;
+            // need to return false to avoid the error of CLucene
+            error.set(CL_ERR_EmptyIndexSegment,
+                      fmt::format("File is empty, file is {}", path).data());
+            return false;
         }
         //Store the file length
         h->_length = h->_reader->size();

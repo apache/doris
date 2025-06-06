@@ -67,6 +67,9 @@ Status InvertedIndexFileReader::_init_from(int32_t read_buffer_size, const io::I
             if (err.number() == CL_ERR_FileNotFound) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                         "inverted index file {} is not found.", index_file_full_path);
+            } else if (err.number() == CL_ERR_EmptyIndexSegment) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                        "inverted index file {} is empty.", index_file_full_path);
             }
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occur when open idx file {}, error msg: {}", index_file_full_path,
