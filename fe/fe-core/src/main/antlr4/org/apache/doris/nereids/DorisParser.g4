@@ -77,7 +77,6 @@ unsupportedStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
-    | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
     | unsupportedOtherStatement
@@ -552,6 +551,7 @@ supportedRefreshStatement
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
     | REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     | REFRESH DICTIONARY name=multipartIdentifier                                   #refreshDictionary
+    | REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
 supportedCleanStatement
@@ -560,10 +560,6 @@ supportedCleanStatement
     | CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
-    ;
-
-unsupportedRefreshStatement
-    : REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
 supportedCancelStatement
