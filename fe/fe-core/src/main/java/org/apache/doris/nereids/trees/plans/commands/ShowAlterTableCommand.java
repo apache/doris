@@ -267,7 +267,7 @@ public class ShowAlterTableCommand extends ShowCommand {
         }
 
         for (String title : titleNames) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(128)));
         }
 
         return builder.build();
