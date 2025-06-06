@@ -162,6 +162,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getDatabaseTypeName() {
+        makeSureInitialized();
         return jdbcClient.getDbType();
     }
 
@@ -227,7 +228,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         jdbcClient = createJdbcClient();
-        this.functionRules = ExternalFunctionRules.create(getDatabaseTypeName(),
+        this.functionRules = ExternalFunctionRules.create(jdbcClient.getDbType(),
                 catalogProperty.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
