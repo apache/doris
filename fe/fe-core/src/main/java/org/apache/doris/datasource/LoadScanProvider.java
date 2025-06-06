@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -94,9 +93,6 @@ public class LoadScanProvider {
         params.setStrictMode(fileGroupInfo.isStrictMode());
         if (fileGroupInfo.getSequenceMapCol() != null) {
             params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
-        }
-        if (fileFormatProperties.getFormatName().equals("hive_text")) {
-            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
         }
         params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
