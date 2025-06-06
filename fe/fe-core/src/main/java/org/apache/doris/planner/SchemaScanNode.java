@@ -94,14 +94,26 @@ public class SchemaScanNode extends ScanNode {
         schemaCatalog = analyzer.getSchemaCatalog();
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
     private void setFeAddrList(TPlanNode msg) {
