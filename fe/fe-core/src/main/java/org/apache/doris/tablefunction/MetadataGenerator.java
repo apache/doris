@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MTMV;
@@ -47,6 +48,7 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -1306,6 +1308,17 @@ public class MetadataGenerator {
                 }
 
                 Map<String, String> propertiesMap = property.getProperties();
+                // make [dynamic_partition.]replication_allocation properties same as SHOW CREATE TABLE stmt
+                if (!property.getReplicaAllocation().isNotSet()) {
+                    propertiesMap.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                            property.getReplicaAllocation().toCreateStmt());
+                }
+                DynamicPartitionProperty dynamicProperty = property.getDynamicPartitionProperty();
+                if (dynamicProperty != null && dynamicProperty.isExist() && !dynamicProperty.getReplicaAllocation()
+                        .isNotSet()) {
+                    propertiesMap.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
+                            dynamicProperty.getReplicaAllocation().toCreateStmt());
+                }
                 propertiesMap.forEach((key, value) -> {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
