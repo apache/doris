@@ -73,7 +73,12 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
             // `select 1` will not need backend
             return ImmutableMap.of(-1L, DUMMY_BACKEND);
         } else if (!Config.isCloudMode()) {
-            return Env.getCurrentEnv().getClusterInfo().getBackendsByCurrentCluster();
+            List<Backend> beList = context.getComputeGroup().getBackendList();
+            Map<Long, Backend> idToBeMap = Maps.newHashMap();
+            for (Backend be : beList) {
+                idToBeMap.put(be.getId(), be);
+            }
+            return ImmutableMap.copyOf(idToBeMap);
         }
 
         // if is load, the ConnectContext.get() would be null, then we can skip check cluster
