@@ -132,6 +132,10 @@ public class Memo {
         return refreshVersion.get();
     }
 
+    public long incrementAndGetRefreshVersion() {
+        return refreshVersion.incrementAndGet();
+    }
+
     /**
      * Record materialization check result for performance
      */
@@ -181,7 +185,7 @@ public class Memo {
      */
 
     public Pair<Integer, Integer> countGroupJoin(Group group) {
-        GroupExpression logicalExpr = group.getLogicalExpression();
+        GroupExpression logicalExpr = group.getFirstLogicalExpression();
         List<Pair<Integer, Integer>> children = new ArrayList<>();
         for (Group child : logicalExpr.children()) {
             children.add(countGroupJoin(child));
@@ -196,7 +200,7 @@ public class Memo {
         for (Pair<Integer, Integer> child : children) {
             maxJoinCount = Math.max(maxJoinCount, child.second);
         }
-        if (group.getLogicalExpression().getPlan() instanceof LogicalJoin) {
+        if (group.getFirstLogicalExpression().getPlan() instanceof LogicalJoin) {
             for (Pair<Integer, Integer> child : children) {
                 continuousJoinCount += child.first;
             }
@@ -299,7 +303,7 @@ public class Memo {
      * @return plan
      */
     public Plan copyOut(Group group, boolean includeGroupExpression) {
-        GroupExpression logicalExpression = group.getLogicalExpression();
+        GroupExpression logicalExpression = group.getFirstLogicalExpression();
         return copyOut(logicalExpression, includeGroupExpression);
     }
 
@@ -438,7 +442,7 @@ public class Memo {
                 && plan instanceof LogicalCatalogRelation
                 && ((CatalogRelation) plan).getTable() instanceof MTMV
                 && !plan.getGroupExpression().isPresent()) {
-            refreshVersion.incrementAndGet();
+            incrementAndGetRefreshVersion();
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
         if (groupExpr.isPresent()) {
