@@ -1242,6 +1242,11 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("true"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(1)},
             {{STRING("false"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(0)},
             {{STRING("100"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(1)}, //int8
+            {{STRING(R"("true")"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(1)},
+            {{STRING(R"("false")"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(0)},
+            {{STRING(R"("1")"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(1)},
+            {{STRING(R"("0")"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, BOOLEAN(0)},
+            {{STRING(R"("abc")"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)}, Null()},
             {{STRING("10000"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
              BOOLEAN(1)}, // int16
             {{STRING("1000000000"), static_cast<uint8_t>(PrimitiveType::TYPE_BOOLEAN)},
@@ -1281,6 +1286,10 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("null"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, Null()},
             {{STRING("true"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(1)},
             {{STRING("false"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(0)},
+            {{STRING(R"("123")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, TINYINT(123)},
+            {{STRING(R"("-123")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
+             TINYINT(-123)},
+            {{STRING(R"("abc")"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)}, Null()},
             {{STRING("100"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
              TINYINT(100)}, //int8
             {{STRING("10000"), static_cast<int8_t>(PrimitiveType::TYPE_TINYINT)},
@@ -1323,6 +1332,11 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("null"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, Null()},
             {{STRING("true"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, SMALLINT(1)},
             {{STRING("false"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, SMALLINT(0)},
+            {{STRING(R"("123")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             SMALLINT(123)},
+            {{STRING(R"("-123")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
+             SMALLINT(-123)},
+            {{STRING(R"("abc")"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)}, Null()},
             {{STRING("100"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
              SMALLINT(100)}, //int8
             {{STRING("10000"), static_cast<int16_t>(PrimitiveType::TYPE_SMALLINT)},
@@ -1365,6 +1379,9 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("null"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, Null()},
             {{STRING("true"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(1)},
             {{STRING("false"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(0)},
+            {{STRING(R"("abcd")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, Null()},
+            {{STRING(R"("123")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(123)},
+            {{STRING(R"("-123")"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(-123)},
             {{STRING("100"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(100)},     //int8
             {{STRING("10000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)}, INT(10000)}, // int16
             {{STRING("1000000000"), static_cast<int32_t>(PrimitiveType::TYPE_INT)},
@@ -1407,6 +1424,8 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1152921504606846976"), BIGINT(1)}, BIGINT(1152921504606846976)}, // int64
             {{STRING("6.18"), BIGINT(1)}, BIGINT(6)},                                  // double
             {{STRING(R"("abcd")"), BIGINT(1)}, Null()},                                // string
+            {{STRING(R"("123456789")"), BIGINT(1)}, BIGINT(123456789)},
+            {{STRING(R"("-123456789")"), BIGINT(1)}, BIGINT(-123456789)},
             {{STRING("{}"), BIGINT(1)}, Null()},                         // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), BIGINT(1)}, Null()}, // object
             {{STRING("[]"), BIGINT(1)}, Null()},                         // empty array
@@ -1434,6 +1453,7 @@ TEST(FunctionJsonbTEST, JsonbCastToOtherTest) {
             {{STRING("1000000000"), DOUBLE(1)}, DOUBLE(1000000000)},                   // int32
             {{STRING("1152921504606846976"), DOUBLE(1)}, DOUBLE(1152921504606846976)}, // int64
             {{STRING("6.18"), DOUBLE(1)}, DOUBLE(6.18)},                               // double
+            {{STRING(R"("123.45")"), DOUBLE(1)}, DOUBLE(123.45)},                      // double
             {{STRING(R"("abcd")"), DOUBLE(1)}, Null()},                                // string
             {{STRING("{}"), DOUBLE(1)}, Null()},                         // empty object
             {{STRING(R"({"k1":"v31", "k2": 300})"), DOUBLE(1)}, Null()}, // object
