@@ -51,7 +51,7 @@ public:
     static constexpr PrimitiveType PType = TYPE_JSONB;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "JSONB"; }
+    const std::string get_family_name() const override { return "JSONB"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_JSONB;

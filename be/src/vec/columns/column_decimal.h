@@ -95,7 +95,7 @@ private:
     ColumnDecimal(const ColumnDecimal& src) : data(src.data), scale(src.scale) {}
 
 public:
-    std::string get_name() const override { return TypeName<value_type>::get(); }
+    std::string get_name() const override { return type_to_string(T); }
 
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }

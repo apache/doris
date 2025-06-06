@@ -79,8 +79,8 @@ private:
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
-        } else if constexpr (is_complex_v<typename Impl::Type>) {
-            if (const auto* col = check_and_get_column<ColumnComplexType<typename Impl::Type>>(
+        } else if constexpr (is_complex_v<Impl::PrimitiveTypeImpl>) {
+            if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_chars(),
@@ -115,8 +115,8 @@ private:
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
-        } else if constexpr (is_complex_v<typename Impl::Type>) {
-            if (const auto* col = check_and_get_column<ColumnComplexType<typename Impl::Type>>(
+        } else if constexpr (is_complex_v<Impl::PrimitiveTypeImpl>) {
+            if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
                 RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
@@ -152,19 +152,16 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         using ResultDataType = typename Impl<LeftDataType, RightDataType>::ResultDataType;
-
-        using T0 = typename LeftDataType::FieldType;
-        using T1 = typename RightDataType::FieldType;
-        using ResultType = typename ResultDataType::FieldType;
-
-        using ColVecLeft = std::conditional_t<is_complex_v<T0>, ColumnComplexType<T0>,
+        using ColVecLeft = std::conditional_t<is_complex_v<LeftDataType::PType>,
+                                              ColumnComplexType<LeftDataType::PType>,
                                               ColumnVector<LeftDataType::PType>>;
-        using ColVecRight = std::conditional_t<is_complex_v<T1>, ColumnComplexType<T1>,
+        using ColVecRight = std::conditional_t<is_complex_v<RightDataType::PType>,
+                                               ColumnComplexType<RightDataType::PType>,
                                                ColumnVector<RightDataType::PType>>;
 
-        using ColVecResult =
-                std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
-                                   ColumnVector<ResultDataType::PType>>;
+        using ColVecResult = std::conditional_t<is_complex_v<ResultDataType::PType>,
+                                                ColumnComplexType<ResultDataType::PType>,
+                                                ColumnVector<ResultDataType::PType>>;
 
         typename ColVecResult::MutablePtr col_res = nullptr;
 
@@ -326,19 +323,16 @@ public:
 
         using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
                                              ReturnType>::ResultDataType;
-
-        using T0 = typename LeftDataType::FieldType;
-        using T1 = typename RightDataType::FieldType;
-        using ResultType = typename ResultDataType::FieldType;
-
-        using ColVecLeft = std::conditional_t<is_complex_v<T0>, ColumnComplexType<T0>,
+        using ColVecLeft = std::conditional_t<is_complex_v<LeftDataType::PType>,
+                                              ColumnComplexType<LeftDataType::PType>,
                                               ColumnVector<LeftDataType::PType>>;
-        using ColVecRight = std::conditional_t<is_complex_v<T1>, ColumnComplexType<T1>,
+        using ColVecRight = std::conditional_t<is_complex_v<RightDataType::PType>,
+                                               ColumnComplexType<RightDataType::PType>,
                                                ColumnVector<RightDataType::PType>>;
 
-        using ColVecResult =
-                std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
-                                   ColumnVector<ResultDataType::PType>>;
+        using ColVecResult = std::conditional_t<is_complex_v<ResultDataType::PType>,
+                                                ColumnComplexType<ResultDataType::PType>,
+                                                ColumnVector<ResultDataType::PType>>;
 
         typename ColVecResult::MutablePtr col_res = nullptr;
 
