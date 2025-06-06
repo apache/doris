@@ -486,13 +486,13 @@ public class OlapQueryCacheTest {
     }
 
     private View createEventNestedView() {
-        String originStmt = "select eventdate, COUNT(userid) FROM view2 WHERE "
-                + "eventdate>=\"2020-01-12\" and eventdate<=\"2020-01-14\" GROUP BY eventdate";
+        String originStmt = "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM `testDb`.`view2` "
+                + "WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`";
         View view = new View(30003L, "view4", null);
         Analyzer createViewAnalyzer = new Analyzer(env, ctx);
         createViewAnalyzer.setRootStatementClazz(CreateViewStmt.class);
         view.setInlineViewDefWithSqlMode(
-                parseSql(originStmt, createViewAnalyzer, true).toSql(), 0L);
+                originStmt, 0L);
         view.setNewFullSchema(Lists.newArrayList(
                 new Column("eventdate", ScalarType.DATE),
                 new Column("_count_2", ScalarType.BIGINT)
@@ -681,26 +681,6 @@ public class OlapQueryCacheTest {
     }
 
     @Test
-    public void testSqlCacheKeyWithView() {
-        StatementBase parseStmt = parseSql("SELECT * from testDb.view1");
-        ArrayList<Long> selectedPartitionIds
-                = Lists.newArrayList(20200112L, 20200113L, 20200114L);
-        List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
-        CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
-        ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
-
-        SqlCache sqlCache = (SqlCache) ca.getCache();
-        String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view1`.`eventdate` AS `eventdate`, "
-                + "`testDb`.`view1`.`__count_1` AS `__count_1` FROM `testDb`.`view1`|"
-                + "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM "
-                + "`testDb`.`appevent` WHERE ((`eventdate` >= '2020-01-12') AND "
-                + "(`eventdate` <= '2020-01-14')) GROUP BY `eventdate`");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
-    }
-
-    @Test
     public void testSqlCacheKeyWithViewForNereids() {
         StatementBase parseStmt = parseSqlByNereids("SELECT * from testDb.view1");
         ArrayList<Long> selectedPartitionIds
@@ -717,34 +697,6 @@ public class OlapQueryCacheTest {
                 + "WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`");
         Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
-
-    @Test
-    public void testSqlCacheKeyWithSubSelectView() {
-        StatementBase parseStmt = parseSql(
-                "select origin.eventdate as eventdate, origin.userid as userid\n"
-                        + "from (\n"
-                        + "    select view2.eventdate as eventdate, view2.userid as userid \n"
-                        + "    from testDb.view2 view2 \n"
-                        + "    where view2.eventdate >=\"2020-01-12\" and view2.eventdate <= \"2020-01-14\"\n"
-                        + ") origin"
-        );
-        ArrayList<Long> selectedPartitionIds
-                = Lists.newArrayList(20200112L, 20200113L, 20200114L);
-        List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
-        CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
-        ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
-
-        SqlCache sqlCache = (SqlCache) ca.getCache();
-        String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `origin`.`eventdate` AS `eventdate`, "
-                + "`origin`.`userid` AS `userid` FROM (SELECT `view2`.`eventdate` `eventdate`, "
-                + "`view2`.`userid` `userid` FROM `testDb`.`view2` view2 "
-                + "WHERE ((`view2`.`eventdate` >= '2020-01-12') AND (`view2`.`eventdate` <= '2020-01-14'))) origin|"
-                + "SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
-    }
-
 
     @Test
     public void testSqlCacheKeyWithSubSelectViewForNereids() {
@@ -771,26 +723,6 @@ public class OlapQueryCacheTest {
                 + "    from testDb.view2 view2 \n"
                 + "    where view2.eventdate >=\"2020-01-12\" and view2.eventdate <= \"2020-01-14\"\n"
                 + ") origin|SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`");
-        Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
-    }
-
-    @Test
-    public void testSqlCacheKeyWithNestedView() {
-        StatementBase parseStmt = parseSql("SELECT * from testDb.view4");
-        ArrayList<Long> selectedPartitionIds
-                = Lists.newArrayList(20200112L, 20200113L, 20200114L);
-        List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
-        CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
-        ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
-        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
-
-        SqlCache sqlCache = (SqlCache) ca.getCache();
-        String cacheKey = sqlCache.getSqlWithViewStmt();
-        Assert.assertEquals(cacheKey, "SELECT `testDb`.`view4`.`eventdate` AS `eventdate`, "
-                + "`testDb`.`view4`.`__count_1` AS `__count_1` FROM `testDb`.`view4`|"
-                + "SELECT `eventdate` AS `eventdate`, count(`userid`) AS `__count_1` FROM `testDb`.`view2` "
-                + "WHERE ((`eventdate` >= '2020-01-12') AND (`eventdate` <= '2020-01-14')) GROUP BY `eventdate`|"
-                + "SELECT `eventdate` AS `eventdate`, `userid` AS `userid` FROM `testDb`.`appevent`");
         Assert.assertEquals(selectedPartitionIds.size(), sqlCache.getSumOfPartitionNum());
     }
 
