@@ -757,7 +757,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
                                     return fmt::to_string(error_msg);
                                 }));
                         } else if (!slot_desc->is_nullable()) {
-                            raise(SIGABRT);
+                            CHECK(false);
                             filter_map[i] = false;
                             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                                 [&]() -> std::string {
