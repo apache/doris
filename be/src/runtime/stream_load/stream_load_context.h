@@ -105,6 +105,8 @@ public:
         }
     }
 
+    std::string data_saved_path;
+
     std::string to_json() const;
 
     std::string prepare_stream_load_record(const std::string& stream_load_record);
