@@ -17,30 +17,22 @@
 
 package org.apache.doris.httpv2.util;
 
-import org.apache.doris.analysis.CopyStmt;
-import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.ExportStmt;
-import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.httpv2.util.streamresponse.JsonStreamResponse;
 import org.apache.doris.httpv2.util.streamresponse.StreamResponseInf;
-import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.hdfs.server.diskbalancer.command.QueryCommand;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.StringReader;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -106,7 +98,7 @@ public class StatementSubmitter {
 
         @Override
         public ExecutionResultSet call() throws Exception {
-            StatementBase stmtBase = analyzeStmt(queryCtx.stmt);
+            LogicalPlan stmtBase = analyzeStmt(queryCtx.stmt);
 
             Connection conn = null;
             Statement stmt = null;
@@ -115,7 +107,7 @@ public class StatementSubmitter {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
-                if (stmtBase instanceof QueryStmt || stmtBase instanceof ShowStmt || stmtBase instanceof CopyStmt) {
+                if (stmtBase instanceof QueryCommand || stmtBase instanceof ShowCommand || stmtBase instanceof CopyIntoCommand) {
                     if (!queryCtx.clusterName.isEmpty()) {
                         Statement useStmt = conn.createStatement();
                         useStmt.execute("use @" + queryCtx.clusterName);
@@ -131,10 +123,10 @@ public class StatementSubmitter {
                         rs.close();
                         return new ExecutionResultSet(null);
                     }
-                    ExecutionResultSet resultSet = generateResultSet(rs, startTime, stmtBase instanceof CopyStmt);
+                    ExecutionResultSet resultSet = generateResultSet(rs, startTime, stmtBase instanceof CopyIntoCommand);
                     rs.close();
                     return resultSet;
-                } else if (stmtBase instanceof DdlStmt || stmtBase instanceof ExportStmt) {
+                } else {
                     stmt = conn.createStatement();
                     stmt.execute(queryCtx.stmt);
                     if (queryCtx.isStream) {
@@ -143,8 +135,6 @@ public class StatementSubmitter {
                         return new ExecutionResultSet(null);
                     }
                     return generateExecStatus(startTime);
-                } else {
-                    throw new Exception("Unsupported statement type");
                 }
             } finally {
                 try {
@@ -250,20 +240,9 @@ public class StatementSubmitter {
         }
     }
 
-    public static StatementBase analyzeStmt(String stmtStr) throws Exception {
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmtStr)));
-        try (AutoCloseConnectContext a = StatisticsUtil.buildConnectContext(false)) {
-            return SqlParserUtils.getFirstStmt(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(stmtStr);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        } catch (Exception e) {
-            throw new Exception("error happens when parsing stmt: " + e.getMessage());
-        }
+    public static LogicalPlan analyzeStmt(String stmtStr) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        return nereidsParser.parseSingle(stmtStr);
     }
 
     public static class StmtContext {

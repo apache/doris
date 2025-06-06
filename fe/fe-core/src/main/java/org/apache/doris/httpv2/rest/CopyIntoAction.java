@@ -17,8 +17,6 @@
 
 package org.apache.doris.httpv2.rest;
 
-import org.apache.doris.analysis.CopyStmt;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
@@ -37,6 +35,8 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -234,8 +234,8 @@ public class CopyIntoAction extends RestBaseController {
             }
 
             String clusterName = (String) jsonObject.getOrDefault("cluster", "");
-            StatementBase copyIntoStmt = StatementSubmitter.analyzeStmt(copyIntoSql);
-            if (!(copyIntoStmt instanceof CopyStmt)) {
+            LogicalPlan logicalPlan = StatementSubmitter.analyzeStmt(copyIntoSql);
+            if (!(logicalPlan instanceof CopyIntoCommand)) {
                 return ResponseEntityBuilder.badRequest("just support copy into sql: " + copyIntoSql);
             }
 
