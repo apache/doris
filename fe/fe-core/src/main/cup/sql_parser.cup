@@ -4708,26 +4708,6 @@ show_param ::=
     {:
         RESULT = new ShowCatalogRecycleBinStmt(parser.where);
     :}
-     | KW_QUERY KW_STATS
-    {:
-        RESULT = new ShowQueryStatsStmt();
-    :}
-    | KW_QUERY KW_STATS KW_FOR ident:dbName
-    {:
-        RESULT = new ShowQueryStatsStmt(dbName);
-    :}
-    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName
-    {:
-        RESULT = new ShowQueryStatsStmt(dbTblName, false, false);
-    :}
-    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL
-    {:
-        RESULT = new ShowQueryStatsStmt(dbTblName, true, false);
-    :}
-    | KW_QUERY KW_STATS KW_FROM table_name:dbTblName KW_ALL KW_VERBOSE
-    {:
-        RESULT = new ShowQueryStatsStmt(dbTblName, true, true);
-    :}
     /* show build index job */
     | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
