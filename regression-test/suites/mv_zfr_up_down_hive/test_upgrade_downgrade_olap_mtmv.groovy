@@ -153,7 +153,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     // success
     sql """switch internal;"""
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
-    def test_sql5 = """SELECT a.* FROM ${tableName5} a inner join ${tableName8} b on a.user_id=b.user_id"""
+    def test_sql5 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id"""
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
@@ -215,7 +215,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     // mtmv3: insert data
     sql """insert into ${ctlName}.${dbName}.${tableName3} values(1,"2017-01-15",1);"""
     def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-    def test_sql3 = """SELECT a.* FROM ${tableName3} a inner join ${tableName10} b on a.user_id=b.user_id"""
+    def test_sql3 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"""
 
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv3[0][0] == "NORMAL")
@@ -278,9 +278,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
 
     // mtmv1: drop table of primary table
-    sql """drop table if exists ${tableName1}"""
+    sql """drop table if exists ${ctlName}.${dbName}.${tableName1}"""
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
-    def test_sql1 = """SELECT * FROM ${tableName10}"""
+    def test_sql1 = """SELECT * FROM ${ctlName}.${dbName}.${tableName10}"""
 
     assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv1[0][2] == false)
@@ -316,7 +316,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT user_id, age FROM ${tableName10};
+            SELECT user_id, age FROM ${ctlName}.${dbName}.${tableName10};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
 
@@ -332,10 +332,10 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
 
     // mtmv2: drop partition
-    def parts_res = sql """show partitions from ${tableName2}"""
-    sql """ALTER TABLE ${tableName2} DROP PARTITION ${parts_res[0][1]};"""
+    def parts_res = sql """show partitions from ${ctlName}.${dbName}.${tableName2}"""
+    sql """ALTER TABLE ${ctlName}.${dbName}.${tableName2} DROP PARTITION ${parts_res[0][1]};"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-    def sql2 = "SELECT a.* FROM ${tableName2} a inner join ${tableName10} b on a.user_id=b.user_id"
+    def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
 
     if (step == 1 || step == 2 || step == 3) {
 
@@ -594,9 +594,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
 
     // mtmv6: drop table of dependent table
-    sql """drop table if exists ${tableName7}"""
+    sql """drop table if exists ${ctlName}.${dbName}.${tableName7}"""
     def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
-    def test_sql6 = """SELECT * FROM ${tableName6}"""
+    def test_sql6 = """SELECT * FROM ${ctlName}.${dbName}.${tableName6}"""
     assertTrue(state_mtmv6[0][0] == "SCHEMA_CHANGE")
     assertTrue(state_mtmv6[0][2] == false)
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
@@ -630,7 +630,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT user_id, date, num FROM ${tableName6};
+            SELECT user_id, date, num FROM ${ctlName}.${dbName}.${tableName6};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
 //    if (2.1.5) {
