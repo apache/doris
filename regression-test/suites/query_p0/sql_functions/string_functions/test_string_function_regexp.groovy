@@ -49,6 +49,75 @@ suite("test_string_function_regexp") {
     qt_sql "SELECT k FROM ${tbName} WHERE not regexp(k, 'ok\$') ORDER BY k;"
 
 
+    // ===== 新增对 regexp_position 的测试 =====
+
+    // —— 基础两参数场景 —— 
+    qt_sql "SELECT regexp_position('abc123def', '\\\\d+');"         // 匹配 "123"，期望返回 4
+    qt_sql "SELECT regexp_position('no_digits_here', '\\\\d+');"    // 无数字串，期望 -1
+    qt_sql "SELECT regexp_position('', '\\\\d+');"                  // 空字符串，期望 -1
+    qt_sql "SELECT regexp_position(NULL, '\\\\d+');"                // NULL 输入，期望 -1
+    qt_sql "SELECT regexp_position('2025-06-03', '\\\\d+');"        // 匹配 "2025"，期望返回 1
+
+    // —— 三参数场景 (str, pattern, start) —— 
+    qt_sql "SELECT regexp_position('abc123def', '\\\\d+', '1');"      // 从第1位开始匹配，匹配 "123"，期望 4
+    qt_sql "SELECT regexp_position('abc123def', '\\\\d+', '4');"      // 从第4位开始匹配，"1" 仍在第4位，期望 4
+    qt_sql "SELECT regexp_position('abc123def', '\\\\d+', '5');"      // 从第5位开始匹配，匹配 "23"，期望 5
+    qt_sql "SELECT regexp_position('abc123def', '\\\\d+', '0');"      // start<1 非法，直接期望 -1
+    qt_sql "SELECT regexp_position('abc123def', '\\\\d+', 'xyz');"    // start 不是数字，期望 -1
+
+    // —— 特殊边界情况 —— 
+    // 1. 数字串在开头
+    qt_sql "SELECT regexp_position('12345', '\\\\d+', '1');"          // "12345" 从第1位匹配，期望 1
+    // 2. 整串无匹配
+    qt_sql "SELECT regexp_position('abc', '\\\\d+', '1');"            // 无数字串，期望 -1
+    // 3. start 超过字符串长度
+    qt_sql "SELECT regexp_position('abc123', '\\\\d+', '100');"       // start 超界，期望 -1
+    // 4. 空串依然返回 -1
+    qt_sql "SELECT regexp_position('', '\\\\d+', '1');"               // 空串，期望 -1
+    // 5. Unicode + 数字混合（验证非 ASCII 数字不被 \\d 匹配）
+    qt_sql "SELECT regexp_position('中文123', '\\\\d+', '1');"         // "中"(1) "文"(2) "1"(3) 匹配，期望 3
+    // 6. 匹配纯文本（非数字）场景
+    qt_sql "SELECT regexp_position('HELLO World', 'World', '7');"      // "World" 从第7位开始，期望 7
+    // 7. 大小写敏感性
+    qt_sql "SELECT regexp_position('HELLO World', 'world', '1');"      // 小写 "world" 不匹配，期望 -1
+    // 8. 单字符数字匹配
+    qt_sql "SELECT regexp_position('a1b2c3', '\\\\d', '3');"           // 从第3位 'b' 开始，后续数字 "2" 在第4位，期望 4
+
+    // 9. 按单词边界匹配整数字（使用 \\b），并指定 start
+    qt_sql "SELECT regexp_position('I have 23 apples, 5 pears and 13 oranges', '\\\\b\\\\d+\\\\b', '5');"
+    //                                                      ^                  ^        ...期望第一个完整数字 "23" 在第8位，返回 8
+    qt_sql "SELECT regexp_position('I have 23 apples, 5 pears and 13 oranges', '\\\\b\\\\d+\\\\b', '12');"
+    //                                                      ^                   ^         ...从第12位开始匹配，匹配 "5" 在第19位，返回 19
+
+    // —— 含表测试：批量验证多行 —— 
+    def tbPos = "test_regexp_position_tbl"
+    sql "DROP TABLE IF EXISTS ${tbPos};"
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tbPos} (
+            id INT,
+            txt VARCHAR(50)
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1");
+    """
+    sql "INSERT INTO ${tbPos} VALUES (1, 'abc123'), (2, 'foo42bar'), (3, 'no_digits'), (4, ''), (5, NULL);"
+
+    // 3.1 两参数场景：输出 (id, pos2)
+    qt_sql "SELECT id, regexp_position(txt, '\\\\d+') AS pos2 FROM ${tbPos} ORDER BY id;"
+
+    // 3.2 三参数场景：输出 (id, p1, p3, p100)
+    qt_sql """
+        SELECT 
+            id,
+            regexp_position(txt, '\\\\d+', '1')  AS p1,
+            regexp_position(txt, '\\\\d+', '3')  AS p3,
+            regexp_position(txt, '\\\\d+', '100') AS p100
+        FROM ${tbPos}
+        ORDER BY id;
+    """
+
+    sql "DROP TABLE IF EXISTS ${tbPos};"
+    // ===== 新增结束 =====
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);"
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);"
     qt_sql "SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 3);"
