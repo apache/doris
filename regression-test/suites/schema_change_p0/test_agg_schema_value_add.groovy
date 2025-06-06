@@ -553,7 +553,7 @@ suite("test_agg_schema_value_add", "p0") {
 
 
     //Test the AGGREGATE model by adding a value column with STRING
-    errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[comment]."
+    errorMessage = "errCode = 2, detailMessage = String Type should not be used in key column[comment]"
     expectException({
         sql initTable
         sql initTableData
@@ -611,7 +611,7 @@ suite("test_agg_schema_value_add", "p0") {
 
 
     //Test the AGGREGATE model by adding a value column with JSON
-    errorMessage = "errCode = 2, detailMessage = JSONB or VARIANT type should not be used in key column[j]."
+    errorMessage = "errCode = 2, detailMessage = JsonType type should not be used in key column[j]."
     expectException({
         sql initTable
         sql initTableData

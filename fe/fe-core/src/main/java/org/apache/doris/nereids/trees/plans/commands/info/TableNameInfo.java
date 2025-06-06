@@ -193,4 +193,19 @@ public class TableNameInfo implements Writable {
     public int hashCode() {
         return Objects.hash(tbl, db, ctl);
     }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder stringBuilder = new StringBuilder();
+        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            stringBuilder.append("`").append(ctl).append("`.");
+        }
+        if (db != null) {
+            stringBuilder.append("`").append(db).append("`.");
+        }
+        stringBuilder.append("`").append(tbl).append("`");
+        return stringBuilder.toString();
+    }
 }
