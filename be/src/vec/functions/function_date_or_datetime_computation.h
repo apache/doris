@@ -1217,7 +1217,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>();
+        return std::make_shared<DataTypeTimeV2>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
