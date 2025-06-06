@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "util/jni_metrics.h"
 #include "util/jvm_metrics.h"
 #include "util/metrics.h"
 #include "util/system_metrics.h"
@@ -270,7 +271,9 @@ public:
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
     JvmMetrics* jvm_metrics() { return _jvm_metrics.get(); }
+    JniMetrics* jni_metrics() { return _jni_metrics.get(); }
     void init_jvm_metrics(JNIEnv* env);
+    void init_jni_metrics();
 
 private:
     // Don't allow constructor
@@ -288,6 +291,7 @@ private:
 
     std::unique_ptr<SystemMetrics> _system_metrics;
     std::unique_ptr<JvmMetrics> _jvm_metrics;
+    std::unique_ptr<JniMetrics> _jni_metrics;
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
 };
