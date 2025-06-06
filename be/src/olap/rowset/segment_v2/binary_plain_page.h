@@ -216,6 +216,12 @@ public:
     }
 
     Status seek_to_position_in_page(size_t pos) override {
+        if (PREDICT_FALSE(_num_elems == 0)) {
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elems);
+            }
+        }
         DCHECK_LE(pos, _num_elems);
         _cur_idx = pos;
         return Status::OK();
