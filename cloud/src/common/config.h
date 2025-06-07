@@ -307,7 +307,17 @@ CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-CONF_Int32(aws_log_level, "2");
+CONF_Int32(aws_log_level, "3");
+CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+CONF_Int32(azure_log_level, "3");
+CONF_Validator(azure_log_level,
+               [](const int config) -> bool { return config >= 1 && config <= 4; });
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
