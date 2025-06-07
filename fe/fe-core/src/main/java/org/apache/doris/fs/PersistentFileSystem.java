@@ -23,7 +23,6 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import lombok.Getter;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -40,8 +39,7 @@ public abstract class PersistentFileSystem implements FileSystem {
     public String name;
     public StorageBackend.StorageType type;
 
-    @Getter
-    protected StorageProperties storageProperties;
+    public abstract StorageProperties getStorageProperties();
 
     public PersistentFileSystem(String name, StorageBackend.StorageType type) {
         this.name = name;

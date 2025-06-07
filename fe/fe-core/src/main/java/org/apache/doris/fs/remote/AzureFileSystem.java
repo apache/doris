@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
 import org.apache.hadoop.fs.FileSystem;
@@ -29,10 +30,12 @@ import java.util.List;
 
 public class AzureFileSystem extends ObjFileSystem {
 
+    private final AzureProperties azureProperties;
+
     public AzureFileSystem(AzureProperties azureProperties) {
-        super(StorageType.AZURE.name(), StorageType.S3, new AzureObjStorage(azureProperties));
-        this.storageProperties = azureProperties;
-        this.properties.putAll(storageProperties.getOrigProps());
+        super(StorageType.AZURE.name(), StorageType.AZURE, new AzureObjStorage(azureProperties));
+        this.azureProperties = azureProperties;
+        this.properties.putAll(azureProperties.getOrigProps());
     }
 
     @Override
@@ -44,5 +47,10 @@ public class AzureFileSystem extends ObjFileSystem {
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         return azureObjStorage.globList(remotePath, result, fileNameOnly);
+    }
+
+    @Override
+    public StorageProperties getStorageProperties() {
+        return azureProperties;
     }
 }

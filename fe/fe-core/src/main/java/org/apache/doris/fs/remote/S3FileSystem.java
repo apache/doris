@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -39,7 +40,7 @@ public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
     private HadoopAuthenticator authenticator = null;
-    private AbstractS3CompatibleProperties s3Properties;
+    private final AbstractS3CompatibleProperties s3Properties;
 
 
     public S3FileSystem(AbstractS3CompatibleProperties s3Properties) {
@@ -47,19 +48,16 @@ public class S3FileSystem extends ObjFileSystem {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3,
                 new S3ObjStorage(s3Properties));
         this.s3Properties = s3Properties;
-        this.storageProperties = s3Properties;
         initFsProperties();
-
     }
 
-    @VisibleForTesting
-    public S3FileSystem(S3ObjStorage storage) {
-        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, storage);
-        initFsProperties();
+    @Override
+    public StorageProperties getStorageProperties() {
+        return s3Properties;
     }
 
     private void initFsProperties() {
-        this.properties.putAll(storageProperties.getOrigProps());
+        this.properties.putAll(s3Properties.getOrigProps());
     }
 
 

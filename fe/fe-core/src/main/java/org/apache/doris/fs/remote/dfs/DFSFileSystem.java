@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -62,13 +63,17 @@ public class DFSFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
     private HadoopAuthenticator authenticator = null;
-    private HdfsCompatibleProperties hdfsProperties;
+    private final HdfsCompatibleProperties hdfsProperties;
 
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
         super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
         this.properties.putAll(hdfsProperties.getOrigProps());
-        this.storageProperties = hdfsProperties;
         this.hdfsProperties = hdfsProperties;
+    }
+
+    @Override
+    public StorageProperties getStorageProperties() {
+        return hdfsProperties;
     }
 
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties, StorageBackend.StorageType storageType) {
@@ -90,9 +95,6 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 if (dfsFileSystem == null) {
                     Configuration conf = hdfsProperties.getHadoopConfiguration();
-                    // TODO: Temporarily disable the HDFS file system cache to prevent instances from being closed by
-                    //  each other in V1. This line can be removed once V1 and V2 are unified.
-                    conf.set("fs.hdfs.impl.disable.cache", "true");
                     authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
