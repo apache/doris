@@ -118,7 +118,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     auto* local_state = _helper.runtime_state->get_local_state(source_operator->operator_id());
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(local_state->custom_profile());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -196,7 +196,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(local_state->custom_profile());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -219,7 +219,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), local_state->profile());
+                std::numeric_limits<int32_t>::max(), local_state->custom_profile());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
@@ -342,7 +342,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(local_state->custom_profile());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -365,7 +365,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), local_state->profile());
+                std::numeric_limits<int32_t>::max(), local_state->custom_profile());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
@@ -492,7 +492,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
             _helper.runtime_state->get_local_state(source_operator->operator_id()));
     ASSERT_TRUE(local_state != nullptr);
 
-    shared_state->setup_shared_profile(local_state->profile());
+    shared_state->setup_shared_profile(local_state->custom_profile());
 
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
@@ -515,7 +515,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
                 sink_operator->node_id(), std::numeric_limits<int32_t>::max(),
-                std::numeric_limits<int32_t>::max(), local_state->profile());
+                std::numeric_limits<int32_t>::max(), local_state->custom_profile());
         ASSERT_TRUE(st.ok()) << "register_spill_stream failed: " << st.to_string();
 
         std::vector<int32_t> data;
