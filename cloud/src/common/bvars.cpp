@@ -17,6 +17,10 @@
 
 #include "common/bvars.h"
 
+#include <bvar/multi_dimension.h>
+#include <bvar/reducer.h>
+#include <bvar/status.h>
+
 #include <cstdint>
 #include <stdexcept>
 
@@ -98,6 +102,16 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycle
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
+
+// recycler's mbvars
+mBvarIntAdder g_bvar_recycler_vault_recycle_status("recycler_vault_recycle_status", {"instance_id", "resource_id", "status"});
+mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency("recycler_vault_recycle_task_concurrency", {"instance_id", "resource_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_num("recycler_instance_recycle_num", {"instance_id", "object_type"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_bytes("recycler_instance_recycle_bytes", {"instance_id", "object_type"});
+mBvarDoubleStatus g_bvar_recycler_instance_recycle_cost("recycler_instance_recycle_cost", {"instance_id", "object_type"});
+mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_round", {"instance_id", "object_type"});
+mBvarLatencyRecorder g_bvar_recycler_instance_recycle("recycler_instance_recycle", {"instance_id", "object_type"});
+mBvarLatencyRecorder g_bvar_recycler_vault_recycle("recycler_vault_recycle", {"instance_id", "resource_id"});
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
