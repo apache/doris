@@ -127,7 +127,7 @@ public:
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                int64_t idle_timeout_ms, bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile, bool auto_partition_one_step_close);
 
 // for mock this class in UT
 #ifdef BE_TEST
@@ -266,6 +266,7 @@ protected:
     std::unordered_map<int64_t, Status> _failed_tablets;
 
     bool _is_incremental = false;
+    bool _auto_partition_one_step_close = false;
 };
 
 // a collection of LoadStreams connect to the same node
@@ -285,7 +286,7 @@ public:
     Status open(BrpcClientCache<PBackendService_Stub>* client_cache, const NodeInfo& node_info,
                 int64_t txn_id, const OlapTableSchemaParam& schema,
                 const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                int64_t idle_timeout_ms, bool enable_profile);
+                int64_t idle_timeout_ms, bool enable_profile, bool auto_partition_one_step_close);
 
     bool is_incremental() const { return _is_incremental; }
 
