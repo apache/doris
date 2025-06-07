@@ -187,6 +187,7 @@ public class JdbcExternalTable extends ExternalTable {
             remoteColumnNames.put(column.getName(), remoteColumnName);
         }
         jdbcTable.setRemoteColumnNames(remoteColumnNames);
+        jdbcTable.setExternalFunctionRules(jdbcCatalog.getFunctionRules());
 
         return jdbcTable;
     }
