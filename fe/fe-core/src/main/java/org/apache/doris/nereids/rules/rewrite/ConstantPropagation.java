@@ -369,6 +369,7 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         if (!equalAndConstantOptions.isPresent()) {
             return BooleanLiteral.FALSE;
         }
+        Set<Slot> inputSlots = expression.getInputSlots();
         ImmutableEqualSet<Slot> newEqualSet = equalAndConstantOptions.get().first;
         Map<Slot, Literal> newConstants = equalAndConstantOptions.get().second;
         // myInferConstantSlots : the slots that are inferred by this expression, not inferred by parent
@@ -401,7 +402,8 @@ public class ConstantPropagation extends DefaultPlanRewriter<ExpressionRewriteCo
         }
         // if the expression infer `slot = constant`, but not contains conjunct `slot = constant`, need to add it
         for (Map.Entry<Slot, Boolean> entry : myInferConstantSlots.entrySet()) {
-            if (!entry.getValue()) {
+            // if this expression don't contain the slot, no add it, to avoid the expression size increase too long
+            if (!entry.getValue() && inputSlots.contains(entry.getKey())) {
                 Slot slot = entry.getKey();
                 EqualTo equal = new EqualTo(slot, newConstants.get(slot), true);
                 builder.add(TypeCoercionUtils.processComparisonPredicate(equal));
