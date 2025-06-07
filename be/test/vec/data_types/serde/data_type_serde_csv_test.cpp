@@ -181,32 +181,42 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
-        std::vector<FieldType_RandStr> date_scala_field_types = {
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIME, "2020-01-01 12:00:00"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
-                                  "2020-01-01 12:00:00.666666"),
+        struct DataTestField {
+            FieldType type;
+            string str;
+            string max_str;
+            string min_str;
+        };
+        std::vector<DataTestField> date_scala_field_types = {
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATE,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATE,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATEV2,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIME,
+                               .str = "2020-01-01 12:00:00",
+                               .max_str = "9999-12-31 23:59:59",
+                               .min_str = "0001-01-01 00:00:00"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+                               .str = "2020-01-01 12:00:00",
+                               .max_str = "9999-12-31 23:59:59",
+                               .min_str = "0001-01-01 00:00:00"},
         };
         for (auto pair : date_scala_field_types) {
-            auto type = pair.first;
+            auto type = pair.type;
             DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
             std::cout << "========= This type is  " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
-
-            std::unique_ptr<WrapperField> min_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
-
-            min_wf->set_to_min();
-            max_wf->set_to_max();
-            EXPECT_EQ(rand_wf->from_string(pair.second, 0, 0).ok(), true);
-
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-            string rand_date = rand_wf->to_string();
+            string min_s = pair.min_str;
+            string max_s = pair.max_str;
+            string rand_date = pair.str;
 
             Slice min_rb(min_s.data(), min_s.size());
             Slice max_rb(max_s.data(), max_s.size());
@@ -216,7 +226,6 @@ TEST(CsvSerde, ScalaDataTypeSerdeCsvTest) {
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
             // make use c++ lib equals to wrapper field from_string behavior
             DataTypeSerDe::FormatOptions formatOptions;
-            formatOptions.date_olap_format = true;
 
             Status st = serde->deserialize_one_cell_from_json(*col, min_rb, formatOptions);
             EXPECT_EQ(st.ok(), true);

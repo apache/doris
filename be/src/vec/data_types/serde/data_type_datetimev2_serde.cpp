@@ -57,18 +57,10 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
-    if (options.date_olap_format) {
-        std::string format = "%Y-%m-%d %H:%i:%s.%f";
-        char buf[30 + SAFE_FORMAT_STRING_MARGIN];
-        val.to_format_string_conservative(format.c_str(), cast_set<int>(format.size()), buf,
-                                          30 + SAFE_FORMAT_STRING_MARGIN);
-        std::string s = std::string(buf);
-        bw.write(s.c_str(), s.length());
-    } else {
-        char buf[64];
-        char* pos = val.to_string(buf);
-        bw.write(buf, pos - buf - 1);
-    }
+    char buf[64];
+    char* pos = val.to_string(buf);
+    bw.write(buf, pos - buf - 1);
+
     if (_nesting_level > 1) {
         bw.write('"');
     }
@@ -88,19 +80,8 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         slice.trim_quote();
     }
     UInt64 val = 0;
-    if (options.date_olap_format) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_value;
-        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-        if (datetimev2_value.from_date_format_str(date_format.data(),
-                                                  cast_set<int>(date_format.size()), slice.data,
-                                                  slice.size)) {
-            val = datetimev2_value.to_date_int_val();
-        } else {
-            val = MIN_DATETIME_V2;
-        }
-
-    } else if (ReadBuffer rb(slice.data, slice.size);
-               !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
+    if (ReadBuffer rb(slice.data, slice.size);
+        !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
