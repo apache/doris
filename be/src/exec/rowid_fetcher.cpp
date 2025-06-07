@@ -646,12 +646,16 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
     std::unique_ptr<vectorized::FileScanner> vfile_scanner_ptr = nullptr;
 
     {
+        if (result_block.is_empty_column()) [[likely]] {
+            result_block = vectorized::Block(slots, request_block_desc.row_id_size());
+        }
+
         auto& external_info = first_file_mapping->get_external_file_info();
         int plan_node_id = external_info.plan_node_id;
         const auto& first_scan_range_desc = external_info.scan_range_desc;
 
-        auto query_ctx = ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(query_id);
-        const auto* old_scan_params = &(query_ctx->file_scan_range_params_map[plan_node_id]);
+        DCHECK(id_file_map->get_external_scan_params().contains(plan_node_id));
+        const auto* old_scan_params = &(id_file_map->get_external_scan_params().at(plan_node_id));
         rpc_scan_params = *old_scan_params;
 
         rpc_scan_params.required_slots.clear();
@@ -679,22 +683,17 @@ Status RowIdStorageReader::read_batch_external_row(const PRequestBlockDesc& requ
             rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
         }
 
-        if (result_block.is_empty_column()) [[likely]] {
-            result_block = vectorized::Block(slots, request_block_desc.row_id_size());
-        }
-
-        const auto& query_options = query_ctx->get_query_options();
-        const auto& query_globals = query_ctx->get_query_globals();
-
+        const auto& query_options = id_file_map->get_query_options();
+        const auto& query_globals = id_file_map->get_query_globals();
         /*
          * The scan stage needs the information in query_options to generate different behaviors according to the specific variables:
          *  query_options.hive_parquet_use_column_names, query_options.truncate_char_or_varchar_columns,query_globals.time_zone ...
          *
-         * To ensure the same behavior as the scan stage, I get query_options query_globals from query_ctx, then create runtime_state
+         * To ensure the same behavior as the scan stage, I get query_options query_globals from id_file_map, then create runtime_state
          * and pass it to vfile_scanner so that the runtime_state information is the same as the scan stage and the behavior is also consistent.
          */
         runtime_state = RuntimeState::create_unique(query_id, -1, query_options, query_globals,
-                                                    ExecEnv::GetInstance(), query_ctx.get());
+                                                    ExecEnv::GetInstance());
 
         vfile_scanner_ptr = vectorized::FileScanner::create_unique(
                 runtime_state.get(), runtime_profile.get(), &rpc_scan_params, &colname_to_slot_id,
