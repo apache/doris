@@ -140,7 +140,7 @@ public class StreamLoadHandler {
             Preconditions.checkState(currentUser.size() == 1);
             ctx.setCurrentUserIdentity(currentUser.get(0));
         }
-        if (request.isSetAuthCode() && request.isSetBackendId()) {
+        if ((request.isSetToken() || request.isSetAuthCode()) && request.isSetBackendId()) {
             long backendId = request.getBackendId();
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
