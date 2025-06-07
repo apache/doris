@@ -169,7 +169,6 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
-    pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
     RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
@@ -234,7 +233,6 @@ public:
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
-    Status init_pipeline_task_scheduler();
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
@@ -378,6 +376,9 @@ private:
     Status _init_mem_env();
     Status _check_deploy_mode();
 
+    Status _create_internal_workload_group();
+    void _init_runtime_filter_timer_queue();
+
     inline static std::atomic_bool _s_ready {false};
     inline static std::atomic_bool _s_tracking_memory {false};
     std::vector<StorePath> _store_paths;
@@ -436,7 +437,6 @@ private:
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
-    pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
