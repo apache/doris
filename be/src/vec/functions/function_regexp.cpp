@@ -64,49 +64,30 @@ struct RegexpCountImpl {
                 continue;
             }
 
-            result_data[i] = _execute_inner_loop<false>(context, str, pattern, null_map, i);
-        }
-    }
-
-    static void execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
-                                        size_t input_rows_count,
-                                        ColumnInt64::Container& result_data, NullMap& null_map) {
-        const auto* pattern = check_and_get_column<ColumnString>(argument_columns[1].get());
-        const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                result_data[i] = 0;
-                continue;
-            }
-
-            result_data[i] = _execute_inner_loop<true>(context, str, pattern, null_map, i);
+            result_data[i] = _execute_inner_loop(context, str, pattern, null_map, i);
         }
     }
 
 private:
-    template <bool Const>
     static int64_t _execute_inner_loop(FunctionContext* context, const ColumnString* str,
-                                       const ColumnString* pattern, NullMap& null_map,
-                                       const size_t index_now) {
+                                      const ColumnString* pattern, NullMap& null_map,
+                                      const size_t index_now) {
         re2::RE2* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
 
-        if (str->is_null_at(index_now) ||
-            pattern->is_null_at(index_check_const(index_now, Const))) {
+        if (str->is_null_at(index_now) || pattern->is_null_at(index_now)) {
             null_map[index_now] = true;
             return 0;
         }
 
-        const auto& str = str->get_data_at(index_now);
-        const auto& pattern = pattern->get_data_at(index_check_const(index_now, Const));
+        const auto& str_data = str->get_data_at(index_now);
+        const auto& pattern_data = pattern->get_data_at(index_now);
 
         if (!re) {
             std::string error_str;
-            bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
+            bool st = StringFunctions::compile_regex(pattern_data, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
-
             if (!st) {
                 context->add_warning(error_str.c_str());
                 null_map[index_now] = true;
@@ -117,10 +98,10 @@ private:
 
         int64_t count = 0;
         size_t pos = 0;
-        re2::StringPiece str_sp(str.data, str.size);
+        re2::StringPiece str_sp(str_data.data, str_data.size);
 
-        while (pos < str.size) {
-            re2::StringPiece current(str.data + pos, str.size - pos);
+        while (pos < str_data.size) {
+            re2::StringPiece current(str_data.data + pos, str_data.size - pos);
             re2::StringPiece match;
 
             if (!re->Match(current, 0, current.size(), re2::RE2::UNANCHORED, &match, 1)) {
@@ -207,13 +188,8 @@ public:
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[1]).column;
 
-        if (col_const[1]) {
-            RegexpCountImpl::execute_impl_const_args(context, argument_columns, input_rows_count,
-                                                     result_data, result_null_map->get_data());
-        } else {
-            RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                          result_null_map->get_data());
-        }
+        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count,
+                                      result_data, result_null_map->get_data());
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
