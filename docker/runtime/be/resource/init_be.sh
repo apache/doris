@@ -19,191 +19,176 @@
 set -eo pipefail
 shopt -s nullglob
 
-DORIS_HOME="/opt/apache-doris"
+# Constant Definition
+readonly DORIS_HOME="/opt/apache-doris"
+readonly MAX_RETRY_TIMES=60
+readonly RETRY_INTERVAL=1
+readonly MYSQL_PORT=9030
+readonly BE_CONFIG_FILE="${DORIS_HOME}/be/conf/be.conf"
 
-# Obtain necessary and basic information to complete initialization
-
-# logging functions
-# usage: doris_[note|warn|error] $log_meg
-#    ie: doris_warn "task may be risky!"
-#   out: 2023-01-08T19:08:16+08:00 [Warn] [Entrypoint]: task may be risky!
-doris_log() {
-    local type="$1"
+# Log Function
+log_message() {
+    local level="$1"
     shift
-    # accept argument string or stdin
-    local text="$*"
-    if [ "$#" -eq 0 ]; then text="$(cat)"; fi
-    local dt="$(date -Iseconds)"
-    printf '%s [%s] [Entrypoint]: %s\n' "$dt" "$type" "$text"
+    local message="$*"
+    if [ "$#" -eq 0 ]; then 
+        message="$(cat)"
+    fi
+    local timestamp="$(date -Iseconds)"
+    printf '%s [%s] [Entrypoint]: %s\n' "${timestamp}" "${level}" "${message}"
 }
-doris_note() {
-    doris_log Note "$@"
+
+log_info() {
+    log_message "INFO" "$@"
 }
-doris_warn() {
-    doris_log Warn "$@" >&2
+
+log_warn() {
+    log_message "WARN" "$@" >&2
 }
-doris_error() {
-    doris_log ERROR "$@" >&2
+
+log_error() {
+    log_message "ERROR" "$@" >&2
     exit 1
 }
 
-# check to see if this file is being run or sourced from another script
-_is_sourced() {
-    [ "${#FUNCNAME[@]}" -ge 2 ] &&
-    [ "${FUNCNAME[0]}" = '_is_sourced' ] &&
+# Check whether it is a source file call
+is_sourced() {
+    [ "${#FUNCNAME[@]}" -ge 2 ] && 
+    [ "${FUNCNAME[0]}" = 'is_sourced' ] && 
     [ "${FUNCNAME[1]}" = 'source' ]
 }
 
-docker_setup_env() {
-    declare -g DATABASE_ALREADY_EXISTS
+# Initialize environment variables
+init_environment() {
+    declare -g database_exists
     if [ -d "${DORIS_HOME}/be/storage/data" ]; then
-        DATABASE_ALREADY_EXISTS='true'
+        database_exists='true'
     fi
 }
 
-add_priority_networks() {
-    doris_note "add priority_networks ${1} to ${DORIS_HOME}/be/conf/be.conf"
-    echo "priority_networks = ${1}" >>${DORIS_HOME}/be/conf/be.conf
-}
+# Check if the BE node is registered
+check_be_registered() {
+    # First, ensure that the FE node is available
+    local retry_count=0
+    while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
+        if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+            -N -e "SHOW FRONTENDS" 2>/dev/null | grep -w "${MASTER_FE_IP}" &>/dev/null; then
+            log_info "Master FE is ready"
+            break
+        fi
+        
+        retry_count=$((retry_count + 1))
+        if [ $((retry_count % 20)) -eq 1 ]; then
+            log_info "Waiting for master FE to be ready... ($retry_count/$MAX_RETRY_TIMES)"
+        fi
+        sleep "$RETRY_INTERVAL"
+    done
 
-show_be_args(){
-    doris_note "============= init args ================"
-    doris_note "MASTER_FE_IP " ${MASTER_FE_IP}
-    doris_note "CURRENT_BE_IP " ${CURRENT_BE_IP}
-    doris_note "CURRENT_BE_PORT " ${CURRENT_BE_PORT}
-    doris_note "RUN_TYPE " ${RUN_TYPE}
-}
-
-# Execute sql script, passed via stdin
-# usage: docker_process_sql sql_script
-docker_process_sql() {
-    set +e
-    if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-        mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>/dev/null
-    elif [[ $RUN_TYPE == "FQDN" ]]; then
-        mysql -uroot -P9030 -h${MASTER_NODE_NAME} --comments "$@" 2>/dev/null
+    if [ $retry_count -eq $MAX_RETRY_TIMES ]; then
+        log_error "Master FE is not ready after ${MAX_RETRY_TIMES} attempts"
     fi
+
+    # Check if BE is registered
+    local query_result
+    query_result=$(mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+        -N -e "SHOW BACKENDS" 2>/dev/null | grep -w "${CURRENT_BE_IP}" | grep -w "${CURRENT_BE_PORT}" )
+    
+    if [ -n "$query_result" ]; then
+        log_info "BE node ${CURRENT_BE_IP}:${CURRENT_BE_PORT} is already registered"
+        return 0
+    fi
+    
+    return 1
 }
 
-node_role_conf(){
+# Register BE node to FE
+register_be() {
+    # First check if the node is registered
+    if check_be_registered; then
+        return
+    fi
+
+    # Try to register BE node
+    local retry_count=0
+    while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
+        if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+            -e "ALTER SYSTEM ADD BACKEND '${CURRENT_BE_IP}:${CURRENT_BE_PORT}'" 2>/dev/null; then
+            
+            # Wait for the BE node to become registered
+            local check_count=0
+            while [ $check_count -lt 30 ]; do
+                if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+                    -N -e "SHOW BACKENDS" 2>/dev/null | grep -w "${CURRENT_BE_IP}" | grep -w "${CURRENT_BE_PORT}" &>/dev/null; then
+                    log_info "Successfully registered BE node"
+                    return 0
+                else
+                    log_warn "BE node is not ready, retrying... ($check_count/30)"
+                fi
+                check_count=$((check_count + 1))
+                sleep 1
+            done
+        fi
+        
+        retry_count=$((retry_count + 1))
+        if [ $((retry_count % 20)) -eq 1 ]; then
+            log_warn "Failed to register BE node or BE not ready, retrying... ($retry_count/$MAX_RETRY_TIMES)"
+        fi
+        sleep "$RETRY_INTERVAL"
+    done
+    
+    log_error "Failed to register BE node after ${MAX_RETRY_TIMES} attempts"
+}
+
+# Configuring Node Roles
+setup_node_role() {
     if [[ ${NODE_ROLE} == 'computation' ]]; then
-        doris_note "this node role is computation"
-        echo "be_node_role=computation" >>${DORIS_HOME}/be/conf/be.conf
+        log_info "Setting up computation node role"
+        echo "be_node_role=computation" >> "$BE_CONFIG_FILE"
     else
-        doris_note "this node role is mix"
+        log_info "Setting up mixed node role"
     fi
 }
 
-register_be_to_fe() {
-    set +e
-    # check fe status
-    local is_fe_start=false
-    if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
-        check_be_status
-        if [ -n "$BE_ALREADY_EXISTS" ]; then
-            doris_warn "Same backend already exists! No need to register again！"
-            return
-        fi
-    fi
-    for i in {1..300}; do
-        if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-            SQL="alter system add backend '${CURRENT_BE_IP}:${CURRENT_BE_PORT}';"
-            doris_note "Executing SQL: $SQL"
-            docker_process_sql <<<"$SQL"
-        elif [[ $RUN_TYPE == "FQDN" ]]; then
-            SQL="alter system add backend '${CURRENT_NODE_NAME}:${CURRENT_BE_PORT}';"
-            doris_note "Executing SQL: $SQL"
-            docker_process_sql <<<"$SQL"
-        fi
-        register_be_status=$?
-        if [[ $register_be_status == 0 ]]; then
-            doris_note "BE successfully registered to FE！"
-            is_fe_start=true
-            return
-        else
-            check_be_status
-            if [[ $IS_BE_JOIN_STATUS == "true" ]]; then
-                return
-            fi
-        fi
-        if [[ $(( $i % 20 )) == 1 ]]; then
-            doris_note "Register BE to FE is failed. retry."
-        fi
-        sleep 1
-    done
-    if ! [[ $is_fe_start ]]; then
-        doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
-    fi
+# Print BE configuration information
+show_be_config() {
+    log_info "==== BE Node Configuration ===="
+    log_info "Master FE IP: ${MASTER_FE_IP}"
+    log_info "Current BE IP: ${CURRENT_BE_IP}"
+    log_info "Current BE Port: ${CURRENT_BE_PORT}"
+    log_info "Priority Networks: ${PRIORITY_NETWORKS}"
+    log_info "Node Role: ${NODE_ROLE:-mixed}"
+    log_info "=========================="
 }
 
-check_be_status() {
-    set +e
-    declare -g IS_FE_START_STATUS IS_BE_JOIN_STATUS
-    IS_FE_START_STATUS=false
-    IS_BE_JOIN_STATUS=false
-    for i in {1..30}; do
-        if [[ $(($i % 15)) == 1 ]]; then
-            doris_warn "start check be register status~"
-        fi
-        if [[ $RUN_TYPE == "ELECTION" || $RUN_TYPE == "ASSIGN" ]]; then
-            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
-        elif [[ $RUN_TYPE == "FQDN" ]]; then
-            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_NODE_NAME}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
-        fi
-        be_join_status=$?
-        if [[ "${be_join_status}" == 0 ]]; then
-            doris_note "Verify that BE is registered to FE successfully"
-            IS_FE_START_STATUS=true
-            IS_BE_JOIN_STATUS=true
-            return
-        else
-            if [[ $(($i % 15)) == 1 ]]; then
-                doris_note "register is failed, wait next~"
-            fi
-        fi
-        sleep 1
-    done
-    if [[ ! $IS_FE_START_STATUS ]]; then
-        doris_error "Failed to register BE to FE！Tried 30 times！Maybe FE Start Failed！"
-    fi
-}
-
-add_fqdn_conf() {
-    doris_note "add 'FE hosts msg' \n${FE_HOSTS_MSG} to /etc/hosts"
-    echo -e ${FE_HOSTS_MSG} >/etc/hosts
-    doris_note "add 'BE hosts msg' \n${BE_HOSTS_MSG} to /etc/hosts"
-    echo -e ${BE_HOSTS_MSG} >>/etc/hosts
-    doris_note "add 'host_name = ${CURRENT_NODE_NAME}' to /etc/hostname"
-    echo ${CURRENT_NODE_NAME} >/etc/hostname
-}
-
+# Cleanup Function
 cleanup() {
-    doris_note "Container stopped, running stop_be script"
+    log_info "Stopping BE node"
     ${DORIS_HOME}/be/bin/stop_be.sh
 }
 
-_main() {
-    trap 'cleanup' SIGTERM SIGINT
-    docker_setup_env
-    if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
-        if [ $RUN_TYPE == "FQDN" ]; then
-            add_fqdn_conf
-        else
-            add_priority_networks $PRIORITY_NETWORKS
-        fi
-        node_role_conf
-        show_be_args
-        register_be_to_fe
+# Main Function
+main() {
+    trap cleanup SIGTERM SIGINT
+    init_environment
+    
+    # Check the storage directory
+    if [ -z "$database_exists" ]; then
+        log_info "Initializing BE configuration"
+        echo "priority_networks = ${PRIORITY_NETWORKS}" >> "$BE_CONFIG_FILE"
+        setup_node_role
+        show_be_config
+        register_be
+    else
+        log_info "Storage directory exists, skipping initialization"
     fi
-    check_be_status
-    doris_note "Ready to start BE！"
+
+    log_info "Starting BE node"
     export SKIP_CHECK_ULIMIT=true
     ${DORIS_HOME}/be/bin/start_be.sh --console &
     child_pid=$!
     wait $child_pid
-    exec "$@"
 }
 
-if ! _is_sourced; then
-    _main "$@"
+if ! is_sourced; then
+    main "$@"
 fi
