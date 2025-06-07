@@ -23,6 +23,8 @@ import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.ObjStorage;
 import org.apache.doris.fs.obj.RemoteObjects;
 import org.apache.doris.fs.obj.S3ObjStorage;
@@ -126,7 +128,8 @@ public class S3Resource extends Resource {
 
         byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
         Arrays.fill(contentData, (byte) 'A');
-        S3ObjStorage s3ObjStorage = new S3ObjStorage(newProperties);
+        S3ObjStorage s3ObjStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties
+                .createPrimary(newProperties));
 
         Status status = s3ObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {

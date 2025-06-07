@@ -37,7 +37,7 @@ import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonMetadataCache;
 import org.apache.doris.datasource.paimon.PaimonMetadataCacheMgr;
-import org.apache.doris.fsv2.FileSystemCache;
+import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;

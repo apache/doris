@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fsv2;
+package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
@@ -26,10 +26,10 @@ import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fsv2.remote.AzureFileSystem;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
-import org.apache.doris.fsv2.remote.S3FileSystem;
-import org.apache.doris.fsv2.remote.dfs.DFSFileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import java.util.Arrays;
 import java.util.function.Function;

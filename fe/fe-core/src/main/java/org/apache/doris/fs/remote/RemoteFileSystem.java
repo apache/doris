@@ -21,7 +21,6 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.fs.FileStatus;
@@ -49,12 +48,15 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
         super(name, type);
     }
 
+    /*
+     * todo In the previous design, RemoteFileSystem was modeled as an HDFS-style
+     * file system. However, this is no longer accurate — services like Azure
+     * and the refactored S3 do not follow the same semantics. We need to rethink
+     * the modeling of RemoteFileSystem. At the very least, this method should be
+     * deprecated and removed in the future, as keeping it may lead to functional inconsistencies.
+     */
     protected org.apache.hadoop.fs.FileSystem nativeFileSystem(String remotePath) throws UserException {
         throw new UserException("Not support to getFileSystem.");
-    }
-
-    public boolean ifNotSetFallbackToSimpleAuth() {
-        return properties.getOrDefault(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty();
     }
 
     @Override
@@ -138,5 +140,9 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
         } finally {
             fsLock.unlock();
         }
+    }
+
+    public boolean connectivityTest(List<String> filePaths) throws UserException {
+        return true;
     }
 }

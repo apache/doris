@@ -18,151 +18,192 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 
-import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
+import org.mockito.Mockito;
+import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.lang.reflect.Field;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.io.InputStream;
 
+public class S3ObjStorageTest {
+    private S3ObjStorage storage;
+    private S3Client mockClient;
+    private AbstractS3CompatibleProperties mockProperties;
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class S3ObjStorageTest {
-    @Test
-    public void testS3BaseOp() throws UserException {
-        String ak = System.getenv("S3_ACCESS_KEY");
-        String sk = System.getenv("S3_SECRET_KEY");
-        String endpoint = System.getenv("S3_ENDPOINT");
-        String region = System.getenv("S3_REGION");
-        String bucket = System.getenv("S3_BUCKET");
-        String prefix = System.getenv("S3_PREFIX");
-
-        // Skip this test if ENV variables are not set.
-        if (StringUtils.isEmpty(endpoint) || StringUtils.isEmpty(ak)
-                || StringUtils.isEmpty(sk) || StringUtils.isEmpty(region)
-                || StringUtils.isEmpty(bucket) || StringUtils.isEmpty(prefix)) {
-            return;
-        }
-
-        Map<String, String> properties = new HashMap<>();
-        properties.put("s3.endpoint", endpoint);
-        properties.put("s3.access_key", ak);
-        properties.put("s3.secret_key", sk);
-        properties.put("s3.region", region);
-        S3ObjStorage storage = new S3ObjStorage(properties);
-
-        String baseUrl = "s3://" + bucket + "/" + prefix + "/";
-        String content = "mocked";
-        for (int i = 0; i < 5; ++i) {
-            Status st = storage.putObject(baseUrl + "key" + i,
-                    new ByteArrayInputStream(content.getBytes()), content.length());
-            Assertions.assertEquals(Status.OK, st);
-        }
-
-        RemoteObjects remoteObjects = storage.listObjects(baseUrl, null);
-        Assertions.assertEquals(5, remoteObjects.getObjectList().size());
-        Assertions.assertFalse(remoteObjects.isTruncated());
-        Assertions.assertEquals(null, remoteObjects.getContinuationToken());
-
-        List<RemoteObject> objectList = remoteObjects.getObjectList();
-        for (int i = 0; i < objectList.size(); i++) {
-            RemoteObject remoteObject = objectList.get(i);
-            Assertions.assertEquals("key" + i, remoteObject.getRelativePath());
-        }
-
-        Status st = storage.headObject(baseUrl + "key" + 0);
-        Assertions.assertEquals(Status.OK, st);
-
-        File file = new File("test-file.txt");
-        file.delete();
-        st = storage.getObject(baseUrl + "key" + 0, file);
-        Assertions.assertEquals(Status.OK, st);
-
-        st = storage.deleteObject(baseUrl + "key" + 0);
-        Assertions.assertEquals(Status.OK, st);
-
-        file.delete();
-        st = storage.getObject(baseUrl + "key" + 0, file);
-        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, st.getErrCode());
-        Assertions.assertTrue(st.getErrMsg().contains("The specified key does not exist"));
-        file.delete();
-
-        st = storage.deleteObjects(baseUrl);
-        Assertions.assertEquals(Status.OK, st);
-
-        remoteObjects = storage.listObjects(baseUrl, null);
-        Assertions.assertEquals(0, remoteObjects.getObjectList().size());
-        Assertions.assertFalse(remoteObjects.isTruncated());
-        Assertions.assertEquals(null, remoteObjects.getContinuationToken());
+    @BeforeEach
+    void setUp() throws UserException {
+        mockProperties = Mockito.mock(AbstractS3CompatibleProperties.class);
+        Mockito.when(mockProperties.getEndpoint()).thenReturn("http://s3.example.com");
+        Mockito.when(mockProperties.getRegion()).thenReturn("us-east-1");
+        Mockito.when(mockProperties.getUsePathStyle()).thenReturn("false");
+        Mockito.when(mockProperties.getForceParsingByStandardUrl()).thenReturn("false");
+        // storage = new S3ObjStorage(mockProperties);
+        mockClient = Mockito.mock(S3Client.class);
+        storage = Mockito.spy(new S3ObjStorage(mockProperties));
+        Mockito.doReturn(mockClient).when(storage).getClient();
     }
 
     @Test
-    public void testBaseOp() throws Exception {
-        Map<String, String> properties = new HashMap<>();
-        properties.put("s3.endpoint", "s3.e.c");
-        properties.put("s3.access_key", "abc");
-        properties.put("s3.secret_key", "123");
-        S3ObjStorage storage = new S3ObjStorage(properties);
-        Field client = storage.getClass().getDeclaredField("client");
-        client.setAccessible(true);
-        MockedS3Client mockedClient = new MockedS3Client();
-        client.set(storage, mockedClient);
-        Assertions.assertTrue(storage.getClient() instanceof MockedS3Client);
+    @DisplayName("getClient should return a valid S3Client instance")
+    void getClientReturnsValidS3Client() throws UserException {
+        S3Client client = storage.getClient();
+        Assertions.assertNotNull(client);
+    }
 
-        Status st = storage.headObject("s3://bucket/key");
-        Assertions.assertEquals(Status.OK, st);
+    @Test
+    @DisplayName("headObject should return OK status when object exists")
+    void headObjectReturnsOkWhenObjectExists() throws UserException {
+        Mockito.when(mockClient.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenReturn(HeadObjectResponse.builder().build());
 
-        mockedClient.setMockedData(new byte[0]);
-        st = storage.getObject("s3://bucket/key", new File("/mocked/file"));
-        Assertions.assertEquals(Status.OK, st);
+        Status status = storage.headObject("s3://bucket/key");
+        Assertions.assertEquals(Status.OK, status);
+    }
 
-        String content = "mocked";
-        for (int i = 0; i < 5; i++) {
-            st = storage.putObject("s3://bucket/keys/key" + i,
-                    new ByteArrayInputStream(content.getBytes()), content.length());
-            Assertions.assertEquals(Status.OK, st);
-        }
-        st = storage.copyObject("s3://bucket/key", "s3://bucket/key1");
-        Assertions.assertEquals(Status.OK, st);
+    @Test
+    @DisplayName("headObject should return NOT_FOUND status when object does not exist")
+    void headObjectReturnsNotFoundWhenObjectDoesNotExist() throws UserException {
+        Mockito.when(mockClient.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenThrow(S3Exception.builder().statusCode(404).build());
 
-        st = storage.deleteObject("s3://bucket/key");
-        Assertions.assertEquals(Status.OK, st);
+        Status status = storage.headObject("s3://bucket/nonexistent-key");
+        Assertions.assertEquals(Status.ErrCode.NOT_FOUND, status.getErrCode());
+    }
 
-        RemoteObjects remoteObjects = storage.listObjects("s3://bucket/keys", null);
-        Assertions.assertEquals(5, remoteObjects.getObjectList().size());
-        Assertions.assertTrue(remoteObjects.isTruncated());
-        Assertions.assertEquals("next-token", remoteObjects.getContinuationToken());
+    @Test
+    @DisplayName("headObject should return COMMON_ERROR status for other exceptions")
+    void headObjectReturnsErrorForOtherExceptions() throws UserException {
+        Mockito.when(mockClient.headObject(Mockito.any(HeadObjectRequest.class)))
+                .thenThrow(S3Exception.builder().statusCode(500).build());
 
-        List<RemoteObject> objectList = remoteObjects.getObjectList();
-        for (int i = 0; i < objectList.size(); i++) {
-            RemoteObject remoteObject = objectList.get(i);
-            Assertions.assertEquals("key" + i, remoteObject.getRelativePath());
-        }
+        Status status = storage.headObject("s3://bucket/key");
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, status.getErrCode());
+    }
 
-        storage.properties.put("use_path_style", "false");
-        storage.properties.put("s3.endpoint", "oss.a.c");
-        storage.setProperties(storage.properties);
-        RemoteObjects remoteObjectsVBucket = storage.listObjects("oss://bucket/keys", null);
-        List<RemoteObject> list = remoteObjectsVBucket.getObjectList();
-        for (int i = 0; i < list.size(); i++) {
-            RemoteObject remoteObject = list.get(i);
-            Assertions.assertTrue(remoteObject.getRelativePath().startsWith("key" + i));
-        }
+    @Test
+    @DisplayName("putObject should return OK status when upload succeeds")
+    void putObjectReturnsOkWhenUploadSucceeds() throws UserException {
+        Mockito.when(mockClient.putObject(Mockito.any(PutObjectRequest.class), Mockito.any(RequestBody.class)))
+                .thenReturn(PutObjectResponse.builder().build());
 
-        storage.properties.put("use_path_style", "true");
-        storage.setProperties(storage.properties);
-        remoteObjectsVBucket = storage.listObjects("oss://bucket/keys", null);
-        list = remoteObjectsVBucket.getObjectList();
-        for (int i = 0; i < list.size(); i++) {
-            RemoteObject remoteObject = list.get(i);
-            Assertions.assertTrue(remoteObject.getRelativePath().startsWith("key" + i));
-        }
+        InputStream content = new ByteArrayInputStream("test content".getBytes());
+        Status status = storage.putObject("s3://bucket/key", content, 12);
+        Assertions.assertEquals(Status.OK, status);
+    }
+
+    @Test
+    @DisplayName("putObject should return COMMON_ERROR status when upload fails")
+    void putObjectReturnsErrorWhenUploadFails() throws UserException {
+        Mockito.when(mockClient.putObject(Mockito.any(PutObjectRequest.class), Mockito.any(RequestBody.class)))
+                .thenThrow(S3Exception.builder().statusCode(500).build());
+
+        InputStream content = new ByteArrayInputStream("test content".getBytes());
+        Status status = storage.putObject("s3://bucket/key", content, 12);
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, status.getErrCode());
+    }
+
+    @Test
+    @DisplayName("deleteObject should return OK status when object is deleted successfully")
+    void deleteObjectReturnsOkWhenDeletionSucceeds() throws UserException {
+        Mockito.when(mockClient.deleteObject(Mockito.any(DeleteObjectRequest.class)))
+                .thenReturn(DeleteObjectResponse.builder().build());
+
+        Status status = storage.deleteObject("s3://bucket/key");
+        Assertions.assertEquals(Status.OK, status);
+    }
+
+    @Test
+    @DisplayName("deleteObject should return OK status when object does not exist")
+    void deleteObjectReturnsOkWhenObjectDoesNotExist() throws UserException {
+        Mockito.when(mockClient.deleteObject(Mockito.any(DeleteObjectRequest.class)))
+                .thenThrow(S3Exception.builder().statusCode(404).build());
+
+        Status status = storage.deleteObject("s3://bucket/nonexistent-key");
+        Assertions.assertEquals(Status.OK, status);
+    }
+
+    @Test
+    @DisplayName("deleteObject should return COMMON_ERROR status for other exceptions")
+    void deleteObjectReturnsErrorForOtherExceptions() throws UserException {
+        Mockito.when(mockClient.deleteObject(Mockito.any(DeleteObjectRequest.class)))
+                .thenThrow(S3Exception.builder().statusCode(500).build());
+
+        Status status = storage.deleteObject("s3://bucket/key");
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, status.getErrCode());
+    }
+
+    @Test
+    @DisplayName("listObjects should return a list of objects when objects exist")
+    void listObjectsReturnsObjectsWhenObjectsExist() throws UserException {
+        ListObjectsV2Response response = ListObjectsV2Response.builder()
+                .contents(S3Object.builder().key("prefix/key1").size(100L).build(),
+                        S3Object.builder().key("prefix/key2").size(200L).build())
+                .isTruncated(false)
+                .build();
+        Mockito.when(mockClient.listObjectsV2(Mockito.any(ListObjectsV2Request.class))).thenReturn(response);
+
+        RemoteObjects objects = storage.listObjects("s3://bucket/prefix", null);
+        Assertions.assertEquals(2, objects.getObjectList().size());
+    }
+
+    @Test
+    @DisplayName("listObjects should throw DdlException for errors")
+    void listObjectsThrowsExceptionForErrors() throws UserException {
+        Mockito.when(mockClient.listObjectsV2(Mockito.any(ListObjectsV2Request.class)))
+                .thenThrow(S3Exception.builder().statusCode(500).build());
+
+        Assertions.assertThrows(DdlException.class, () -> storage.listObjects("s3://bucket/prefix", null));
+    }
+
+    @Test
+    @DisplayName("multipartUpload should return OK status when upload succeeds")
+    void multipartUploadReturnsOkWhenUploadSucceeds() throws Exception {
+        Mockito.when(mockClient.createMultipartUpload(Mockito.any(CreateMultipartUploadRequest.class)))
+                .thenReturn(CreateMultipartUploadResponse.builder().uploadId("uploadId").build());
+        Mockito.when(mockClient.uploadPart(Mockito.any(UploadPartRequest.class), Mockito.any(RequestBody.class)))
+                .thenReturn(UploadPartResponse.builder().eTag("etag").build());
+        Mockito.when(mockClient.completeMultipartUpload(Mockito.any(CompleteMultipartUploadRequest.class)))
+                .thenReturn(CompleteMultipartUploadResponse.builder().build());
+
+        InputStream content = new ByteArrayInputStream(new byte[10 * 1024 * 1024]); // 10 MB
+        Status status = storage.multipartUpload("s3://bucket/key", content, 10 * 1024 * 1024);
+        Assertions.assertEquals(Status.OK, status);
+    }
+
+    @Test
+    @DisplayName("multipartUpload should return COMMON_ERROR status when upload fails")
+    void multipartUploadReturnsErrorWhenUploadFails() throws Exception {
+        Mockito.when(mockClient.createMultipartUpload(Mockito.any(CreateMultipartUploadRequest.class)))
+                .thenReturn(CreateMultipartUploadResponse.builder().uploadId("uploadId").build());
+        Mockito.when(mockClient.uploadPart(Mockito.any(UploadPartRequest.class), Mockito.any(RequestBody.class)))
+                .thenThrow(S3Exception.builder().statusCode(500).build());
+
+        InputStream content = new ByteArrayInputStream(new byte[10 * 1024 * 1024]); // 10 MB
+        Status status = storage.multipartUpload("s3://bucket/key", content, 10 * 1024 * 1024);
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, status.getErrCode());
     }
 }
