@@ -286,27 +286,31 @@ public:
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    Status close_wait(RuntimeState* state);
+    Status close_wait(RuntimeState* state, bool* is_closed);
 
-    bool close_finish(RuntimeState* state);
-
-    Status after_close_handle(RuntimeState* state);
+    Status after_close_handle(
+            RuntimeState* state, WriterStats* writer_stats,
+            std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map);
 
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      WriterStats* writer_stats) const {
-        (*add_batch_counter_map)[_node_id] += _add_batch_counter;
-        (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
-        writer_stats->serialize_batch_ns += _serialize_batch_ns;
-        writer_stats->channel_stat += _stat;
-        writer_stats->queue_push_lock_ns += _queue_push_lock_ns;
-        writer_stats->actual_consume_ns += _actual_consume_ns;
-        writer_stats->total_add_batch_exec_time_ns +=
-                (_add_batch_counter.add_batch_execution_time_us * 1000);
-        writer_stats->total_wait_exec_time_ns +=
-                (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
-        writer_stats->total_add_batch_num += _add_batch_counter.add_batch_num;
+        if (add_batch_counter_map != nullptr) {
+            (*add_batch_counter_map)[_node_id] += _add_batch_counter;
+            (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
+        }
+        if (writer_stats != nullptr) {
+            writer_stats->serialize_batch_ns += _serialize_batch_ns;
+            writer_stats->channel_stat += _stat;
+            writer_stats->queue_push_lock_ns += _queue_push_lock_ns;
+            writer_stats->actual_consume_ns += _actual_consume_ns;
+            writer_stats->total_add_batch_exec_time_ns +=
+                    (_add_batch_counter.add_batch_execution_time_us * 1000);
+            writer_stats->total_wait_exec_time_ns +=
+                    (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
+            writer_stats->total_add_batch_num += _add_batch_counter.add_batch_num;
+        }
     }
 
     int64_t node_id() const { return _node_id; }
@@ -471,14 +475,18 @@ public:
                         int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
+    Status close_wait(RuntimeState* state, WriterStats* writer_stats,
+                      std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map);
+
+    Status check_each_node_channel_close(
+            std::unordered_set<int64_t>* unfinished_node_channel_ids,
+            std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+            WriterStats* writer_stats, Status status);
+
     bool quorum_success();
 
     // set error tablet info in runtime state, so that it can be returned to FE.
     void set_error_tablet_in_state(RuntimeState* state);
-
-    std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> get_node_channels() {
-        return _node_channels;
-    }
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
@@ -524,8 +532,6 @@ public:
     void update_write_tablets(const int64_t& tablet_id) { _write_tablets.insert(tablet_id); }
 
     void set_node_channel_speed(const int64_t& node_id, const int64_t& speed) {
-        LOG(INFO) << "set_node_channel_speed"
-                  << ", node_id: " << node_id << ", speed: " << speed;
         _node_channel_speed[node_id] = speed;
     }
 
