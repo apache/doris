@@ -58,6 +58,7 @@ import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -701,12 +702,15 @@ public class CacheAnalyzer {
         DatabaseIf database = olapTable.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(
-                new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()),
-                olapTable.getVisibleVersion());
+                new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()));
         scanTables.add(scanTable);
 
         Collection<Long> partitionIds = node.getSelectedPartitionIds();
-        olapTable.getVersionInBatchForCloudMode(partitionIds);
+        try {
+            olapTable.getVersionInBatchForCloudMode(partitionIds);
+        } catch (RpcException e) {
+            LOG.warn("Failed to get version in batch for cloud mode, partitions {}.", partitionIds, e);
+        }
 
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
@@ -729,7 +733,7 @@ public class CacheAnalyzer {
         DatabaseIf database = tableIf.getDatabase();
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
-                catalog.getName(), database.getFullName(), tableIf.getName()), 0);
+                catalog.getName(), database.getFullName(), tableIf.getName()));
         scanTables.add(scanTable);
         return cacheTable;
     }
