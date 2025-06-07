@@ -793,7 +793,7 @@ private:
                         std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
                         res_offsets);
             } else if (value->isNull()) {
-                StringOP::push_value_string("null", i, res_data, res_offsets);
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else if (value->isTrue()) {
                 StringOP::push_value_string("true", i, res_data, res_offsets);
             } else if (value->isFalse()) {
