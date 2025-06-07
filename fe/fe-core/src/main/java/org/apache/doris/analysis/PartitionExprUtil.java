@@ -46,6 +46,14 @@ public class PartitionExprUtil {
     private static final Logger LOG = LogManager.getLogger(PartitionExprUtil.class);
     private static final PartitionExprUtil partitionExprUtil = new PartitionExprUtil();
 
+    /**
+     * properties should be checked before call this method
+     */
+    public static void checkAndSetAutoPartitionProperty(OlapTable olapTable, Map<String, String> properties) {
+        String useSimpleAutoPartitionName = properties.get(PropertyAnalyzer.PROPERTIES_USE_SIMPLE_AUTO_PARTITION_NAME);
+        olapTable.setUseSimpleAutoPartitionName(useSimpleAutoPartitionName);
+    }
+
     public static FunctionIntervalInfo getFunctionIntervalInfo(ArrayList<Expr> partitionExprs,
             PartitionType partitionType) throws AnalysisException {
         if (partitionType != PartitionType.RANGE) {
@@ -93,7 +101,7 @@ public class PartitionExprUtil {
         return partitionExprUtil.new FunctionIntervalInfo(fnName, timeUnit, interval);
     }
 
-    public static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
+    private static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
             throws AnalysisException {
         String timeUnit = intervalInfo.timeUnit;
         long interval = intervalInfo.interval;
@@ -120,6 +128,36 @@ public class PartitionExprUtil {
         return null;
     }
 
+    // should be same with formatters in DynamicPartitionUtil
+    private static String getSimpleRangePartitionName(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
+            throws AnalysisException {
+        String timeUnit = intervalInfo.timeUnit;
+        switch (timeUnit) {
+            case "year":
+                return String.format("%04d", beginTime.getYear());
+            case "quarter":
+                return String.format("%04d%02d", beginTime.getYear(), beginTime.getMonth());
+            case "month":
+                return String.format("%04d%02d", beginTime.getYear(), beginTime.getMonth());
+            case "week":
+                return String.format("%04d%02d%02d", beginTime.getYear(), beginTime.getMonth(), beginTime.getDay());
+            case "day":
+                return String.format("%04d%02d%02d", beginTime.getYear(), beginTime.getMonth(), beginTime.getDay());
+            case "hour":
+                return String.format("%04d%02d%02d%02d", beginTime.getYear(), beginTime.getMonth(), beginTime.getDay(),
+                        beginTime.getHour());
+            case "minute":
+                return String.format("%04d%02d%02d%02d%02d", beginTime.getYear(), beginTime.getMonth(),
+                        beginTime.getDay(), beginTime.getHour(), beginTime.getMinute());
+            case "second":
+                return String.format("%04d%02d%02d%02d%02d%02d", beginTime.getYear(), beginTime.getMonth(),
+                        beginTime.getDay(), beginTime.getHour(), beginTime.getMinute(), beginTime.getSecond());
+            default:
+                break;
+        }
+        return null;
+    }
+
     public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
             ArrayList<List<TNullableStringLiteral>> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
@@ -127,9 +165,8 @@ public class PartitionExprUtil {
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
         List<Column> partitionColumn = partitionInfo.getPartitionColumns();
-        boolean hasStringType = partitionColumn.stream().anyMatch(column -> column.getType().isStringType());
         FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
-        Set<String> filterPartitionValues = new HashSet<String>();
+        Set<ArrayList<String>> deduper = new HashSet<>();
 
         for (List<TNullableStringLiteral> partitionValueList : partitionValues) {
             PartitionKeyDesc partitionKeyDesc = null;
@@ -145,21 +182,26 @@ public class PartitionExprUtil {
                     curPartitionValues.add(tStringLiteral.value);
                 }
             }
-            // Concatenate each string with its length. X means null
-            String filterStr = curPartitionValues.stream()
-                    .map(s -> (s == null) ? "X" : (s + s.length()))
-                    .reduce("", (s1, s2) -> s1 + s2);
-            if (filterPartitionValues.contains(filterStr)) {
+
+            if (deduper.contains(curPartitionValues)) {
                 continue;
             }
-            filterPartitionValues.add(filterStr);
+            deduper.add(curPartitionValues);
+
+            // rule of partition name see FeNameFormat.java#checkPartitionName
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
                 Type partitionColumnType = partitionColumn.get(0).getType();
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
-                partitionName += String.format(DATETIME_NAME_FORMATTER,
-                        beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
-                        beginDateTime.getHour(), beginDateTime.getMinute(), beginDateTime.getSecond());
+
+                if (olapTable.useSimpleAutoPartitionName()) {
+                    partitionName += getSimpleRangePartitionName(beginDateTime, intervalInfo);
+                } else {
+                    partitionName += String.format(DATETIME_NAME_FORMATTER, beginDateTime.getYear(),
+                            beginDateTime.getMonth(), beginDateTime.getDay(), beginDateTime.getHour(),
+                            beginDateTime.getMinute(), beginDateTime.getSecond());
+                }
+
                 DateLiteral endDateTime = getRangeEnd(beginDateTime, intervalInfo);
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
@@ -174,11 +216,9 @@ public class PartitionExprUtil {
                 }
                 listValues.add(inValues);
                 partitionKeyDesc = PartitionKeyDesc.createIn(listValues);
-                partitionName += getFormatPartitionValue(filterStr);
-                if (hasStringType) {
-                    if (partitionName.length() > 50) {
-                        throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
-                    }
+                partitionName += getFormatPartitionValues(curPartitionValues); // no simple name for list partition
+                if (partitionName.length() > 50) {
+                    throw new AnalysisException("Partition name's length is over limit of 50. abort to create.");
                 }
             } else {
                 throw new AnalysisException("now only support range and list partition");
@@ -238,21 +278,29 @@ public class PartitionExprUtil {
         return new PartitionValue(timeString);
     }
 
-    private static String getFormatPartitionValue(String value) {
+    private static String getFormatPartitionValues(ArrayList<String> value) {
         StringBuilder sb = new StringBuilder();
-        // When the value is negative
-        if (value.length() > 0 && value.charAt(0) == '-') {
-            sb.append("_");
-        }
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
-                sb.append(ch);
-            } else {
-                int unicodeValue = value.codePointAt(i);
-                String unicodeString = Integer.toHexString(unicodeValue);
-                sb.append(unicodeString);
+        for (int i = 0; i < value.size(); i++) {
+            String str = value.get(i);
+            if (str == null) {
+                sb.append("X");
+                continue;
             }
+            // when start with '-'. maybe we actually dont need this deal but it has been here.
+            if (str.length() > 0 && str.charAt(0) == '-') {
+                sb.append("_");
+            }
+            for (int j = 0; j < str.length(); j++) {
+                char ch = str.charAt(j);
+                if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
+                    sb.append(ch);
+                } else {
+                    int unicodeValue = str.codePointAt(j);
+                    String unicodeString = Integer.toHexString(unicodeValue);
+                    sb.append(unicodeString);
+                }
+            }
+            sb.append(str.length()); // origin str's length.
         }
         return sb.toString();
     }
