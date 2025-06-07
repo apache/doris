@@ -193,4 +193,10 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
     test_func(*serde_str, column_str32);
 }
 
+TEST_F(DataTypeStringSerDeTest, SerdeOrcTest) {
+    MutableColumns columns;
+    columns.push_back(column_str32->assume_mutable());
+    CommonDataTypeSerdeTest::assert_orc_writer(columns[0], serde_str);
+}
+
 } // namespace doris::vectorized
