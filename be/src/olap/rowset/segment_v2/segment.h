@@ -207,18 +207,32 @@ public:
             return true;
         }
         PrimitiveType type = storage_column_type->get_primitive_type();
-        if (type == TYPE_VARIANT || is_complex_type(type)) {
-            // Predicate should nerver apply on variant/complex type
-            return false;
-        }
-        bool safe = pred->can_do_apply_safely(storage_column_type->get_primitive_type(),
-                                              storage_column_type->is_nullable());
+        bool safe = can_apply_predicate_safely_s(pred, type, col->is_nullable());
         // Currently only variant column can lead to unsafe
         CHECK(safe || col->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
         return safe;
     }
 
+    template <typename Predicate>
+    static bool can_apply_predicate_safely_s(Predicate* pred, const PrimitiveType primitive_type,
+                                             const bool is_nullable) {
+        if (primitive_type == TYPE_VARIANT || is_complex_type(primitive_type)) {
+            // Predicate should nerver apply on variant/complex type
+            return false;
+        }
+        bool safe = pred->can_do_apply_safely(primitive_type, is_nullable);
+        return safe;
+    }
+
     const TabletSchemaSPtr& tablet_schema() { return _tablet_schema; }
+
+    struct ZoneMapInfo {
+        ZoneMapPB zone_map;
+        FieldType field_type;
+        int32_t field_length;
+    };
+
+    Status get_zone_maps(std::map<uint32_t, ZoneMapInfo>& zone_maps);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

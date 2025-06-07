@@ -188,6 +188,12 @@ Status OlapScanLocalState::_init_profile() {
     _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
+
+    _filtered_rowset_counter = ADD_COUNTER(_segment_profile, "NumRowsetFiltered", TUnit::UNIT);
+    _total_rowset_counter = ADD_COUNTER(_segment_profile, "NumRowsetTotal", TUnit::UNIT);
+    _rowset_cached_zone_maps_counter =
+            ADD_COUNTER(_segment_profile, "RowsetCachedZoneMaps", TUnit::UNIT);
+
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
     _key_range_counter = ADD_COUNTER(_runtime_profile, "KeyRangesNum", TUnit::UNIT);
     _tablet_reader_init_timer = ADD_TIMER(_scanner_profile, "TabletReaderInitTimer");
