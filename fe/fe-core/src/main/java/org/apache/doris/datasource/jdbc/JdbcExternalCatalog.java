@@ -156,6 +156,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getDatabaseTypeName() {
+        makeSureInitialized();
         return jdbcClient.getDbType();
     }
 
@@ -256,6 +257,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public List<String> listDatabaseNames() {
+        makeSureInitialized();
         return jdbcClient.getDatabaseNameList();
     }
 
