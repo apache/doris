@@ -18,6 +18,8 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.analysis.CopyStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
@@ -28,8 +30,10 @@ import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -37,7 +41,9 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -51,6 +57,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
@@ -234,7 +241,7 @@ public class CopyIntoAction extends RestBaseController {
             }
 
             String clusterName = (String) jsonObject.getOrDefault("cluster", "");
-            StatementBase copyIntoStmt = StatementSubmitter.analyzeStmt(copyIntoSql);
+            StatementBase copyIntoStmt = analyzeStmt(copyIntoSql);
             if (!(copyIntoStmt instanceof CopyStmt)) {
                 return ResponseEntityBuilder.badRequest("just support copy into sql: " + copyIntoSql);
             }
@@ -280,6 +287,22 @@ public class CopyIntoAction extends RestBaseController {
         } catch (ExecutionException e) {
             LOG.warn("failed to execute stmt {}", copyIntoStmt, e);
             return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
+        }
+    }
+
+    private static StatementBase analyzeStmt(String stmtStr) throws Exception {
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmtStr)));
+        try (AutoCloseConnectContext a = StatisticsUtil.buildConnectContext(false)) {
+            return SqlParserUtils.getFirstStmt(parser);
+        } catch (AnalysisException e) {
+            String errorMessage = parser.getErrorMsg(stmtStr);
+            if (errorMessage == null) {
+                throw e;
+            } else {
+                throw new AnalysisException(errorMessage, e);
+            }
+        } catch (Exception e) {
+            throw new Exception("error happens when parsing stmt: " + e.getMessage());
         }
     }
 }
