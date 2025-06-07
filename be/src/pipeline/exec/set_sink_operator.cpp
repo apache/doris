@@ -49,7 +49,8 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
         } catch (Exception& e) {
             return Status::InternalError(
                     "rf process meet error: {}, _terminated: {}, _finish_dependency: {}",
-                    e.to_string(), _terminated, _finish_dependency->debug_string());
+                    e.to_string(), _terminated,
+                    _finish_dependency ? _finish_dependency->debug_string() : "null");
         }
     }
 
