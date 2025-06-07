@@ -598,7 +598,7 @@ DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
 // false: disables http_stream load support
-DEFINE_mBool(enable_http_stream_load, "false");
+DEFINE_mBool(enable_http_stream_load, "true");
 // batch size of stream load record reported to FE
 DEFINE_mInt32(stream_load_record_batch_size, "50");
 // expire time of stream load record in rocksdb.
