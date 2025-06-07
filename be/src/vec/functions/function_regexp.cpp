@@ -35,6 +35,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -70,8 +71,8 @@ struct RegexpCountImpl {
 
 private:
     static int64_t _execute_inner_loop(FunctionContext* context, const ColumnString* str,
-                                      const ColumnString* pattern, NullMap& null_map,
-                                      const size_t index_now) {
+                                       const ColumnString* pattern, NullMap& null_map,
+                                       const size_t index_now) {
         re2::RE2* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
@@ -86,8 +87,8 @@ private:
 
         if (!re) {
             std::string error_str;
-            bool st = StringFunctions::compile_regex(pattern_data, &error_str, StringRef(), StringRef(),
-                                                     scoped_re);
+            bool st = StringFunctions::compile_regex(pattern_data, &error_str, StringRef(),
+                                                     StringRef(), scoped_re);
             if (!st) {
                 context->add_warning(error_str.c_str());
                 null_map[index_now] = true;
@@ -188,8 +189,8 @@ public:
                                                      .convert_to_full_column()
                                            : block.get_by_position(arguments[1]).column;
 
-        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count,
-                                      result_data, result_null_map->get_data());
+        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
+                                      result_null_map->get_data());
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
