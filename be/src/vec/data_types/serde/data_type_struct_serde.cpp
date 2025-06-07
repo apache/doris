@@ -42,6 +42,21 @@ std::optional<size_t> DataTypeStructSerDe::try_get_position_by_name(const String
     return std::nullopt;
 }
 
+Status DataTypeStructSerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                     BufferWritable& bw) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(", ", 2);
+        }
+        RETURN_IF_ERROR(elem_serdes_ptrs[idx]->serialize_column_to_text(
+                struct_column.get_column(idx), row_num, bw));
+    }
+    bw.write("}", 1);
+    return Status::OK();
+}
+
 Status DataTypeStructSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {

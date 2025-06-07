@@ -19,11 +19,22 @@
 
 #include <arrow/builder.h>
 
+#include "runtime/primitive_to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+template <PrimitiveType T>
+Status DataTypeDate64SerDe<T>::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                        BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    Int64 int_val = assert_cast<const ColumnVector<T>&>(column).get_element(row_num);
+    to_string::primitive_to_writable<T>(int_val, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
 
 template <PrimitiveType T>
 Status DataTypeDate64SerDe<T>::serialize_column_to_json(

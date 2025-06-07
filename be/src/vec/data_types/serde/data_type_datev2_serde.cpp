@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "runtime/primitive_to_string.h"
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
 
@@ -31,6 +32,15 @@ namespace vectorized {
 // This number represents the number of days from 0000-01-01 to 1970-01-01
 static const int32_t date_threshold = 719528;
 #include "common/compile_check_begin.h"
+
+Status DataTypeDateV2SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                     BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    UInt32 int_val = assert_cast<const ColumnDateV2&>(column).get_element(row_num);
+    to_string::primitive_to_writable<TYPE_DATEV2>(int_val, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
 
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,

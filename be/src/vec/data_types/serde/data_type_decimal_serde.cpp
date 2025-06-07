@@ -24,6 +24,7 @@
 
 #include "arrow/type.h"
 #include "common/consts.h"
+#include "runtime/primitive_to_string.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
@@ -31,6 +32,30 @@
 
 namespace doris::vectorized {
 // #include "common/compile_check_begin.h"
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                         BufferWritable& bw) const {
+    auto& col = assert_cast<const ColumnType&>(column);
+    auto value = col.get_element(row_num);
+    to_string::primitive_to_writable<T>(value, bw, scale);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Result<ColumnString::Ptr> DataTypeDecimalSerDe<T>::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    column_to->reserve(size * 2);
+    BufferWritable write_buffer(*column_to);
+    auto& col = assert_cast<const ColumnType&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        to_string::primitive_to_writable<T>(col.get_element(i), write_buffer, scale);
+        write_buffer.commit();
+    }
+    return column_to;
+}
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
