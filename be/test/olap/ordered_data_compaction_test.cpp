@@ -106,6 +106,7 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
+        config::segments_key_bounds_truncation_threshold = -1;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());
