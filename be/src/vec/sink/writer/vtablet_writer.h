@@ -206,6 +206,19 @@ public:
     int64_t append_node_channel_ns = 0;
 };
 
+struct WriterStats {
+    int64_t serialize_batch_ns = 0;
+    int64_t queue_push_lock_ns = 0;
+    int64_t actual_consume_ns = 0;
+    int64_t total_add_batch_exec_time_ns = 0;
+    int64_t max_add_batch_exec_time_ns = 0;
+    int64_t total_wait_exec_time_ns = 0;
+    int64_t max_wait_exec_time_ns = 0;
+    int64_t total_add_batch_num = 0;
+    int64_t num_node_channels = 0;
+    VNodeChannelStat channel_stat;
+};
+
 // pair<row_id,tablet_id>
 using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
 
@@ -275,25 +288,25 @@ public:
     // 2. just cancel()
     Status close_wait(RuntimeState* state);
 
+    bool close_finish(RuntimeState* state);
+
+    Status after_close_handle(RuntimeState* state);
+
     void cancel(const std::string& cancel_msg);
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
-                     int64_t* serialize_batch_ns, VNodeChannelStat* stat,
-                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns,
-                     int64_t* total_add_batch_exec_time_ns, int64_t* add_batch_exec_time_ns,
-                     int64_t* total_wait_exec_time_ns, int64_t* wait_exec_time_ns,
-                     int64_t* total_add_batch_num) const {
+                     WriterStats* writer_stats) const {
         (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         (*add_batch_counter_map)[_node_id].close_wait_time_ms = _close_time_ms;
-        *serialize_batch_ns += _serialize_batch_ns;
-        *stat += _stat;
-        *queue_push_lock_ns += _queue_push_lock_ns;
-        *actual_consume_ns += _actual_consume_ns;
-        *add_batch_exec_time_ns = (_add_batch_counter.add_batch_execution_time_us * 1000);
-        *total_add_batch_exec_time_ns += *add_batch_exec_time_ns;
-        *wait_exec_time_ns = (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
-        *total_wait_exec_time_ns += *wait_exec_time_ns;
-        *total_add_batch_num += _add_batch_counter.add_batch_num;
+        writer_stats->serialize_batch_ns += _serialize_batch_ns;
+        writer_stats->channel_stat += _stat;
+        writer_stats->queue_push_lock_ns += _queue_push_lock_ns;
+        writer_stats->actual_consume_ns += _actual_consume_ns;
+        writer_stats->total_add_batch_exec_time_ns +=
+                (_add_batch_counter.add_batch_execution_time_us * 1000);
+        writer_stats->total_wait_exec_time_ns +=
+                (_add_batch_counter.add_batch_wait_execution_time_us * 1000);
+        writer_stats->total_add_batch_num += _add_batch_counter.add_batch_num;
     }
 
     int64_t node_id() const { return _node_id; }
@@ -458,8 +471,14 @@ public:
                         int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
+    bool quorum_success();
+
     // set error tablet info in runtime state, so that it can be returned to FE.
     void set_error_tablet_in_state(RuntimeState* state);
+
+    std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> get_node_channels() {
+        return _node_channels;
+    }
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
@@ -490,7 +509,38 @@ public:
     // check whether the rows num filtered by different replicas is consistent
     Status check_tablet_filtered_rows_consistency();
 
+    void set_start_time(const int64_t& start_time) { _start_time = start_time; }
+
+    int64_t get_start_time() const { return _start_time; }
+
+    void update_node_channel_write_bytes(const int64_t& node_id, const int64_t& bytes) {
+        _node_channel_write_bytes[node_id] += bytes;
+    }
+
+    int64_t get_node_channel_write_bytes(const int64_t& node_id) {
+        return _node_channel_write_bytes[node_id];
+    }
+
+    void update_write_tablets(const int64_t& tablet_id) { _write_tablets.insert(tablet_id); }
+
+    void set_node_channel_speed(const int64_t& node_id, const int64_t& speed) {
+        LOG(INFO) << "set_node_channel_speed"
+                  << ", node_id: " << node_id << ", speed: " << speed;
+        _node_channel_speed[node_id] = speed;
+    }
+
+    double calculate_avg_node_channel_speed() {
+        DCHECK(!_node_channel_speed.empty()) << "node_channel_speed is empty";
+        double total_speed = 0;
+        for (const auto& [node_id, speed] : _node_channel_speed) {
+            total_speed += speed;
+        }
+        return total_speed / _node_channel_speed.size();
+    }
+
     vectorized::VExprContextSPtr get_where_clause() { return _where_clause; }
+
+    int64_t get_index_id() const { return _index_id; }
 
 private:
     friend class VNodeChannel;
@@ -530,6 +580,13 @@ private:
     // rows num filtered by DeltaWriter per tablet, tablet_id -> <node_Id, filtered_rows_num>
     // used to verify whether the rows num filtered by different replicas is consistent
     std::map<int64_t, std::vector<std::pair<int64_t, int64_t>>> _tablets_filtered_rows;
+
+    // key is node_id, value is the bytes written by this node
+    std::unordered_map<int64_t, int64_t> _node_channel_write_bytes;
+    int64_t _start_time = 0;
+    // key is node_id, value is the speed of this node(bytes/s)
+    std::unordered_map<int64_t, double> _node_channel_speed;
+    std::set<int64_t> _write_tablets;
 };
 } // namespace vectorized
 } // namespace doris
@@ -557,6 +614,8 @@ public:
     Status on_partitions_created(TCreatePartitionResult* result);
 
     Status _send_new_partition_batch();
+
+    PUniqueId load_id() const { return _load_id; }
 
 private:
     friend class VNodeChannel;
