@@ -23,12 +23,15 @@ import org.apache.doris.common.info.SimpleTableInfo;
 import com.google.common.base.Preconditions;
 import lombok.Data;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 
 @Data
 public class HivePartition {
+    private static final Logger LOG = LogManager.getLogger(HivePartition.class);
     public static final String LAST_MODIFY_TIME_KEY = "transient_lastDdlTime";
     public static final String FILE_NUM_KEY = "numFiles";
 
@@ -50,7 +53,7 @@ public class HivePartition {
         // eg: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
         this.inputFormat = inputFormat;
         // eg: hdfs://hk-dev01:8121/user/doris/parquet/partition_table/nation=cn/city=beijing
-        this.path = path;
+        this.path = parseAzureBlobUri(path);
         // eg: cn, beijing
         this.partitionValues = partitionValues;
         this.parameters = parameters;
@@ -122,6 +125,53 @@ public class HivePartition {
             return 0L;
         }
         return Long.parseLong(parameters.get(FILE_NUM_KEY));
+    }
+
+    /**
+     * Parse Azure Blob Storage URI format.
+     * Convert from: wasbs://container@storageAccount.blob.core.windows.net/path
+     * To: wasbs://container/path
+     *
+     * @param uri The original Azure Blob Storage URI
+     * @return The simplified URI without storage account information
+     */
+    public String parseAzureBlobUri(String uri) {
+        if (uri == null || uri.isEmpty()) {
+            return uri;
+        }
+
+        // Check if it's a wasbs URI
+        if (!uri.startsWith("wasbs://")) {
+            return uri;
+        }
+
+        try {
+            // Remove the protocol part
+            String path = uri.substring("wasbs://".length());
+
+            // Find the container name (everything before @)
+            int atIndex = path.indexOf('@');
+            if (atIndex == -1) {
+                return uri; // No @ found, return original
+            }
+
+            String container = path.substring(0, atIndex);
+
+            // Find the path part (everything after .blob.core.windows.net/)
+            String remainingPath = path.substring(atIndex + 1);
+            int pathIndex = remainingPath.indexOf("/");
+            if (pathIndex == -1) {
+                return "wasbs://" + container;
+            }
+
+            String finalPath = remainingPath.substring(pathIndex);
+
+            // Construct the simplified URI
+            return "wasbs://" + container + finalPath;
+        } catch (Exception e) {
+            LOG.warn("Failed to parse Azure Blob URI: {}", uri, e);
+            return uri;
+        }
     }
 
     @Override
