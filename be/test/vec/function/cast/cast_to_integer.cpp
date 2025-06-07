@@ -367,7 +367,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                                    from_large_fractional3};
         DataTypeDecimal<FromPT> dt(FromPrecision, FromScale);
         DataSet data_set;
-        std::string dbg_str = fmt::format("test cast {}({}, {}) to {}: ", TypeName<FromT>::get(),
+        std::string dbg_str = fmt::format("test cast {}({}, {}) to {}: ", type_to_string(FromPT),
                                           FromPrecision, FromScale, dt_to.get_family_name());
 
         if constexpr (FromScale == 0) {

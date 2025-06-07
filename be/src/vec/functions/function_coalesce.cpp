@@ -33,7 +33,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -300,19 +299,19 @@ public:
             return insert_result_data<ColumnFloat64>(result_column, argument_column, null_map_data,
                                                      filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DECIMAL32:
-            return insert_result_data<ColumnDecimal<Decimal32>>(
+            return insert_result_data<ColumnDecimal32>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DECIMAL64:
-            return insert_result_data<ColumnDecimal<Decimal64>>(
+            return insert_result_data<ColumnDecimal64>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DECIMAL256:
-            return insert_result_data<ColumnDecimal<Decimal256>>(
+            return insert_result_data<ColumnDecimal256>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DECIMALV2:
-            return insert_result_data<ColumnDecimal<Decimal128V2>>(
+            return insert_result_data<ColumnDecimal128V2>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DECIMAL128I:
-            return insert_result_data<ColumnDecimal<Decimal128V3>>(
+            return insert_result_data<ColumnDecimal128V3>(
                     result_column, argument_column, null_map_data, filled_flag, input_rows_count);
         case PrimitiveType::TYPE_DATETIME:
             return insert_result_data<ColumnDateTime>(result_column, argument_column, null_map_data,

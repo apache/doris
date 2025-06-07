@@ -47,7 +47,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -647,7 +646,7 @@ struct UnixTimeStampDateImpl {
         } else { // DatetimeV2
             const auto* col_source = assert_cast<const ColumnDateTimeV2*>(col.get());
             UInt32 scale = block.get_by_position(arguments[0]).type->get_scale();
-            auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, scale);
+            auto col_result = ColumnDecimal64::create(input_rows_count, scale);
             auto& col_result_data = col_result->get_data();
             col_result->resize(input_rows_count);
 
@@ -699,7 +698,7 @@ struct UnixTimeStampStrImpl {
         std::tie(col_right, format_const) =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
-        auto col_result = ColumnDecimal<Decimal64>::create(input_rows_count, 6);
+        auto col_result = ColumnDecimal64::create(input_rows_count, 6);
         auto null_map = ColumnUInt8::create(input_rows_count);
         auto& col_result_data = col_result->get_data();
         auto& null_map_data = null_map->get_data();

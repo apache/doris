@@ -47,7 +47,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -71,6 +70,7 @@
 #include "vec/exec/format/table/paimon_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
 #include "vec/exec/format/table/trino_connector_jni_reader.h"
+#include "vec/exec/format/text/text_reader.h"
 #include "vec/exec/format/wal/wal_reader.h"
 #include "vec/exec/scan/scan_node.h"
 #include "vec/exprs/vexpr.h"
@@ -1031,9 +1031,18 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_PROTO: {
-            _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
+            auto reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                    _file_slot_descs, _io_ctx.get());
-            init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
+
+            init_status = reader->init_reader(_is_load);
+            _cur_reader = std::move(reader);
+            break;
+        }
+        case TFileFormatType::FORMAT_TEXT: {
+            auto reader = TextReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                    _file_slot_descs, _io_ctx.get());
+            init_status = reader->init_reader(_is_load);
+            _cur_reader = std::move(reader);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {

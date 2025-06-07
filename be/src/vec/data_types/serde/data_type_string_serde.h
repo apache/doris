@@ -41,10 +41,10 @@ class IColumn;
 class Arena;
 #include "common/compile_check_begin.h"
 
-inline void escape_string(const char* src, size_t& len, char escape_char) {
+inline void escape_string(const char* src, size_t* len, char escape_char) {
     const char* start = src;
     char* dest_ptr = const_cast<char*>(src);
-    const char* end = src + len;
+    const char* end = src + *len;
     bool escape_next_char = false;
 
     while (src < end) {
@@ -61,14 +61,14 @@ inline void escape_string(const char* src, size_t& len, char escape_char) {
         }
     }
 
-    len = dest_ptr - start;
+    *len = dest_ptr - start;
 }
 
 // specially escape quote with double quote
-inline void escape_string_for_csv(const char* src, size_t& len, char escape_char, char quote_char) {
+inline void escape_string_for_csv(const char* src, size_t* len, char escape_char, char quote_char) {
     const char* start = src;
     char* dest_ptr = const_cast<char*>(src);
-    const char* end = src + len;
+    const char* end = src + *len;
     bool escape_next_char = false;
 
     while (src < end) {
@@ -86,7 +86,7 @@ inline void escape_string_for_csv(const char* src, size_t& len, char escape_char
         }
     }
 
-    len = dest_ptr - start;
+    *len = dest_ptr - start;
 }
 
 template <typename ColumnType>
@@ -208,7 +208,7 @@ public:
             slice.trim_quote();
         }
         if (options.escape_char != 0) {
-            escape_string(slice.data, slice.size, options.escape_char);
+            escape_string(slice.data, &slice.size, options.escape_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();
@@ -217,7 +217,7 @@ public:
     Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
                                          const FormatOptions& options) const override {
         if (options.escape_char != 0) {
-            escape_string_for_csv(slice.data, slice.size, options.escape_char, options.quote_char);
+            escape_string_for_csv(slice.data, &slice.size, options.escape_char, options.quote_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();
@@ -227,7 +227,7 @@ public:
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override {
         if (options.escape_char != 0) {
-            escape_string(slice.data, slice.size, options.escape_char);
+            escape_string(slice.data, &slice.size, options.escape_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();

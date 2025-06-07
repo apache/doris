@@ -595,24 +595,6 @@ T get(Field& field) {
     return field.template get<T>();
 }
 
-template <>
-struct TypeName<Array> {
-    static std::string get() { return "Array"; }
-};
-template <>
-struct TypeName<Tuple> {
-    static std::string get() { return "Tuple"; }
-};
-
-template <>
-struct TypeName<VariantMap> {
-    static std::string get() { return "VariantMap"; }
-};
-template <>
-struct TypeName<Map> {
-    static std::string get() { return "Map"; }
-};
-
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
 ///  but they are always three different types.
 /// signedness of char is different in Linux on x86 and Linux on ARM.
