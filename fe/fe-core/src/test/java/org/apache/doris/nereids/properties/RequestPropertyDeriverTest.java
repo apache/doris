@@ -275,7 +275,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
@@ -299,7 +299,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
@@ -323,7 +323,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
@@ -346,7 +346,7 @@ class RequestPropertyDeriverTest {
         Alias alias = new Alias(windowExpression);
         WindowFrameGroup windowFrameGroup = new WindowFrameGroup(alias);
         PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(windowFrameGroup, null,
-                ImmutableList.of(alias), logicalProperties, groupPlan);
+                ImmutableList.of(alias), false, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(window);
         new Group(null, groupExpression, null);
         RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
