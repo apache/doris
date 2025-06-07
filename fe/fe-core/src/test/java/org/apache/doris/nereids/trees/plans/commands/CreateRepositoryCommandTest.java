@@ -72,7 +72,7 @@ public class CreateRepositoryCommandTest extends TestWithFeService {
         Assertions.assertTrue(logicalPlan instanceof CreateRepositoryCommand);
         Assertions.assertEquals(((CreateRepositoryCommand) logicalPlan).getProperties().size(), 4);
         Repository repository = getRepository((CreateRepositoryCommand) logicalPlan, "s3_repo_command");
-        Assertions.assertEquals(5, repository.getRemoteFileSystem().getProperties().size());
+        Assertions.assertEquals(4, repository.getRemoteFileSystem().getProperties().size());
 
         String s3RepoNew = "CREATE REPOSITORY `s3_repo_new_command`\n"
                 + "WITH S3\n"
@@ -88,7 +88,7 @@ public class CreateRepositoryCommandTest extends TestWithFeService {
         Assertions.assertTrue(logicalPlan1 instanceof CreateRepositoryCommand);
         Assertions.assertEquals(((CreateRepositoryCommand) logicalPlan1).getProperties().size(), 3);
         Repository repositoryNew = getRepository((CreateRepositoryCommand) logicalPlan1, "s3_repo_new_command");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 4);
+        Assertions.assertEquals(3, repositoryNew.getRemoteFileSystem().getProperties().size());
     }
 
     @Disabled("not support")
