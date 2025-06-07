@@ -48,6 +48,13 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
         super(name, type);
     }
 
+    /*
+     * todo In the previous design, RemoteFileSystem was modeled as an HDFS-style
+     * file system. However, this is no longer accurate — services like Azure
+     * and the refactored S3 do not follow the same semantics. We need to rethink
+     * the modeling of RemoteFileSystem. At the very least, this method should be
+     * deprecated and removed in the future, as keeping it may lead to functional inconsistencies.
+     */
     protected org.apache.hadoop.fs.FileSystem nativeFileSystem(String remotePath) throws UserException {
         throw new UserException("Not support to getFileSystem.");
     }

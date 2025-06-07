@@ -66,7 +66,6 @@ public class S3FileSystem extends ObjFileSystem {
         throw new UserException("S3 does not support native file system");
     }
 
-    // broker file pattern glob is too complex, so we use hadoop directly
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
