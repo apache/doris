@@ -45,13 +45,13 @@ import javax.servlet.http.HttpServletResponse;
  * This is a simple stmt submitter for submitting a statement to the local FE.
  * It uses a fixed-size thread pool to receive query requests,
  * so it is only suitable for a small number of low-frequency request scenarios.
- * 
+ * <p>
  * This submitter can execute any SQL statement without pre-analysis or type checking.
  * It dynamically determines how to handle the results based on whether the statement
  * returns a ResultSet or not:
  *   - Statements with ResultSet (SELECT, SHOW, etc.): processed as query results
  *   - Statements without ResultSet (DDL, DML, etc.): processed as execution status
- * 
+ * <p>
  * Supported statement types include but are not limited to:
  *   - Query statements (SELECT, SHOW, DESCRIBE, etc.)
  *   - Data manipulation (INSERT, UPDATE, DELETE, COPY, etc.)
@@ -106,18 +106,18 @@ public class StatementSubmitter {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
-                
+
                 if (!queryCtx.clusterName.isEmpty()) {
                     Statement useStmt = conn.createStatement();
                     useStmt.execute("use @" + queryCtx.clusterName);
                     useStmt.close();
                 }
-                
+
                 stmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                 stmt.setFetchSize(1000);
-                
+
                 boolean hasResultSet = stmt.execute(queryCtx.stmt);
-                
+
                 if (hasResultSet) {
                     ResultSet rs = stmt.getResultSet();
                     if (queryCtx.isStream) {
@@ -160,21 +160,21 @@ public class StatementSubmitter {
             if (rs == null) {
                 return false;
             }
-            
+
             ResultSetMetaData metaData = rs.getMetaData();
             int colNum = metaData.getColumnCount();
-            
+
             if (colNum != copyResult.length) {
                 return false;
             }
-            
+
             for (int i = 1; i <= colNum; i++) {
                 String columnName = metaData.getColumnName(i);
                 if (!copyResult[i - 1].equalsIgnoreCase(columnName)) {
                     return false;
                 }
             }
-            
+
             return true;
         }
 
