@@ -52,11 +52,15 @@ public:
 
     BloomFilterAlgorithmPB algorithm() { return _bloom_filter_index_meta->algorithm(); }
 
+    HashStrategyPB hash_strategy() { return _bloom_filter_index_meta->hash_strategy(); }
+
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator,
                         OlapReaderStatistics* index_load_stats);
 
     const TypeInfo* type_info() const { return _type_info; }
+
+    io::FileReaderSPtr file_reader() const { return _file_reader; }
 
 private:
     Status _load(bool use_page_cache, bool kept_in_memory, OlapReaderStatistics* index_load_stats);
