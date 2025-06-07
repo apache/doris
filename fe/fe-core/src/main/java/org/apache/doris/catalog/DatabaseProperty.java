@@ -17,16 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -36,7 +29,7 @@ import java.util.Map;
  * If there is different type property is added, write a method,
  * such as `checkAndBuildIcebergProperty` to check and build it.
  */
-public class DatabaseProperty implements Writable {
+public class DatabaseProperty {
 
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
@@ -73,14 +66,5 @@ public class DatabaseProperty implements Writable {
 
     public void updateProperties(Map<String, String> newProperties) {
         properties.putAll(newProperties);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static DatabaseProperty read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), DatabaseProperty.class);
     }
 }

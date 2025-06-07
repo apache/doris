@@ -22,14 +22,11 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -38,7 +35,6 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.lang.ref.SoftReference;
@@ -253,15 +249,6 @@ public class View extends Table implements GsonPostProcessable {
         return copied;
     }
 
-    public static View read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            View t = new View();
-            t.readFields(in);
-            return t;
-        }
-        return GsonUtils.GSON.fromJson(Text.readString(in), View.class);
-    }
-
     public void resetIdsForRestore(Env env) {
         id = env.getNextId();
     }
@@ -277,14 +264,5 @@ public class View extends Table implements GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         originalViewDef = "";
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        // just do not want to modify the meta version, so leave originalViewDef here but set it as empty
-        originalViewDef = Text.readString(in);
-        originalViewDef = "";
-        inlineViewDef = Text.readString(in);
     }
 }

@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -39,8 +38,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -254,16 +251,6 @@ public class AliasFunction extends Function {
                 .append(originFunction.toSql())
                 .append(";");
         return sb.toString();
-    }
-
-    @Override
-    public void readFields(DataInput input) throws IOException {
-        super.readFields(input);
-        int counter = input.readInt();
-        for (int i = 0; i < counter; i++) {
-            parameters.add(Text.readString(input));
-        }
-        originFunction = Expr.readIn(input);
     }
 
     @Override

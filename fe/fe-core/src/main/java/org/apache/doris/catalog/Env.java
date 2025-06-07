@@ -2307,9 +2307,7 @@ public class Env {
     }
 
     public long loadSyncJobs(DataInputStream dis, long checksum) throws IOException, DdlException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_103) {
-            syncJobManager.readField(dis);
-        }
+        syncJobManager.readField(dis);
         LOG.info("finished replay syncJobMgr from image");
         return checksum;
     }
@@ -2489,9 +2487,7 @@ public class Env {
     }
 
     public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_104) {
-            sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
-        }
+        sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
         LOG.info("finished replay sqlBlockRule from image");
         return checksum;
     }
@@ -2500,9 +2496,7 @@ public class Env {
      * Load policy through file.
      **/
     public long loadPolicy(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_109) {
-            policyMgr = PolicyMgr.read(in);
-        }
+        policyMgr = PolicyMgr.read(in);
         LOG.info("finished replay policy from image");
         return checksum;
     }

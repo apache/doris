@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -50,27 +48,11 @@ public class HbPackage implements Writable {
     }
 
     public static HbPackage read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            HbPackage hbPackage = new HbPackage();
-            hbPackage.readFields(in);
-            return hbPackage;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), HbPackage.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), HbPackage.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            HeartbeatResponse result = HeartbeatResponse.read(in);
-            hbResults.add(result);
-        }
-    }
-
 }
