@@ -7666,13 +7666,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String dbName = null;
         String group;
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        if (nameParts.size() == 2) {
+        if (nameParts.size() == 1) {
+            group = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
             dbName = nameParts.get(0);
             group = nameParts.get(1);
-        } else if (nameParts.size() == 1) {
-            group = nameParts.get(0);
         } else {
-            throw new ParseException("invalid group name!");
+            throw new ParseException("only support [<db>.]<group_name>", ctx.name);
         }
         ColocateGroupName groupName = new ColocateGroupName(dbName, group);
         Map<String, String> properties = new HashMap<>();

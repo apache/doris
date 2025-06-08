@@ -61,11 +61,14 @@ public class AlterColocateGroupCommand extends AlterCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        ctx.getEnv().getColocateTableIndex().alterColocateGroup(this);
         validate(ctx);
+        ctx.getEnv().getColocateTableIndex().alterColocateGroup(this);
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    /**
+     * validate
+     */
+    public void validate(ConnectContext ctx) throws AnalysisException {
         colocateGroupName.validate(ctx);
 
         String dbName = colocateGroupName.getDb();
