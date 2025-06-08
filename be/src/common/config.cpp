@@ -1499,6 +1499,16 @@ DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
 
+//some LLM config
+DEFINE_String(llm_provider, "openai");
+DEFINE_String(llm_endpoint_url, "");
+DEFINE_String(llm_model_name, "gpt-3.5-turbo");
+DEFINE_String(llm_api_key, "");
+DEFINE_mInt32(llm_max_retries, "3");
+DEFINE_mInt32(llm_retry_delay_ms, "1000");
+DEFINE_mInt32(llm_timeout_ms, "30000");
+DEFINE_mDouble(llm_temperature, "0.7");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

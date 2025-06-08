@@ -1573,6 +1573,16 @@ DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
 
+// some LLM config
+DECLARE_String(llm_provider);
+DECLARE_String(llm_endpoint_url);
+DECLARE_String(llm_model_name);
+DECLARE_String(llm_api_key);
+DECLARE_mInt32(llm_max_retries);
+DECLARE_mInt32(llm_retry_delay_ms);
+DECLARE_mInt32(llm_timeout_ms);
+DECLARE_mDouble(llm_temperature);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
