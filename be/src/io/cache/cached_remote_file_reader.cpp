@@ -339,9 +339,6 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         statis->num_local_io_total++;
         statis->bytes_read_from_local += read_stats.bytes_read;
     } else {
-        if (is_inverted_index) {
-            statis->num_inverted_index_remote_io_total++;
-        }
         statis->num_remote_io_total++;
         statis->bytes_read_from_remote += read_stats.bytes_read;
     }
@@ -356,6 +353,18 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->lock_wait_timer += read_stats.lock_wait_timer;
     statis->get_timer += read_stats.get_timer;
     statis->set_timer += read_stats.set_timer;
+
+    if (is_inverted_index) {
+        if (read_stats.hit_cache) {
+            statis->inverted_index_num_local_io_total++;
+            statis->inverted_index_bytes_read_from_local += read_stats.bytes_read;
+        } else {
+            statis->inverted_index_num_remote_io_total++;
+            statis->inverted_index_bytes_read_from_remote += read_stats.bytes_read;
+        }
+        statis->inverted_index_local_io_timer += read_stats.local_read_timer;
+        statis->inverted_index_remote_io_timer += read_stats.remote_read_timer;
+    }
 
     g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;

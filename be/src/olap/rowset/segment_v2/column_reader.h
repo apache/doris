@@ -147,8 +147,6 @@ public:
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iterator);
 
-    // Seek to the first entry in the column.
-    Status seek_to_first(OrdinalPageIndexIterator* iter, const ColumnIteratorOptions& iter_opts);
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
 
@@ -302,9 +300,6 @@ public:
         return Status::OK();
     }
 
-    // Seek to the first entry in the column.
-    virtual Status seek_to_first() = 0;
-
     // Seek to the given ordinal entry in the column.
     // Entry 0 is the first entry written to the column.
     // If provided seek point is past the end of the file,
@@ -362,8 +357,6 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status seek_to_first() override;
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     Status seek_to_page_start();
@@ -397,7 +390,7 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
 private:
-    void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
+    Status _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
@@ -432,7 +425,6 @@ private:
 
 class EmptyFileColumnIterator final : public ColumnIterator {
 public:
-    Status seek_to_first() override { return Status::OK(); }
     Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
     ordinal_t get_current_ordinal() const override { return 0; }
 };
@@ -454,11 +446,6 @@ public:
     }
     Status seek_to_ordinal(ordinal_t ord) override {
         RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
-        return Status::OK();
-    }
-
-    Status seek_to_first() override {
-        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
         return Status::OK();
     }
 
@@ -486,15 +473,6 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
-    Status seek_to_first() override {
-        RETURN_IF_ERROR(_key_iterator->seek_to_first());
-        RETURN_IF_ERROR(_val_iterator->seek_to_first());
-        RETURN_IF_ERROR(_offsets_iterator->seek_to_first());
-        if (_map_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_first());
-        }
-        return Status::OK();
-    }
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
@@ -524,16 +502,6 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
 
-    Status seek_to_first() override {
-        for (auto& column_iterator : _sub_column_iterators) {
-            RETURN_IF_ERROR(column_iterator->seek_to_first());
-        }
-        if (_struct_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_first());
-        }
-        return Status::OK();
-    }
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
@@ -560,15 +528,6 @@ public:
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
 
-    Status seek_to_first() override {
-        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
-        RETURN_IF_ERROR(_item_iterator->seek_to_first()); // lazy???
-        if (_array_reader->is_nullable()) {
-            RETURN_IF_ERROR(_null_iterator->seek_to_first());
-        }
-        return Status::OK();
-    }
-
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
@@ -589,11 +548,6 @@ public:
     RowIdColumnIterator() = delete;
     RowIdColumnIterator(int64_t tid, RowsetId rid, int32_t segid)
             : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
-
-    Status seek_to_first() override {
-        _current_rowid = 0;
-        return Status::OK();
-    }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
@@ -640,11 +594,6 @@ public:
     RowIdColumnIteratorV2(uint8_t version, int64_t backend_id, uint32_t file_id)
             : _version(version), _backend_id(backend_id), _file_id(file_id) {}
 
-    Status seek_to_first() override {
-        _current_rowid = 0;
-        return Status::OK();
-    }
-
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
         return Status::OK();
@@ -678,8 +627,6 @@ public:
     ~VariantRootColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
-
-    Status seek_to_first() override { return _inner_iter->seek_to_first(); }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         return _inner_iter->seek_to_ordinal(ord_idx);
@@ -719,11 +666,6 @@ public:
               _scale(scale) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_first() override {
-        _current_rowid = 0;
-        return Status::OK();
-    }
 
     Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
@@ -776,14 +718,6 @@ public:
     Status init(const ColumnIteratorOptions& opts) override {
         if (_sibling_iter) {
             return _sibling_iter->init(opts);
-        }
-        return Status::OK();
-    }
-
-    Status seek_to_first() override {
-        _current_rowid = 0;
-        if (_sibling_iter) {
-            return _sibling_iter->seek_to_first();
         }
         return Status::OK();
     }

@@ -141,8 +141,7 @@ TEST_F(DistinctAggUtilsTest, TestDistinctDataVariantsInitNumerics) {
     test_function<vectorized::UInt128, DistinctData<vectorized::UInt128>>(
             std::make_shared<vectorized::DataTypeInt128>(), HashKeyType::int128_key);
     test_function<vectorized::UInt256, DistinctData<vectorized::UInt256>>(
-            std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal256>>(),
-            HashKeyType::int256_key);
+            std::make_shared<vectorized::DataTypeDecimal256>(), HashKeyType::int256_key);
 }
 
 TEST_F(DistinctAggUtilsTest, TestDistinctDataVariantsInitFixedKeys) {

@@ -31,7 +31,6 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"

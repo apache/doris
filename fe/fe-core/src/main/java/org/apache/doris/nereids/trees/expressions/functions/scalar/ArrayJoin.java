@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -58,6 +60,15 @@ public class ArrayJoin extends ScalarFunction
      */
     public ArrayJoin(Expression arg0, Expression arg1, Expression arg2) {
         super("array_join", arg0, arg1, arg2);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException(toSql() + " does not support type: "
+                                    + ((ArrayType) argType).getItemType().toString());
+        }
     }
 
     /**

@@ -19,7 +19,6 @@
 
 #include "runtime/define_primitive_type.h"
 #include "udf/udf.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
 #include "vec/functions/like.h"
@@ -35,7 +34,7 @@ LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id,
                   "TYPE_STRING");
     _state = reinterpret_cast<StateType*>(
             fn_ctx->get_function_state(doris::FunctionContext::THREAD_LOCAL));
-    static_cast<void>(_state->search_state.clone(_like_state));
+    THROW_IF_ERROR(_state->search_state.clone(_like_state));
 }
 
 template <PrimitiveType T>
@@ -68,7 +67,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     sel[new_size] = idx;
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                     unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
+                    THROW_IF_ERROR((_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
                             StringRef(cell_value.data, cell_value.size), pattern, &flag));
                     new_size += _opposite ^ flag;
@@ -84,7 +83,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
 
                     StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                     unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
+                    THROW_IF_ERROR((_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
                             StringRef(cell_value.data, cell_value.size), pattern, &flag));
                     new_size += _opposite ^ flag;
@@ -99,7 +98,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                     uint16_t idx = sel[i];
                     sel[new_size] = idx;
                     unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
+                    THROW_IF_ERROR((_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
                             str_col->get_data_at(idx), pattern, &flag));
                     new_size += _opposite ^ flag;
@@ -115,7 +114,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
 
                     StringRef cell_value = str_col->get_data_at(idx);
                     unsigned char flag = 0;
-                    static_cast<void>((_state->scalar_function)(
+                    THROW_IF_ERROR((_state->scalar_function)(
                             const_cast<vectorized::LikeSearchState*>(&_like_state),
                             StringRef(cell_value.data, cell_value.size), pattern, &flag));
                     new_size += _opposite ^ flag;
@@ -132,7 +131,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 sel[new_size] = idx;
                 StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[idx]);
                 unsigned char flag = 0;
-                static_cast<void>((_state->scalar_function)(
+                THROW_IF_ERROR((_state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&_like_state),
                         StringRef(cell_value.data, cell_value.size), pattern, &flag));
                 new_size += _opposite ^ flag;
@@ -146,7 +145,7 @@ uint16_t LikeColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& colu
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
                 unsigned char flag = 0;
-                static_cast<void>((_state->scalar_function)(
+                THROW_IF_ERROR((_state->scalar_function)(
                         const_cast<vectorized::LikeSearchState*>(&_like_state),
                         str_col->get_data_at(idx), pattern, &flag));
                 new_size += _opposite ^ flag;

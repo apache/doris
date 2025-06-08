@@ -58,7 +58,7 @@ public:
     std::string do_get_name() const override {
         return "Nullable(" + nested_data_type->get_name() + ")";
     }
-    const char* get_family_name() const override { return "Nullable"; }
+    const std::string get_family_name() const override { return "Nullable"; }
     PrimitiveType get_primitive_type() const override {
         return nested_data_type->get_primitive_type();
     }
