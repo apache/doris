@@ -67,6 +67,13 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
     public static final String PROP_FORCE_REPLACE = "force_replace";
     public static final String PROP_STORAGE_VAULT_NAME = "storage_vault_name";
+    public static final String PROP_STORAGE_MEDIUM = "storage_medium";
+    public static final String STORAGE_MEDIUM_HDD = "hdd";
+    public static final String STORAGE_MEDIUM_SSD = "ssd";
+    public static final String STORAGE_MEDIUM_SAME_WITH_UPSTREAM = "same_with_upstream";
+    public static final String PROP_MEDIUM_ALLOCATION_MODE = "medium_allocation_mode";
+    public static final String MEDIUM_ALLOCATION_MODE_STRICT = "strict";
+    public static final String MEDIUM_ALLOCATION_MODE_ADAPTIVE = "adaptive";
 
     private static final Logger LOG = LogManager.getLogger(RestoreCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
@@ -89,6 +96,8 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private boolean isCleanPartitions = false;
     private boolean isAtomicRestore = false;
     private boolean isForceReplace = false;
+    private String storageMedium = STORAGE_MEDIUM_SAME_WITH_UPSTREAM;
+    private String mediumAllocationMode = MEDIUM_ALLOCATION_MODE_STRICT;
 
     private final LabelNameInfo labelNameInfo;
     private final String repoName;
@@ -308,6 +317,31 @@ public class RestoreCommand extends Command implements ForwardWithSync {
         // is force replace
         isForceReplace = eatBooleanProperty(copiedProperties, PROP_FORCE_REPLACE, isForceReplace);
 
+        // storage medium
+        if (copiedProperties.containsKey(PROP_STORAGE_MEDIUM)) {
+            storageMedium = copiedProperties.get(PROP_STORAGE_MEDIUM);
+            if (!storageMedium.equals(STORAGE_MEDIUM_HDD)
+                    && !storageMedium.equals(STORAGE_MEDIUM_SSD)
+                    && !storageMedium.equals(STORAGE_MEDIUM_SAME_WITH_UPSTREAM)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid storage_medium value: " + storageMedium
+                        + ". Must be 'hdd', 'ssd' or 'same_with_upstream'");
+            }
+            copiedProperties.remove(PROP_STORAGE_MEDIUM);
+        }
+
+        // medium allocation mode
+        if (copiedProperties.containsKey(PROP_MEDIUM_ALLOCATION_MODE)) {
+            mediumAllocationMode = copiedProperties.get(PROP_MEDIUM_ALLOCATION_MODE);
+            if (!mediumAllocationMode.equals(MEDIUM_ALLOCATION_MODE_STRICT)
+                    && !mediumAllocationMode.equals(MEDIUM_ALLOCATION_MODE_ADAPTIVE)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid medium_allocation_mode value: " + mediumAllocationMode
+                        + ". Must be 'strict' or 'adaptive'");
+            }
+            copiedProperties.remove(PROP_MEDIUM_ALLOCATION_MODE);
+        }
+
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
                     "Unknown restore job properties: " + copiedProperties.keySet());
@@ -406,6 +440,14 @@ public class RestoreCommand extends Command implements ForwardWithSync {
 
     public boolean isForceReplace() {
         return isForceReplace;
+    }
+
+    public String getStorageMedium() {
+        return storageMedium;
+    }
+
+    public String getMediumAllocationMode() {
+        return mediumAllocationMode;
     }
 
     public boolean isLocal() {

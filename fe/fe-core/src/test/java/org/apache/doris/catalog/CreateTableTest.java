@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -303,7 +304,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
                                 "create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
-                                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+                                        + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd', 'medium_allocation_mode' = 'strict');"));
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
@@ -318,7 +319,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + "    PARTITION `p2` VALUES LESS THAN (\"20\"),\n"
                                 + "    PARTITION `p3` VALUES LESS THAN (\"30\"))\n"
                                 + "distributed by hash(key1)\n"
-                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
+                                + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd', 'medium_allocation_mode' = 'strict');"));
 
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "sequence column only support UNIQUE_KEYS",
@@ -1080,5 +1081,66 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"dynamic_partition.prefix\" = \"p\",\n"
                         + "\"dynamic_partition.start\" = \"-3\"\n"
                         + ");", true));
+    }
+
+    @Test
+    public void testStorageMediumProperty() throws Exception {
+        // 1. Test create table with 'storage_medium' property.
+        // This should implicitly set 'storage_medium_specified' to true.
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl_storage_medium_specified\n" + "(k1 date, k2 int)\n"
+                        + "partition by range(k1)\n" + "(partition p1 values less than('2024-01-01'))\n"
+                        + "distributed by hash(k2) buckets 1\n"
+                        + "properties('replication_num' = '1', 'storage_medium' = 'HDD', 'medium_allocation_mode' = 'strict'); "));
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("tbl_storage_medium_specified");
+        Assert.assertEquals("HDD", table.getTableProperty().getStorageMedium().name());
+        Assert.assertEquals(MediumAllocationMode.STRICT, table.getTableProperty().getMediumAllocationMode());
+        Partition p1 = table.getPartition("p1");
+        Assert.assertEquals("HDD", table.getPartitionInfo().getDataProperty(p1.getId()).getStorageMedium().name());
+
+        // 2. Test create table with partition-level storage_medium override.
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.tbl_storage_medium_override\n"
+                + "(k1 date, k2 int)\n" + "partition by range(k1)\n"
+                + "(partition p1 values less than ('2024-01-01'),\n"
+                + " partition p2 values less than ('2024-02-01'))\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties('replication_num' = '1', 'storage_medium' = 'SSD'); "));
+        OlapTable table2 = (OlapTable) db.getTableOrDdlException("tbl_storage_medium_override");
+        Partition part1 = table2.getPartition("p1");
+        Partition part2 = table2.getPartition("p2");
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, table2.getTableProperty().getMediumAllocationMode());
+        Assert.assertEquals("HDD", table2.getPartitionInfo().getDataProperty(part1.getId()).getStorageMedium().name());
+        Assert.assertEquals("HDD", table2.getPartitionInfo().getDataProperty(part2.getId()).getStorageMedium().name());
+
+        // 3. Test create table with 'storage_medium_specified' explicitly set.
+        // This property is allowed to be set by user.
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.tbl_explicitly_specified\n" + "(k1 int, k2 int)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num' = '1', 'storage_medium' = 'SSD', 'medium_allocation_mode' = 'adaptive'); "));
+        OlapTable table3 = (OlapTable) db.getTableOrDdlException("tbl_explicitly_specified");
+        Assert.assertEquals("SSD", table3.getTableProperty().getStorageMedium().name());
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, table3.getTableProperty().getMediumAllocationMode());
+    }
+
+    @Test
+    public void testAlterPartWithMediumAllocationMode() throws DdlException {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.tbl_alter_allocation\n"
+                + "(k1 date, k2 int)\n" + "partition by range(k1)\n"
+                + "(partition p1 values less than ('2024-01-01'),\n"
+                + " partition p2 values less than ('2024-02-01'))\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties('replication_num' = '1', 'storage_medium' = 'SSD'); "));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> {
+                    alterTableSync("alter table test.tbl_alter_allocation modify partition p1 set ('medium_allocation_mode' = 'strict')");
+                });
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable tb = (OlapTable) db.getTableOrDdlException("tbl_alter_allocation");
+        Partition p1 = tb.getPartition("p1");
+        Assert.assertEquals(MediumAllocationMode.STRICT, tb.getPartitionInfo().getDataProperty(p1.getId()).getMediumAllocationMode());
     }
 }

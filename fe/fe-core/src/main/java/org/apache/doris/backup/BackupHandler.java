@@ -629,7 +629,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
                 command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
                 command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
-                env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+                command.getStorageMedium(), command.getMediumAllocationMode(), env, Repository.KEEP_ON_LOCAL_REPO_ID,
+                backupMeta);
         } else {
             if (Config.isCloudMode()) {
                 restoreJob = new CloudRestoreJob(command.getLabel(), command.getBackupTimestamp(),
@@ -644,7 +645,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
                     command.reserveColocate(), command.reserveDynamicPartitionEnable(), command.isBeingSynced(),
                     command.isCleanTables(), command.isCleanPartitions(), command.isAtomicRestore(),
-                    command.isForceReplace(), env, repository.getId());
+                    command.isForceReplace(), command.getStorageMedium(), command.getMediumAllocationMode(),
+                    env, repository.getId());
             }
         }
 

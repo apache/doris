@@ -59,10 +59,11 @@ public class BatchModifyPartitionsInfoTest {
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         List<Long> partitionIds = Lists.newArrayList(PARTITION_ID_1, PARTITION_ID_2, PARTITION_ID_3);
+        int i = 0;
         for (long partitionId : partitionIds) {
             modifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
                     new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM), ReplicaAllocation.DEFAULT_ALLOCATION,
-                    true, "", Maps.newHashMap()));
+                    true, "", Maps.newHashMap(), "p" + (i++), false));
         }
 
         BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(modifyInfos);
