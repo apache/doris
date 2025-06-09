@@ -71,6 +71,24 @@
 0.0	false	8
 0.0	false	9
 
+-- !cot_1 --
+-0.6420926159343306	false
+
+-- !cot_2 --
+0.6420926159343306	false
+
+-- !cot_3 --
+\N	true	0
+\N	true	1
+\N	true	2
+\N	true	3
+\N	true	4
+\N	true	5
+\N	true	6
+\N	true	7
+\N	true	8
+\N	true	9
+
 -- !sqrt_1 --
 \N	true
 

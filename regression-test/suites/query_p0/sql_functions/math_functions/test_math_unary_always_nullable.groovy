@@ -60,6 +60,16 @@ suite("test_math_unary_alway_nullable") {
         select atanh(0.0), atanh(0.0) is NULL, number from numbers("number"="10")
     """
 
+    qt_cot_1 """
+        select cot(-1.0), cot(-1.0) is null;
+    """
+    qt_cot_2 """
+        select cot(1.0), cot(1.0) is null;
+    """
+    qt_cot_3 """
+        select cot(0.0), cot(0.0) is NULL, number from numbers("number"="10")
+    """
+
     qt_sqrt_1 """
         select sqrt(-1), sqrt(-1) is null;
     """
