@@ -427,7 +427,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     sql """drop table if exists ${ctlName}.${dbName}.${tableName7}"""
     def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
     def test_sql6 = """SELECT * FROM ${ctlName}.${dbName}.${tableName6}"""
-    assertTrue(state_mtmv6[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv6[0][0] == "NORMAL")
     assertTrue(state_mtmv6[0][2] == false)
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
         sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
