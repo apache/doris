@@ -24,6 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Triple;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -52,6 +53,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class CloudWarmUpJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(CloudWarmUpJob.class);
@@ -99,6 +101,12 @@ public class CloudWarmUpJob implements Writable {
     @SerializedName(value = "JobType")
     protected JobType jobType;
 
+    @SerializedName(value = "tables")
+    protected List<Triple<String, String, String>> tables = new ArrayList<>();
+
+    @SerializedName(value = "force")
+    protected boolean force = false;
+
     private Map<Long, Client> beToClient;
 
     private Map<Long, TNetworkAddress> beToAddr;
@@ -126,6 +134,14 @@ public class CloudWarmUpJob implements Writable {
                 beToThriftAddress.put(backend.getId(), backend.getHost() + ":" + backend.getBePort());
             }
         }
+    }
+
+    public CloudWarmUpJob(long jobId, String cloudClusterName,
+                          Map<Long, List<List<Long>>> beToTabletIdBatches, JobType jobType,
+                          List<Triple<String, String, String>> tables, boolean force) {
+        this(jobId, cloudClusterName, beToTabletIdBatches, jobType);
+        this.tables = tables;
+        this.force = force;
     }
 
     public long getJobId() {
@@ -182,6 +198,8 @@ public class CloudWarmUpJob implements Writable {
         info.add(Long.toString(maxBatchSize));
         info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
         info.add(errMsg);
+        info.add(tables.stream().map(t -> t.getLeft() + "." + t.getMiddle() + "." + t.getRight())
+                .collect(Collectors.joining(", ")));
         return info;
     }
 
