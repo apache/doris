@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/cast_set.h"
 #include "util/counts.h"
 #include "util/tdigest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -47,6 +48,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -113,7 +115,7 @@ struct PercentileApproxState {
 
     double get() const {
         if (init_flag) {
-            return digest->quantile(target_quantile);
+            return digest->quantile(static_cast<float>(target_quantile));
         } else {
             return std::nan("");
         }
@@ -136,14 +138,14 @@ struct PercentileApproxState {
         }
     }
 
-    void add(double source) { digest->add(source); }
+    void add(double source) const { digest->add(static_cast<float>(source)); }
 
-    void add_with_weight(double source, double weight) {
+    void add_with_weight(double source, double weight) const {
         // the weight should be positive num, as have check the value valid use DCHECK_GT(c._weight, 0);
         if (weight <= 0) {
             return;
         }
-        digest->add(source, weight);
+        digest->add(static_cast<float>(source), static_cast<float>(weight));
     }
 
     void reset() {
@@ -327,7 +329,7 @@ struct PercentileState {
         if (!inited_flag) {
             return;
         }
-        int size_num = vec_quantile.size();
+        int size_num = cast_set<int>(vec_quantile.size());
         write_binary(size_num, buf);
         for (const auto& quantile : vec_quantile) {
             write_binary(quantile, buf);
@@ -394,7 +396,7 @@ struct PercentileState {
         if (!rhs.inited_flag) {
             return;
         }
-        int size_num = rhs.vec_quantile.size();
+        int size_num = cast_set<int>(rhs.vec_quantile.size());
         if (!inited_flag) {
             vec_counts.resize(size_num);
             vec_quantile.resize(size_num, -1);
@@ -518,7 +520,8 @@ public:
 
         AggregateFunctionPercentileArray::data(place).add(
                 sources.get_element(row_num), nested_column_data.get_data(), null_maps,
-                offset_column_data.data()[row_num] - offset_column_data[(ssize_t)row_num - 1]);
+                cast_set<int>(offset_column_data.data()[row_num] -
+                              offset_column_data[(ssize_t)row_num - 1]));
     }
 
     void reset(AggregateDataPtr __restrict place) const override {
@@ -555,4 +558,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
