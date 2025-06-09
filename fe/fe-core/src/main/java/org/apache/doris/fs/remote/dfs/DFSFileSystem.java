@@ -27,11 +27,11 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
-import org.apache.doris.fs.remote.RemoteFSPhantomManager;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -54,8 +54,11 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -64,6 +67,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     private HDFSFileOperations operations = null;
     private HadoopAuthenticator authenticator = null;
     private final HdfsCompatibleProperties hdfsProperties;
+    protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    private final ReentrantLock fsLock = new ReentrantLock();
 
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
         super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
@@ -76,6 +81,44 @@ public class DFSFileSystem extends RemoteFileSystem {
         return hdfsProperties;
     }
 
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        try {
+            org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
+            Path locatedPath = new Path(remotePath);
+            RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
+            while (locatedFiles.hasNext()) {
+                LocatedFileStatus fileStatus = locatedFiles.next();
+                RemoteFile location = new RemoteFile(
+                        fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                        fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
+                result.add(location);
+            }
+        } catch (FileNotFoundException e) {
+            return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        try {
+            FileSystem fileSystem = nativeFileSystem(remotePath);
+            FileStatus[] fileStatuses = getFileStatuses(remotePath, fileSystem);
+            result.addAll(
+                    Arrays.stream(fileStatuses)
+                            .filter(FileStatus::isDirectory)
+                            .map(file -> file.getPath().toString() + "/")
+                            .collect(ImmutableSet.toImmutableSet()));
+        } catch (Exception e) {
+            return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties, StorageBackend.StorageType storageType) {
         super(storageType.name(), storageType);
         this.properties.putAll(hdfsProperties.getOrigProps());
@@ -83,7 +126,6 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     @VisibleForTesting
-    @Override
     public FileSystem nativeFileSystem(String remotePath) throws UserException {
         if (closed.get()) {
             throw new UserException("FileSystem is closed.");
@@ -95,6 +137,9 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 if (dfsFileSystem == null) {
                     Configuration conf = hdfsProperties.getHadoopConfiguration();
+                    // TODO: Temporarily disable the HDFS file system cache to prevent instances from being closed by
+                    //  each other in V1. This line can be removed once V1 and V2 are unified.
+                    conf.set("fs.hdfs.impl.disable.cache", "true");
                     authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
@@ -116,7 +161,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                FileSystem fileSystem, Path locatedPath) throws IOException {
+                                                                FileSystem fileSystem, Path locatedPath)
+            throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -226,7 +272,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-                throws IOException {
+            throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {
@@ -498,5 +544,18 @@ public class DFSFileSystem extends RemoteFileSystem {
     @VisibleForTesting
     public HadoopAuthenticator getAuthenticator() {
         return authenticator;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                if (dfsFileSystem != null) {
+                    dfsFileSystem.close();
+                }
+            } catch (IOException e) {
+                LOG.warn("Failed to close DFSFileSystem: {}", e.getMessage(), e);
+            }
+        }
     }
 }

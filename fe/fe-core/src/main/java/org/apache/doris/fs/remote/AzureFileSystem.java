@@ -19,14 +19,13 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
-import org.apache.hadoop.fs.FileSystem;
-
+import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 public class AzureFileSystem extends ObjFileSystem {
 
@@ -39,8 +38,18 @@ public class AzureFileSystem extends ObjFileSystem {
     }
 
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
-        return null;
+    public Status renameDir(String origFilePath, String destFilePath) {
+        throw new UnsupportedOperationException("Renaming directories is not supported in Azure File System.");
+    }
+
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        throw new UnsupportedOperationException("Listing files is not supported in Azure File System.");
+    }
+
+    @Override
+    public Status globList(String remotePath, List<RemoteFile> result) {
+        return this.globList(remotePath, result, false);
     }
 
     @Override
@@ -50,7 +59,23 @@ public class AzureFileSystem extends ObjFileSystem {
     }
 
     @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        throw new UnsupportedOperationException("Listing directories is not supported in Azure File System.");
+    }
+
+    @Override
     public StorageProperties getStorageProperties() {
         return azureProperties;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                objStorage.close();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 }
