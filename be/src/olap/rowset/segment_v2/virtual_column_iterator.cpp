@@ -35,6 +35,7 @@ Status VirtualColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
+// TODO(zhiqiang): What if input is empty?
 void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr column,
                                                     std::unique_ptr<std::vector<uint64_t>> labels) {
     DCHECK(labels->size() == column->size()) << "labels size: " << labels->size()
@@ -45,6 +46,11 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
     const std::vector<uint64_t>& labels_ref = *labels;
     const size_t n = labels_ref.size();
     LOG_INFO("Input labels {}", fmt::join(labels_ref, ", "));
+    if (n == 0) {
+        _size = 0;
+        _max_ordinal = 0;
+        return;
+    }
     std::vector<size_t> order(n);
     // global_row_id_to_idx:
     // {5:0, 4:1, 1:2, 10:3, 7:4, 2:5}
@@ -82,16 +88,6 @@ void VirtualColumnIterator::prepare_materialization(vectorized::IColumn::Ptr col
 
     LOG_INFO("virtual column iterator, row_idx_to_idx:\n{}", msg);
     _filter = doris::vectorized::IColumn::Filter(_size, 0);
-}
-
-Status VirtualColumnIterator::seek_to_first() {
-    if (_size < 0) {
-        // _materialized_column is not set. do nothing.
-        return Status::OK();
-    }
-    _current_ordinal = 0;
-
-    return Status::OK();
 }
 
 Status VirtualColumnIterator::seek_to_ordinal(ordinal_t ord_idx) {

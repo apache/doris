@@ -317,10 +317,6 @@ bool OlapScanLocalState::_storage_no_merge() {
 }
 
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
-    // auto& p = _parent->cast<OlapScanOperatorX>();
-    // if (p._olap_scan_node.keyType != TKeysType::DUP_KEYS) {
-    //     return Status::NotSupported("Now only dup keys table is supported");
-    // }
     if (_scan_ranges.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
@@ -343,8 +339,10 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
     auto& p = _parent->cast<OlapScanOperatorX>();
 
     for (auto uid : p._olap_scan_node.output_column_unique_ids) {
-        _maybe_read_column_ids.emplace(uid);
+        _output_column_unique_ids.emplace(uid);
     }
+
+    LOG_INFO("Output column unique ids: {}", fmt::join(_output_column_unique_ids, ", "));
 
     // ranges constructed from scan keys
     RETURN_IF_ERROR(_scan_keys.get_key_range(&_cond_ranges));

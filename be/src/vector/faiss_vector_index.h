@@ -28,6 +28,11 @@
 #include "common/status.h"
 #include "vector_index.h"
 
+namespace doris::vectorized {
+struct IndexSearchParameters;
+struct IndexSearchResult;
+} // namespace doris::vectorized
+
 namespace doris::segment_v2 {
 struct FaissBuildParameter {
     enum class IndexType { BruteForce, IVF, HNSW };
@@ -93,12 +98,12 @@ public:
     void set_build_params(const FaissBuildParameter& params);
 
     doris::Status ann_topn_search(const float* query_vec, int k,
-                                  const IndexSearchParameters& params,
-                                  IndexSearchResult& result) override;
+                                  const vectorized::IndexSearchParameters& params,
+                                  vectorized::IndexSearchResult& result) override;
 
     doris::Status range_search(const float* query_vec, const float& radius,
-                               const IndexSearchParameters& params,
-                               IndexSearchResult& result) override;
+                               const vectorized::IndexSearchParameters& params,
+                               vectorized::IndexSearchResult& result) override;
 
     doris::Status save(lucene::store::Directory*) override;
 

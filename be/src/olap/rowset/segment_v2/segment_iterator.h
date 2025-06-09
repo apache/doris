@@ -470,9 +470,17 @@ private:
 
     std::vector<uint8_t> _ret_flags;
 
+    /*
+    * column and column_predicates on it.
+    * a boolean value to indicate whether the column has been read by the index.
+    */
     std::unordered_map<ColumnId, std::unordered_map<ColumnPredicate*, bool>>
             _column_predicate_inverted_index_status;
 
+    /*
+    * column and common expr on it.
+    * a boolean value to indicate whether the column has been read by the index.
+    */
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>
             _common_expr_inverted_index_status;
 

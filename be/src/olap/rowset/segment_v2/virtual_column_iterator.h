@@ -38,8 +38,6 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status seek_to_first() override;
-
     Status seek_to_ordinal(ordinal_t ord_idx) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;

@@ -26,6 +26,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vector/metric.h"
 
 namespace doris::vectorized {
 
@@ -44,7 +45,7 @@ public:
                                       roaring::Roaring& row_bitmap,
                                       vectorized::IColumn::MutablePtr& result_column,
                                       std::unique_ptr<std::vector<uint64_t>>& row_ids);
-    segment_v2::VectorIndex::Metric get_metric_type() const { return _metric_type; }
+    segment_v2::Metric get_metric_type() const { return _metric_type; }
     std::string debug_string() const;
 
     size_t get_src_column_idx() const { return _src_column_idx; }
@@ -62,7 +63,7 @@ private:
     std::string _name = "ann_topn_runtime";
     size_t _src_column_idx = -1;
     size_t _dest_column_idx = -1;
-    segment_v2::VectorIndex::Metric _metric_type;
+    segment_v2::Metric _metric_type;
     IColumn::Ptr _query_array;
     doris::VectorSearchUserParams _user_params;
 };

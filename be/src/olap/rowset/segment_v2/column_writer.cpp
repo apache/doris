@@ -517,9 +517,8 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     return Status::OK();
 }
 
-// append data to page builder. this function will make sure that
-// num_rows must be written before return. And ptr will be modified
-// to next data should be written
+// Appends data to the page builder, ensuring all num_rows are written.
+// Advances ptr to point to the next data to be written after completion.
 Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
     while (remaining > 0) {
@@ -532,14 +531,6 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             RETURN_IF_ERROR(finish_current_page());
         }
     }
-    return Status::OK();
-}
-
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
-    RETURN_IF_CATCH_EXCEPTION(
-            { return _internal_append_data_in_current_page(*data, num_written); });
-
-    *data += get_field()->size() * (*num_written);
     return Status::OK();
 }
 
@@ -933,18 +924,19 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
     auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
     // total number length
-    size_t element_cnt = (*data_ptr);
+    size_t element_cnt = size_t((unsigned long)(*data_ptr));
     auto offset_data = *(data_ptr + 1);
     const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
     auto data = *(data_ptr + 2);
     auto nested_null_map = *(data_ptr + 3);
+    LOG_INFO("ArrayColumnWriter, element_cnt{}", element_cnt);
     if (element_cnt > 0) {
         RETURN_IF_ERROR(_item_writer->append(reinterpret_cast<const uint8_t*>(nested_null_map),
                                              reinterpret_cast<const void*>(data), element_cnt));
     }
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-        // now only support nested type is scala
+        // Only support scalar as nested type
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_inverted_index_builder->add_array_values(
@@ -955,16 +947,26 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 
     if (_opts.need_ann_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
-        // now only support nested type is scala
+        // Only support scalar as nested type
         if (writer != nullptr) {
             //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
             RETURN_IF_ERROR(_ann_index_builder->add_array_values(
                     _item_writer->get_field()->size(), reinterpret_cast<const void*>(data),
                     reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+        } else {
+            return Status::NotSupported(
+                    "Ann index can only be build on array with scalar type. but got {} as nested",
+                    _item_writer->get_field()->type());
         }
     }
 
     RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows));
+    return Status::OK();
+}
+
+Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
+    RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
+    *data += get_field()->size() * (*num_written);
     return Status::OK();
 }
 

@@ -19,15 +19,11 @@
 
 #include <string>
 
-namespace doris {
-// Constructed from session variables.
-struct VectorSearchUserParams {
-    int hnsw_ef_search = 16;
-    bool hnsw_check_relative_distance = true;
-    bool hnsw_bounded_queue = true;
+namespace doris::segment_v2 {
+enum class Metric { L2, INNER_PRODUCT, UNKNOWN };
 
-    bool operator==(const VectorSearchUserParams& other) const;
+std::string metric_to_string(Metric metric);
 
-    std::string to_string() const;
-};
-} // namespace doris
+Metric string_to_metric(const std::string& metric);
+
+} // namespace doris::segment_v2

@@ -19,7 +19,6 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -37,13 +36,9 @@ public:
     static constexpr auto name = "l2_distance_approximate";
     struct State {
         double sum = 0;
-        size_t count = 0;
     };
-    static void accumulate(State& state, double x, double y) {
-        state.sum += (x - y) * (x - y);
-        state.count++;
-    }
-    static double finalize(const State& state) { return sqrt(state.sum / state.count); }
+    static void accumulate(State& state, double x, double y) { state.sum += (x - y) * (x - y); }
+    static double finalize(const State& state) { return sqrt(state.sum); }
 };
 
 class InnerProductApproximate {

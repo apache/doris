@@ -19,6 +19,8 @@
 
 #include <memory>
 
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+
 namespace doris::segment_v2 {
 
 AnnIndexIterator::AnnIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
@@ -28,7 +30,7 @@ AnnIndexIterator::AnnIndexIterator(const io::IOContext& io_ctx, OlapReaderStatis
 }
 
 Status AnnIndexIterator::read_from_index(const IndexParam& param) {
-    auto* a_param = std::get<AnnIndexParam*>(param);
+    auto* a_param = std::get<vectorized::AnnIndexParam*>(param);
     if (a_param == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("a_param is null");
     }
@@ -36,9 +38,9 @@ Status AnnIndexIterator::read_from_index(const IndexParam& param) {
     return _ann_reader->query(&_io_ctx, a_param);
 }
 
-Status AnnIndexIterator::range_search(const RangeSearchParams& params,
+Status AnnIndexIterator::range_search(const vectorized::RangeSearchParams& params,
                                       const VectorSearchUserParams& custom_params,
-                                      RangeSearchResult* result) {
+                                      vectorized::RangeSearchResult* result) {
     if (_ann_reader == nullptr) {
         return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>("_ann_reader is null");
     }

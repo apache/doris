@@ -71,13 +71,16 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             LogicalProject<?> project,
             LogicalOlapScan scan,
             Optional<LogicalFilter<?>> optionalFilter) {
+        // Retrives the expression used for ordering in the TopN.
         Expression orderKey = topN.getOrderKeys().get(0).getExpr();
+        // The order key must be a SlotReference corresponding to an expr.
         if (!(orderKey instanceof SlotReference)) {
             return null;
         }
         SlotReference keySlot = (SlotReference) orderKey;
         Expression orderKeyExpr = null;
         Alias orderKeyAlias = null;
+        // Find the corresponding expression in the project that matches the keySlot.
         for (NamedExpression projection : project.getProjects()) {
             if (projection.toSlot().equals(keySlot) && projection instanceof Alias) {
                 orderKeyExpr = ((Alias) projection).child();

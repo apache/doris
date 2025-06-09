@@ -15,19 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "vector/metric.h"
 
 #include <string>
 
-namespace doris {
-// Constructed from session variables.
-struct VectorSearchUserParams {
-    int hnsw_ef_search = 16;
-    bool hnsw_check_relative_distance = true;
-    bool hnsw_bounded_queue = true;
+#include "vec/functions/array/function_array_distance.h"
 
-    bool operator==(const VectorSearchUserParams& other) const;
+namespace doris::segment_v2 {
 
-    std::string to_string() const;
-};
-} // namespace doris
+std::string metric_to_string(Metric metric) {
+    switch (metric) {
+    case Metric::L2:
+        return vectorized::L2Distance::name;
+    case Metric::INNER_PRODUCT:
+        return vectorized::InnerProduct::name;
+    default:
+        return "UNKNOWN";
+    }
+}
+
+Metric string_to_metric(const std::string& metric) {
+    if (metric == vectorized::L2Distance::name) {
+        return Metric::L2;
+    } else if (metric == vectorized::InnerProduct::name) {
+        return Metric::INNER_PRODUCT;
+    } else {
+        return Metric::UNKNOWN;
+    }
+}
+
+} // namespace doris::segment_v2

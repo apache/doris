@@ -207,12 +207,14 @@ bool VirtualSlotRef::equals(const VExpr& other) {
 }
 
 Status VirtualSlotRef::evaluate_ann_range_search(
+        const RangeSearchRuntimeInfo& range_search_runtime,
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         roaring::Roaring& row_bitmap) {
     if (_virtual_column_expr != nullptr) {
-        return _virtual_column_expr->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
+        return _virtual_column_expr->evaluate_ann_range_search(range_search_runtime,
+                                                               cid_to_index_iterators, idx_to_cid,
                                                                column_iterators, row_bitmap);
     }
     return Status::OK();

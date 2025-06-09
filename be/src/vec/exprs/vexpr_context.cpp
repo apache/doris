@@ -117,6 +117,9 @@ Status VExprContext::clone(RuntimeState* state, VExprContextSPtr& new_ctx) {
     new_ctx->_is_clone = true;
     new_ctx->_prepared = true;
     new_ctx->_opened = true;
+    // RangeSearchRuntimeInfo should be cloned as well.
+    // The object of RangeSearchRuntimeInfo is not shared by threads.
+    new_ctx->_ann_range_search_runtime = this->_ann_range_search_runtime;
 
     return _root->open(state, new_ctx.get(), FunctionContext::THREAD_LOCAL);
 }
@@ -436,7 +439,24 @@ Status VExprContext::prepare_ann_range_search(const doris::VectorSearchUserParam
     if (_root == nullptr) {
         return Status::OK();
     }
-    return _root->prepare_ann_range_search(params);
+
+    RETURN_IF_ERROR(_root->prepare_ann_range_search(params, _ann_range_search_runtime,
+                                                    _suitable_for_ann_index));
+    LOG_INFO("Prepare ann range search result {}, _suitable_for_ann_index {}",
+             this->_ann_range_search_runtime.to_string(), this->_suitable_for_ann_index);
+    return Status::OK();
+}
+
+Status VExprContext::evaluate_ann_range_search(
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap) {
+    if (_root != nullptr) {
+        return _root->evaluate_ann_range_search(_ann_range_search_runtime, cid_to_index_iterators,
+                                                idx_to_cid, column_iterators, row_bitmap);
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

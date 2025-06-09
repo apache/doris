@@ -29,6 +29,7 @@ if (BUILD_FAISS)
     list(APPEND VECTOR_LIB_SRC
         faiss_vector_index.h
         faiss_vector_index.cpp
+        metric.cpp
     )
     list(APPEND VECTOR_LIB_DEPENDENCIES faiss)
 endif()

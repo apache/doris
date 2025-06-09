@@ -23,6 +23,7 @@
 #include "ann_index_iterator.h"
 #include "common/config.h"
 #include "io/io_common.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "runtime/runtime_state.h"
@@ -32,7 +33,7 @@
 
 namespace doris::segment_v2 {
 
-void AnnIndexReader::update_result(const IndexSearchResult& search_result,
+void AnnIndexReader::update_result(const vectorized::IndexSearchResult& search_result,
                                    std::vector<float>& distance, roaring::Roaring& roaring) {
     DCHECK(search_result.distances != nullptr);
     DCHECK(search_result.roaring != nullptr);
@@ -54,7 +55,7 @@ AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
     _index_type = it->second;
     it = index_properties.find("metric_type");
     DCHECK(it != index_properties.end());
-    _metric_type = VectorIndex::string_to_metric(it->second);
+    _metric_type = string_to_metric(it->second);
 }
 
 Status AnnIndexReader::new_iterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
@@ -81,16 +82,16 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
     });
 }
 
-Status AnnIndexReader::query(io::IOContext* io_ctx, AnnIndexParam* param) {
+Status AnnIndexReader::query(io::IOContext* io_ctx, vectorized::AnnIndexParam* param) {
 #ifndef BE_TEST
     RETURN_IF_ERROR(load_index(io_ctx));
 #endif
     DCHECK(_vector_index != nullptr);
     const float* query_vec = param->query_value;
     const int limit = param->limit;
-    IndexSearchResult index_search_result;
+    vectorized::IndexSearchResult index_search_result;
     if (_index_type == "hnsw") {
-        HNSWSearchParameters hnsw_search_params;
+        vectorized::HNSWSearchParameters hnsw_search_params;
         hnsw_search_params.roaring = param->roaring;
         hnsw_search_params.ef_search = param->_user_params.hnsw_ef_search;
         hnsw_search_params.check_relative_distance =
@@ -112,18 +113,18 @@ Status AnnIndexReader::query(io::IOContext* io_ctx, AnnIndexParam* param) {
     return Status::OK();
 }
 
-Status AnnIndexReader::range_search(const RangeSearchParams& params,
+Status AnnIndexReader::range_search(const vectorized::RangeSearchParams& params,
                                     const VectorSearchUserParams& custom_params,
-                                    RangeSearchResult* result, io::IOContext* io_ctx) {
+                                    vectorized::RangeSearchResult* result, io::IOContext* io_ctx) {
 #ifndef BE_TEST
     RETURN_IF_ERROR(load_index(io_ctx));
 #endif
     DCHECK(_vector_index != nullptr);
-    IndexSearchResult search_result;
-    std::unique_ptr<IndexSearchParameters> search_param = nullptr;
+    vectorized::IndexSearchResult search_result;
+    std::unique_ptr<vectorized::IndexSearchParameters> search_param = nullptr;
 
     if (_index_type == "hnsw") {
-        auto hnsw_param = std::make_unique<HNSWSearchParameters>();
+        auto hnsw_param = std::make_unique<vectorized::HNSWSearchParameters>();
         hnsw_param->ef_search = custom_params.hnsw_ef_search;
         hnsw_param->check_relative_distance = custom_params.hnsw_check_relative_distance;
         hnsw_param->bounded_queue = custom_params.hnsw_bounded_queue;

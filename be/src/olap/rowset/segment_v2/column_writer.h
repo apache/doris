@@ -165,7 +165,7 @@ public:
 
     virtual ordinal_t get_next_rowid() const = 0;
 
-    // used for append not null data.
+    // Append non-null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
 
     bool is_nullable() const { return _is_nullable; }
@@ -221,6 +221,10 @@ public:
 
     // used for append not null data. When page is full, will append data not reach num_rows.
     Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written) {
+        RETURN_IF_CATCH_EXCEPTION(
+                { return _internal_append_data_in_current_page(ptr, num_written); });
+    }
 
     friend class ArrayColumnWriter;
     friend class OffsetColumnWriter;

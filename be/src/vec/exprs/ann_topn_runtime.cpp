@@ -22,13 +22,13 @@
 #include <string>
 
 #include "common/logging.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index_iterator.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vexpr_context.h"
@@ -114,7 +114,7 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
     // Strip the "_approximate" suffix
     metric_name = metric_name.substr(0, metric_name.size() - 12);
 
-    _metric_type = segment_v2::VectorIndex::string_to_metric(metric_name);
+    _metric_type = segment_v2::string_to_metric(metric_name);
 
     VLOG_DEBUG << "AnnTopNRuntime: {}" << this->debug_string();
     return Status::OK();
@@ -147,7 +147,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
         query_value_f32[i] = static_cast<float>(query_value[i]);
     }
 
-    segment_v2::AnnIndexParam ann_query_params {
+    vectorized::AnnIndexParam ann_query_params {
             .query_value = query_value_f32.get(),
             .query_value_size = query_value_size,
             .limit = _limit,
@@ -178,7 +178,6 @@ std::string AnnTopNRuntime::debug_string() const {
             "AnnTopNRuntime: limit={}, src_col_idx={}, dest_col_idx={}, asc={}, user_params={}, "
             "metric_type={}, order_by_expr={}",
             _limit, _src_column_idx, _dest_column_idx, _asc, _user_params.to_string(),
-            segment_v2::VectorIndex::metric_to_string(_metric_type),
-            _order_by_expr_ctx->root()->debug_string());
+            segment_v2::metric_to_string(_metric_type), _order_by_expr_ctx->root()->debug_string());
 }
 } // namespace doris::vectorized

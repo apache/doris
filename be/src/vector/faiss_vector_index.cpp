@@ -31,6 +31,7 @@
 #include "common/status.h"
 #include "faiss/IndexHNSW.h"
 #include "faiss/impl/io.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
@@ -179,8 +180,8 @@ void FaissVectorIndex::set_build_params(const FaissBuildParameter& params) {
 
 // TODO: Support batch search
 doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
-                                                const IndexSearchParameters& params,
-                                                IndexSearchResult& result) {
+                                                const vectorized::IndexSearchParameters& params,
+                                                vectorized::IndexSearchResult& result) {
     std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(k);
     float* distances = distances_ptr.get();
 
@@ -197,8 +198,8 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
         std::unique_ptr<faiss::IDSelector> id_sel = nullptr;
         id_sel = roaring_to_faiss_selector(*params.roaring);
         faiss::SearchParametersHNSW param;
-        const HNSWSearchParameters* hnsw_params =
-                dynamic_cast<const HNSWSearchParameters*>(&params);
+        const vectorized::HNSWSearchParameters* hnsw_params =
+                dynamic_cast<const vectorized::HNSWSearchParameters*>(&params);
         if (hnsw_params == nullptr) {
             return doris::Status::InvalidArgument(
                     "HNSW search parameters should not be null for HNSW index");
@@ -213,13 +214,13 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
 
     result.roaring = std::make_shared<roaring::Roaring>();
     update_roaring(labels, k, *result.roaring);
-    result.distances = std::move(distances_ptr);
-
+    size_t roaring_cardinality = result.roaring->cardinality();
+    result.distances = std::make_unique<float[]>(roaring_cardinality);
     result.row_ids = std::make_unique<std::vector<uint64_t>>();
-    for (size_t i = 0; i < k; ++i) {
-        if (labels[i] >= 0) {
-            result.row_ids->push_back(labels[i]);
-        }
+    
+    for (size_t i = 0; i < roaring_cardinality; ++i) {
+        result.row_ids->push_back(labels[i]);
+        result.distances[i] = std::sqrt(distances[i]); // Convert squared distance to actual distance
     }
 
     DCHECK(result.row_ids->size() == result.roaring->cardinality())
@@ -229,15 +230,17 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
 }
 
 doris::Status FaissVectorIndex::range_search(const float* query_vec, const float& radius,
-                                             const IndexSearchParameters& params,
-                                             IndexSearchResult& result) {
+                                             const vectorized::IndexSearchParameters& params,
+                                             vectorized::IndexSearchResult& result) {
     DCHECK(_index != nullptr);
+    DCHECK(query_vec != nullptr);
     std::unique_ptr<faiss::IDSelector> sel = nullptr;
     if (params.roaring != nullptr) {
         sel = roaring_to_faiss_selector(*params.roaring);
     }
     faiss::RangeSearchResult native_search_result(1, true);
-    const HNSWSearchParameters* hnsw_params = dynamic_cast<const HNSWSearchParameters*>(&params);
+    const vectorized::HNSWSearchParameters* hnsw_params =
+            dynamic_cast<const vectorized::HNSWSearchParameters*>(&params);
     if (hnsw_params != nullptr) {
         faiss::SearchParametersHNSW param;
         param.efSearch = hnsw_params->ef_search;
@@ -263,6 +266,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         for (size_t i = begin; i < end; ++i) {
             (*row_ids)[i] = native_search_result.labels[i];
             roaring->add(native_search_result.labels[i]);
+            // TODO: l2_distance and inner_product is different.
             distances[i] = sqrt(native_search_result.distances[i]);
         }
 

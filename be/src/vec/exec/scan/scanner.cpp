@@ -184,6 +184,7 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
         for (int i = 0; i < projections.size(); i++) {
             RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
         }
+
         input_block.shuffle_columns(result_column_ids);
     }
 

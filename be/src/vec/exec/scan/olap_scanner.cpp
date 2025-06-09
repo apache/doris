@@ -92,7 +92,7 @@ OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Para
                   .target_cast_type_for_variants {},
                   .rs_splits {},
                   .return_columns {},
-                  .output_columns {},
+                  .output_column_unique_ids {},
                   .remaining_conjunct_roots {},
                   .common_expr_ctxs_push_down {},
                   .topn_filter_source_node_ids {},
@@ -133,14 +133,6 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 }
 
 Status OlapScanner::init() {
-    const TOlapScanNode& olap_scan_node =
-            _local_state->cast<pipeline::OlapScanLocalState>().olap_scan_node();
-    if (olap_scan_node.__isset.keyType) {
-        if (olap_scan_node.keyType != TKeysType::DUP_KEYS) {
-            return Status::InternalError<false>("Currently only support DUP_KEYS, but got {}",
-                                                olap_scan_node.keyType);
-        }
-    }
     _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
@@ -150,7 +142,9 @@ Status OlapScanner::init() {
         VExprContextSPtr context;
         RETURN_IF_ERROR(ctx->clone(_state, context));
         _common_expr_ctxs_push_down.emplace_back(context);
+        LOG_INFO("Prepare ann range search.");
         RETURN_IF_ERROR(context->prepare_ann_range_search(_vector_search_params));
+        LOG_INFO("Finish prepare ann range search, query_id={}", print_id(_state->query_id()));
     }
 
     for (auto pair : local_state->_slot_id_to_virtual_column_expr) {
@@ -325,8 +319,8 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
-    _tablet_reader_params.output_columns =
-            ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
+    _tablet_reader_params.output_column_unique_ids =
+            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_unique_ids;
     for (const auto& ele :
          ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] =

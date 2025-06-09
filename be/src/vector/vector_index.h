@@ -22,62 +22,20 @@
 
 #include "common/status.h"
 #include "vec/functions/array/function_array_distance.h"
+#include "vector/metric.h"
 
 namespace lucene::store {
 class Directory;
 }
+
+namespace doris::vectorized {
+struct IndexSearchParameters;
+struct IndexSearchResult;
+} // namespace doris::vectorized
 namespace doris::segment_v2 {
-/*
-This struct is used to wrap the search result of a vector index.
-roaring is a bitmap that contains the row ids that satisfy the search condition.
-row_ids is a vector of row ids that are returned by the search, it could be used by virtual_column_iterator to do column filter.
-distances is a vector of distances that are returned by the search.
-For range search, is condition is not le_or_lt, the row_ids and distances will be nullptr.
-*/
-struct IndexSearchResult {
-    IndexSearchResult() = default;
-
-    std::unique_ptr<float[]> distances = nullptr;
-    std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
-    std::shared_ptr<roaring::Roaring> roaring = nullptr;
-};
-
-struct IndexSearchParameters {
-    roaring::Roaring* roaring = nullptr;
-    bool is_le_or_lt = true;
-    virtual ~IndexSearchParameters() = default;
-};
-
-struct HNSWSearchParameters : public IndexSearchParameters {
-    int ef_search = 16;
-    bool check_relative_distance = true;
-    bool bounded_queue = true;
-};
 
 class VectorIndex {
 public:
-    enum class Metric { L2, INNER_PRODUCT, UNKNOWN };
-
-    static std::string metric_to_string(Metric metric) {
-        switch (metric) {
-        case Metric::L2:
-            return vectorized::L2Distance::name;
-        case Metric::INNER_PRODUCT:
-            return vectorized::InnerProduct::name;
-        default:
-            return "UNKNOWN";
-        }
-    }
-    static Metric string_to_metric(const std::string& metric) {
-        if (metric == vectorized::L2Distance::name) {
-            return Metric::L2;
-        } else if (metric == vectorized::InnerProduct::name) {
-            return Metric::INNER_PRODUCT;
-        } else {
-            return Metric::UNKNOWN;
-        }
-    }
-
     virtual ~VectorIndex() = default;
 
     /** Add n vectors of dimension d vectors to the index.
@@ -99,8 +57,8 @@ public:
      * @return          status of the operation
     */
     virtual doris::Status ann_topn_search(const float* query_vec, int k,
-                                          const IndexSearchParameters& params,
-                                          IndexSearchResult& result) = 0;
+                                          const vectorized::IndexSearchParameters& params,
+                                          vectorized::IndexSearchResult& result) = 0;
     /**
     * Search for the nearest neighbors of a query vector within a given radius.
     * @param query_vec  input vector, size d
@@ -109,8 +67,8 @@ public:
     * @return       status of the operation
     */
     virtual doris::Status range_search(const float* query_vec, const float& radius,
-                                       const IndexSearchParameters& params,
-                                       IndexSearchResult& result) = 0;
+                                       const vectorized::IndexSearchParameters& params,
+                                       vectorized::IndexSearchResult& result) = 0;
 
     virtual doris::Status save(lucene::store::Directory*) = 0;
 

@@ -25,36 +25,12 @@
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "runtime/runtime_state.h"
 
+namespace doris::vectorized {
+struct RangeSearchParams;
+struct RangeSearchResult;
+} // namespace doris::vectorized
+
 namespace doris::segment_v2 {
-
-struct AnnIndexParam {
-    const float* query_value;
-    const size_t query_value_size;
-    size_t limit;
-    doris::VectorSearchUserParams _user_params;
-    roaring::Roaring* roaring;
-    std::unique_ptr<std::vector<float>> distance = nullptr;
-    std::unique_ptr<std::vector<uint64_t>> row_ids = nullptr;
-};
-
-struct RangeSearchParams {
-    bool is_le_or_lt = true;
-    float* query_value = nullptr;
-    float radius = -1;
-    roaring::Roaring* roaring; // roaring from segment_iterator
-    std::string to_string() const {
-        DCHECK(roaring != nullptr);
-        return fmt::format("is_le_or_lt: {}, radius: {}, input rows {}", is_le_or_lt, radius,
-                           roaring->cardinality());
-    }
-    virtual ~RangeSearchParams() = default;
-};
-
-struct RangeSearchResult {
-    std::shared_ptr<roaring::Roaring> roaring;
-    std::unique_ptr<std::vector<uint64_t>> row_ids;
-    std::unique_ptr<float[]> distance;
-};
 
 // IndexIterator 与 IndexReader 的角色似乎有点重复，未来可以重构后删除一层概念
 class AnnIndexIterator : public IndexIterator {
@@ -77,9 +53,9 @@ public:
 
     bool has_null() override { return true; }
 
-    MOCK_FUNCTION Status range_search(const RangeSearchParams& params,
+    MOCK_FUNCTION Status range_search(const vectorized::RangeSearchParams& params,
                                       const VectorSearchUserParams& custom_params,
-                                      RangeSearchResult* result);
+                                      vectorized::RangeSearchResult* result);
 
 private:
     std::shared_ptr<AnnIndexReader> _ann_reader;

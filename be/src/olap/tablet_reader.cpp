@@ -264,7 +264,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.ann_topn_runtime = read_params.ann_topn_runtime;
     _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
     _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
-    _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.output_columns = &read_params.output_column_unique_ids;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
 

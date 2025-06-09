@@ -27,13 +27,16 @@
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "runtime/runtime_state.h"
 
+namespace doris::vectorized {
+struct AnnIndexParam;
+}
+
 namespace doris::segment_v2 {
 
 class InvertedIndexQueryCacheHandle;
 
 struct InvertedIndexParam;
-struct AnnIndexParam;
-using IndexParam = std::variant<InvertedIndexParam*, AnnIndexParam*>;
+using IndexParam = std::variant<InvertedIndexParam*, vectorized::AnnIndexParam*>;
 
 class IndexIterator {
 public:

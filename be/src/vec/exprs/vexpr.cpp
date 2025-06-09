@@ -804,6 +804,7 @@ bool VExpr::equals(const VExpr& other) {
 }
 
 Status VExpr::evaluate_ann_range_search(
+        const RangeSearchRuntimeInfo& runtime,
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
@@ -811,9 +812,18 @@ Status VExpr::evaluate_ann_range_search(
     return Status::OK();
 }
 
-Status VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params) {
+Status VExpr::prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                       RangeSearchRuntimeInfo& range_search_runtime,
+                                       bool& suitable_for_ann_index) {
+    if (!suitable_for_ann_index) {
+        return Status::OK();
+    }
     for (auto& child : _children) {
-        RETURN_IF_ERROR(child->prepare_ann_range_search(params));
+        RETURN_IF_ERROR(child->prepare_ann_range_search(params, range_search_runtime,
+                                                        suitable_for_ann_index));
+        if (!suitable_for_ann_index) {
+            return Status::OK();
+        }
     }
     return Status::OK();
 }

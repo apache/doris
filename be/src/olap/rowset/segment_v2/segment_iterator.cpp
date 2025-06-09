@@ -51,6 +51,7 @@
 #include "olap/match_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
+#include "olap/rowset/segment_v2/ann_index_reader.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
@@ -566,9 +567,11 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
             _opts.stats->rows_inverted_index_filtered += (input_rows - _row_bitmap.cardinality());
+
             for (auto cid : _schema->column_ids()) {
                 bool result_true = _check_all_conditions_passed_inverted_index_for_column(cid);
-
+                LOG_INFO("Check all conditions passed in inverted index for column {}, result: {}",
+                         cid, result_true);
                 if (result_true) {
                     _need_read_data_indices[cid] = false;
                 }
@@ -639,7 +642,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     auto index_reader = ann_index_iterator->get_reader();
     auto ann_index_reader = dynamic_cast<AnnIndexReader*>(index_reader.get());
     DCHECK(ann_index_reader != nullptr);
-    if (ann_index_reader->get_metric_type() == VectorIndex::Metric::INNER_PRODUCT) {
+    if (ann_index_reader->get_metric_type() == Metric::INNER_PRODUCT) {
         if (_ann_topn_runtime->is_asc()) {
             LOG_INFO("Asc topn for inner product can not be evaluated by ann index");
             return Status::OK();
@@ -655,8 +658,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
         LOG_INFO(
                 "Ann topn metric type {} not match index metric type {}, can not be evaluated by "
                 "ann index",
-                VectorIndex::metric_to_string(_ann_topn_runtime->get_metric_type()),
-                VectorIndex::metric_to_string(ann_index_reader->get_metric_type()));
+                metric_to_string(_ann_topn_runtime->get_metric_type()),
+                metric_to_string(ann_index_reader->get_metric_type()));
         return Status::OK();
     }
 
@@ -688,6 +691,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
              result_row_ids->size());
     virtual_column_iter->prepare_materialization(std::move(result_column),
                                                  std::move(result_row_ids));
+
     return Status::OK();
 }
 
@@ -965,8 +969,8 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        RETURN_IF_ERROR(expr_ctx->root()->evaluate_ann_range_search(
-                _index_iterators, idx_to_cids, _column_iterators, _row_bitmap));
+        RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(_index_iterators, idx_to_cids,
+                                                            _column_iterators, _row_bitmap));
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
@@ -1081,14 +1085,16 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
             _opts.enable_unique_key_merge_on_write)))) {
         return true;
     }
+    // this is a virtual column, we always need to read data
     if (this->_vir_cid_to_idx_in_block.contains(cid)) {
         return true;
     }
 
-    // if there is delete predicate, we always need to read data
+    // if there is a delete predicate, we always need to read data
     if (_has_delete_predicate(cid)) {
         return true;
     }
+
     if (_output_columns.count(-1)) {
         // if _output_columns contains -1, it means that the light
         // weight schema change may not be enabled or other reasons
@@ -1104,6 +1110,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
     // Then, return false.
     int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    LOG_INFO("Output columns contains {} is {}", cid, _output_columns.contains(unique_id));
     if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          !_output_columns.contains(unique_id)) ||
         (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
@@ -1916,9 +1923,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
         auto& column = _current_return_columns[cid];
         if (!_virtual_column_exprs.contains(cid)) {
             if (_no_need_read_key_data(cid, column, nrows_read)) {
+                LOG_INFO("Column {} no need to read.", cid);
                 continue;
             }
             if (_prune_column(cid, column, true, nrows_read)) {
+                LOG_INFO("Column {} is pruned. No need to read data.", cid);
                 continue;
             }
 
@@ -2409,8 +2418,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         RETURN_IF_ERROR(_convert_to_expected_type(_cols_read_by_column_predicate));
         RETURN_IF_ERROR(_convert_to_expected_type(_cols_not_included_by_any_predicates));
         LOG_INFO(
-                "No need to evaluate any predicates or filter, output non-predicate columns, "
-                "block rows {}, selected size {}",
+                "No need to evaluate any predicates or filter block rows {}, "
+                "_current_batch_rows_read {}",
                 block->rows(), _current_batch_rows_read);
         _output_non_pred_columns(block);
     } else {
@@ -2772,6 +2781,7 @@ Status SegmentIterator::_construct_compound_expr_context() {
             _common_expr_inverted_index_status);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
+        // _ann_range_search_runtime will do deep copy.
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
         context->set_inverted_index_context(inverted_index_context);
         _common_expr_ctxs_push_down.emplace_back(context);

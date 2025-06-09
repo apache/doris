@@ -124,16 +124,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .collect(ImmutableList.toImmutableList());
         newRelation = newRelation.withVirtualColumns(virtualColumns);
         context.putRelation(catalogRelation.getRelationId(), newRelation);
-        return newRelation;
-    }
-
-    @Override
-    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, DeepCopierContext context) {
-        if (context.getRelationReplaceMap().containsKey(relation.getRelationId())) {
-            return context.getRelationReplaceMap().get(relation.getRelationId());
-        }
-        LogicalCatalogRelation newRelation = (LogicalCatalogRelation) visitLogicalRelation(relation, context);
-        return updateOperativeSlots(relation, newRelation);
+        return updateOperativeSlots(catalogRelation, newRelation);
     }
 
     @Override

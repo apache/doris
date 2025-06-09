@@ -153,7 +153,7 @@ public:
         // return_columns is init from query schema
         std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
-        std::set<int32_t> output_columns;
+        std::set<int32_t> output_column_unique_ids;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
