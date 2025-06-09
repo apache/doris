@@ -296,7 +296,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
 
 
-     */
+
 
     // mtmv2: add partition
     sql """insert into ${ctlName}.${dbName}.${tableName2} values(13,13,"2018-01-15");"""
@@ -418,6 +418,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         }
 
     }
+
+
+     */
 
 
     // mtmv6: drop table of dependent table
