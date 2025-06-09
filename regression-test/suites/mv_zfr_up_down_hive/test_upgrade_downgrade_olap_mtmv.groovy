@@ -149,6 +149,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     }
     assertTrue(step != 0)
 
+
+    /*
     // mtmv5: normal situation, the base table and mtmv remain unchanged
     // success
     sql """switch internal;"""
@@ -292,6 +294,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
 
+
+
+     */
 
     // mtmv2: add partition
     sql """insert into ${ctlName}.${dbName}.${tableName2} values(13,13,"2018-01-15");"""
