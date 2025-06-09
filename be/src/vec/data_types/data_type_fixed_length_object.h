@@ -46,7 +46,7 @@ public:
 
     const std::string get_family_name() const override { return "DataTypeFixedLengthObject"; }
 
-    PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
+    PrimitiveType get_primitive_type() const override { return PType; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
@@ -57,7 +57,6 @@ public:
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for DataTypeFixedLengthObject");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
