@@ -727,6 +727,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
@@ -6704,6 +6705,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         String indexId = stripQuotes(ctx.indexId.getText());
         return new ShowIndexStatsCommand(tableName, indexId);
+    }
+
+    @Override
+    public LogicalPlan visitShowIndex(DorisParser.ShowIndexContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+        String databaseName = ctx.database == null ? null : ctx.database.getText();
+        if (databaseName != null && tableName.getDb() != null && !tableName.getDb().equals(databaseName)) {
+            throw new ParseException("The name of two databases should be the same");
+        }
+        if (tableName.getDb() == null) {
+            tableName.setDb(databaseName);
+        }
+        return new ShowIndexCommand(tableName);
     }
 
     @Override

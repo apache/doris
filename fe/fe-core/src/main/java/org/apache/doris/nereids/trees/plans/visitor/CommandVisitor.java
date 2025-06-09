@@ -181,6 +181,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
@@ -1094,6 +1095,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowIndexStatsCommand(ShowIndexStatsCommand showIndexStatsCommand, C context) {
         return visitCommand(showIndexStatsCommand, context);
+    }
+
+    default R visitShowIndexCommand(ShowIndexCommand showIndexCommand, C context) {
+        return visitCommand(showIndexCommand, context);
     }
 
     default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
