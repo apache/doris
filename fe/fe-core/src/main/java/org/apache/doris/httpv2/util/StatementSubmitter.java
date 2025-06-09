@@ -107,7 +107,8 @@ public class StatementSubmitter {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
-                if (stmtBase instanceof QueryCommand || stmtBase instanceof ShowCommand || stmtBase instanceof CopyIntoCommand) {
+                if (stmtBase instanceof QueryCommand || stmtBase instanceof ShowCommand
+                        || stmtBase instanceof CopyIntoCommand) {
                     if (!queryCtx.clusterName.isEmpty()) {
                         Statement useStmt = conn.createStatement();
                         useStmt.execute("use @" + queryCtx.clusterName);
@@ -123,7 +124,8 @@ public class StatementSubmitter {
                         rs.close();
                         return new ExecutionResultSet(null);
                     }
-                    ExecutionResultSet resultSet = generateResultSet(rs, startTime, stmtBase instanceof CopyIntoCommand);
+                    ExecutionResultSet resultSet = generateResultSet(rs, startTime,
+                            stmtBase instanceof CopyIntoCommand);
                     rs.close();
                     return resultSet;
                 } else {
