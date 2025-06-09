@@ -856,7 +856,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.InPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
-import org.apache.doris.nereids.trees.plans.commands.info.LoadLabel;
 import org.apache.doris.nereids.trees.plans.commands.info.LockTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
@@ -7737,9 +7736,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (nameParts.size() == 1) {
             jobName = nameParts.get(0);
         } else {
-            throw new ParseException("invalid load label!");
+            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
-        LoadLabel loadLabel = new LoadLabel(dbName, jobName);
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
 
         Map<String, String> properties = new HashMap<>();
         if (ctx.properties != null) {
@@ -7750,7 +7749,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.propertyItemList() != null) {
             dataSourceMapProperties.putAll(visitPropertyItemList(ctx.propertyItemList()));
         }
-        return new AlterRoutineLoadCommand(loadLabel, properties, dataSourceMapProperties);
+        return new AlterRoutineLoadCommand(labelNameInfo, properties, dataSourceMapProperties);
     }
 
     @Override

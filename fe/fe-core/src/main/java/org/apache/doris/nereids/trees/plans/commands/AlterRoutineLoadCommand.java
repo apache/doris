@@ -33,7 +33,7 @@ import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.LoadLabel;
+import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -41,6 +41,7 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.MapUtils;
+import org.eclipse.jetty.util.StringUtil;
 
 import java.util.Map;
 import java.util.Objects;
@@ -65,11 +66,6 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY)
             .add(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY)
-            .add(CreateRoutineLoadInfo.JSONPATHS)
-            .add(CreateRoutineLoadInfo.JSONROOT)
-            .add(CreateRoutineLoadInfo.STRIP_OUTER_ARRAY)
-            .add(CreateRoutineLoadInfo.NUM_AS_STRING)
-            .add(CreateRoutineLoadInfo.FUZZY_PARSE)
             .add(CreateRoutineLoadInfo.PARTIAL_COLUMNS)
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
@@ -78,7 +74,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.KEY_ESCAPE)
             .build();
 
-    private final LoadLabel loadLabel;
+    private final LabelNameInfo labelNameInfo;
     private final Map<String, String> jobProperties;
     private final Map<String, String> dataSourceMapProperties;
     private boolean isPartialUpdate;
@@ -91,14 +87,14 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     /**
      * AlterRoutineLoadCommand
      */
-    public AlterRoutineLoadCommand(LoadLabel loadLabel,
+    public AlterRoutineLoadCommand(LabelNameInfo labelNameInfo,
                                    Map<String, String> jobProperties,
                                    Map<String, String> dataSourceMapProperties) {
         super(PlanType.ALTER_ROUTINE_LOAD_COMMAND);
-        Objects.requireNonNull(loadLabel, "loadLabel is null");
+        Objects.requireNonNull(labelNameInfo, "labelNameInfo is null");
         Objects.requireNonNull(jobProperties, "jobProperties is null");
         Objects.requireNonNull(dataSourceMapProperties, "dataSourceMapProperties is null");
-        this.loadLabel = loadLabel;
+        this.labelNameInfo = labelNameInfo;
         this.jobProperties = jobProperties;
         this.dataSourceMapProperties = dataSourceMapProperties;
         this.isPartialUpdate = this.jobProperties.getOrDefault(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "false")
@@ -106,11 +102,11 @@ public class AlterRoutineLoadCommand extends AlterCommand {
     }
 
     public String getDbName() {
-        return loadLabel.getDbName();
+        return labelNameInfo.getDb();
     }
 
     public String getJobName() {
-        return loadLabel.getJobName();
+        return labelNameInfo.getLabel();
     }
 
     public Map<String, String> getAnalyzedJobProperties() {
@@ -139,8 +135,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
      * validate
      */
     public void validate(ConnectContext ctx) throws UserException {
-        loadLabel.validate(ctx);
-        FeNameFormat.checkCommonName(NAME_TYPE, loadLabel.getJobName());
+        labelNameInfo.validate(ctx);
+        FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
         // check routine load job properties include desired concurrent number etc.
         checkJobProperties();
         // check data source properties
@@ -223,39 +219,18 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             analyzedJobProperties.put(CreateRoutineLoadInfo.TIMEZONE, timezone);
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.JSONPATHS)) {
-            analyzedJobProperties.put(CreateRoutineLoadInfo.JSONPATHS,
-                    jobProperties.get(CreateRoutineLoadInfo.JSONPATHS));
-        }
-
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.JSONROOT)) {
-            analyzedJobProperties.put(CreateRoutineLoadInfo.JSONROOT,
-                    jobProperties.get(CreateRoutineLoadInfo.JSONROOT));
-        }
-
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.STRIP_OUTER_ARRAY)) {
-            boolean stripOuterArray = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadInfo.STRIP_OUTER_ARRAY));
-            analyzedJobProperties.put(CreateRoutineLoadInfo.STRIP_OUTER_ARRAY, String.valueOf(stripOuterArray));
-        }
-
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.NUM_AS_STRING)) {
-            boolean numAsString = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadInfo.NUM_AS_STRING));
-            analyzedJobProperties.put(CreateRoutineLoadInfo.NUM_AS_STRING, String.valueOf(numAsString));
-        }
-
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.FUZZY_PARSE)) {
-            boolean fuzzyParse = Boolean.parseBoolean(jobProperties.get(CreateRoutineLoadInfo.FUZZY_PARSE));
-            analyzedJobProperties.put(CreateRoutineLoadInfo.FUZZY_PARSE, String.valueOf(fuzzyParse));
-        }
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
             analyzedJobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS,
                     String.valueOf(isPartialUpdate));
         }
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP);
-            long wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                    .getWorkloadGroup(ConnectContext.get().getCurrentUserIdentity(), workloadGroup);
-            analyzedJobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP, String.valueOf(wgId));
+            if (!StringUtil.isEmpty(workloadGroup)) {
+                // NOTE: delay check workload group's existence check when alter routine load job
+                // because we can only get clusterId when alter job.
+                analyzedJobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP,
+                        jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP));
+            }
         }
         if (jobProperties.containsKey(CreateRoutineLoadInfo.KEY_ENCLOSE)) {
             analyzedJobProperties.put(CreateRoutineLoadInfo.KEY_ENCLOSE,
