@@ -84,7 +84,7 @@ suite("drop_policy") {
             CREATE STORAGE POLICY ${use_policy}
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "2035-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call(use_policy), true)
@@ -105,7 +105,7 @@ suite("drop_policy") {
             CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_binded
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "2035-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call("drop_policy_test_has_table_binded"), true)
@@ -114,7 +114,7 @@ suite("drop_policy") {
             CREATE STORAGE POLICY IF NOT EXISTS drop_policy_test_has_table_bind_1
             PROPERTIES(
             "storage_resource" = "${resource_table_use}",
-            "cooldown_datetime" = "2025-06-08 00:00:00"
+            "cooldown_datetime" = "2035-06-08 00:00:00"
             );
         """
         assertEquals(storage_exist.call("drop_policy_test_has_table_bind_1"), true)

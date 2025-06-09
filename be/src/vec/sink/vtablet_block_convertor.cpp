@@ -178,9 +178,9 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
 
     typename DecimalType::NativeType value;
     if constexpr (IsMin) {
-        value = vectorized::min_decimal_value<DecimalType>(type->get_precision());
+        value = vectorized::min_decimal_value<DecimalType::PType>(type->get_precision());
     } else {
-        value = vectorized::max_decimal_value<DecimalType>(type->get_precision());
+        value = vectorized::max_decimal_value<DecimalType::PType>(type->get_precision());
     }
     pmap->emplace(type->get_precision(), value);
     return DecimalType(value);
@@ -289,9 +289,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_DECIMALV2: {
-        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                        real_column_ptr.get()));
+        auto* column_decimal = const_cast<vectorized::ColumnDecimal128V2*>(
+                assert_cast<const vectorized::ColumnDecimal128V2*>(real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < row_count; ++j) {
@@ -331,8 +330,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType>*>(                    \
-            assert_cast<const vectorized::ColumnDecimal<DecimalType>*>(real_column_ptr.get()));   \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType::PType>*>(             \
+            assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(                    \
+                    real_column_ptr.get()));                                                      \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \

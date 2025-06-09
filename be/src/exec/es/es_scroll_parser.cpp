@@ -847,8 +847,9 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             break;
         }
         case TYPE_JSONB: {
-            JsonBinaryValue binary_val(json_value_to_string(col));
-            vectorized::JsonbField json(binary_val.value(), binary_val.size());
+            JsonBinaryValue jsonb_value;
+            RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(col)));
+            vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
             col_ptr->insert(vectorized::Field::create_field<TYPE_JSONB>(json));
             break;
         }

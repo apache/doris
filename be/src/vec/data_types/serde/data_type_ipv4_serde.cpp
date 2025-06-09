@@ -23,8 +23,7 @@
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
@@ -32,7 +31,7 @@ Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,
                                                  int64_t row_idx, bool col_const,
                                                  const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnVector<IPv4>&>(column).get_data();
+    auto& data = assert_cast<const ColumnIPv4&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv4Value ipv4_val(data[col_index]);
     // _nesting_level >= 2 means this ipv4 is in complex type
@@ -149,5 +148,4 @@ Status DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::A
     col_data.insert(raw_data, raw_data + row_count);
     return Status::OK();
 }
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

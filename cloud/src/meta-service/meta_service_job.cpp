@@ -30,6 +30,7 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "keys.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
@@ -1407,6 +1408,11 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         if (!success) {
             return;
         }
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        txn->remove(pending_key);
+        LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
+                  << " tablet_id=" << new_tablet_id << "job_id=" << schema_change.id();
     }
 
     for (size_t i = 0; i < schema_change.txn_ids().size(); ++i) {

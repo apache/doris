@@ -38,12 +38,13 @@ class IColumn;
 class DataTypeFixedLengthObject final : public IDataType {
 public:
     using ColumnType = ColumnFixedLengthObject;
+    static constexpr PrimitiveType PType = INVALID_TYPE;
 
     DataTypeFixedLengthObject() = default;
 
     DataTypeFixedLengthObject(const DataTypeFixedLengthObject& other) {}
 
-    const char* get_family_name() const override { return "DataTypeFixedLengthObject"; }
+    const std::string get_family_name() const override { return "DataTypeFixedLengthObject"; }
 
     PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 

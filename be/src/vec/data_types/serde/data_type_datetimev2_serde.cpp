@@ -52,7 +52,7 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
         bw.write('"');
     }
     UInt64 int_val =
-            assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+            assert_cast<const ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
                     row_num);
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
@@ -83,7 +83,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
 }
 Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
+    auto& column_data = assert_cast<ColumnDateTimeV2&, TypeCheckOnRelease::DISABLE>(column);
     if (_nesting_level > 1) {
         slice.trim_quote();
     }
@@ -113,7 +113,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
                                                       arrow::ArrayBuilder* array_builder,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
-    const auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
+    const auto& col_data = static_cast<const ColumnDateTimeV2&>(column).get_data();
     auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
@@ -198,7 +198,7 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                        MysqlRowBuffer<is_binary_format>& result,
                                                        int64_t row_idx, bool col_const,
                                                        const FormatOptions& options) const {
-    const auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnDateTimeV2&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateTimeV2ValueType> date_val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
@@ -239,7 +239,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end,
                                                     std::vector<StringRef>& buffer_list) const {
-    const auto& col_data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnDateTimeV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
 
     for (size_t row_id = start; row_id < end; row_id++) {
@@ -282,7 +282,7 @@ void DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(IColumn& c
     if (times < 1) [[unlikely]] {
         return;
     }
-    auto& col = static_cast<ColumnVector<UInt64>&>(column);
+    auto& col = assert_cast<ColumnDateTimeV2&>(column);
     auto sz = col.size();
     UInt64 val = col.get_element(sz - 1);
     col.insert_many_vals(val, times);

@@ -52,10 +52,10 @@ public class TruncateTableCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         Config.enable_debug_points = true;
-        createDatabase("test");
-        connectContext.setDatabase("test");
+        createDatabase("testcommand");
+        connectContext.setDatabase("testcommand");
 
-        String createTableStr = "create table test.tbl(d1 date, k1 int, k2 bigint)"
+        String createTableStr = "create table testcommand.tblcommand(d1 date, k1 int, k2 bigint)"
                 + "duplicate key(d1, k1) "
                 + "PARTITION BY RANGE(d1)"
                 + "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))"
@@ -63,7 +63,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1');";
         createTable(createTableStr);
 
-        String createTable2 = "CREATE TABLE test.case_sensitive_table (\n"
+        String createTable2 = "CREATE TABLE testcommand.case_sensitive_table_command (\n"
                 + "  `date_id` date NULL COMMENT \"\",\n"
                 + "  `column2` tinyint(4) NULL COMMENT \"\"\n"
                 + ") ENGINE=OLAP\n"
@@ -83,17 +83,20 @@ public class TruncateTableCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testValidate(@Mocked Env env, @Mocked AccessControllerManager accessManager) {
+    public void testValidate(@Mocked AccessControllerManager accessManager) {
         new Expectations() {
             {
-                env.getAccessManager();
+                Env.getCurrentEnv().getAccessManager();
+                minTimes = 0;
                 result = accessManager;
+
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, PrivPredicate.LOAD);
+                minTimes = 0;
                 result = true;
             }
         };
 
-        String truncateStr = "TRUNCATE TABLE internal.test.case_sensitive_table PARTITION P20211008; \n";
+        String truncateStr = "TRUNCATE TABLE internal.testcommand.case_sensitive_table_command PARTITION P20211008; \n";
 
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan plan = nereidsParser.parseSingle(truncateStr);
@@ -108,12 +111,12 @@ public class TruncateTableCommandTest extends TestWithFeService {
         connectContext.setDatabase("test"); //reset database
 
         // test no table
-        tableNameInfo = new TableNameInfo("internal", "test", "");
+        tableNameInfo = new TableNameInfo("internal", "testcommand", "");
         TruncateTableCommand truncateTableCommand1 = new TruncateTableCommand(tableNameInfo, Optional.empty(), false);
         Assertions.assertThrows(AnalysisException.class, () -> truncateTableCommand1.validate(connectContext));
 
         // test no partition
-        tableNameInfo = new TableNameInfo("internal", "test", "test");
+        tableNameInfo = new TableNameInfo("internal", "testcommand", "test");
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false);
         TruncateTableCommand truncateTableCommand2 = new TruncateTableCommand(tableNameInfo, Optional.of(partitionNamesInfo), false);
         Assertions.assertThrows(AnalysisException.class, () -> truncateTableCommand2.validate(connectContext));
@@ -122,8 +125,8 @@ public class TruncateTableCommandTest extends TestWithFeService {
     @Test
     public void testTruncateWithCaseInsensitivePartitionName() throws Exception {
         //now in order to support auto create partition, need set partition name is case sensitive
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("testcommand");
+        OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table_command");
 
         long p20211006Id = tbl.getPartition("p20211006").getId();
         long p20211007Id = tbl.getPartition("P20211007").getId();
@@ -133,7 +136,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
         Partition p20211008 = tbl.getPartition("P20211008");
         p20211008.updateVisibleVersion(2L);
         p20211008.setNextVersion(p20211008.getVisibleVersion() + 1);
-        String truncateStr = "TRUNCATE TABLE internal.test.case_sensitive_table PARTITION P20211008; \n";
+        String truncateStr = "TRUNCATE TABLE internal.testcommand.case_sensitive_table_command PARTITION P20211008; \n";
 
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan plan = nereidsParser.parseSingle(truncateStr);
@@ -142,7 +145,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
         Assertions.assertNotEquals(p20211008Id, tbl.getPartition("P20211008").getId());
 
         // 2. truncate P20211007
-        truncateStr = "TRUNCATE TABLE internal.test.case_sensitive_table PARTITION P20211007 force; \n";
+        truncateStr = "TRUNCATE TABLE internal.testcommand.case_sensitive_table_command PARTITION P20211007 force; \n";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
@@ -156,69 +159,69 @@ public class TruncateTableCommandTest extends TestWithFeService {
 
     @Test
     public void testTruncateTable() throws Exception {
-        String stmtStr = "ALTER TABLE internal.test.tbl ADD PARTITION p20210902 VALUES [('2021-09-02'), ('2021-09-03'))"
+        String stmtStr = "ALTER TABLE internal.testcommand.tblcommand ADD PARTITION p20210902 VALUES [('2021-09-02'), ('2021-09-03'))"
                 + " DISTRIBUTED BY HASH(`k1`) BUCKETS 3;";
         alterTable(stmtStr);
-        stmtStr = "ALTER TABLE internal.test.tbl ADD PARTITION p20210903 VALUES [('2021-09-03'), ('2021-09-04'))"
+        stmtStr = "ALTER TABLE internal.testcommand.tblcommand ADD PARTITION p20210903 VALUES [('2021-09-03'), ('2021-09-04'))"
                 + " DISTRIBUTED BY HASH(`k1`) BUCKETS 4;";
         alterTable(stmtStr);
-        stmtStr = "ALTER TABLE internal.test.tbl ADD PARTITION p20210904 VALUES [('2021-09-04'), ('2021-09-05'))"
+        stmtStr = "ALTER TABLE internal.testcommand.tblcommand ADD PARTITION p20210904 VALUES [('2021-09-04'), ('2021-09-05'))"
                 + " DISTRIBUTED BY HASH(`k1`) BUCKETS 5;";
         alterTable(stmtStr);
-        checkShowTabletResultNum("internal.test.tbl", "p20210901", 2);
-        checkShowTabletResultNum("internal.test.tbl", "p20210902", 3);
-        checkShowTabletResultNum("internal.test.tbl", "p20210903", 4);
-        checkShowTabletResultNum("internal.test.tbl", "p20210904", 5);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210903", 4);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
 
-        String truncateStr = "truncate table internal.test.tbl;";
+        String truncateStr = "truncate table internal.testcommand.tblcommand;";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
 
-        checkShowTabletResultNum("internal.test.tbl", "p20210901", 2);
-        checkShowTabletResultNum("internal.test.tbl", "p20210902", 3);
-        checkShowTabletResultNum("internal.test.tbl", "p20210903", 4);
-        checkShowTabletResultNum("internal.test.tbl", "p20210904", 5);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210903", 4);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
 
-        truncateStr = "truncate table internal.test.tbl partition(p20210901, p20210902, p20210903, p20210904);";
+        truncateStr = "truncate table internal.testcommand.tblcommand partition(p20210901, p20210902, p20210903, p20210904);";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
 
-        checkShowTabletResultNum("internal.test.tbl", "p20210901", 2);
-        checkShowTabletResultNum("internal.test.tbl", "p20210902", 3);
-        checkShowTabletResultNum("internal.test.tbl", "p20210903", 4);
-        checkShowTabletResultNum("internal.test.tbl", "p20210904", 5);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210903", 4);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
 
-        truncateStr = "truncate table internal.test.tbl partition (p20210901);";
+        truncateStr = "truncate table internal.testcommand.tblcommand partition (p20210901);";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
-        checkShowTabletResultNum("internal.test.tbl", "p20210901", 2);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210901", 2);
 
-        truncateStr = "truncate table internal.test.tbl partition (p20210902);";
+        truncateStr = "truncate table internal.testcommand.tblcommand partition (p20210902);";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
-        checkShowTabletResultNum("internal.test.tbl", "p20210902", 3);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210902", 3);
 
-        truncateStr = "truncate table internal.test.tbl partition (p20210903);";
+        truncateStr = "truncate table internal.testcommand.tblcommand partition (p20210903);";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
-        checkShowTabletResultNum("internal.test.tbl", "p20210903", 4);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210903", 4);
 
-        truncateStr = "truncate table internal.test.tbl partition (p20210904);";
+        truncateStr = "truncate table internal.testcommand.tblcommand partition (p20210904);";
         plan = nereidsParser.parseSingle(truncateStr);
         Assertions.assertTrue(plan instanceof TruncateTableCommand);
         Env.getCurrentEnv().truncateTable((TruncateTableCommand) plan);
-        checkShowTabletResultNum("internal.test.tbl", "p20210904", 5);
+        checkShowTabletResultNum("internal.testcommand.tblcommand", "p20210904", 5);
     }
 
     @Test
     public void testTruncateTableFailed() throws Exception {
-        String createTableStr = "create table internal.test.tbl2(d1 date, k1 int, k2 bigint)"
+        String createTableStr = "create table internal.testcommand.tbl2(d1 date, k1 int, k2 bigint)"
                 + "duplicate key(d1, k1) "
                 + "PARTITION BY RANGE(d1)"
                 + "(PARTITION p20210901 VALUES [('2021-09-01'), ('2021-09-02')))"
@@ -226,7 +229,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
                 + "properties('replication_num' = '1');";
         createTable(createTableStr);
         String partitionName = "p20210901";
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("testcommand");
         OlapTable tbl2 = db.getOlapTableOrDdlException("tbl2");
         Assertions.assertNotNull(tbl2);
 
@@ -245,7 +248,7 @@ public class TruncateTableCommandTest extends TestWithFeService {
             }
 
             DebugPointUtil.addDebugPoint("InternalCatalog.truncateTable.metaChanged", new DebugPointUtil.DebugPoint());
-            String truncateStr = "truncate table internal.test.tbl2 partition (" + partitionName + ");";
+            String truncateStr = "truncate table internal.testcommand.tbl2 partition (" + partitionName + ");";
 
             NereidsParser nereidsParser = new NereidsParser();
             LogicalPlan plan = nereidsParser.parseSingle(truncateStr);

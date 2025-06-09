@@ -374,6 +374,7 @@ public:
             return get<IPv6>() <=> rhs.get<IPv6>();
         case PrimitiveType::TYPE_IPV4:
             return get<IPv4>() <=> rhs.get<IPv4>();
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -419,6 +420,7 @@ public:
         case PrimitiveType::TYPE_IPV6:
             f(field.template get<IPv6>());
             return;
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             f(field.template get<Float64>());
             return;
@@ -592,24 +594,6 @@ template <typename T>
 T get(Field& field) {
     return field.template get<T>();
 }
-
-template <>
-struct TypeName<Array> {
-    static std::string get() { return "Array"; }
-};
-template <>
-struct TypeName<Tuple> {
-    static std::string get() { return "Tuple"; }
-};
-
-template <>
-struct TypeName<VariantMap> {
-    static std::string get() { return "VariantMap"; }
-};
-template <>
-struct TypeName<Map> {
-    static std::string get() { return "Map"; }
-};
 
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
 ///  but they are always three different types.
