@@ -38,7 +38,7 @@ class IColumn;
 class DataTypeFixedLengthObject final : public IDataType {
 public:
     using ColumnType = ColumnFixedLengthObject;
-    static constexpr PrimitiveType PType = INVALID_TYPE;
+    static constexpr PrimitiveType PType = TYPE_FIXED_LENGTH_OBJECT;
 
     DataTypeFixedLengthObject() = default;
 
@@ -76,7 +76,6 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeFixedLengthObjectSerDe>(nesting_level);
     };
-    bool is_fixed_length_object() const override { return true; }
 };
 
 } // namespace doris::vectorized
