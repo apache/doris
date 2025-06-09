@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelDecommissionBackendCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelLoadCommand;
@@ -108,6 +109,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -200,6 +202,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowResourcesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRoutineLoadTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
@@ -858,6 +862,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropTableCommand, context);
     }
 
+    default R visitDropViewCommand(DropViewCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
         return visitCommand(dropRoleCommand, context);
     }
@@ -1213,6 +1221,11 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropStageCommand, context);
     }
 
+    default R visitCancelDecommissionCommand(CancelDecommissionBackendCommand cancelDecommissionBackendCommand,
+                                             C context) {
+        return visitCommand(cancelDecommissionBackendCommand, context);
+    }
+
     default R visitShowTransactionCommand(ShowTransactionCommand showTransactionCommand, C context) {
         return visitCommand(showTransactionCommand, context);
     }
@@ -1247,6 +1260,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitRevokeRoleCommand(RevokeRoleCommand revokeRoleCommand, C context) {
         return visitCommand(revokeRoleCommand, context);
+    }
+
+    default R visitShowRoutineLoadCommand(ShowRoutineLoadCommand showRoutineLoadCommand, C context) {
+        return visitCommand(showRoutineLoadCommand, context);
+    }
+
+    default R visitShowRoutineLoadTaskCommand(ShowRoutineLoadTaskCommand showRoutineLoadTaskCommand, C context) {
+        return visitCommand(showRoutineLoadTaskCommand, context);
     }
 
     default R visitShowWarmupCommand(ShowWarmUpCommand showWarmUpCommand, C context) {

@@ -50,11 +50,10 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -80,10 +79,10 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
@@ -98,7 +97,7 @@ class DateLUTImpl;
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris
@@ -154,11 +153,11 @@ struct ConvertImpl {
                           Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromDataType::PType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
         using ColVecTo =
-                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
                                    ColumnVector<ToDataType::PType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
@@ -373,9 +372,9 @@ struct ConvertImplToTimeType {
                           uint32_t result, size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromDataType::PType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
 
         using DateValueType = std::conditional_t<
                 IsDatelikeV2Types<ToDataType>,
@@ -1242,7 +1241,7 @@ struct StringParsing {
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo =
-                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
                                    ColumnVector<ToDataType::PType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();

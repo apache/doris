@@ -174,24 +174,17 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
 
     GetDebugPoint().clearDebugPointsForAllBEs()
     get_be_param("tablet_rowset_stale_sweep_time_sec")
-    get_be_param("enable_delete_bitmap_merge_on_compaction")
     get_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
 
     try {
         set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
-        for (int method = 0; method < 3; method++) {
+        for (int method = 0; method < 2; method++) {
             if (method == 0) {
                 // off
-                set_be_param("enable_delete_bitmap_merge_on_compaction", "false")
                 set_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap", "false")
             } else if (method == 1) {
                 // solution2: no duplicated key problems
-                set_be_param("enable_delete_bitmap_merge_on_compaction", "false")
                 set_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap", "true")
-            } else if (method == 2) {
-                // solution1: has duplicated key problems
-                set_be_param("enable_delete_bitmap_merge_on_compaction", "true")
-                set_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap", "false")
             }
 
             testTable = "test_mow_compaction_and_schema_change_${method}"
@@ -231,7 +224,6 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
             order_qt_sql2 "select * from ${testTable}"
 
             GetDebugPoint().enableDebugPointForAllBEs("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset")
-            GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets") // solution 1
             GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset") // solution 2
 
             // 3.0 write some data
@@ -336,7 +328,6 @@ suite("test_mow_compaction_and_schema_change", "nonConcurrent") {
         }
     } finally {
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
-        reset_be_param("enable_delete_bitmap_merge_on_compaction")
         reset_be_param("enable_agg_and_remove_pre_rowsets_delete_bitmap")
         GetDebugPoint().clearDebugPointsForAllBEs()
     }

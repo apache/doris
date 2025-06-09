@@ -35,6 +35,7 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
@@ -56,6 +57,7 @@ import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -82,6 +84,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.PartitionsTable;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -117,6 +120,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -156,6 +160,8 @@ public class IcebergUtils {
     public static final String HOUR = "hour";
     public static final String IDENTITY = "identity";
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
+
+    private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -782,18 +788,106 @@ public class IcebergUtils {
         return matchingManifests;
     }
 
-    // get snapshot id from query like 'for version/time as of'
-    public static long getQuerySpecSnapshot(Table table, TableSnapshot queryTableSnapshot) {
-        TableSnapshot.VersionType type = queryTableSnapshot.getType();
-        if (type == TableSnapshot.VersionType.VERSION) {
-            return queryTableSnapshot.getVersion();
-        } else {
-            long timestamp = TimeUtils.timeStringToLong(queryTableSnapshot.getTime(), TimeUtils.getTimeZone());
-            if (timestamp < 0) {
-                throw new DateTimeException("can't parse time: " + queryTableSnapshot.getTime());
+    // get snapshot id from query like 'for version/time as of' or '@branch/@tag'
+    public static IcebergTableQueryInfo getQuerySpecSnapshot(
+            Table table,
+            Optional<TableSnapshot> queryTableSnapshot,
+            Optional<TableScanParams> scanParams) throws UserException {
+
+        Preconditions.checkArgument(
+                queryTableSnapshot.isPresent() || isIcebergBranchOrTag(scanParams),
+                "should spec version or time or branch or tag");
+
+        // not support `select * from tb@branch/tag(b) for version/time as of ...`
+        Preconditions.checkArgument(
+                !(queryTableSnapshot.isPresent() && isIcebergBranchOrTag(scanParams)),
+                "could not spec a version/time with tag/branch");
+
+        // solve @branch/@tag
+        if (scanParams.isPresent()) {
+            String refName;
+            TableScanParams params = scanParams.get();
+            if (!params.getMapParams().isEmpty()) {
+                refName = params.getMapParams().get("name");
+            } else {
+                refName = params.getListParams().get(0);
             }
-            return SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
+            SnapshotRef snapshotRef = table.refs().get(refName);
+            if (params.isBranch()) {
+                if (snapshotRef == null || !snapshotRef.isBranch()) {
+                    throw new UserException("Table " + table.name() + " does not have branch named " + refName);
+                }
+            } else {
+                if (snapshotRef == null || !snapshotRef.isTag()) {
+                    throw new UserException("Table " + table.name() + " does not have tag named " + refName);
+                }
+            }
+            return new IcebergTableQueryInfo(
+                snapshotRef.snapshotId(),
+                refName,
+                SnapshotUtil.schemaFor(table, refName).schemaId());
         }
+
+        // solve version/time as of
+        String value = queryTableSnapshot.get().getValue();
+        TableSnapshot.VersionType type = queryTableSnapshot.get().getType();
+        if (type == TableSnapshot.VersionType.VERSION) {
+            if (SNAPSHOT_ID.matcher(value).matches()) {
+                long snapshotId = Long.parseLong(value);
+                Snapshot snapshot = table.snapshot(snapshotId);
+                if (snapshot == null) {
+                    throw new UserException("Table " + table.name() + " does not have snapshotId " + value);
+                }
+                return new IcebergTableQueryInfo(
+                    snapshotId,
+                    null,
+                    snapshot.schemaId()
+                );
+            }
+
+            if (!table.refs().containsKey(value)) {
+                throw new UserException("Table " + table.name() + " does not have tag or branch named " + value);
+            }
+            return new IcebergTableQueryInfo(
+                table.refs().get(value).snapshotId(),
+                value,
+                SnapshotUtil.schemaFor(table, value).schemaId()
+            );
+        } else {
+            long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
+            if (timestamp < 0) {
+                throw new DateTimeException("can't parse time: " + value);
+            }
+            long snapshotId = SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
+            return new IcebergTableQueryInfo(
+                snapshotId,
+                null,
+                table.snapshot(snapshotId).schemaId()
+                );
+        }
+    }
+
+    public static boolean isIcebergBranchOrTag(Optional<TableScanParams> scanParams) {
+        if (scanParams == null || !scanParams.isPresent()) {
+            return false;
+        }
+        TableScanParams params = scanParams.get();
+        if (params.isBranch() || params.isTag()) {
+            if (!params.getMapParams().isEmpty()) {
+                Preconditions.checkArgument(
+                        params.getMapParams().containsKey("name"),
+                        "must contain key 'name' in params"
+                );
+            } else {
+                Preconditions.checkArgument(
+                        params.getListParams().size() == 1
+                                && params.getListParams().get(0) != null,
+                        "must contain a branch/tag name in params"
+                );
+            }
+            return true;
+        }
+        return false;
     }
 
     // read schema from external schema cache
@@ -1046,18 +1140,23 @@ public class IcebergUtils {
             Optional<TableSnapshot> tableSnapshot,
             ExternalCatalog catalog,
             String dbName,
-            String tbName) {
+            String tbName,
+            Optional<TableScanParams> scanParams) {
         IcebergSnapshotCacheValue snapshotCache = Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache()
                 .getSnapshotCache(catalog, dbName, tbName);
-        if (tableSnapshot.isPresent()) {
+        if (tableSnapshot.isPresent() || IcebergUtils.isIcebergBranchOrTag(scanParams)) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest schema).
             Table icebergTable = getIcebergTable(catalog, dbName, tbName);
-            TableSnapshot snapshot = tableSnapshot.get();
-            long querySpecSnapshot = getQuerySpecSnapshot(icebergTable, snapshot);
+            IcebergTableQueryInfo info;
+            try {
+                info = getQuerySpecSnapshot(icebergTable, tableSnapshot, scanParams);
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
             return new IcebergSnapshotCacheValue(
-                IcebergPartitionInfo.empty(),
-                    new IcebergSnapshot(querySpecSnapshot, icebergTable.snapshot(querySpecSnapshot).schemaId()));
+                    IcebergPartitionInfo.empty(),
+                    new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()));
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
             return snapshotCache;
@@ -1104,7 +1203,8 @@ public class IcebergUtils {
         if (snapshot.isPresent()) {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
-            return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), catalog, dbName, tbName);
+            return IcebergUtils.getIcebergSnapshotCacheValue(
+                Optional.empty(), catalog, dbName, tbName, Optional.empty());
         }
     }
 }

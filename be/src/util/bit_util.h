@@ -28,7 +28,6 @@
 #endif
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/bits.h"
 #include "gutil/endian.h"
 #include "util/cpu_info.h"
 #include "util/sse_util.hpp"
@@ -257,10 +256,10 @@ public:
     }
 
     // Wrap the gutil/ version for convenience.
-    static inline int Log2FloorNonZero64(uint64_t n) { return Bits::Log2FloorNonZero64(n); }
+    static inline int Log2FloorNonZero64(uint64_t n) { return 63 ^ __builtin_clzll(n); }
 
     // Wrap the gutil/ version for convenience.
-    static inline int Log2Floor64(uint64_t n) { return Bits::Log2Floor64(n); }
+    static inline int Log2Floor64(uint64_t n) { return n == 0 ? -1 : 63 ^ __builtin_clzll(n); }
 
     static inline int Log2Ceiling64(uint64_t n) {
         int floor = Log2Floor64(n);

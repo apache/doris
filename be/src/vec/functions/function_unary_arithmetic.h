@@ -114,7 +114,7 @@ public:
 
                     if constexpr (IsDataTypeDecimal<DataType>) {
                         if constexpr (allow_decimal) {
-                            if (auto col = check_and_get_column<ColumnDecimal<T0>>(
+                            if (auto col = check_and_get_column<ColumnDecimal<DataType::PType>>(
                                         block.get_by_position(arguments[0]).column.get())) {
                                 auto col_res =
                                         PrimitiveTypeTraits<Op<T0>::ResultType>::ColumnType::create(

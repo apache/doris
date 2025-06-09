@@ -35,8 +35,8 @@
 #include "util/slice.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
@@ -47,7 +47,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris {
 
@@ -60,7 +60,7 @@ class Block;
 class ColumnArray;
 class ColumnMap;
 class DataTypeMap;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 
 class IOlapColumnDataAccessor {

@@ -33,7 +33,6 @@
 #include "runtime/large_int_value.h"
 #include "testutil/test_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"

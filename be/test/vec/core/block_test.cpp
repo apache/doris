@@ -49,7 +49,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -180,9 +179,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -738,9 +735,7 @@ TEST(BlockTest, dump_data) {
 
     vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
     auto decimal_column = decimal_data_type->create_column();
-    auto& decimal_data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+    auto& decimal_data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
     for (int i = 0; i < 1024; ++i) {
         __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
         decimal_data.push_back(value);
@@ -986,7 +981,7 @@ TEST(BlockTest, same_bit) {
 TEST(BlockTest, dump) {
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
     auto types = block.dump_types();
-    ASSERT_TRUE(types.find("Int32") != std::string::npos);
+    ASSERT_TRUE(types.find("INT") != std::string::npos);
 
     block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
     types = block.dump_types();
@@ -995,7 +990,7 @@ TEST(BlockTest, dump) {
     block.insert(
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({}));
     types = block.dump_types();
-    ASSERT_TRUE(types.find("Float64") != std::string::npos);
+    ASSERT_TRUE(types.find("DOUBLE") != std::string::npos);
 
     auto names = block.get_names();
     for (const auto& name : names) {

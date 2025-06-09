@@ -29,7 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -38,8 +38,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/json/path_in_data.h"
 

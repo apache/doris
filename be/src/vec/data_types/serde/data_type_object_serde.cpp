@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "util/jsonb_parser_simd.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
@@ -102,9 +102,9 @@ void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbW
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
                                variant.dump_structure());
     }
-    JsonbParser json_parser;
+    JsonBinaryValue jsonb_value;
     // encode as jsonb
-    bool succ = json_parser.parse(value_str.data(), value_str.size());
+    bool succ = jsonb_value.from_json_string(value_str.data(), value_str.size()).ok();
     if (!succ) {
         // not a valid json insert raw text
         result.writeStartString();
@@ -113,8 +113,7 @@ void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbW
     } else {
         // write a json binary
         result.writeStartBinary();
-        result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
-                           json_parser.getWriter().getOutput()->getSize());
+        result.writeBinary(jsonb_value.value(), jsonb_value.size());
         result.writeEndBinary();
     }
 }
