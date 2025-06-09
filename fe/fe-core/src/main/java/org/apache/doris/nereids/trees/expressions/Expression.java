@@ -398,12 +398,12 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     public boolean isColumnFromTable() {
-        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent();
+        return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent();
     }
 
     public boolean isKeyColumnFromTable() {
-        return (this instanceof SlotReference) && ((SlotReference) this).getColumn().isPresent()
-                && ((SlotReference) this).getColumn().get().isKey();
+        return (this instanceof SlotReference) && ((SlotReference) this).getOriginalColumn().isPresent()
+                && ((SlotReference) this).getOriginalColumn().get().isKey();
     }
 
     /** containsNullLiteralChildren */

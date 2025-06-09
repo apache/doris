@@ -127,6 +127,10 @@ public:
         _wg_refresh_interval_memory_growth.fetch_sub(size);
     }
 
+    int64_t wg_refresh_interval_memory_growth() {
+        return _wg_refresh_interval_memory_growth.load();
+    }
+
     void check_mem_used(bool* is_low_watermark, bool* is_high_watermark) const {
         auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
         *is_low_watermark = (realtime_total_mem_used >
@@ -228,7 +232,7 @@ public:
 
     friend class DummyWorkloadGroupTest;
 
-protected:
+private:
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
@@ -298,7 +302,6 @@ struct WorkloadGroupInfo {
     const bool enable_memory_overcommit = false;
     const int64_t version = 0;
     const int cpu_hard_limit = 0;
-    const bool enable_cpu_hard_limit = false;
     const int scan_thread_num = 0;
     const int max_remote_scan_thread_num = 0;
     const int min_remote_scan_thread_num = 0;

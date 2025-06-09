@@ -23,7 +23,7 @@
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type.h"
@@ -77,10 +77,6 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
         _root_reader->inited = true;
     }
     return Status::OK();
-}
-
-Status HierarchicalDataReader::seek_to_first() {
-    throw Exception(Status::FatalError("Not implemented"));
 }
 
 Status HierarchicalDataReader::seek_to_ordinal(ordinal_t ord) {
@@ -157,10 +153,6 @@ Status ExtractReader::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status ExtractReader::seek_to_first() {
-    throw Exception(Status::FatalError("Not implemented"));
-}
-
 Status ExtractReader::seek_to_ordinal(ordinal_t ord) {
     CHECK(_root_reader->inited);
     return _root_reader->iterator->seek_to_ordinal(ord);
@@ -175,14 +167,14 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
     }
     auto& variant =
             nullable_column == nullptr
-                    ? assert_cast<vectorized::ColumnObject&>(*dst)
-                    : assert_cast<vectorized::ColumnObject&>(nullable_column->get_nested_column());
+                    ? assert_cast<vectorized::ColumnVariant&>(*dst)
+                    : assert_cast<vectorized::ColumnVariant&>(nullable_column->get_nested_column());
     const auto& root =
             _root_reader->column->is_nullable()
-                    ? assert_cast<vectorized::ColumnObject&>(
+                    ? assert_cast<vectorized::ColumnVariant&>(
                               assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
                                       .get_nested_column())
-                    : assert_cast<const vectorized::ColumnObject&>(*_root_reader->column);
+                    : assert_cast<const vectorized::ColumnVariant&>(*_root_reader->column);
     // extract root value with path, we can't modify the original root column
     // since some other column may depend on it.
     vectorized::MutableColumnPtr extracted_column;
@@ -200,7 +192,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
         RETURN_IF_ERROR(vectorized::schema_util::cast_column(
                 {extracted_column->get_ptr(),
                  vectorized::make_nullable(
-                         std::make_shared<vectorized::ColumnObject::MostCommonType>()),
+                         std::make_shared<vectorized::ColumnVariant::MostCommonType>()),
                  ""},
                 expected_type, &cast_column));
         variant.get_root()->insert_range_from(*cast_column, 0, nrows);

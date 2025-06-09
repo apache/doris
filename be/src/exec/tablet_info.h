@@ -233,7 +233,8 @@ public:
                     auto& column = block->get_by_position(_distributed_slot_loc).column;
                     auto val = column->get_data_at(row);
                     if (val.data != nullptr) {
-                        hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
+                        hash_val = RawValue::zlib_crc32(val.data, val.size,
+                                                        slot_desc->type()->get_primitive_type(),
                                                         hash_val);
                     } else {
                         hash_val = HashUtil::zlib_crc_hash_null(hash_val);

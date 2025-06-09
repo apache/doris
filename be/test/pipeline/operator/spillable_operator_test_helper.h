@@ -27,7 +27,6 @@
 
 #include "common/object_pool.h"
 #include "pipeline/pipeline_task.h"
-#include "runtime/fragment_mgr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/spill/spill_stream_manager.h"
@@ -74,16 +73,6 @@ public:
                 FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
-};
-
-class MockFragmentManager : public FragmentMgr {
-public:
-    MockFragmentManager(Status& status_, ExecEnv* exec_env)
-            : FragmentMgr(exec_env), status(status_) {}
-    void cancel_query(const TUniqueId query_id, const Status reason) override { status = reason; }
-
-private:
-    Status& status;
 };
 
 class SpillableDebugPointHelper {

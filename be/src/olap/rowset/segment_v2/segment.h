@@ -41,7 +41,9 @@
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -83,7 +85,8 @@ public:
     static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
                        uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
-                       std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {});
+                       std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {},
+                       OlapReaderStatistics* stats = nullptr);
 
     static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
     io::UInt128Wrapper file_cache_key() const {
@@ -203,14 +206,13 @@ public:
             // Default column iterator
             return true;
         }
-        if (vectorized::WhichDataType(vectorized::remove_nullable(storage_column_type))
-                    .is_variant_type()) {
-            // Predicate should nerver apply on variant type
+        PrimitiveType type = storage_column_type->get_primitive_type();
+        if (type == TYPE_VARIANT || is_complex_type(type)) {
+            // Predicate should nerver apply on variant/complex type
             return false;
         }
-        bool safe =
-                pred->can_do_apply_safely(storage_column_type->get_type_as_type_descriptor().type,
-                                          storage_column_type->is_nullable());
+        bool safe = pred->can_do_apply_safely(storage_column_type->get_primitive_type(),
+                                              storage_column_type->is_nullable());
         // Currently only variant column can lead to unsafe
         CHECK(safe || col->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
         return safe;
@@ -225,10 +227,11 @@ private:
     static Status _open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                         RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                         const io::FileReaderOptions& reader_options,
-                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info);
+                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info,
+                        OlapReaderStatistics* stats);
     // open segment file and read the minimum amount of necessary information (footer)
-    Status _open();
-    Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer);
+    Status _open(OlapReaderStatistics* stats);
+    Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer, OlapReaderStatistics* stats);
     Status _create_column_readers(const SegmentFooterPB& footer);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
     ColumnReader* _get_column_reader(const TabletColumn& col);
@@ -245,7 +248,7 @@ private:
 
     Status _create_column_readers_once(OlapReaderStatistics* stats);
 
-    Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&);
+    Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&, OlapReaderStatistics* stats);
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 

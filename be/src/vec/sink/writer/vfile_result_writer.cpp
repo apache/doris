@@ -356,14 +356,17 @@ Status VFileResultWriter::_fill_result_block() {
 #endif
 
     for (int i = 0; i < _output_block->columns(); i++) {
-        switch (_output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type) {
+        switch (_output_row_descriptor.tuple_descriptors()[0]
+                        ->slots()[i]
+                        ->type()
+                        ->get_primitive_type()) {
         case TYPE_INT: {
-            auto column = ColumnVector<int32_t>::create();
+            auto column = ColumnInt32::create();
             INSERT_TO_COLUMN;
             break;
         }
         case TYPE_BIGINT: {
-            auto column = ColumnVector<int64_t>::create();
+            auto column = ColumnInt64::create();
             INSERT_TO_COLUMN;
             break;
         }
@@ -375,9 +378,11 @@ Status VFileResultWriter::_fill_result_block() {
             break;
         }
         default:
-            return Status::InternalError(
-                    "Invalid type to print: {}",
-                    _output_row_descriptor.tuple_descriptors()[0]->slots()[i]->type().type);
+            return Status::InternalError("Invalid type to print: {}",
+                                         _output_row_descriptor.tuple_descriptors()[0]
+                                                 ->slots()[i]
+                                                 ->type()
+                                                 ->get_primitive_type());
         }
     }
     return Status::OK();

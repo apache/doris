@@ -1000,6 +1000,7 @@ struct TGetBinlogRequest {
     8: optional string token
     9: optional i64 prev_commit_seq
     10: optional i64 num_acquired // the max num of binlogs in a batch
+    11: optional bool allow_follower_read
 }
 
 enum TBinlogType {
@@ -1028,7 +1029,8 @@ enum TBinlogType {
   RENAME_PARTITION = 22,
   DROP_ROLLUP = 23,
   RECOVER_INFO = 24,
-  MODIFY_DISTRIBUTION_BUCKET_NUM = 25
+  MODIFY_DISTRIBUTION_BUCKET_NUM = 25,
+  MODIFY_DISTRIBUTION_TYPE = 26,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1045,8 +1047,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 26,
-  UNKNOWN_11 = 27,
+  MIN_UNKNOWN = 27,
   UNKNOWN_12 = 28,
   UNKNOWN_13 = 29,
   UNKNOWN_14 = 30,

@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -67,6 +68,22 @@ public class StorageVaultMgr {
                 break;
             case S3:
                 createS3Vault(StorageVault.fromStmt(stmt));
+                break;
+            case UNKNOWN:
+            default:
+                throw new DdlException("Only support S3, HDFS storage vault.");
+        }
+        // Make BE eagerly fetch the storage vault info from Meta Service
+        ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
+    }
+
+    public void createStorageVaultResource(CreateStorageVaultCommand command) throws Exception {
+        switch (command.getVaultType()) {
+            case HDFS:
+                createHdfsVault(StorageVault.fromCommand(command));
+                break;
+            case S3:
+                createS3Vault(StorageVault.fromCommand(command));
                 break;
             case UNKNOWN:
             default:
@@ -151,8 +168,8 @@ public class StorageVaultMgr {
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(name);
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
-        if (properties.containsKey(StorageVault.VAULT_NAME)) {
-            alterObjVaultBuilder.setAlterName(properties.get(StorageVault.VAULT_NAME));
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            alterObjVaultBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
         }
         return alterObjVaultBuilder;
     }
@@ -163,8 +180,8 @@ public class StorageVaultMgr {
         Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = Cloud.StorageVaultPB.newBuilder();
         alterHdfsInfoBuilder.setName(name);
         alterHdfsInfoBuilder.setHdfsInfo(hdfsInfos);
-        if (properties.containsKey(StorageVault.VAULT_NAME)) {
-            alterHdfsInfoBuilder.setAlterName(properties.get(StorageVault.VAULT_NAME));
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            alterHdfsInfoBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
         }
         return alterHdfsInfoBuilder;
     }
@@ -208,7 +225,7 @@ public class StorageVaultMgr {
                 request.setOp(Operation.ALTER_S3_VAULT);
             } else if (type == StorageVaultType.HDFS) {
                 properties.keySet().stream()
-                        .filter(key -> HdfsStorageVault.FORBID_CHECK_PROPERTIES.contains(key)
+                        .filter(key -> HdfsStorageVault.FORBID_ALTER_PROPERTIES.contains(key)
                                 || key.toLowerCase().contains(S3Properties.S3_PREFIX)
                                 || key.toLowerCase().contains(S3Properties.PROVIDER))
                         .findAny()

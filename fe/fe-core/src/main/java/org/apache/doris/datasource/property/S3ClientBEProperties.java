@@ -96,6 +96,14 @@ public class S3ClientBEProperties {
         if (properties.containsKey(S3Properties.PROVIDER)) {
             beProperties.put(S3Properties.PROVIDER, properties.get(S3Properties.PROVIDER));
         }
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            beProperties.put(S3Properties.Env.ROLE_ARN, properties.get(S3Properties.ROLE_ARN));
+        }
+
+        if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+            beProperties.put(S3Properties.Env.EXTERNAL_ID, properties.get(S3Properties.EXTERNAL_ID));
+        }
         return beProperties;
     }
 }

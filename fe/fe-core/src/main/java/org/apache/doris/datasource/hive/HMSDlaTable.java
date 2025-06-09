@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -69,11 +68,20 @@ public abstract class HMSDlaTable implements MTMVBaseTableIf {
     abstract MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
 
+    abstract MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException;
+
     abstract boolean isPartitionColumnAllowNull();
 
     @Override
     public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        Env.getCurrentEnv().getRefreshManager()
-                .refreshTable(hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), true);
+    }
+
+    /**
+     * If the table is supported as related table.
+     * For example, an Iceberg table may become unsupported after partition revolution.
+     * @return
+     */
+    protected boolean isValidRelatedTable() {
+        return true;
     }
 }

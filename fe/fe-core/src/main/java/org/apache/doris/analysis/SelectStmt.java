@@ -1333,35 +1333,26 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
              *     select id, floor(v1) v, sum(v2) vsum from table group by id,v having(v>1 AND vsum>1);
              */
             if (groupByClause != null) {
-                boolean aliasFirst = false;
-                if (analyzer.getContext() != null) {
-                    aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-                }
-                if (!aliasFirst) {
-                    ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
-                    List<Expr> havingSlots = Lists.newArrayList();
-                    havingClause.collect(SlotRef.class, havingSlots);
-                    for (Expr expr : havingSlots) {
-                        if (excludeAliasSMap.get(expr) == null) {
-                            continue;
-                        }
-                        try {
-                            // try to use column name firstly
-                            expr.clone().analyze(analyzer);
-                            // analyze success means column name exist, do not use alias name
-                            excludeAliasSMap.removeByLhsExpr(expr);
-                        } catch (AnalysisException ex) {
-                            // according to case3, column name do not exist, keep alias name inside alias map
-                            if (ConnectContext.get() != null) {
-                                ConnectContext.get().getState().reset();
-                            }
+                ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
+                List<Expr> havingSlots = Lists.newArrayList();
+                havingClause.collect(SlotRef.class, havingSlots);
+                for (Expr expr : havingSlots) {
+                    if (excludeAliasSMap.get(expr) == null) {
+                        continue;
+                    }
+                    try {
+                        // try to use column name firstly
+                        expr.clone().analyze(analyzer);
+                        // analyze success means column name exist, do not use alias name
+                        excludeAliasSMap.removeByLhsExpr(expr);
+                    } catch (AnalysisException ex) {
+                        // according to case3, column name do not exist, keep alias name inside alias map
+                        if (ConnectContext.get() != null) {
+                            ConnectContext.get().getState().reset();
                         }
                     }
-                    havingClauseAfterAnalyzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
-                } else {
-                    // If user set force using alias, then having clauses prefer using alias rather than column name
-                    havingClauseAfterAnalyzed = havingClause.substitute(aliasSMap, analyzer, false);
                 }
+                havingClauseAfterAnalyzed = havingClause.substitute(excludeAliasSMap, analyzer, false);
             } else {
                 // according to mysql
                 // if there is no group by clause, the having clause should use alias
@@ -1499,11 +1490,7 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
                 groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
 
-            boolean aliasFirst = false;
-            if (analyzer.getContext() != null) {
-                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-            }
-            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
+            substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, false);
             // the groupingExprs must substitute in the same way as resultExprs
             groupingExprs = Expr.substituteList(groupingExprs, countAllMap, analyzer, false);
 
@@ -2658,11 +2645,7 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
 
         // substitute group by
         if (groupByClause != null) {
-            boolean aliasFirst = false;
-            if (analyzer.getContext() != null) {
-                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
-            }
-            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, aliasFirst);
+            substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, false);
         }
         // substitute having
         if (havingClause != null) {

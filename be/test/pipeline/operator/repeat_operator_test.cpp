@@ -259,13 +259,10 @@ TEST_F(RepeatOperatorTest, test_with_expr2) {
     op->_slot_id_set_list.resize(op->_repeat_id_list_size);
 
     op->_output_slots[0]->_id = 0;
-    op->_output_slots[0]->_is_nullable = true;
 
     op->_output_slots[1]->_id = 1;
-    op->_output_slots[1]->_is_nullable = true;
 
     op->_output_slots[2]->_id = 2;
-    op->_output_slots[2]->_is_nullable = true;
 
     op->_slot_id_set_list[0].insert(1);
     op->_slot_id_set_list[0].insert(2);

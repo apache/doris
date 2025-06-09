@@ -104,6 +104,9 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
         return repoIdMap.get(repoId);
     }
 
+    /**
+     * todo: why not support alter other file system like hdfs
+     */
     public Status alterRepo(Repository newRepo, boolean isReplay) {
         lock.lock();
         try {

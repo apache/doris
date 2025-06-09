@@ -49,5 +49,5 @@ public class RedirectStatus {
 
     public static RedirectStatus FORWARD_NO_SYNC = new RedirectStatus(true, false);
     public static RedirectStatus FORWARD_WITH_SYNC = new RedirectStatus(true, true);
-    public static RedirectStatus NO_FORWARD =   new RedirectStatus(false, false);
+    public static RedirectStatus NO_FORWARD = new RedirectStatus(false, false);
 }

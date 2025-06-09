@@ -39,10 +39,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gtest/gtest.h"
-#include "gutil/strings/substitute.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
 #include "util/random.h"
@@ -55,8 +55,6 @@ using std::string;
 using std::thread;
 
 using std::vector;
-
-using strings::Substitute;
 
 DECLARE_int32(thread_inject_start_latency_ms);
 
@@ -755,14 +753,14 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
         t.join();
     }
 
-    LOG(INFO) << strings::Substitute("Tokens cycled ($0 threads): $1", kCycleThreads,
-                                     total_num_tokens_cycled.load());
-    LOG(INFO) << strings::Substitute("Tokens shutdown ($0 threads): $1", kShutdownThreads,
-                                     total_num_tokens_shutdown.load());
-    LOG(INFO) << strings::Substitute("Tokens waited ($0 threads): $1", kWaitThreads,
-                                     total_num_tokens_waited.load());
-    LOG(INFO) << strings::Substitute("Tokens submitted ($0 threads): $1", kSubmitThreads,
-                                     total_num_tokens_submitted.load());
+    LOG(INFO) << absl::Substitute("Tokens cycled ($0 threads): $1", kCycleThreads,
+                                  total_num_tokens_cycled.load());
+    LOG(INFO) << absl::Substitute("Tokens shutdown ($0 threads): $1", kShutdownThreads,
+                                  total_num_tokens_shutdown.load());
+    LOG(INFO) << absl::Substitute("Tokens waited ($0 threads): $1", kWaitThreads,
+                                  total_num_tokens_waited.load());
+    LOG(INFO) << absl::Substitute("Tokens submitted ($0 threads): $1", kSubmitThreads,
+                                  total_num_tokens_submitted.load());
 }
 
 static void MyFunc(int idx, int n) {

@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/thread_context.h"
 #include "vec/common/allocator.h" // IWYU pragma: keep
 #include "vec/common/memcpy_small.h"
 
@@ -82,6 +83,16 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   *  and zero initialize -1th element. It allows to use -1th element that will have value 0.
   * This gives performance benefits when converting an array of offsets to array of sizes.
   *
+  * If reserve 4096 bytes, used 512 bytes, pad_left = 16, pad_right = 15, the structure of PODArray is as follows:
+  *
+  *         16 bytes          512 bytes                 3553 bytes                            15 bytes
+  * pad_left ----- c_start -------------c_end ---------------------------- c_end_of_storage ------------- pad_right
+  *    ^                                        ^                                                              ^
+  *    |                                        |                                                              |
+  *    |                                    c_res_mem (usually > c_end && < c_end + PRE_GROWTH_SIZE)           |
+  *    |                                                                                                       |
+  *    +-------------------------------------- allocated_bytes (4096 bytes) -----------------------------------+
+  *
   * Some methods using allocator have TAllocatorParams variadic arguments.
   * These arguments will be passed to corresponding methods of TAllocator.
   * Example: pointer to Arena, that is used for allocations.
@@ -98,6 +109,7 @@ inline size_t round_up_to_power_of_two_or_zero(size_t n) {
   * TODO Allow greater alignment than alignof(T). Example: array of char aligned to page size.
   */
 static constexpr size_t EmptyPODArraySize = 1024;
+static constexpr size_t PRE_GROWTH_SIZE = (1ULL << 20); // 1M
 extern const char empty_pod_array[EmptyPODArraySize];
 
 /** Base class that depend only on size of element, not on element itself.
@@ -122,6 +134,7 @@ protected:
     char* c_start = null; /// Does not include pad_left.
     char* c_end = null;
     char* c_end_of_storage = null; /// Does not include pad_right.
+    char* c_res_mem = null;
 
     /// The amount of memory occupied by the num_elements of the elements.
     static size_t byte_size(size_t num_elements) {
@@ -143,6 +156,42 @@ protected:
         return byte_size(num_elements) + pad_right + pad_left;
     }
 
+    inline void check_memory(int64_t size) {
+        std::string err_msg;
+        if (TAllocator::sys_memory_exceed(size, &err_msg) ||
+            TAllocator::memory_tracker_exceed(size, &err_msg)) {
+            err_msg = fmt::format("PODArray reserve memory failed, {}.", err_msg);
+            if (doris::enable_thread_catch_bad_alloc) {
+                LOG(WARNING) << err_msg;
+                throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+            } else {
+                LOG_EVERY_N(WARNING, 1024) << err_msg;
+            }
+        }
+    }
+
+    inline void reset_resident_memory(const char* c_end_new) {
+        static_assert(!TAllocator::need_check_and_tracking_memory(),
+                      "TAllocator should specify `NoTrackingDefaultMemoryAllocator`");
+        if (UNLIKELY(c_end_new - c_res_mem > 0)) {
+            // - allocated_bytes = c_end_of_storage - c_start = 4 MB;
+            // - used_bytes = c_end_new - c_start = 2.1 MB;
+            // - last tracking_res_memory = c_res_mem - c_start = 1 MB;
+            // - res_mem_growth = min(allocated_bytes, integerRoundUp(used_bytes)) - last_tracking_res_memory = 3 - 1 = 2 MB;
+            // - update tracking_res_memory = 1 + 2 = 3 MB;
+            // so after each reset_resident_memory, tracking_res_memory >= used_bytes;
+            int64_t res_mem_growth =
+                    std::min(static_cast<size_t>(c_end_of_storage - c_start),
+                             integerRoundUp(c_end_new - c_start, PRE_GROWTH_SIZE)) -
+                    (c_res_mem - c_start);
+            check_memory(res_mem_growth);
+            CONSUME_THREAD_MEM_TRACKER(res_mem_growth);
+            c_res_mem = c_res_mem + res_mem_growth;
+        }
+    }
+
+    inline void reset_resident_memory() { reset_resident_memory(c_end); }
+
     void alloc_for_num_elements(size_t num_elements) {
         alloc(round_up_to_power_of_two_or_zero(minimum_memory_for_elements(num_elements)));
     }
@@ -154,6 +203,7 @@ protected:
 
         c_start = allocated + pad_left;
         c_end = c_start;
+        c_res_mem = c_start;
         c_end_of_storage = allocated + bytes - pad_right;
 
         if (pad_left) memset(c_start - ELEMENT_SIZE, 0, ELEMENT_SIZE);
@@ -161,9 +211,8 @@ protected:
 
     void dealloc() {
         if (c_start == null) return;
-
         unprotect();
-
+        RELEASE_THREAD_MEM_TRACKER((c_res_mem - c_start));
         TAllocator::free(c_start - pad_left, allocated_bytes());
     }
 
@@ -177,13 +226,21 @@ protected:
         unprotect();
 
         ptrdiff_t end_diff = c_end - c_start;
+        ptrdiff_t res_mem_diff = c_res_mem - c_start;
 
+        // Realloc can do 2 possible things:
+        // - expand existing memory region
+        // - allocate new memory block and free the old one
+        // Because we don't know which option will be picked we need to make sure there is enough
+        // memory for all options.
+        check_memory(res_mem_diff);
         char* allocated = reinterpret_cast<char*>(
                 TAllocator::realloc(c_start - pad_left, allocated_bytes(), bytes,
                                     std::forward<TAllocatorParams>(allocator_params)...));
 
         c_start = allocated + pad_left;
         c_end = c_start + end_diff;
+        c_res_mem = c_start + res_mem_diff;
         c_end_of_storage = allocated + bytes - pad_right;
     }
 
@@ -259,7 +316,10 @@ public:
         resize_assume_reserved(n);
     }
 
-    void resize_assume_reserved(const size_t n) { c_end = c_start + byte_size(n); }
+    void resize_assume_reserved(const size_t n) {
+        c_end = c_start + byte_size(n);
+        reset_resident_memory();
+    }
 
     const char* raw_data() const { return c_start; }
 
@@ -268,6 +328,7 @@ public:
         if (UNLIKELY(c_end == c_end_of_storage))
             reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
 
+        reset_resident_memory(c_end + byte_size(1));
         memcpy(c_end, ptr, ELEMENT_SIZE);
         c_end += byte_size(1);
     }
@@ -328,6 +389,7 @@ public:
     PODArray(size_t n) {
         this->alloc_for_num_elements(n);
         this->c_end += this->byte_size(n);
+        this->reset_resident_memory();
     }
 
     PODArray(size_t n, const T& x) {
@@ -379,25 +441,38 @@ public:
     const_iterator cend() const { return t_end(); }
 
     void* get_end_ptr() const { return this->c_end; }
-    void set_end_ptr(void* ptr) { this->c_end = (char*)ptr; }
+    void set_end_ptr(void* ptr) {
+        this->c_end = (char*)ptr;
+        this->reset_resident_memory();
+    }
 
     /// Same as resize, but zeroes new elements.
     void resize_fill(size_t n) {
         size_t old_size = this->size();
+        const auto new_size = this->byte_size(n);
         if (n > old_size) {
             this->reserve(n);
+            this->reset_resident_memory(this->c_start + new_size);
             memset(this->c_end, 0, this->byte_size(n - old_size));
+        } else {
+            this->reset_resident_memory(this->c_start + new_size);
         }
-        this->c_end = this->c_start + this->byte_size(n);
+        this->c_end = this->c_start + new_size;
     }
 
+    /// reset the array capacity
+    /// fill the new additional elements using the value
     void resize_fill(size_t n, const T& value) {
         size_t old_size = this->size();
+        const auto new_size = this->byte_size(n);
         if (n > old_size) {
             this->reserve(n);
+            this->reset_resident_memory(this->c_start + new_size);
             std::fill(t_end(), t_end() + n - old_size, value);
+        } else {
+            this->reset_resident_memory(this->c_start + new_size);
         }
-        this->c_end = this->c_start + this->byte_size(n);
+        this->c_end = this->c_start + new_size;
     }
 
     template <typename U, typename... TAllocatorParams>
@@ -406,27 +481,9 @@ public:
             this->reserve_for_next_size(std::forward<TAllocatorParams>(allocator_params)...);
         }
 
+        this->reset_resident_memory(this->c_end + this->byte_size(1));
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
-    }
-
-    template <typename U, typename... TAllocatorParams>
-    void add_num_element(U&& x, uint32_t num, TAllocatorParams&&... allocator_params) {
-        if (num != 0) {
-            const auto new_end = this->c_end + this->byte_size(num);
-            if (UNLIKELY(new_end > this->c_end_of_storage)) {
-                this->reserve(this->size() + num);
-            }
-            std::fill(t_end(), t_end() + num, x);
-            this->c_end = new_end;
-        }
-    }
-
-    template <typename U, typename... TAllocatorParams>
-    void add_num_element_without_reserve(U&& x, uint32_t num,
-                                         TAllocatorParams&&... allocator_params) {
-        std::fill(t_end(), t_end() + num, x);
-        this->c_end += sizeof(T) * num;
     }
 
     /**
@@ -435,6 +492,7 @@ public:
      */
     template <typename U, typename... TAllocatorParams>
     void push_back_without_reserve(U&& x, TAllocatorParams&&... allocator_params) {
+        this->reset_resident_memory(this->c_end + this->byte_size(1));
         new (t_end()) T(std::forward<U>(x));
         this->c_end += this->byte_size(1);
     }
@@ -448,6 +506,7 @@ public:
             this->reserve_for_next_size();
         }
 
+        this->reset_resident_memory(this->c_end + this->byte_size(1));
         new (t_end()) T(std::forward<Args>(args)...);
         this->c_end += this->byte_size(1);
     }
@@ -479,6 +538,7 @@ public:
         static_assert(pad_right_ >= 15);
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
+        this->reset_resident_memory(this->c_end + bytes_to_copy);
         memcpy_small_allow_read_write_overflow15(
                 this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
@@ -492,6 +552,7 @@ public:
         }
         size_t bytes_to_move = this->byte_size(end() - it);
         insert_prepare(from_begin, from_end);
+        this->reset_resident_memory(this->c_end + bytes_to_copy);
 
         if (UNLIKELY(bytes_to_move)) {
             memmove(this->c_end + bytes_to_copy - bytes_to_move, this->c_end - bytes_to_move,
@@ -507,6 +568,7 @@ public:
     void insert_assume_reserved(It1 from_begin, It2 from_end) {
         this->assert_not_intersects(from_begin, from_end);
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
+        this->reset_resident_memory(this->c_end + bytes_to_copy);
         memcpy(this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
     }
@@ -514,6 +576,7 @@ public:
     template <typename It1, typename It2>
     void insert_assume_reserved_and_allow_overflow(It1 from_begin, It2 from_end) {
         size_t bytes_to_copy = this->byte_size(from_end - from_begin);
+        this->reset_resident_memory(this->c_end + bytes_to_copy);
         memcpy_small_allow_read_write_overflow15(
                 this->c_end, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end += bytes_to_copy;
@@ -534,9 +597,11 @@ public:
         auto swap_stack_heap = [this](PODArray& arr1, PODArray& arr2) {
             size_t stack_size = arr1.size();
             size_t stack_allocated = arr1.allocated_bytes();
+            size_t stack_res_mem_used = arr1.c_res_mem - arr1.c_start;
 
             size_t heap_size = arr2.size();
             size_t heap_allocated = arr2.allocated_bytes();
+            size_t heap_res_mem_used = arr2.c_res_mem - arr2.c_start;
 
             /// Keep track of the stack content we have to copy.
             char* stack_c_start = arr1.c_start;
@@ -545,12 +610,14 @@ public:
             arr1.c_start = arr2.c_start;
             arr1.c_end_of_storage = arr1.c_start + heap_allocated - arr2.pad_right - arr2.pad_left;
             arr1.c_end = arr1.c_start + this->byte_size(heap_size);
+            arr1.c_res_mem = arr1.c_start + heap_res_mem_used;
 
             /// Allocate stack space for arr2.
             arr2.alloc(stack_allocated);
             /// Copy the stack content.
             memcpy(arr2.c_start, stack_c_start, this->byte_size(stack_size));
             arr2.c_end = arr2.c_start + this->byte_size(stack_size);
+            arr2.c_res_mem = arr2.c_start + stack_res_mem_used;
         };
 
         auto do_move = [this](PODArray& src, PODArray& dest) {
@@ -559,14 +626,17 @@ public:
                 dest.alloc(src.allocated_bytes());
                 memcpy(dest.c_start, src.c_start, this->byte_size(src.size()));
                 dest.c_end = dest.c_start + this->byte_size(src.size());
+                dest.c_res_mem = dest.c_start + (src.c_res_mem - src.c_start);
 
                 src.c_start = Base::null;
                 src.c_end = Base::null;
                 src.c_end_of_storage = Base::null;
+                src.c_res_mem = Base::null;
             } else {
                 std::swap(dest.c_start, src.c_start);
                 std::swap(dest.c_end, src.c_end);
                 std::swap(dest.c_end_of_storage, src.c_end_of_storage);
+                std::swap(dest.c_res_mem, src.c_res_mem);
             }
         };
 
@@ -594,9 +664,11 @@ public:
 
             size_t lhs_size = this->size();
             size_t lhs_allocated = this->allocated_bytes();
+            size_t lhs_res_mem_used = this->c_res_mem - this->c_start;
 
             size_t rhs_size = rhs.size();
             size_t rhs_allocated = rhs.allocated_bytes();
+            size_t rhs_res_mem_used = rhs.c_res_mem - rhs.c_start;
 
             this->c_end_of_storage =
                     this->c_start + rhs_allocated - Base::pad_right - Base::pad_left;
@@ -604,6 +676,9 @@ public:
 
             this->c_end = this->c_start + this->byte_size(rhs_size);
             rhs.c_end = rhs.c_start + this->byte_size(lhs_size);
+
+            this->c_res_mem = this->c_start + rhs_res_mem_used;
+            rhs.c_res_mem = rhs.c_start + lhs_res_mem_used;
         } else if (this->is_allocated_from_stack() && !rhs.is_allocated_from_stack()) {
             swap_stack_heap(*this, rhs);
         } else if (!this->is_allocated_from_stack() && rhs.is_allocated_from_stack()) {
@@ -612,9 +687,12 @@ public:
             std::swap(this->c_start, rhs.c_start);
             std::swap(this->c_end, rhs.c_end);
             std::swap(this->c_end_of_storage, rhs.c_end_of_storage);
+            std::swap(this->c_res_mem, rhs.c_res_mem);
         }
     }
 
+    /// reset the array capacity
+    /// replace the all elements using the value
     void assign(size_t n, const T& x) {
         this->resize(n);
         std::fill(begin(), end(), x);
@@ -628,6 +706,7 @@ public:
             this->reserve(round_up_to_power_of_two_or_zero(required_capacity));
 
         size_t bytes_to_copy = this->byte_size(required_capacity);
+        this->reset_resident_memory(this->c_start + bytes_to_copy);
         memcpy(this->c_start, reinterpret_cast<const void*>(&*from_begin), bytes_to_copy);
         this->c_end = this->c_start + bytes_to_copy;
     }

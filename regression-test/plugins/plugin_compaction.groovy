@@ -106,7 +106,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
-            } else if (status_lower.contains("e-2000")) {
+            } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")) {
                 // ignore this tablet compaction.
             } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
                 // ignore this tablet compaction if the error is in the ignored_errors list

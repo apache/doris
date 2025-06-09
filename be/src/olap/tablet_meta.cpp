@@ -1168,6 +1168,19 @@ void DeleteBitmap::remove(const BitmapKey& start, const BitmapKey& end) {
     }
 }
 
+void DeleteBitmap::remove(const std::vector<std::tuple<BitmapKey, BitmapKey>>& key_ranges) {
+    std::lock_guard l(lock);
+    for (auto& [start, end] : key_ranges) {
+        for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end();) {
+            auto& [k, _] = *it;
+            if (k >= end) {
+                break;
+            }
+            it = delete_bitmap.erase(it);
+        }
+    }
+}
+
 bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {
     std::shared_lock l(lock);
     auto it = delete_bitmap.find(bmk);
@@ -1297,54 +1310,6 @@ void DeleteBitmap::merge(const DeleteBitmap& other) {
     }
 }
 
-void DeleteBitmap::add_to_remove_queue(
-        const std::string& version_str,
-        const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
-                vector) {
-    std::shared_lock l(stale_delete_bitmap_lock);
-    _stale_delete_bitmap.emplace(version_str, vector);
-}
-
-void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
-    if (!config::enable_delete_bitmap_merge_on_compaction) {
-        return;
-    }
-    std::shared_lock l(stale_delete_bitmap_lock);
-    //<rowset_id, start_version, end_version>
-    std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
-    int64_t tablet_id = -1;
-    for (auto& version_str : vector) {
-        auto it = _stale_delete_bitmap.find(version_str);
-        if (it != _stale_delete_bitmap.end()) {
-            auto delete_bitmap_vector = it->second;
-            for (auto& delete_bitmap_tuple : it->second) {
-                if (tablet_id < 0) {
-                    tablet_id = std::get<0>(delete_bitmap_tuple);
-                }
-                auto start_bmk = std::get<1>(delete_bitmap_tuple);
-                auto end_bmk = std::get<2>(delete_bitmap_tuple);
-                // the key range of to be removed is [start_bmk,end_bmk),
-                // due to the different definitions of the right boundary,
-                // so use end_bmk as right boundary when removing local delete bitmap,
-                // use (end_bmk - 1) as right boundary when removing ms delete bitmap
-                remove(start_bmk, end_bmk);
-                to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
-                                                       std::get<2>(end_bmk) - 1));
-            }
-            _stale_delete_bitmap.erase(version_str);
-        }
-    }
-    if (tablet_id == -1 || to_delete.empty() || !config::is_cloud_mode()) {
-        return;
-    }
-    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-    auto st = engine.meta_mgr().remove_old_version_delete_bitmap(tablet_id, to_delete);
-    if (!st.ok()) {
-        LOG(WARNING) << "fail to remove_stale_delete_bitmap_from_queue for tablet=" << tablet_id
-                     << ",st=" << st;
-    }
-}
-
 uint64_t DeleteBitmap::get_delete_bitmap_count() {
     std::shared_lock l(lock);
     uint64_t count = 0;
@@ -1354,6 +1319,25 @@ uint64_t DeleteBitmap::get_delete_bitmap_count() {
         }
     }
     return count;
+}
+
+void DeleteBitmap::traverse_rowset_and_version(
+        const std::function<int(const RowsetId& rowsetId, int64_t version)>& func) const {
+    std::shared_lock l(lock);
+    auto it = delete_bitmap.cbegin();
+    while (it != delete_bitmap.cend()) {
+        RowsetId rowset_id = std::get<0>(it->first);
+        int64_t version = std::get<2>(it->first);
+        int result = func(rowset_id, version);
+        if (result == -2) {
+            // find next <rowset, version>
+            it++;
+        } else {
+            // find next <rowset>
+            it = delete_bitmap.upper_bound({rowset_id, std::numeric_limits<SegmentId>::max(),
+                                            std::numeric_limits<Version>::max()});
+        }
+    }
 }
 
 bool DeleteBitmap::has_calculated_for_multi_segments(const RowsetId& rowset_id) const {
@@ -1501,10 +1485,11 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
 }
 
-std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg_without_cache(const BitmapKey& bmk) const {
+std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg_without_cache(
+        const BitmapKey& bmk, const int64_t start_version) const {
     std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
     std::shared_lock l(lock);
-    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
+    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), start_version};
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
         auto& [k, bm] = *it;
         if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||

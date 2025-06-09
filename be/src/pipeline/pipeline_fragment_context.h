@@ -82,8 +82,6 @@ public:
 
     PipelinePtr add_pipeline(PipelinePtr parent = nullptr, int idx = -1);
 
-    RuntimeState* get_runtime_state() { return _runtime_state.get(); }
-
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
@@ -282,7 +280,7 @@ private:
     int _operator_id = 0;
     int _sink_operator_id = 0;
     /**
-     * Some states are shared by tasks in different instances (e.g. local exchange , broadcast join).
+     * Some states are shared by tasks in different pipeline task (e.g. local exchange , broadcast join).
      *
      * local exchange sink 0 ->                               -> local exchange source 0
      *                            LocalExchangeSharedState

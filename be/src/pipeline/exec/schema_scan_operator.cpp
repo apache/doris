@@ -183,11 +183,11 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
                                          _dest_tuple_desc->slots()[i]->col_name());
         }
 
-        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {
-            return Status::InternalError("schema not match. input is {}({}) and output is {}({})",
-                                         columns_desc[j].name, type_to_string(columns_desc[j].type),
-                                         _dest_tuple_desc->slots()[i]->col_name(),
-                                         type_to_string(_dest_tuple_desc->slots()[i]->type().type));
+        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type()->get_primitive_type()) {
+            return Status::InternalError(
+                    "schema not match. input is {}({}) and output is {}({})", columns_desc[j].name,
+                    type_to_string(columns_desc[j].type), _dest_tuple_desc->slots()[i]->col_name(),
+                    type_to_string(_dest_tuple_desc->slots()[i]->type()->get_primitive_type()));
         }
     }
 
@@ -217,9 +217,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         // src block columns desc is filled by schema_scanner->get_column_desc.
         vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
-            TypeDescriptor descriptor(columns_desc[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    columns_desc[i].type, true);
             src_block.insert(vectorized::ColumnWithTypeAndName(data_type->create_column(),
                                                                data_type, columns_desc[i].name));
         }

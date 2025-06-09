@@ -34,6 +34,7 @@
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
 #include "arrow/type.h"
+#include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "util/timezone_utils.h"
 #include "vec/columns/column.h"
@@ -99,9 +100,9 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const cctz::time_zone& ctz) {
-    type->get_serde()->read_column_from_arrow(doris_column->assume_mutable_ref(), arrow_column,
-                                              arrow_batch_cur_idx,
-                                              arrow_batch_cur_idx + num_elements, ctz);
+    RETURN_IF_ERROR(type->get_serde()->read_column_from_arrow(
+            doris_column->assume_mutable_ref(), arrow_column, arrow_batch_cur_idx,
+            arrow_batch_cur_idx + num_elements, ctz));
     return Status::OK();
 }
 

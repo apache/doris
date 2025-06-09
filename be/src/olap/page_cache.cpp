@@ -33,7 +33,8 @@ MemoryTrackedPageBase<T>::MemoryTrackedPageBase(size_t size, bool use_cache,
     if (use_cache) {
         _mem_tracker_by_allocator = StoragePageCache::instance()->mem_tracker(page_type);
     } else {
-        _mem_tracker_by_allocator = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        _mem_tracker_by_allocator =
+                thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr();
     }
 }
 

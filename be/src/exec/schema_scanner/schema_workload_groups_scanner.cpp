@@ -43,7 +43,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_colu
         {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MEMORY_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
         {"MEMORY_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COMPUTE_GROUP", TYPE_VARCHAR, sizeof(StringRef), true},
         {"READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
         {"REMOTE_READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
 };
@@ -91,8 +91,8 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
 
     _workload_groups_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        TypeDescriptor descriptor(_s_tbls_columns[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _workload_groups_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }

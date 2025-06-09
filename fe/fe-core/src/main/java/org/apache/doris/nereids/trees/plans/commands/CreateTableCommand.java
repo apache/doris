@@ -124,8 +124,8 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                         DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
-                    if ((!((SlotReference) s).getTable().isPresent()
-                            || !((SlotReference) s).getTable().get().isManagedTable())) {
+                    if ((!((SlotReference) s).getOriginalTable().isPresent()
+                            || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
                         if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
                                 || (createTableInfo.getDistribution() != null
                                 && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {

@@ -103,8 +103,10 @@ suite("test_array_index2") {
         (2, [['e', 'f']], [{'key3': 3}], [3.3], array(named_struct('name', 'Bob', 'age', 25, 'score', 90.0)));
     """
 
-    sql """ ALTER TABLE ${tableName2} ADD INDEX idx_nested_arr (nested_arr) USING INVERTED; """
-    wait_for_latest_op_on_table_finish(tableName2, timeout)
+    test {
+         sql """ ALTER TABLE ${tableName2} ADD INDEX idx_nested_arr (nested_arr) USING INVERTED; """
+         exception "is not supported in"
+    } 
 
     // Test creating index on array of map - should fail
     test {

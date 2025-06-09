@@ -202,19 +202,18 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
             const auto& [column_ptr, col_const] =
                     unpack_if_const(block.get_by_position(col_idx).column);
-            int scale = _output_vexpr_ctxs[col_idx]->root()->type().scale;
+            int scale = _output_vexpr_ctxs[col_idx]->root()->data_type()->get_scale();
             // decimalv2 scale and precision is hard code, so we should get real scale and precision
             // from expr
             DataTypeSerDeSPtr serde;
-            if (_output_vexpr_ctxs[col_idx]->root()->type().is_decimal_v2_type()) {
+            if (_output_vexpr_ctxs[col_idx]->root()->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_DECIMALV2) {
                 if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
                     auto nested_serde =
-                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,
-                                                                                             scale);
+                            std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, scale);
                     serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
                 } else {
-                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(27,
-                                                                                             scale);
+                    serde = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, scale);
                 }
             } else {
                 serde = block.get_by_position(col_idx).type->get_serde();

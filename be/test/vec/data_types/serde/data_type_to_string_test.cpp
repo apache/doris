@@ -39,32 +39,34 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     // prepare field
     DataTypeTestCases cases;
     DataTypes data_types;
-    std::vector<TypeIndex> type_ids = {TypeIndex::Int16, TypeIndex::String, TypeIndex::Decimal32};
+    std::vector<PrimitiveType> type_ids = {PrimitiveType::TYPE_SMALLINT, PrimitiveType::TYPE_STRING,
+                                           PrimitiveType::TYPE_DECIMAL32};
     Array a1, a2;
-    a1.push_back(UInt64(123));
-    a1.push_back(Null());
-    a1.push_back(UInt64(12345678));
-    a1.push_back(UInt64(0));
-    a2.push_back(Field(String("hello amory")));
-    a2.push_back(Field("NULL"));
-    a2.push_back(Field(String("cute amory")));
-    a2.push_back(Null());
+    a1.push_back(Field::create_field<TYPE_BIGINT>(Int64(123)));
+    a1.push_back(Field());
+    a1.push_back(Field::create_field<TYPE_BIGINT>(Int64(12345678)));
+    a1.push_back(Field::create_field<TYPE_BIGINT>(Int64(0)));
+    a2.push_back(Field::create_field<TYPE_STRING>(String("hello amory")));
+    a2.push_back(Field::create_field<TYPE_STRING>("NULL"));
+    a2.push_back(Field::create_field<TYPE_STRING>(String("cute amory")));
+    a2.push_back(Field());
     Map m;
-    m.push_back(a1);
-    m.push_back(a2);
+    m.push_back(Field::create_field<TYPE_ARRAY>(a1));
+    m.push_back(Field::create_field<TYPE_ARRAY>(a2));
 
     Tuple t;
-    t.push_back(Int128(12345454342));
-    t.push_back(Field(String("amory cute")));
-    t.push_back(UInt64(0));
+    t.push_back(Field::create_field<TYPE_LARGEINT>(Int128(12345454342)));
+    t.push_back(Field::create_field<TYPE_STRING>(String("amory cute")));
+    t.push_back(Field::create_field<TYPE_BIGINT>(Int64(0)));
 
-    cases.field_values = {UInt64(12),
-                          Field(String(" hello amory , cute amory ")),
-                          DecimalField<Decimal32>(-12345678, 0),
-                          a1,
-                          a2,
-                          t,
-                          m};
+    cases.field_values = {
+            Field::create_field<TYPE_BIGINT>(Int64(12)),
+            Field::create_field<TYPE_STRING>(String(" hello amory , cute amory ")),
+            Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(-12345678, 0)),
+            Field::create_field<TYPE_ARRAY>(a1),
+            Field::create_field<TYPE_ARRAY>(a2),
+            Field::create_field<TYPE_STRUCT>(t),
+            Field::create_field<TYPE_MAP>(m)};
     cases.expect_values = {"12",
                            " hello amory , cute amory ",
                            "-12345678",
@@ -74,7 +76,8 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
                            "{123:\"hello amory\", null:\"NULL\", 12345678:\"cute amory\", 0:null}"};
 
     for (const auto id : type_ids) {
-        const auto data_type = DataTypeFactory::instance().create_data_type(id);
+        const auto data_type = DataTypeFactory::instance().create_data_type(
+                id, false, BeConsts::MAX_DECIMAL32_PRECISION, 0);
         data_types.push_back(data_type);
     }
 
@@ -82,7 +85,7 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
     DataTypePtr n1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     DataTypePtr n3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
     DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    DataTypePtr u1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt64>());
+    DataTypePtr u1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
 
     DataTypePtr a = std::make_shared<DataTypeArray>(u1);
     data_types.push_back(a);

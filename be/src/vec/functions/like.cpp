@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -542,11 +541,6 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
         }
     }
     block.replace_by_position(result, std::move(res));
-    return Status::OK();
-}
-
-Status FunctionLikeBase::close(FunctionContext* context,
-                               FunctionContext::FunctionStateScope scope) {
     return Status::OK();
 }
 

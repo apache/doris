@@ -439,8 +439,8 @@ public class RuntimeProfile {
         try {
             for (String key : this.infoStringsDisplayOrder) {
                 builder.append(prefix);
-                if (SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.containsKey(key)) {
-                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_IDENTATION.get(key); i++) {
+                if (SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.containsKey(key)) {
+                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key); i++) {
                         builder.append("  ");
                     }
                 }

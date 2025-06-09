@@ -19,10 +19,12 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
+import java.util.Optional;
 
 public class S3PropertyUtils {
 
@@ -43,14 +45,28 @@ public class S3PropertyUtils {
      */
     public static String constructEndpointFromUrl(Map<String, String> props,
                                                   String stringUsePathStyle,
-                                                  String stringForceParsingByStandardUri) throws UserException {
-        String uri = props.get(URI_KEY);
-        if (uri == null || uri.isEmpty()) {
+                                                  String stringForceParsingByStandardUri) {
+        Optional<String> uriOptional = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        if (!uriOptional.isPresent()) {
+            return null;
+        }
+        String uri = uriOptional.get();
+        if (StringUtils.isBlank(uri)) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
-        S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        S3URI s3uri;
+        try {
+            s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        } catch (UserException e) {
+            throw new IllegalArgumentException("Invalid S3 URI: " + uri + ",usePathStyle: " + usePathStyle
+                    + " forceParsingByStandardUri: " + forceParsingByStandardUri, e);
+        }
         return s3uri.getEndpoint().orElse(null);
     }
 
@@ -68,14 +84,28 @@ public class S3PropertyUtils {
      */
     public static String constructRegionFromUrl(Map<String, String> props,
                                                 String stringUsePathStyle,
-                                                String stringForceParsingByStandardUri) throws UserException {
-        String uri = props.get(URI_KEY);
-        if (uri == null || uri.isEmpty()) {
+                                                String stringForceParsingByStandardUri) {
+        Optional<String> uriOptional = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        if (!uriOptional.isPresent()) {
+            return null;
+        }
+        String uri = uriOptional.get();
+        if (StringUtils.isBlank(uri)) {
             return null;
         }
         boolean usePathStyle = Boolean.parseBoolean(stringUsePathStyle);
         boolean forceParsingByStandardUri = Boolean.parseBoolean(stringForceParsingByStandardUri);
-        S3URI s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        S3URI s3uri = null;
+        try {
+            s3uri = S3URI.create(uri, usePathStyle, forceParsingByStandardUri);
+        } catch (UserException e) {
+            throw new IllegalArgumentException("Invalid S3 URI: " + uri + ",usePathStyle: " + usePathStyle
+                    + " forceParsingByStandardUri: " + forceParsingByStandardUri, e);
+        }
         return s3uri.getRegion().orElse(null);
 
     }
@@ -99,7 +129,7 @@ public class S3PropertyUtils {
                                                  String stringUsePathStyle,
                                                  String stringForceParsingByStandardUri) throws UserException {
         if (StringUtils.isBlank(path)) {
-            throw new UserException("path is null");
+            throw new StoragePropertiesException("path is null");
         }
         if (path.startsWith("s3://")) {
             return path;
@@ -122,13 +152,18 @@ public class S3PropertyUtils {
      *                       Input: {"uri": "s3://my-bucket/my-key"}
      *                       Output: "s3://my-bucket/my-key"
      */
-    public static String validateAndGetUri(Map<String, String> props) throws UserException {
+    public static String validateAndGetUri(Map<String, String> props) {
         if (props.isEmpty()) {
-            throw new UserException("props is empty");
+            throw new StoragePropertiesException("props is empty");
         }
-        if (!props.containsKey(URI_KEY)) {
-            throw new UserException("props must contain uri");
+        Optional<String> uriOptional = props.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
+                .map(Map.Entry::getValue)
+                .findFirst();
+
+        if (!uriOptional.isPresent()) {
+            throw new StoragePropertiesException("props must contain uri");
         }
-        return props.get(URI_KEY);
+        return uriOptional.get();
     }
 }

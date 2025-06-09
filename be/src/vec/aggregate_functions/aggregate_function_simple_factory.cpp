@@ -62,11 +62,13 @@ void register_aggregate_function_retention(AggregateFunctionSimpleFactory& facto
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_array_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_map_agg_v2(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_functions_corr_welford(AggregateFunctionSimpleFactory& factory);
@@ -112,11 +114,13 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);
+        register_aggregate_function_array_agg(instance);
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
         register_aggregate_function_linear_histogram(instance);
         register_aggregate_function_map_agg(instance);
+        register_aggregate_function_map_agg_v2(instance);
         register_aggregate_function_bitmap_agg(instance);
         register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_replace_reader_load(instance);

@@ -53,7 +53,6 @@
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -150,8 +149,12 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
+    bool has_delete_sign = false;
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
         auto* slot = tuple_desc()->slots()[i];
+        if (slot->col_name() == DELETE_SIGN) {
+            has_delete_sign = true;
+        }
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -163,7 +166,9 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
 
     // get the delete sign idx in block
-    _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    if (has_delete_sign) {
+        _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    }
 
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
         const auto& column = *DORIS_TRY(schema.column(BeConsts::ROW_STORE_COL));
@@ -451,12 +456,12 @@ Status PointQueryExecutor::_lookup_row_data() {
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         if (_row_read_ctxs[i]._cached_row_data.valid()) {
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
                     *_result_block, _reusable->get_col_default_values(),
-                    _reusable->include_col_uids());
+                    _reusable->include_col_uids()));
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -471,10 +476,10 @@ Status PointQueryExecutor::_lookup_row_data() {
                     *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
                     use_row_cache));
             // serilize value to block, currently only jsonb row formt
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),
                     _reusable->get_col_uid_to_idx(), *_result_block,
-                    _reusable->get_col_default_values(), _reusable->include_col_uids());
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
         }
         if (!_reusable->missing_col_uids().empty()) {
             if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
@@ -511,9 +516,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 vectorized::MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
-                        column, _read_stats, iter));
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                row_id, column, _read_stats, iter));
+                if (_tablet->tablet_schema()
+                            ->column_by_uid(slot->col_unique_id())
+                            .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
             }
         }
     }

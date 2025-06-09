@@ -49,10 +49,10 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 String partitioned_table_hive = "test_use_meta_cache_partitioned_tbl_hive"
 
                 sql "switch ${catalog}"
-                sql "drop database if exists ${database}"
-                sql "drop database if exists ${database_hive}"
+                sql "drop database if exists ${database} force"
+                sql "drop database if exists ${database_hive} force"
                 order_qt_sql01 "show databases like '%${database}%'";
-                sql "drop database if exists ${database}"
+                sql "drop database if exists ${database} force"
                 sql "create database ${database}"
                 order_qt_sql02 "show databases like '%${database}%'";
                 sql "use ${database}"
@@ -100,6 +100,24 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 }
                 // can see
                 order_qt_sql07 "show tables"
+
+                // another table creation test only for use_meta_cache=true
+                // the main point is to select the table first before creation.
+                if (use_meta_cache) {
+                    // 0. create env
+                    hive_docker "drop table if exists ${database_hive}.another_table_creation_test"
+                    // 1. select a non exist table
+                    test {
+                        sql "select * from another_table_creation_test";
+                        exception "does not exist in database"
+                    }
+                    // 2. use hive to create this table
+                    hive_docker "create table ${database_hive}.another_table_creation_test (k1 int)"
+                    // 3. use doris to select, can see
+                    qt_aother_test_sql "select * from another_table_creation_test";
+                    // 4. drop table
+                    sql "drop table another_table_creation_test";
+                }
                 
                 // test Hive Metastore table partition file listing
                 hive_docker "create table ${database_hive}.${partitioned_table_hive} (k1 int) partitioned by (p1 string)"

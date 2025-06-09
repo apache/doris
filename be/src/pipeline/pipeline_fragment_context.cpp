@@ -49,6 +49,7 @@
 #include "pipeline/exec/cache_sink_operator.h"
 #include "pipeline/exec/cache_source_operator.h"
 #include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/dict_sink_operator.h"
 #include "pipeline/exec/distinct_streaming_aggregation_operator.h"
 #include "pipeline/exec/empty_set_operator.h"
 #include "pipeline/exec/es_scan_operator.h"
@@ -64,6 +65,8 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
+#include "pipeline/exec/materialization_sink_operator.h"
+#include "pipeline/exec/materialization_source_operator.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -1014,6 +1017,15 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
                                             thrift_sink.result_sink));
         break;
     }
+    case TDataSinkType::DICTIONARY_SINK: {
+        if (!thrift_sink.__isset.dictionary_sink) {
+            return Status::InternalError("Missing dict sink.");
+        }
+
+        _sink.reset(new DictSinkOperatorX(next_sink_operator_id(), row_desc, output_exprs,
+                                          thrift_sink.dictionary_sink));
+        break;
+    }
     case TDataSinkType::GROUP_COMMIT_OLAP_TABLE_SINK:
     case TDataSinkType::OLAP_TABLE_SINK: {
         if (state->query_options().enable_memtable_on_sink_node &&
@@ -1268,7 +1280,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                       tnode.agg_node.use_streaming_preaggregation &&
                                       !tnode.agg_node.grouping_exprs.empty();
         const bool can_use_distinct_streaming_agg =
-                is_streaming_agg && tnode.agg_node.aggregate_functions.empty() &&
+                tnode.agg_node.aggregate_functions.empty() &&
+                !tnode.agg_node.__isset.agg_sort_info_by_group_key &&
                 request.query_options.__isset.enable_distinct_streaming_aggregation &&
                 request.query_options.enable_distinct_streaming_aggregation;
 
@@ -1570,6 +1583,28 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
         break;
     }
+    case TPlanNodeType::MATERIALIZATION_NODE: {
+        op.reset(new MaterializationSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        RETURN_IF_ERROR(cur_pipe->add_operator(
+                op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+
+        auto new_pipe = add_pipeline(cur_pipe);
+        DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
+                op->operator_id(), next_sink_operator_id(), pool, tnode));
+        std::shared_ptr<MaterializationSharedState> shared_state =
+                MaterializationSharedState::create_shared();
+        // create source/sink dependency for materialization operator
+        shared_state->create_counter_dependency(op->operator_id(), op->node_id(),
+                                                "MATERIALIZATION_COUNTER");
+        (void)shared_state->create_sink_dependency(sink->dests_id().front(), sink->node_id(),
+                                                   sink->get_name());
+        _op_id_to_shared_state.insert({op->operator_id(), {shared_state, shared_state->sink_deps}});
+
+        RETURN_IF_ERROR(new_pipe->set_sink(sink));
+        RETURN_IF_ERROR(new_pipe->sink()->init(tnode, _runtime_state.get()));
+        cur_pipe = new_pipe;
+        break;
+    }
     case TPlanNodeType::INTERSECT_NODE: {
         RETURN_IF_ERROR(_build_operators_for_set_operation_node<true>(
                 pool, tnode, descs, op, cur_pipe, parent_idx, child_idx, request));
@@ -1692,6 +1727,8 @@ Status PipelineFragmentContext::submit() {
     for (auto& task : _tasks) {
         for (auto& t : task) {
             st = scheduler->schedule_task(t);
+            DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
+                            { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
                 cancel(Status::InternalError("submit context to executor fail"));
                 std::lock_guard<std::mutex> l(_task_mutex);

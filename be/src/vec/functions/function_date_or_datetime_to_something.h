@@ -49,22 +49,22 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() == 1) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
+            if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Illegal type {} of argument of function {}. Should be a "
                                        "date or a date with time",
                                        arguments[0].type->get_name(), get_name());
             }
         } else if (arguments.size() == 2) {
-            if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
-                !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
+            if (!is_date_or_datetime(arguments[0].type->get_primitive_type()) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type->get_primitive_type())) {
                 throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                        "Illegal type {} of argument of function {}. Should be a "
                                        "date or a date with time",
                                        arguments[0].type->get_name(), get_name());
             }
-            if (!is_string(remove_nullable(arguments[1].type))) {
+            if (!is_string_type(arguments[1].type->get_primitive_type())) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 1 or 2 arguments. The 1st argument must be of type "
@@ -72,7 +72,7 @@ public:
                         "with timezone name",
                         get_name());
             }
-            if (is_date(remove_nullable(arguments[0].type)) &&
+            if (arguments[0].type->get_primitive_type() == TYPE_DATE &&
                 std::is_same_v<ToDataType, DataTypeDate>) {
                 throw doris::Exception(
                         ErrorCode::INVALID_ARGUMENT,
@@ -87,7 +87,7 @@ public:
                                    get_name(), arguments.size());
         }
 
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType::PType);
     }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
@@ -95,9 +95,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return DateTimeTransformImpl<typename Transform::OpArgType, typename ToDataType::FieldType,
-                                     Transform>::execute(block, arguments, result,
-                                                         input_rows_count);
+        return DateTimeTransformImpl<Transform::OpArgType, ToDataType::PType, Transform>::execute(
+                block, arguments, result, input_rows_count);
     }
 };
 

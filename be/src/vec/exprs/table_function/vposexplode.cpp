@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"

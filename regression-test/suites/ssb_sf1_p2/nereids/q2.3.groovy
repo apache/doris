@@ -40,6 +40,6 @@ suite("ssb_sf1_q2_3_nereids") {
         ORDER BY d_year, p_brand;
         """
 
-        resultFile(file = "../sql/q2.3.out", tag = "q2.3")
+        resultFile("../sql/q2.3.out", "q2.3")
     }
 }

@@ -175,10 +175,6 @@ void RuntimeFilterProducerHelper::collect_realtime_profile(
             "SkipProcess", _skip_runtime_filters_process ? "True" : "False", "RuntimeFilterInfo");
     publish_timer->set(_publish_runtime_filter_timer->value());
     build_timer->set(_runtime_filter_compute_timer->value());
-
-    for (auto& producer : _producers) {
-        producer->collect_realtime_profile(parent_operator_profile);
-    }
 }
 
 } // namespace doris

@@ -24,7 +24,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -35,9 +34,9 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename K>
+template <PrimitiveType K>
 struct AggregateFunctionMapAggData {
-    using KeyType = std::conditional_t<std::is_same_v<K, String>, StringRef, K>;
+    using KeyType = typename PrimitiveTypeTraits<K>::ColumnItemType;
     using Map = phmap::flat_hash_map<StringRef, int64_t>;
 
     AggregateFunctionMapAggData() { throw Exception(Status::FatalError("__builtin_unreachable")); }
@@ -78,8 +77,8 @@ struct AggregateFunctionMapAggData {
 
         for (size_t i = 0; i != count; ++i) {
             StringRef key;
-            if constexpr (std::is_same_v<K, String>) {
-                auto& string = key_array[i].get<K>();
+            if constexpr (is_string_type(K)) {
+                auto& string = key_array[i].get<String>();
                 key.data = string.data();
                 key.size = string.size();
             } else {
@@ -171,8 +170,7 @@ struct AggregateFunctionMapAggData {
     }
 
 private:
-    using KeyColumnType =
-            std::conditional_t<std::is_same_v<String, K>, ColumnString, ColumnVectorOrDecimal<K>>;
+    using KeyColumnType = typename PrimitiveTypeTraits<K>::ColumnType;
     Map _map;
     Arena _arena;
     IColumn::MutablePtr _key_column;
@@ -181,18 +179,17 @@ private:
     DataTypePtr _value_type;
 };
 
-template <typename Data, typename K>
+template <typename Data, PrimitiveType K>
 class AggregateFunctionMapAgg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>> {
 public:
-    using KeyColumnType =
-            std::conditional_t<std::is_same_v<String, K>, ColumnString, ColumnVectorOrDecimal<K>>;
+    using KeyColumnType = typename PrimitiveTypeTraits<K>::ColumnType;
     AggregateFunctionMapAgg() = default;
     AggregateFunctionMapAgg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>>(
                       argument_types_) {}
 
-    std::string get_name() const override { return "map_agg"; }
+    std::string get_name() const override { return "map_agg_v1"; }
 
     DataTypePtr get_return_type() const override {
         /// keys and values column of `ColumnMap` are always nullable.
@@ -252,12 +249,16 @@ public:
             Field key, value;
             columns[0]->get(i, key);
             if (key.is_null()) {
-                col.insert(Map {Array {}, Array {}});
+                col.insert(Field::create_field<TYPE_MAP>(
+                        Map {Field::create_field<TYPE_ARRAY>(Array {}),
+                             Field::create_field<TYPE_ARRAY>(Array {})}));
                 continue;
             }
 
             columns[1]->get(i, value);
-            col.insert(Map {Array {key}, Array {value}});
+            col.insert(Field::create_field<TYPE_MAP>(
+                    Map {Field::create_field<TYPE_ARRAY>(Array {key}),
+                         Field::create_field<TYPE_ARRAY>(Array {value})}));
         }
     }
 

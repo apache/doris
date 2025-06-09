@@ -75,8 +75,8 @@ public class ScanPlanStatistics extends PlanStatistics {
             for (Expression expr : tableFilterSet) {
                 Set<Slot> inputSlot = expr.getInputSlots();
                 if (inputSlot.size() == 1 && inputSlot.iterator().next() instanceof SlotReference
-                        && ((SlotReference) inputSlot.iterator().next()).getColumn().isPresent()) {
-                    Column filterColumn = ((SlotReference) inputSlot.iterator().next()).getColumn().get();
+                        && ((SlotReference) inputSlot.iterator().next()).getOriginalColumn().isPresent()) {
+                    Column filterColumn = ((SlotReference) inputSlot.iterator().next()).getOriginalColumn().get();
                     if (partitionInfo.getPartitionColumns().contains(filterColumn)) {
                         partitionColumnPredicates.add(expr);
                     } else {

@@ -40,14 +40,14 @@ public:
     static size_t _get_number_of_arguments() { return 0; }
 
     static DataTypePtr get_return_type(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "first argument for function: array_join should be DataTypeArray"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string_or_fixed_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: array_join should be DataTypeString"
                 << ", and arguments[1] is " << arguments[1]->get_name();
         if (arguments.size() > 2) {
-            DCHECK(is_string_or_fixed_string(arguments[2]))
+            DCHECK(is_string_type(arguments[2]->get_primitive_type()))
                     << "third argument for function: array_join should be DataTypeString"
                     << ", and arguments[2] is " << arguments[2]->get_name();
         }
@@ -206,63 +206,85 @@ private:
                                  const std::string& null_replace_str, DataTypePtr& nested_type,
                                  ColumnString* dest_column_ptr) {
         bool res = false;
-        WhichDataType which(remove_nullable(nested_type));
-        if (which.is_uint8()) {
+        switch (nested_type->get_primitive_type()) {
+        case TYPE_BOOLEAN:
             res = _execute_number<ColumnUInt8>(src_column, src_offsets, src_null_map, sep_str,
                                                null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int8()) {
+            break;
+        case TYPE_TINYINT:
             res = _execute_number<ColumnInt8>(src_column, src_offsets, src_null_map, sep_str,
                                               null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int16()) {
+            break;
+        case TYPE_SMALLINT:
             res = _execute_number<ColumnInt16>(src_column, src_offsets, src_null_map, sep_str,
                                                null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int32()) {
+            break;
+        case TYPE_INT:
             res = _execute_number<ColumnInt32>(src_column, src_offsets, src_null_map, sep_str,
                                                null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int64()) {
+            break;
+        case TYPE_BIGINT:
             res = _execute_number<ColumnInt64>(src_column, src_offsets, src_null_map, sep_str,
                                                null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int128()) {
+            break;
+        case TYPE_LARGEINT:
             res = _execute_number<ColumnInt128>(src_column, src_offsets, src_null_map, sep_str,
                                                 null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_float32()) {
+            break;
+        case TYPE_FLOAT:
             res = _execute_number<ColumnFloat32>(src_column, src_offsets, src_null_map, sep_str,
                                                  null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_float64()) {
+            break;
+        case TYPE_DOUBLE:
             res = _execute_number<ColumnFloat64>(src_column, src_offsets, src_null_map, sep_str,
                                                  null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date()) {
+            break;
+        case TYPE_DATE:
             res = _execute_number<ColumnDate>(src_column, src_offsets, src_null_map, sep_str,
                                               null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date_time()) {
+            break;
+        case TYPE_DATETIME:
             res = _execute_number<ColumnDateTime>(src_column, src_offsets, src_null_map, sep_str,
                                                   null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date_v2()) {
+            break;
+        case TYPE_DATEV2:
             res = _execute_number<ColumnDateV2>(src_column, src_offsets, src_null_map, sep_str,
                                                 null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date_time_v2()) {
+            break;
+        case TYPE_DATETIMEV2:
             res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, src_null_map, sep_str,
                                                     null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal32()) {
+            break;
+        case TYPE_DECIMAL32:
             res = _execute_number<ColumnDecimal32>(src_column, src_offsets, src_null_map, sep_str,
                                                    null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal64()) {
+            break;
+        case TYPE_DECIMAL64:
             res = _execute_number<ColumnDecimal64>(src_column, src_offsets, src_null_map, sep_str,
                                                    null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal128v3()) {
+            break;
+        case TYPE_DECIMAL128I:
             res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, src_null_map,
                                                       sep_str, null_replace_str, nested_type,
                                                       dest_column_ptr);
-        } else if (which.is_decimal256()) {
+            break;
+        case TYPE_DECIMAL256:
             res = _execute_number<ColumnDecimal256>(src_column, src_offsets, src_null_map, sep_str,
                                                     null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal128v2()) {
+            break;
+        case TYPE_DECIMALV2:
             res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, src_null_map,
                                                       sep_str, null_replace_str, nested_type,
                                                       dest_column_ptr);
-        } else if (which.is_string()) {
+            break;
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
             res = _execute_string(src_column, src_offsets, src_null_map, sep_str, null_replace_str,
                                   dest_column_ptr);
+            break;
+        default:
+            break;
         }
         return res;
     }

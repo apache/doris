@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vliteral.h"
 
@@ -85,7 +86,8 @@ TEST_F(RuntimeFilterUtilsTest, TestRuntimeFilterFromThrift) {
 
 TEST_F(RuntimeFilterUtilsTest, TestCreateLiteral) {
     vectorized::VExprSPtr literal;
-    TypeDescriptor type(PrimitiveType::TYPE_INT);
+    auto type = vectorized::DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT,
+                                                                         false);
     const int value = 1;
     EXPECT_TRUE(create_literal(type, (const void*)&value, literal).ok());
     EXPECT_TRUE(literal->is_literal());
@@ -96,21 +98,24 @@ TEST_F(RuntimeFilterUtilsTest, TestCreateBinaryPredicate) {
     {
         vectorized::VExprSPtr expr;
         TExprNode pred_node;
-        TypeDescriptor type(PrimitiveType::TYPE_INT);
+        auto type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::EQ;
         EXPECT_FALSE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
     }
     {
         vectorized::VExprSPtr expr;
         TExprNode pred_node;
-        TypeDescriptor type(PrimitiveType::TYPE_INT);
+        auto type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::GE;
         EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, true).ok());
     }
     {
         vectorized::VExprSPtr expr;
         TExprNode pred_node;
-        TypeDescriptor type(PrimitiveType::TYPE_INT);
+        auto type = vectorized::DataTypeFactory::instance().create_data_type(
+                PrimitiveType::TYPE_INT, false);
         auto op = TExprOpcode::LE;
         EXPECT_TRUE(create_vbin_predicate(type, op, expr, &pred_node, false).ok());
     }

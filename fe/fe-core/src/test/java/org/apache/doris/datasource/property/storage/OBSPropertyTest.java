@@ -117,9 +117,9 @@ public class OBSPropertyTest {
         cosNoEndpointProps.put("obs.access_key", "myCOSAccessKey");
         cosNoEndpointProps.put("obs.secret_key", "myCOSSecretKey");
         cosNoEndpointProps.put("obs.region", "ap-beijing");
-        cosNoEndpointProps.put("uri", "s3://examplebucket-1250000000/test/file.txt");
+        cosNoEndpointProps.put("uri", "s3://examplebucket-1250000000/myhuaweicloud.com/test/file.txt");
         //not support
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createAll(cosNoEndpointProps), "Property cos.endpoint is required.");
+        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(cosNoEndpointProps), "Property cos.endpoint is required.");
     }
 
     private static String obsAccessKey = "";

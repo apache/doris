@@ -32,7 +32,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "exprs/function_filter.h"
-#include "gutil/strings/substitute.h"
 #include "io/io_common.h"
 #include "olap/delete_handler.h"
 #include "olap/filter_olap_param.h"
@@ -145,7 +144,7 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
-        std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
+        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write

@@ -74,10 +74,8 @@ ScannerContext::ScannerContext(
     DCHECK(_state != nullptr);
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
-#ifndef BE_TEST
     _query_id = _state->get_query_ctx()->query_id();
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
-#endif
     ctx_id = UniqueId::gen_uid().to_string();
     for (auto& scanner : _all_scanners) {
         _pending_scanners.push(scanner);

@@ -40,7 +40,6 @@
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-#include "gutil/strings/strip.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
@@ -171,7 +170,10 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 
         doris::TQueryOptions queryOptions;
         ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
-        conjunct_query.add(field_ws, terms);
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = field_ws;
+        query_info.terms = terms;
+        conjunct_query.add(query_info);
         conjunct_query.search(result);
 
         total += result.cardinality();
@@ -607,7 +609,8 @@ int main(int argc, char** argv) {
             std::cout << "no file flag for show " << std::endl;
             return -1;
         }
-        std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
+        std::string index_path_prefix =
+                google::protobuf::StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
             auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
@@ -653,7 +656,8 @@ int main(int argc, char** argv) {
             std::cout << "no file flag for check " << std::endl;
             return -1;
         }
-        std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
+        std::string index_path_prefix =
+                google::protobuf::StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
             auto index_file_reader = std::make_unique<InvertedIndexFileReader>(

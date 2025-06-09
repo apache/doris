@@ -209,7 +209,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
 
         ctx.setStartTime();
-        // nererids
+        // nereids
         PreparedStatementContext preparedStatementContext = ctx.getPreparedStementContext(String.valueOf(stmtId));
         if (preparedStatementContext == null) {
             LOG.warn("No such statement in context, stmtId:{}", stmtId);

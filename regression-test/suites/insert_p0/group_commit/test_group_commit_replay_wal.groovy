@@ -37,6 +37,10 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
             `k` int ,
             `v` int ,
         ) engine=olap
+        PARTITION BY LIST(k) ( 
+            PARTITION p1 VALUES IN ("1","2","3","4"), 
+            PARTITION p2 VALUES IN ("5")
+        )
         DISTRIBUTED BY HASH(`k`) 
         BUCKETS 5 
         properties("replication_num" = "1", "group_commit_interval_ms"="2000")
@@ -86,9 +90,18 @@ suite("test_group_commit_replay_wal", "nonConcurrent") {
         sleep(4000) // wal replay but all failed
         getRowCount(5)
         // check wal count is 1
+        sql """ ALTER TABLE ${tableName} DROP PARTITION p2 """
+        for (int i = 0; i < 10; i++) {
+            List<List<Object>> partitions = sql "show partitions from ${tableName};"
+            logger.info("partitions: ${partitions}")
+            if (partitions.size() == 1) {
+                break
+            }
+            sleep(100)
+        }
 
         GetDebugPoint().clearDebugPointsForAllFEs()
-        getRowCount(10)
+        getRowCount(8)
         // check wal count is 0
     } catch (Exception e) {
         logger.info("failed: " + e.getMessage())
