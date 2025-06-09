@@ -156,7 +156,7 @@ TEST(ColumnVariantTest, basic_finalize) {
     auto variant = VariantUtil::construct_basic_varint_column();
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(variant->size(), 10);
 
     // check finalized subcolumn
@@ -184,7 +184,7 @@ TEST(ColumnVariantTest, basic_deserialize) {
 
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(variant->size(), 10);
 
     const auto& [path, value] = variant->get_sparse_data_paths_and_values();
@@ -279,7 +279,7 @@ TEST(ColumnVariantTest, updateHashValueWithColumnNothingTest) {
 TEST(ColumnVariantTest, basic_inset_range_from) {
     auto src = VariantUtil::construct_basic_varint_column();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(src->size(), 10);
 
     // dst is an empty column, has 5 subcolumn + 1 root
@@ -500,7 +500,7 @@ TEST(ColumnVariantTest, advanced_finalize) {
 
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(variant->size(), 15);
 
     // check finalized subcolumn
@@ -539,7 +539,7 @@ TEST(ColumnVariantTest, advanced_deserialize) {
 
     // 4. finalize
     EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(variant->size(), 15);
 
     const auto& [path, value] = variant->get_sparse_data_paths_and_values();
@@ -596,7 +596,7 @@ TEST(ColumnVariantTest, advanced_deserialize) {
 TEST(ColumnVariantTest, advanced_insert_range_from) {
     auto src = VariantUtil::construct_advanced_varint_column();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(src->size(), 15);
 
     auto dst = VariantUtil::construct_dst_varint_column();
@@ -719,7 +719,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
 TEST(ColumnVariantTest, empty_inset_range_from) {
     auto src = VariantUtil::construct_varint_column_only_subcolumns();
     EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(src->size(), 6);
 
     // dst is an empty column
@@ -754,7 +754,7 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
 
     EXPECT_TRUE(
             src_contains_seven_subcolumns->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
-    EXPECT_TRUE(src_contains_seven_subcolumns->pick_subcolumns_to_sparse_column({}).ok());
+    EXPECT_TRUE(src_contains_seven_subcolumns->pick_subcolumns_to_sparse_column({}, false).ok());
     EXPECT_EQ(src_contains_seven_subcolumns->size(), 5);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
@@ -807,7 +807,8 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
                         ->finalize(ColumnObject::FinalizeMode::WRITE_MODE)
                         .ok());
     EXPECT_TRUE(
-            src_contains_subcoumns_and_sparse_columns->pick_subcolumns_to_sparse_column({}).ok());
+            src_contains_subcoumns_and_sparse_columns->pick_subcolumns_to_sparse_column({}, false)
+                    .ok());
     EXPECT_EQ(src_contains_subcoumns_and_sparse_columns->size(), 10);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
@@ -904,6 +905,477 @@ TEST(ColumnVariantTest, insert_null_to_decimal_column) {
     EXPECT_EQ(subcolumn.data[0]->is_null_at(1), false);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
     EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), TypeIndex::Decimal128V2);
+}
+
+TEST(ColumnVariantTest, subcolumn_insert_range_from_test) {
+    ColumnObject::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    Field int_field(20);
+    Field string_field("hello");
+    Field array_int_field = Array(2);
+    auto& array_int = array_int_field.get<Array>();
+    array_int[0] = int_field;
+    array_int[1] = int_field;
+    ColumnObject::Subcolumn subcolumn2(0, true /* is_nullable */, false /* is_root */);
+    subcolumn2.insert(array_int_field);
+    subcolumn2.finalize();
+
+    Field array_string_field = Array(2);
+    auto& array_string = array_string_field.get<Array>();
+    array_string[0] = string_field;
+    array_string[1] = string_field;
+    ColumnObject::Subcolumn subcolumn3(0, true /* is_nullable */, false /* is_root */);
+    subcolumn3.insert(array_string_field);
+    subcolumn3.finalize();
+
+    subcolumn.insert_range_from(subcolumn2, 0, 1);
+    subcolumn.insert_range_from(subcolumn3, 0, 1);
+    subcolumn.finalize();
+    EXPECT_EQ(subcolumn.data.size(), 1);
+    ColumnObject::Subcolumn subcolumn4(0, true /* is_nullable */, false /* is_root */);
+    subcolumn4.insert(int_field);
+    subcolumn4.finalize();
+
+    ColumnObject::Subcolumn subcolumn5(0, true /* is_nullable */, false /* is_root */);
+    subcolumn5.insert(string_field);
+    subcolumn5.finalize();
+
+    subcolumn.insert_range_from(subcolumn4, 0, 1);
+    subcolumn.insert_range_from(subcolumn5, 0, 1);
+    subcolumn.finalize();
+    EXPECT_EQ(subcolumn.data.size(), 1);
+}
+
+TEST(ColumnVariantTest, subcolumn_insert_range_fromtest_variant_field) {
+    std::vector<Field> fields;
+    fields.emplace_back(
+            VariantField(DecimalField<Decimal32>(Decimal32(1234), 2), TypeIndex::Decimal32, 6, 2));
+    fields.emplace_back(
+            VariantField(DecimalField<Decimal64>(Decimal64(5678), 2), TypeIndex::Decimal64, 8, 2));
+    fields.emplace_back(VariantField(DecimalField<Decimal128V2>(Decimal128V2(91011), 2),
+                                     TypeIndex::Decimal128V2, 16, 2));
+    fields.emplace_back(VariantField(DecimalField<Decimal128V3>(Decimal128V3(121314), 2),
+                                     TypeIndex::Decimal128V3, 18, 2));
+    fields.emplace_back(VariantField(DecimalField<Decimal256>(Decimal256(151617), 2),
+                                     TypeIndex::Decimal256, 32, 2));
+    Array arr_decimal32;
+    arr_decimal32.push_back(Field(VariantField(DecimalField<Decimal32>(Decimal32(12345678), 2),
+                                               TypeIndex::Decimal32, 6, 2)));
+    arr_decimal32.push_back(Field(VariantField(DecimalField<Decimal32>(Decimal32(87654321), 2),
+                                               TypeIndex::Decimal32, 6, 2)));
+    fields.emplace_back(VariantField(arr_decimal32, TypeIndex::Array));
+
+    Array arr_decimal64;
+    arr_decimal64.push_back(Field(VariantField(
+            DecimalField<Decimal64>(Decimal64(123456789012345), 2), TypeIndex::Decimal64, 18, 2)));
+    arr_decimal64.push_back(Field(VariantField(
+            DecimalField<Decimal64>(Decimal64(987654321098765), 2), TypeIndex::Decimal64, 18, 2)));
+    fields.emplace_back(VariantField(arr_decimal64, TypeIndex::Array));
+
+    Array arr_decimal128v2;
+    arr_decimal128v2.push_back(
+            Field(VariantField(DecimalField<Decimal128V2>(Decimal128V2(1234567890), 2),
+                               TypeIndex::Decimal128V2, 16, 2)));
+    arr_decimal128v2.push_back(
+            Field(VariantField(DecimalField<Decimal128V2>(Decimal128V2(9876543210), 2),
+                               TypeIndex::Decimal128V2, 16, 2)));
+    fields.emplace_back(VariantField(arr_decimal128v2, TypeIndex::Array));
+
+    Array arr_decimal128v3;
+    arr_decimal128v3.push_back(
+            Field(VariantField(DecimalField<Decimal128V3>(Decimal128V3(1234567890), 2),
+                               TypeIndex::Decimal128V3, 18, 2)));
+    arr_decimal128v3.push_back(
+            Field(VariantField(DecimalField<Decimal128V3>(Decimal128V3(9876543210), 2),
+                               TypeIndex::Decimal128V3, 18, 2)));
+    fields.emplace_back(VariantField(arr_decimal128v3, TypeIndex::Array));
+
+    Array arr_decimal256;
+    arr_decimal256.push_back(Field(VariantField(DecimalField<Decimal256>(Decimal256(1234567890), 2),
+                                                TypeIndex::Decimal256, 32, 2)));
+    arr_decimal256.push_back(Field(VariantField(DecimalField<Decimal256>(Decimal256(9876543210), 2),
+                                                TypeIndex::Decimal256, 32, 2)));
+    fields.emplace_back(VariantField(arr_decimal256, TypeIndex::Array));
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+    for (int i = 0; i < 10000; i++) {
+        std::vector<Field> fields_copy;
+        fields_copy.emplace_back(Field::Types::Null);
+        fields_copy.emplace_back(Field::Types::Null);
+        std::shuffle(fields.begin(), fields.end(), g);
+        fields_copy.emplace_back(fields[0]);
+        fields_copy.emplace_back(fields[0]);
+        std::shuffle(fields_copy.begin(), fields_copy.end(), g);
+        auto subcolumn = ColumnObject::Subcolumn(0, true, false);
+        for (const auto& field : fields_copy) {
+            auto subcolumn_tmp = ColumnObject::Subcolumn(0, true, false);
+            subcolumn_tmp.insert(field);
+            subcolumn.insert_range_from(subcolumn_tmp, 0, 1);
+        }
+        subcolumn.finalize();
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        EXPECT_EQ(subcolumn.data[0]->size(), 4);
+        auto& variant_field = fields[0].get<VariantField>();
+        EXPECT_EQ(remove_nullable(subcolumn.get_least_common_type())->get_type_id(),
+                  variant_field.get_type_id());
+    }
+}
+
+TEST(ColumnVariantTest, subcolumn_insert_range_from_test_advanced) {
+    std::vector<Field> fields;
+
+    fields.emplace_back(Field::Types::Null);
+
+    fields.emplace_back(Int8(100));
+
+    fields.emplace_back(Int16(10000));
+
+    fields.emplace_back(Int32(1000000000));
+
+    fields.emplace_back(Int64(922337203685477588));
+
+    fields.emplace_back(Float32(3.14159f));
+
+    fields.emplace_back(Float64(3.14159265359));
+
+    fields.emplace_back(String("hello world"));
+
+    Array arr_int8;
+    arr_int8.push_back(Field(Int8(1)));
+    arr_int8.push_back(Field(Int8(2)));
+    fields.emplace_back(arr_int8);
+
+    Array arr_int16;
+    arr_int16.push_back(Field(Int16(12323)));
+    arr_int16.push_back(Field(Int16(23232)));
+    fields.emplace_back(arr_int16);
+
+    Array arr_int32;
+    arr_int32.push_back(Field(Int32(123232323)));
+    arr_int32.push_back(Field(Int32(232323232)));
+    fields.emplace_back(arr_int32);
+
+    Array arr_int64;
+    arr_int64.push_back(Field(Int64(1232323232323232323)));
+    arr_int64.push_back(Field(Int64(2323232323232323232)));
+    fields.emplace_back(arr_int64);
+
+    Array arr_float32;
+    arr_float32.push_back(Field(Float32(1.1f)));
+    arr_float32.push_back(Field(Float32(2.2f)));
+    fields.emplace_back(arr_float32);
+
+    Array arr_float;
+    arr_float.push_back(Field(Float64(1.1)));
+    arr_float.push_back(Field(Float64(2.2)));
+    fields.emplace_back(arr_float);
+
+    Array arr_string;
+    arr_string.push_back(Field(String("one")));
+    arr_string.push_back(Field(String("two")));
+    fields.emplace_back(arr_string);
+
+    std::random_device rd;
+    std::mt19937 g(rd());
+
+    for (int i = 0; i < 10000; i++) {
+        std::shuffle(fields.begin(), fields.end(), g);
+        auto subcolumn = ColumnObject::Subcolumn(0, true, false);
+
+        for (const auto& field : fields) {
+            auto subcolumn_tmp = ColumnObject::Subcolumn(0, true, false);
+            subcolumn_tmp.insert(field);
+            subcolumn.insert_range_from(subcolumn_tmp, 0, 1);
+        }
+
+        subcolumn.finalize();
+        EXPECT_EQ(subcolumn.data.size(), 1);
+        // std::cout << "least common type: " << subcolumn.get_least_common_type()->get_name() << std::endl;
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), TypeIndex::JSONB);
+
+        for (const auto& field : fields) {
+            subcolumn.insert(field);
+        }
+        EXPECT_EQ(subcolumn.get_least_common_base_type_id(), TypeIndex::JSONB);
+
+        if (i % 1000 == 0) {
+            std::cout << "insert count " << i << std::endl;
+        }
+    }
+}
+
+TEST(ColumnVariantTest, test_serialize_to_sparse_column_and_deserialize) {
+    Field decimal32_field = VariantField(DecimalField<Decimal32>(Decimal32(1234567890), 2),
+                                         TypeIndex::Decimal32, 6, 2);
+    Field decimal64_field = VariantField(DecimalField<Decimal64>(Decimal64(1234567890), 3),
+                                         TypeIndex::Decimal64, 16, 3);
+    Field decimal128v3_field = VariantField(DecimalField<Decimal128V3>(Decimal128V3(1234567890), 4),
+                                            TypeIndex::Decimal128V3, 28, 4);
+    Field decimal256_field = VariantField(DecimalField<Decimal256>(Decimal256(1234567890), 5),
+                                          TypeIndex::Decimal256, 56, 5);
+
+    ColumnObject::Subcolumn decimal32_subcolumn(0, true, false);
+    decimal32_subcolumn.insert(decimal32_field);
+    ColumnObject::Subcolumn decimal64_subcolumn(0, true, false);
+    decimal64_subcolumn.insert(decimal64_field);
+    ColumnObject::Subcolumn decimal128v3_subcolumn(0, true, false);
+    decimal128v3_subcolumn.insert(decimal128v3_field);
+    ColumnObject::Subcolumn decimal256_subcolumn(0, true, false);
+    decimal256_subcolumn.insert(decimal256_field);
+
+    auto serialized_sparse_column = ColumnMap::create(
+            ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
+    auto& column_map = assert_cast<ColumnMap&>(*serialized_sparse_column);
+    auto& sparse_column_keys = assert_cast<ColumnString&>(column_map.get_keys());
+    auto& sparse_column_values = assert_cast<ColumnString&>(column_map.get_values());
+
+    decimal32_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "decimal32",
+                                                   &sparse_column_values, 0);
+    decimal64_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "decimal64",
+                                                   &sparse_column_values, 0);
+    decimal128v3_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "decimal128v3",
+                                                      &sparse_column_values, 0);
+    decimal256_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "decimal256",
+                                                    &sparse_column_values, 0);
+
+    auto column_object = ColumnObject::create(0);
+    const auto& [field, field_info] =
+            column_object->deserialize_from_sparse_column(&sparse_column_values, 0);
+    EXPECT_EQ(field_info.scalar_type_id, TypeIndex::Decimal32);
+    EXPECT_EQ(field_info.have_nulls, false);
+    EXPECT_EQ(field_info.need_convert, false);
+    EXPECT_EQ(field_info.num_dimensions, 0);
+    EXPECT_EQ(field_info.scale, 2);
+
+    const auto& [field2, field_info2] =
+            column_object->deserialize_from_sparse_column(&sparse_column_values, 1);
+    EXPECT_EQ(field_info2.scalar_type_id, TypeIndex::Decimal64);
+    EXPECT_EQ(field_info2.have_nulls, false);
+    EXPECT_EQ(field_info2.need_convert, false);
+    EXPECT_EQ(field_info2.num_dimensions, 0);
+    EXPECT_EQ(field_info2.scale, 3);
+
+    const auto& [field3, field_info3] =
+            column_object->deserialize_from_sparse_column(&sparse_column_values, 2);
+    EXPECT_EQ(field_info3.scalar_type_id, TypeIndex::Decimal128V3);
+    EXPECT_EQ(field_info3.have_nulls, false);
+    EXPECT_EQ(field_info3.need_convert, false);
+    EXPECT_EQ(field_info3.num_dimensions, 0);
+    EXPECT_EQ(field_info3.scale, 4);
+
+    const auto& [field4, field_info4] =
+            column_object->deserialize_from_sparse_column(&sparse_column_values, 3);
+    EXPECT_EQ(field_info4.scalar_type_id, TypeIndex::Decimal256);
+    EXPECT_EQ(field_info4.have_nulls, false);
+    EXPECT_EQ(field_info4.need_convert, false);
+    EXPECT_EQ(field_info4.num_dimensions, 0);
+    EXPECT_EQ(field_info4.scale, 5);
+
+    decimal32_subcolumn.insert(field, field_info);
+    decimal32_subcolumn.finalize();
+    EXPECT_EQ(decimal32_subcolumn.data.size(), 1);
+    EXPECT_EQ(decimal32_subcolumn.data[0]->size(), 2);
+    auto tmp_col = ColumnString::create();
+    VectorBufferWriter write_buffer(*tmp_col.get());
+    decimal32_subcolumn.serialize_text_json(0, write_buffer);
+    write_buffer.commit();
+    EXPECT_EQ(tmp_col->get_data_at(0), StringRef("12345678.9", 11));
+    decimal32_subcolumn.serialize_text_json(1, write_buffer);
+    write_buffer.commit();
+    EXPECT_EQ(tmp_col->get_data_at(1), StringRef("12345678.9", 11));
+
+    decimal64_subcolumn.insert(field2, field_info2);
+    decimal64_subcolumn.finalize();
+    EXPECT_EQ(decimal64_subcolumn.data.size(), 1);
+    EXPECT_EQ(decimal64_subcolumn.data[0]->size(), 2);
+    auto tmp_col2 = ColumnString::create();
+    VectorBufferWriter write_buffer2(*tmp_col2.get());
+    decimal64_subcolumn.serialize_text_json(0, write_buffer2);
+    write_buffer2.commit();
+    EXPECT_EQ(tmp_col2->get_data_at(0), StringRef("1234567.890", 11));
+    decimal64_subcolumn.serialize_text_json(1, write_buffer2);
+    write_buffer2.commit();
+    EXPECT_EQ(tmp_col2->get_data_at(1), StringRef("1234567.890", 11));
+
+    decimal128v3_subcolumn.insert(field3, field_info3);
+    decimal128v3_subcolumn.finalize();
+    EXPECT_EQ(decimal128v3_subcolumn.data.size(), 1);
+    EXPECT_EQ(decimal128v3_subcolumn.data[0]->size(), 2);
+    auto tmp_col3 = ColumnString::create();
+    VectorBufferWriter write_buffer3(*tmp_col3.get());
+    decimal128v3_subcolumn.serialize_text_json(0, write_buffer3);
+    write_buffer3.commit();
+    EXPECT_EQ(tmp_col3->get_data_at(0), StringRef("123456.7890", 11));
+    decimal128v3_subcolumn.serialize_text_json(1, write_buffer3);
+    write_buffer3.commit();
+    EXPECT_EQ(tmp_col3->get_data_at(1), StringRef("123456.7890", 11));
+
+    decimal256_subcolumn.insert(field4, field_info4);
+    decimal256_subcolumn.finalize();
+    EXPECT_EQ(decimal256_subcolumn.data.size(), 1);
+    EXPECT_EQ(decimal256_subcolumn.data[0]->size(), 2);
+    auto tmp_col4 = ColumnString::create();
+    VectorBufferWriter write_buffer4(*tmp_col4.get());
+    decimal256_subcolumn.serialize_text_json(0, write_buffer4);
+    write_buffer4.commit();
+    EXPECT_EQ(tmp_col4->get_data_at(0), StringRef("12345.67890", 11));
+    decimal256_subcolumn.serialize_text_json(1, write_buffer4);
+    write_buffer4.commit();
+    EXPECT_EQ(tmp_col4->get_data_at(1), StringRef("12345.67890", 11));
+
+    Field string_ipv4_field("192.168.1.1");
+    Field string_ipv6_field("2001:db8:85a3:85a2:85a1:8a2e:370:7334");
+    Field string_date_field("2021-01-01");
+    Field string_datetime_field("2021-01-01 02:09:10");
+
+    vectorized::DataTypePtr data_type_string =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::String,
+                                                                     true, 0, 0);
+    vectorized::DataTypePtr data_type_ipv4 =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::IPv4,
+                                                                     true, 0, 0);
+    vectorized::DataTypePtr data_type_ipv6 =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::IPv6,
+                                                                     true, 0, 0);
+    vectorized::DataTypePtr data_type_date =
+            vectorized::DataTypeFactory::instance().create_data_type(vectorized::TypeIndex::DateV2,
+                                                                     true, 0, 0);
+    vectorized::DataTypePtr data_type_datetime =
+            vectorized::DataTypeFactory::instance().create_data_type(
+                    vectorized::TypeIndex::DateTimeV2, true, 0, 6);
+
+    ColumnPtr column_string_ipv4 = data_type_string->create_column();
+    ColumnPtr column_string_ipv6 = data_type_string->create_column();
+    ColumnPtr column_string_date = data_type_string->create_column();
+    ColumnPtr column_string_datetime = data_type_string->create_column();
+
+    auto column_nullable_ipv4 = assert_cast<ColumnNullable&>(*column_string_ipv4->assume_mutable());
+    auto column_nullable_ipv6 = assert_cast<ColumnNullable&>(*column_string_ipv6->assume_mutable());
+    auto column_nullable_date = assert_cast<ColumnNullable&>(*column_string_date->assume_mutable());
+    auto column_nullable_datetime =
+            assert_cast<ColumnNullable&>(*column_string_datetime->assume_mutable());
+
+    column_nullable_ipv4.insert(string_ipv4_field);
+    column_nullable_ipv6.insert(string_ipv6_field);
+    column_nullable_date.insert(string_date_field);
+    column_nullable_datetime.insert(string_datetime_field);
+
+    vectorized::ColumnPtr expected_ipv4;
+    auto status = schema_util::cast_column({column_string_ipv4, data_type_string, ""},
+                                           data_type_ipv4, &expected_ipv4);
+    EXPECT_TRUE(status.ok());
+    vectorized::ColumnPtr expected_ipv6;
+    status = schema_util::cast_column({column_string_ipv6, data_type_string, ""}, data_type_ipv6,
+                                      &expected_ipv6);
+    EXPECT_TRUE(status.ok());
+    vectorized::ColumnPtr expected_date;
+    status = schema_util::cast_column({column_string_date, data_type_string, ""}, data_type_date,
+                                      &expected_date);
+    EXPECT_TRUE(status.ok());
+    vectorized::ColumnPtr expected_datetime;
+    status = schema_util::cast_column({column_string_datetime, data_type_string, ""},
+                                      data_type_datetime, &expected_datetime);
+    EXPECT_TRUE(status.ok());
+
+    ColumnObject::Subcolumn ipv4_subcolumn(expected_ipv4->assume_mutable(), data_type_ipv4, true,
+                                           false);
+    ColumnObject::Subcolumn ipv6_subcolumn(expected_ipv6->assume_mutable(), data_type_ipv6, true,
+                                           false);
+    ColumnObject::Subcolumn date_subcolumn(expected_date->assume_mutable(), data_type_date, true,
+                                           false);
+    ColumnObject::Subcolumn datetime_subcolumn(expected_datetime->assume_mutable(),
+                                               data_type_datetime, true, false);
+
+    ipv4_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "ipv4", &sparse_column_values,
+                                              0);
+    ipv6_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "ipv6", &sparse_column_values,
+                                              0);
+    date_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "date", &sparse_column_values,
+                                              0);
+    datetime_subcolumn.serialize_to_sparse_column(&sparse_column_keys, "datetime",
+                                                  &sparse_column_values, 0);
+
+    auto column_object2 = ColumnObject::create(0);
+    const auto& [field5, field_info5] =
+            column_object2->deserialize_from_sparse_column(&sparse_column_values, 4);
+    EXPECT_EQ(field_info5.scalar_type_id, TypeIndex::IPv4);
+    EXPECT_EQ(field_info5.have_nulls, false);
+    EXPECT_EQ(field_info5.need_convert, false);
+    EXPECT_EQ(field_info5.num_dimensions, 0);
+
+    const auto& [field6, field_info6] =
+            column_object2->deserialize_from_sparse_column(&sparse_column_values, 5);
+    EXPECT_EQ(field_info6.scalar_type_id, TypeIndex::IPv6);
+    EXPECT_EQ(field_info6.have_nulls, false);
+    EXPECT_EQ(field_info6.need_convert, false);
+    EXPECT_EQ(field_info6.num_dimensions, 0);
+
+    const auto& [field7, field_info7] =
+            column_object2->deserialize_from_sparse_column(&sparse_column_values, 6);
+    EXPECT_EQ(field_info7.scalar_type_id, TypeIndex::DateV2);
+    EXPECT_EQ(field_info7.have_nulls, false);
+    EXPECT_EQ(field_info7.need_convert, false);
+    EXPECT_EQ(field_info7.num_dimensions, 0);
+
+    const auto& [field8, field_info8] =
+            column_object2->deserialize_from_sparse_column(&sparse_column_values, 7);
+    EXPECT_EQ(field_info8.scalar_type_id, TypeIndex::DateTimeV2);
+    EXPECT_EQ(field_info8.have_nulls, false);
+    EXPECT_EQ(field_info8.need_convert, false);
+    EXPECT_EQ(field_info8.num_dimensions, 0);
+    EXPECT_EQ(field_info8.scale, 6);
+
+    ipv4_subcolumn.insert(field5, field_info5);
+    ipv4_subcolumn.finalize();
+    EXPECT_EQ(ipv4_subcolumn.data.size(), 1);
+    EXPECT_EQ(ipv4_subcolumn.data[0]->size(), 2);
+    auto tmp_col5 = ColumnString::create();
+    VectorBufferWriter write_buffer5(*tmp_col5.get());
+    ipv4_subcolumn.serialize_text_json(0, write_buffer5);
+    write_buffer5.commit();
+    EXPECT_EQ(tmp_col5->get_data_at(0), StringRef("\"192.168.1.1\"", 13));
+    ipv4_subcolumn.serialize_text_json(1, write_buffer5);
+    write_buffer5.commit();
+    EXPECT_EQ(tmp_col5->get_data_at(1), StringRef("\"192.168.1.1\"", 13));
+
+    ipv6_subcolumn.insert(field6, field_info6);
+    ipv6_subcolumn.finalize();
+    EXPECT_EQ(ipv6_subcolumn.data.size(), 1);
+    EXPECT_EQ(ipv6_subcolumn.data[0]->size(), 2);
+    auto tmp_col6 = ColumnString::create();
+    VectorBufferWriter write_buffer6(*tmp_col6.get());
+    ipv6_subcolumn.serialize_text_json(0, write_buffer6);
+    write_buffer6.commit();
+    EXPECT_EQ(tmp_col6->get_data_at(0), StringRef("\"2001:db8:85a3:85a2:85a1:8a2e:370:7334\"", 39));
+    ipv6_subcolumn.serialize_text_json(1, write_buffer6);
+    write_buffer6.commit();
+    EXPECT_EQ(tmp_col6->get_data_at(1), StringRef("\"2001:db8:85a3:85a2:85a1:8a2e:370:7334\"", 39));
+
+    date_subcolumn.insert(field7, field_info7);
+    date_subcolumn.finalize();
+    EXPECT_EQ(date_subcolumn.data.size(), 1);
+    EXPECT_EQ(date_subcolumn.data[0]->size(), 2);
+    auto tmp_col7 = ColumnString::create();
+    VectorBufferWriter write_buffer7(*tmp_col7.get());
+    date_subcolumn.serialize_text_json(0, write_buffer7);
+    write_buffer7.commit();
+    EXPECT_EQ(tmp_col7->get_data_at(0), StringRef("\"2021-01-01\"", 12));
+    date_subcolumn.serialize_text_json(1, write_buffer7);
+    write_buffer7.commit();
+    EXPECT_EQ(tmp_col7->get_data_at(1), StringRef("\"2021-01-01\"", 12));
+
+    datetime_subcolumn.insert(field8, field_info8);
+    datetime_subcolumn.finalize();
+    EXPECT_EQ(datetime_subcolumn.data.size(), 1);
+    EXPECT_EQ(datetime_subcolumn.data[0]->size(), 2);
+    auto tmp_col8 = ColumnString::create();
+    VectorBufferWriter write_buffer8(*tmp_col8.get());
+    datetime_subcolumn.serialize_text_json(0, write_buffer8);
+    write_buffer8.commit();
+    EXPECT_EQ(tmp_col8->get_data_at(0), StringRef("\"2021-01-01 02:09:10\"", 21));
+    datetime_subcolumn.serialize_text_json(1, write_buffer8);
+    write_buffer8.commit();
+    EXPECT_EQ(tmp_col8->get_data_at(1), StringRef("\"2021-01-01 02:09:10\"", 21));
 }
 
 } // namespace doris::vectorized

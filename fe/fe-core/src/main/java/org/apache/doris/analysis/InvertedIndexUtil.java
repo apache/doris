@@ -83,6 +83,16 @@ public class InvertedIndexUtil {
         return fieldPattern != null ? fieldPattern : "";
     }
 
+    public static boolean getInvertedIndexSupportPhrase(Map<String, String> properties) {
+        String supportPhrase = properties == null ? null : properties.get(INVERTED_INDEX_SUPPORT_PHRASE_KEY);
+        return supportPhrase != null ? Boolean.parseBoolean(supportPhrase) : true;
+    }
+
+    public static String getCustomAnalyzer(Map<String, String> properties) {
+        String customAnalyzer = properties == null ? null : properties.get(INVERTED_INDEX_CUSTOM_ANALYZER_KEY);
+        return customAnalyzer != null ? customAnalyzer : "";
+    }
+
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
         String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         // default is "none" if not set

@@ -650,7 +650,7 @@ public class ColumnDefinition {
                     validateNestedType(scalarType, fieldType);
                     if (!fieldPatterns.add(field.getPattern())) {
                         throw new AnalysisException("Duplicate field name " + field.getPattern()
-                                + " in struct " + scalarType.toSql());
+                                + " in " + scalarType.toSql());
                     }
                 }
                 break;

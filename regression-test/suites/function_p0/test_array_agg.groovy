@@ -18,7 +18,12 @@
 suite("test_array_agg", "p0") {
     sql """ set enable_nereids_planner=true;"""
     sql """ set enable_fallback_to_original_planner=false;"""
-    def tableName = "array_agg_table"
+    def tableName = "test_variant_array_function"
+
+
+    def count = new Random().nextInt(1) + 1
+    sql """ set global_variant_max_subcolumns_count=${count};"""
+
     sql """
         drop table if exists ${tableName};
     """

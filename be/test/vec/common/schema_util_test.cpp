@@ -20,15 +20,17 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/segment_v2/variant_column_writer_impl.h"
 #include "testutil/variant_util.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/columns/column_object.h"
-#include "vec/common/schema_util.cpp"
+#include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_time_v2.h"

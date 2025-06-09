@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TTypeDesc;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -29,7 +28,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 public class VariantType extends ScalarType {
     private static final Logger LOG = LogManager.getLogger(VariantType.class);
@@ -40,11 +41,16 @@ public class VariantType extends ScalarType {
     private final ArrayList<VariantField> predefinedFields;
 
     @SerializedName(value = "variantMaxSubcolumnsCount")
-    private int variantMaxSubcolumnsCount;
+    private int variantMaxSubcolumnsCount = 0;
+
+    @SerializedName(value = "enableTypedPathsToSparse")
+    private boolean enableTypedPathsToSparse = false;
 
     public VariantType() {
         super(PrimitiveType.VARIANT);
         this.predefinedFields = Lists.newArrayList();
+        this.variantMaxSubcolumnsCount = 0;
+        this.enableTypedPathsToSparse = false;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -56,19 +62,79 @@ public class VariantType extends ScalarType {
         }
     }
 
+    public VariantType(Map<String, String> properties) {
+        super(PrimitiveType.VARIANT);
+        this.predefinedFields = Lists.newArrayList();
+        if (properties.containsKey("variant_max_subcolumns_count")) {
+            this.variantMaxSubcolumnsCount = Integer.parseInt(properties.get("variant_max_subcolumns_count"));
+        }
+        if (properties.containsKey("variant_enable_typed_paths_to_sparse")) {
+            this.enableTypedPathsToSparse = Boolean
+                                        .parseBoolean(properties.get("variant_enable_typed_paths_to_sparse"));
+        }
+    }
+
+    public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
+        super(PrimitiveType.VARIANT);
+        Preconditions.checkNotNull(fields);
+        this.predefinedFields = fields;
+        for (VariantField predefinedField : this.predefinedFields) {
+            fieldMap.put(predefinedField.getPattern(), predefinedField);
+        }
+        if (properties.containsKey("variant_max_subcolumns_count")) {
+            this.variantMaxSubcolumnsCount = Integer.parseInt(properties.get("variant_max_subcolumns_count"));
+        }
+        if (properties.containsKey("variant_enable_typed_paths_to_sparse")) {
+            this.enableTypedPathsToSparse = Boolean
+                                        .parseBoolean(properties.get("variant_enable_typed_paths_to_sparse"));
+        }
+    }
+
+    public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
+                                                        boolean enableTypedPathsToSparse) {
+        super(PrimitiveType.VARIANT);
+        Preconditions.checkNotNull(fields);
+        this.predefinedFields = fields;
+        for (VariantField predefinedField : this.predefinedFields) {
+            fieldMap.put(predefinedField.getPattern(), predefinedField);
+        }
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+        this.enableTypedPathsToSparse = enableTypedPathsToSparse;
+    }
+
     @Override
     public String toSql(int depth) {
-        if (predefinedFields.isEmpty()) {
+        if (predefinedFields.isEmpty() && variantMaxSubcolumnsCount == 0) {
             return "variant";
         }
-        if (depth >= MAX_NESTING_DEPTH) {
-            return "variant<...>";
+        StringBuilder sb = new StringBuilder();
+        sb.append("variant");
+        sb.append("<");
+        if (!predefinedFields.isEmpty()) {
+            sb.append(predefinedFields.stream()
+                                .map(variantField -> variantField.toSql(depth)).collect(Collectors.joining(",")));
+            if (variantMaxSubcolumnsCount == 0 && !enableTypedPathsToSparse) {
+                sb.append(">\n");
+                return sb.toString();
+            } else {
+                sb.append(",");
+            }
         }
-        ArrayList<String> fieldsSql = Lists.newArrayList();
-        for (VariantField f : predefinedFields) {
-            fieldsSql.add(f.toSql(depth + 1));
+
+        sb.append("\nPROPERTIES (");
+        if (variantMaxSubcolumnsCount != 0) {
+            sb.append("\n\"variant_max_subcolumns_count\" = \"")
+                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
         }
-        return String.format("variant<%s>", Joiner.on(",").join(fieldsSql));
+        if (variantMaxSubcolumnsCount != 0 && enableTypedPathsToSparse) {
+            sb.append(",");
+        }
+        if (enableTypedPathsToSparse) {
+            sb.append("\n\"variant_enable_typed_paths_to_sparse\" = \"")
+                                    .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
+        }
+        sb.append("\n)>");
+        return sb.toString();
     }
 
     public ArrayList<VariantField> getPredefinedFields() {
@@ -119,5 +185,9 @@ public class VariantType extends ScalarType {
 
     public int getVariantMaxSubcolumnsCount() {
         return variantMaxSubcolumnsCount;
+    }
+
+    public boolean getEnableTypedPathsToSparse() {
+        return enableTypedPathsToSparse;
     }
 }

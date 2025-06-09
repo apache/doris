@@ -61,6 +61,9 @@ public:
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                 int64_t end, const cctz::time_zone& ctz) const override;
 
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

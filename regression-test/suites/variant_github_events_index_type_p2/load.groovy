@@ -23,7 +23,8 @@ suite("test_variant_index_type_p2", "p2"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-
+    
+    sql """ set global_variant_enable_typed_paths_to_sparse = false """
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
@@ -85,13 +86,14 @@ suite("test_variant_index_type_p2", "p2"){
                 MATCH_NAME 'created_at' : datetime,
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
-                MATCH_NAME 'type.name' : string
+                MATCH_NAME 'type.name' : string,
+                properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")
             > NULL,
             INDEX idx_var (`v`) USING INVERTED PROPERTIES("parser" = "english", "support_phrase" = "true")
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false");
     """
     
     // 2015
@@ -134,13 +136,14 @@ suite("test_variant_index_type_p2", "p2"){
                 MATCH_NAME 'created_at' : datetime,
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
-                MATCH_NAME 'type.name' : string
+                MATCH_NAME 'type.name' : string,
+                properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")
             > null,
             INDEX idx_repo_name(v) USING INVERTED PROPERTIES("parser" = "english", "field_pattern" = "repo.name") COMMENT ''
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events2 select * from github_events order by k"""
     sql """select v['payload']['commits'] from github_events order by k ;"""
@@ -165,13 +168,14 @@ suite("test_variant_index_type_p2", "p2"){
                 MATCH_NAME 'created_at' : datetime,
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
-                MATCH_NAME 'type.name' : string
+                MATCH_NAME 'type.name' : string,
+                properties("variant_max_subcolumns_count" = "${rand_subcolumns_count}")
             > null,
             INDEX idx_repo_name(v) USING INVERTED PROPERTIES("parser" = "english", "field_pattern" = "repo.name") COMMENT ''
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true", "bloom_filter_columns" = "v", "variant_max_subcolumns_count" = "${rand_subcolumns_count}");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "false", "bloom_filter_columns" = "v");
         """
     sql """insert into github_events3 select * from github_events order by k"""
     // query with inverted index

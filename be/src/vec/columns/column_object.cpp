@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -911,61 +912,61 @@ void ColumnObject::Subcolumn::serialize_to_sparse_column(ColumnString* key, std:
                            "Index ({}) for serialize to sparse column is out of range", row);
 }
 
-const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Field& res,
+const char* parse_binary_from_sparse_column(FieldType type, const char* data, Field& res,
                                             FieldInfo& info_res) {
-    info_res.scalar_type_id = type;
+    info_res.scalar_type_id = fieldTypeToTypeIndex(type);
     const char* end = data;
     switch (type) {
-    case TypeIndex::String: {
+    case FieldType::OLAP_FIELD_TYPE_STRING: {
         const size_t size = *reinterpret_cast<const size_t*>(data);
         data += sizeof(size_t);
         res = Field(String(data, size));
         end = data + size;
         break;
     }
-    case TypeIndex::Int8: {
+    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
         res = *reinterpret_cast<const Int8*>(data);
         end = data + sizeof(Int8);
         break;
     }
-    case TypeIndex::Int16: {
+    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
         res = *reinterpret_cast<const Int16*>(data);
         end = data + sizeof(Int16);
         break;
     }
-    case TypeIndex::Int32: {
+    case FieldType::OLAP_FIELD_TYPE_INT: {
         res = *reinterpret_cast<const Int32*>(data);
         end = data + sizeof(Int32);
         break;
     }
-    case TypeIndex::Int64: {
+    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
         res = *reinterpret_cast<const Int64*>(data);
         end = data + sizeof(Int64);
         break;
     }
-    case TypeIndex::Float32: {
+    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
+        res = *reinterpret_cast<const PackedInt128*>(data);
+        end = data + sizeof(PackedInt128);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
         res = *reinterpret_cast<const Float32*>(data);
         end = data + sizeof(Float32);
         break;
     }
-    case TypeIndex::Float64: {
+    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
         res = *reinterpret_cast<const Float64*>(data);
         end = data + sizeof(Float64);
         break;
     }
-    case TypeIndex::JSONB: {
+    case FieldType::OLAP_FIELD_TYPE_JSONB: {
         size_t size = *reinterpret_cast<const size_t*>(data);
         data += sizeof(size_t);
         res = JsonbField(data, size);
         end = data + size;
         break;
     }
-    case TypeIndex::Nothing: {
-        res = Null();
-        end = data;
-        break;
-    }
-    case TypeIndex::Array: {
+    case FieldType::OLAP_FIELD_TYPE_ARRAY: {
         const size_t size = *reinterpret_cast<const size_t*>(data);
         data += sizeof(size_t);
         res = Array(size);
@@ -974,11 +975,97 @@ const char* parse_binary_from_sparse_column(TypeIndex type, const char* data, Fi
         for (size_t i = 0; i < size; ++i) {
             Field nested_field;
             const auto nested_type =
-                    static_cast<TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+                    static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
             data = parse_binary_from_sparse_column(nested_type, data, nested_field, info_res);
             array[i] = std::move(nested_field);
         }
         end = data;
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_IPV4: {
+        res = *reinterpret_cast<const IPv4*>(data);
+        end = data + sizeof(IPv4);
+        info_res.need_wrapped = true;
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_IPV6: {
+        res = *reinterpret_cast<const PackedUInt128*>(data);
+        end = data + sizeof(PackedUInt128);
+        info_res.need_wrapped = true;
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
+        res = *reinterpret_cast<const UInt32*>(data);
+        end = data + sizeof(UInt32);
+        info_res.need_wrapped = true;
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        res = *reinterpret_cast<const UInt64*>(data);
+        info_res.precision = -1;
+        info_res.scale = static_cast<int>(scale);
+        end = data + sizeof(UInt64);
+        info_res.need_wrapped = true;
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
+        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        res = DecimalField<Decimal32>(Decimal32(*reinterpret_cast<const Int32*>(data)), scale);
+        info_res.precision = static_cast<int>(precision);
+        info_res.scale = static_cast<int>(scale);
+        info_res.need_wrapped = true;
+        end = data + sizeof(Int32);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
+        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        res = DecimalField<Decimal64>(Decimal64(*reinterpret_cast<const Int64*>(data)), scale);
+        info_res.precision = static_cast<int>(precision);
+        info_res.scale = static_cast<int>(scale);
+        info_res.need_wrapped = true;
+        end = data + sizeof(Int64);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
+        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        res = DecimalField<Decimal128V3>(
+                Decimal128V3(
+                        static_cast<Int128>(reinterpret_cast<const PackedInt128*>(data)->value)),
+                scale);
+        info_res.precision = static_cast<int>(precision);
+        info_res.scale = static_cast<int>(scale);
+        info_res.need_wrapped = true;
+        end = data + sizeof(PackedInt128);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        const uint8_t precision = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        data += sizeof(uint8_t);
+        res = DecimalField<Decimal256>(Decimal256(*reinterpret_cast<const wide::Int256*>(data)),
+                                       scale);
+        info_res.precision = static_cast<int>(precision);
+        info_res.scale = static_cast<int>(scale);
+        info_res.need_wrapped = true;
+        end = data + sizeof(wide::Int256);
+        break;
+    }
+    case FieldType::OLAP_FIELD_TYPE_BOOL: {
+        res = *reinterpret_cast<const uint8_t*>(data);
+        end = data + sizeof(uint8_t);
+        info_res.need_wrapped = true;
         break;
     }
     default:
@@ -993,16 +1080,18 @@ std::pair<Field, FieldInfo> ColumnObject::deserialize_from_sparse_column(const C
     const auto& data_ref = value->get_data_at(row);
     const char* data = data_ref.data;
     DCHECK(data_ref.size > 1);
-    const TypeIndex type = static_cast<TypeIndex>(*reinterpret_cast<const uint8_t*>(data++));
+    const FieldType type = static_cast<FieldType>(*reinterpret_cast<const uint8_t*>(data++));
     Field res;
     FieldInfo info_res = {
-            .scalar_type_id = type,
+            .scalar_type_id = fieldTypeToTypeIndex(type),
             .have_nulls = false,
             .need_convert = false,
             .num_dimensions = 0,
     };
     const char* end = parse_binary_from_sparse_column(type, data, res, info_res);
-    DCHECK_EQ(end - data_ref.data, data_ref.size);
+    DCHECK_EQ(end - data_ref.data, data_ref.size)
+            << "FieldType: " << (int)type << " data_ref.size: " << data_ref.size << " end: " << end
+            << " data: " << data;
     return {std::move(res), std::move(info_res)};
 }
 
@@ -1037,8 +1126,15 @@ void ColumnObject::get(size_t n, Field& res) const {
     // Iterator over [path, binary value]
     for (size_t i = offset; i != end; ++i) {
         const StringRef path_data = path->get_data_at(i);
-        const auto& data = ColumnObject::deserialize_from_sparse_column(value, i);
-        object.try_emplace(PathInData(path_data), data.first);
+        auto data = ColumnObject::deserialize_from_sparse_column(value, i);
+        if (data.second.need_wrapped) {
+            VariantField variant_field(std::move(data.first), data.second.scalar_type_id,
+                                       data.second.precision, data.second.scale);
+            object.try_emplace(PathInData(path_data), std::move(variant_field));
+            continue;
+        } else {
+            object.try_emplace(PathInData(path_data), std::move(data.first));
+        }
     }
 
     if (object.empty()) {
@@ -1107,14 +1203,14 @@ bool ColumnObject::try_add_new_subcolumn(const PathInData& path) {
     if (subcolumns.get_root() == nullptr || path.empty()) {
         throw Exception(ErrorCode::INTERNAL_ERROR, "column object has no root or path is empty");
     }
-    if (path.get_is_typed()) {
+
+    if (path.get_is_typed() || path.has_nested_part()) {
         return add_sub_column(path, num_rows);
     }
-    if (path.has_nested_part()) {
-        return add_sub_column(path, num_rows);
-    }
-    if (!_max_subcolumns_count ||
-        (subcolumns.size() - typed_path_count - nested_path_count) < _max_subcolumns_count + 1) {
+
+    // 1 for root, nested_path_count for nested path
+    int subcolumns_size = subcolumns.size() - nested_path_count - 1;
+    if (!_max_subcolumns_count || subcolumns_size < _max_subcolumns_count) {
         return add_sub_column(path, num_rows);
     }
 
@@ -1140,7 +1236,6 @@ void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t le
             DCHECK(subcolumn != nullptr);
             subcolumn->insert_range_from(entry->data, start, length);
         } else {
-            CHECK(!entry->path.get_is_typed());
             CHECK(!entry->path.has_nested_part());
             src_path_and_subcoumn_for_sparse_column.emplace(entry->path.get_path(), entry->data);
         }
@@ -1889,14 +1984,53 @@ Status ColumnObject::finalize(FinalizeMode mode) {
     return Status::OK();
 }
 
-Status ColumnObject::pick_subcolumns_to_sparse_column(
+Status ColumnObject::convert_typed_path_to_storage_type(
         const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths) {
+    for (auto&& entry : subcolumns) {
+        if (auto it = typed_paths.find(entry->path.get_path()); it != typed_paths.end()) {
+            CHECK(entry->data.is_finalized());
+            vectorized::DataTypePtr storage_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(it->second.column);
+            vectorized::DataTypePtr finalized_type = entry->data.get_least_common_type();
+            auto current_column = entry->data.get_finalized_column_ptr()->get_ptr();
+            if (!storage_type->equals(*finalized_type)) {
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                        {current_column, finalized_type, ""}, storage_type, &current_column));
+            }
+            VLOG_DEBUG << "convert " << entry->path.get_path() << " from type"
+                       << entry->data.get_least_common_type()->get_name() << " to "
+                       << storage_type->get_name();
+            entry->data.data[0] = current_column;
+            entry->data.data_types[0] = storage_type;
+            entry->data.data_serdes[0] = Subcolumn::generate_data_serdes(storage_type, false);
+            entry->data.least_common_type = Subcolumn::LeastCommonType {storage_type, false};
+        }
+    }
+    return Status::OK();
+}
+
+Status ColumnObject::pick_subcolumns_to_sparse_column(
+        const std::unordered_map<std::string, TabletSchema::SubColumnInfo>& typed_paths,
+        bool variant_enable_typed_paths_to_sparse) {
     DCHECK(_max_subcolumns_count >= 0) << "max subcolumns count is: " << _max_subcolumns_count;
 
+    // no need to pick subcolumns to sparse column, all subcolumns will be picked
+    if (_max_subcolumns_count == 0) {
+        return Status::OK();
+    }
+
     // root column must be exsit in subcolumns
-    bool need_pick_subcolumn_to_sparse_column =
-            (_max_subcolumns_count && (subcolumns.size() - typed_paths.size() - nested_path_count) >
-                                              _max_subcolumns_count + 1);
+    // nested path count is the count of nested columns
+    int64_t current_subcolumns_count = subcolumns.size() - 1 - nested_path_count;
+
+    //  1000 count
+    // b : 1500 typed path + 700 subcolumns -> 1200 count ()
+    if (!variant_enable_typed_paths_to_sparse) {
+        current_subcolumns_count -= typed_paths.size();
+    }
+
+    bool need_pick_subcolumn_to_sparse_column = current_subcolumns_count > _max_subcolumns_count;
+
     if (!need_pick_subcolumn_to_sparse_column) {
         return Status::OK();
     }
@@ -1919,8 +2053,8 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
         if (entry->data.is_root) {
             continue;
         }
-        // typed column or nested column will be picked as sub column and ignore none null value size
-        if (typed_paths.find(entry->path.get_path()) != typed_paths.end() ||
+        if ((!variant_enable_typed_paths_to_sparse &&
+             typed_paths.find(entry->path.get_path()) != typed_paths.end()) ||
             entry->path.has_nested_part()) {
             VLOG_DEBUG << "pick " << entry->path.get_path() << " as typed column";
             new_subcolumns.add(entry->path, entry->data);
@@ -1954,7 +2088,6 @@ Status ColumnObject::pick_subcolumns_to_sparse_column(
         } else if (none_null_value_sizes.find(entry->path.get_path()) !=
                    none_null_value_sizes.end()) {
             VLOG_DEBUG << "pick " << entry->path.get_path() << " as sparse column";
-            CHECK(!entry->path.get_is_typed());
             CHECK(!entry->path.has_nested_part());
             remaing_subcolumns.emplace(entry->path.get_path(), entry->data);
         }

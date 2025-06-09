@@ -290,7 +290,7 @@ void update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolu
                                   TabletSchemaSPtr& common_schema, bool update_sparse_column,
                                   int32_t variant_col_unique_id,
                                   const std::map<std::string, TabletColumnPtr>& typed_columns,
-                                  std::set<PathInData>* path_set = nullptr) {
+                                  std::set<PathInData>* path_set) {
     PathsInData tuple_paths;
     DataTypes tuple_types;
     CHECK(common_schema.use_count() == 1);
@@ -867,6 +867,9 @@ Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
                                     const TabletColumnPtr parent_column,
                                     TabletSchemaSPtr& output_schema,
                                     TabletSchema::PathsSetInfo& paths_set_info) {
+    if (parent_column->variant_enable_typed_paths_to_sparse()) {
+        return Status::OK();
+    }
     for (const auto& path : typed_paths) {
         TabletSchema::SubColumnInfo sub_column_info;
         if (generate_sub_column_info(*target, parent_column->unique_id(), path, &sub_column_info)) {
@@ -936,9 +939,17 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
         // 1. this path has no data type in segments
         // 2. this path is in sparse paths
         // 3. the sparse paths are too much
-        if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
-            sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
-            sparse_paths.size() >= config::variant_max_sparse_column_statistics_size) {
+        TabletSchema::SubColumnInfo sub_column_info;
+        if (parent_column->variant_enable_typed_paths_to_sparse() && generate_sub_column_info(*target, parent_column->unique_id(), std::string(subpath),
+                                     &sub_column_info)) {
+            vectorized::schema_util::inherit_column_attributes(*parent_column,
+                                                               sub_column_info.column);
+            output_schema->append_column(sub_column_info.column);
+            paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_info.indexes));
+            VLOG_DEBUG << "append typed column " << subpath;
+        } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
+                   sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
+                   sparse_paths.size() >= config::variant_max_sparse_column_statistics_size) {
             TabletColumn subcolumn;
             subcolumn.set_name(column_name);
             subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
@@ -947,6 +958,8 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
             subcolumn.set_aggregation_method(parent_column->aggregation());
             subcolumn.set_variant_max_subcolumns_count(
                     parent_column->variant_max_subcolumns_count());
+            subcolumn.set_variant_enable_typed_paths_to_sparse(
+                    parent_column->variant_enable_typed_paths_to_sparse());
             subcolumn.set_is_nullable(true);
             output_schema->append_column(subcolumn);
             VLOG_DEBUG << "append sub column " << subpath << " data type "
@@ -1002,7 +1015,6 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
         RETURN_IF_ERROR(get_compaction_typed_columns(
                 target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
                 output_schema, uid_to_paths_set_info[column->unique_id()]));
-
         // 2. append nested columns
         RETURN_IF_ERROR(get_compaction_nested_columns(
                 uid_to_variant_extended_info[column->unique_id()].nested_paths,
@@ -1309,8 +1321,9 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                 to_column->set_name(parent_column.name_lower_case() + "." + path);
                 to_column->set_type(from_column.type());
                 to_column->set_parent_unique_id(parent_column.unique_id());
+                bool is_typed = parent_column.variant_enable_typed_paths_to_sparse() ? false : true;
                 to_column->set_path_info(
-                        PathInData(parent_column.name_lower_case() + "." + path, true));
+                        PathInData(parent_column.name_lower_case() + "." + path, is_typed));
                 to_column->set_aggregation_method(parent_column.aggregation());
                 to_column->set_is_nullable(true);
                 to_column->set_precision(from_column.precision());

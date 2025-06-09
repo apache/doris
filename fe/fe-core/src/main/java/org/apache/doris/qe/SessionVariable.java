@@ -721,6 +721,10 @@ public class SessionVariable implements Serializable, Writable {
                                     "adaptive_pipeline_task_serial_read_on_limit";
 
     public static final String GLOBAL_VARIANT_SUBCOLUMNS_COUNT = "global_variant_max_subcolumns_count";
+
+    public static final String GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE =
+                                                            "global_variant_enable_typed_paths_to_sparse";
+
     public static final String ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
@@ -2492,6 +2496,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEW_IS_IP_ADDRESS_IN_RANGE, needForward = true, flag = VariableMgr.INVISIBLE
             | VariableMgr.READ_ONLY)
     public boolean newIsIpAddressInRange = true;
+
     @VariableMgr.VarAttr(
             name = GLOBAL_VARIANT_SUBCOLUMNS_COUNT,
             needForward = true,
@@ -2538,6 +2543,14 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to prefer UDF over builtin functions"
             })
     public boolean preferUdfOverBuiltin = false;
+
+
+    @VariableMgr.VarAttr(
+            name = GLOBAL_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            needForward = true,
+            fuzzy = true
+    )
+    public boolean globalEnableTypedPathsToSparse = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2587,6 +2600,7 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.globalVariantMaxSubcolumnsCount = random.nextInt(10);
+        this.globalEnableTypedPathsToSparse = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -4889,6 +4903,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableAddIndexForNewData(boolean enableAddIndexForNewData) {
         this.enableAddIndexForNewData = enableAddIndexForNewData;
+    }
+
+    public boolean getGlobalEnableTypedPathsToSparse() {
+        return globalEnableTypedPathsToSparse;
     }
 }
 

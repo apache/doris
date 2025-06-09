@@ -263,7 +263,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = it->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
 
-    MutableColumnPtr new_column_object = ColumnObject::create(3);
+    MutableColumnPtr new_column_object = ColumnObject::create(3, false);
     size_t nrows = 1000;
     st = it->seek_to_ordinal(0);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -310,7 +310,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
             row_ids.push_back(i);
         }
     }
-    new_column_object = ColumnObject::create(3);
+    new_column_object = ColumnObject::create(3, false);
     st = it->read_by_rowids(row_ids.data(), row_ids.size(), new_column_object);
     EXPECT_TRUE(st.ok()) << st.msg();
     for (int i = 0; i < row_ids.size(); ++i) {
@@ -320,7 +320,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     }
 
     auto read_to_column_object = [&](ColumnIterator* it) {
-        new_column_object = ColumnObject::create(3);
+        new_column_object = ColumnObject::create(3, false);
         nrows = 1000;
         st = it->seek_to_ordinal(0);
         EXPECT_TRUE(st.ok()) << st.msg();

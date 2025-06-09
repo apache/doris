@@ -50,7 +50,7 @@ suite("regression_test_variant_github_events_p0", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'payload.pull_request.head.repo.topics' : array<text>>,
+            v variant<'payload.pull_request.head.repo.topics' : array<text>, properties("variant_max_subcolumns_count" = "1000")>,
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
@@ -136,7 +136,7 @@ suite("regression_test_variant_github_events_p0", "p0"){
             }
         }
     }
-    sql """ALTER TABLE github_events ADD COLUMN v2 variant DEFAULT NULL"""
+    sql """ALTER TABLE github_events ADD COLUMN v2 variant<properties("variant_max_subcolumns_count" = "1000")> DEFAULT NULL"""
     for(int t = 0; t <= 10; t += 1){ 
         long k = 9223372036854775107 + t
         sql """INSERT INTO github_events VALUES (${k}, '{"aaaa" : 1234, "bbbb" : "11ssss"}', '{"xxxx" : 1234, "yyyy" : [1.111]}')"""

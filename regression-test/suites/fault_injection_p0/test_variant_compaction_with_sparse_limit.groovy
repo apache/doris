@@ -52,18 +52,18 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
         }
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
-            def var_def = "variant"
+            def var_def = "variant <properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>"
             if (key_type == "AGGREGATE") {
-                var_def = "variant replace"
+                var_def = "variant <properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")> replace"
             }
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
-                    v ${var_def}
+                    v ${var_def} 
                 )
                 ${key_type} KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-                properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_max_subcolumns_count" = "${max_subcolumns_count}");
+                properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
