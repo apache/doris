@@ -186,23 +186,24 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             mv_not_part_in(test_sql5, mtmvName5)
         }
 
-        // 手动刷新之后会变成normal状态
-        sql """refresh MATERIALIZED VIEW ${mtmvName5} complete;"""
-        waitingMTMVTaskFinishedByMvName(mtmvName5)
-        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
-        assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-            compare_res(test_sql5 + " order by 1,2,3")
-        }
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-            compare_res(test_sql5 + " order by 1,2,3")
-        }
+    }
+
+    // 手动刷新之后会变成normal状态
+    sql """refresh MATERIALIZED VIEW ${mtmvName5} complete;"""
+    waitingMTMVTaskFinishedByMvName(mtmvName5)
+    assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+    assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+        compare_res(test_sql5 + " order by 1,2,3")
+    }
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+        compare_res(test_sql5 + " order by 1,2,3")
     }
 
 
@@ -242,25 +243,25 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql3, mtmvName3)
         }
-
-        sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
-        waitingMTMVTaskFinishedByMvName(mtmvName3)
-        assertTrue(state_mtmv3[0][0] == "NORMAL")
-        assertTrue(state_mtmv3[0][2] == true)
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-            compare_res(test_sql3 + " order by 1,2,3")
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-            compare_res(test_sql3 + " order by 1,2,3")
-        }
     }
+    sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
+    waitingMTMVTaskFinishedByMvName(mtmvName3)
+    assertTrue(state_mtmv3[0][0] == "NORMAL")
+    assertTrue(state_mtmv3[0][2] == true)
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+        compare_res(test_sql3 + " order by 1,2,3")
+    }
+
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+        compare_res(test_sql3 + " order by 1,2,3")
+    }
+
 
     // mtmv1: drop table of primary table
     sql """drop table if exists ${ctlName}.${dbName}.${tableName1}"""
