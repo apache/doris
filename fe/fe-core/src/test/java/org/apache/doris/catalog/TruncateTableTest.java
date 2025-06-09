@@ -237,9 +237,9 @@ public class TruncateTableTest {
         // "show tablets from " + tbl + " partition(" + partition + ")
         TableNameInfo tableNameInfo = new TableNameInfo(Arrays.asList(tbl.split("\\.")));
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
-            Arrays.asList(partition.split(",")));
+                Arrays.asList(partition.split(",")));
         ShowTabletsFromTableCommand command = new ShowTabletsFromTableCommand(tableNameInfo, partitionNamesInfo,
-            null, null, 5, 0);
+                null, null, 5, 0);
         ShowResultSet showResultSet = command.doRun(connectContext, new StmtExecutor(connectContext, ""));
         List<List<String>> rows = showResultSet.getResultRows();
         Assert.assertEquals(expected, rows.size());

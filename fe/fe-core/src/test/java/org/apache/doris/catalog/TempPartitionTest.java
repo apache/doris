@@ -124,9 +124,9 @@ public class TempPartitionTest {
         // show tablets from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ")
         TableNameInfo tableNameInfo = new TableNameInfo(Arrays.asList(tbl.split("\\.")));
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(isTemp,
-            Arrays.asList(partitions.split(",")));
+                Arrays.asList(partitions.split(",")));
         ShowTabletsFromTableCommand command = new ShowTabletsFromTableCommand(tableNameInfo, partitionNamesInfo,
-            null, null, 5, 0);
+                null, null, 5, 0);
         ShowResultSet showResultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
         List<List<String>> rows = showResultSet.getResultRows();
         if (expected != -1) {
