@@ -430,9 +430,12 @@ int main(int argc, char** argv) {
 
     std::vector<doris::StorePath> materialized_schema_table_paths;
     if (doris::config::materialized_schema_table_storage_root_path.empty()) {
-        doris::config::materialized_schema_table_storage_root_path = doris::config::storage_root_path;
+        doris::config::materialized_schema_table_storage_root_path =
+                doris::config::storage_root_path;
     }
-    olap_res = doris::parse_conf_store_paths(doris::config::materialized_schema_table_storage_root_path, &materialized_schema_table_paths);
+    olap_res = doris::parse_conf_store_paths(
+            doris::config::materialized_schema_table_storage_root_path,
+            &materialized_schema_table_paths);
     if (!olap_res) {
         LOG(ERROR) << "parse config materialized_schema_table_storage_root_path failed, path="
                    << doris::config::materialized_schema_table_storage_root_path;
@@ -558,7 +561,8 @@ int main(int argc, char** argv) {
 
     // init exec env
     auto* exec_env(doris::ExecEnv::GetInstance());
-    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, materialized_schema_table_paths, broken_paths);
+    status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths,
+                                  materialized_schema_table_paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
         return 0;

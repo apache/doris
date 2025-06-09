@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "vec/core/block.h"
 
@@ -30,21 +31,31 @@ class Block;
 } // namespace vectorized
 
 class MaterializedSchemaTableDir;
+
+// Thread-safe
 class MaterializedSchemaTableWriter {
 public:
-    MaterializedSchemaTableWriter(MaterializedSchemaTableDir* dir) : dir_(dir) {}
+    MaterializedSchemaTableWriter(std::shared_ptr<MaterializedSchemaTableDir> dir)
+            : dir_(std::move(dir)) {}
 
-    Status write(const vectorized::Block& block, size_t& written_bytes, const std::string& file_path);
+    Status write(vectorized::Block* block, size_t& written_bytes, const std::string& file_path);
 
-    size_t get_written_blocks() const { return written_blocks_; }
+    size_t get_written_blocks() const {
+        return written_blocks_.load(std::memory_order_relaxed);
+        ;
+    }
 
-    int64_t get_written_bytes() const { return total_written_bytes_; }
+    int64_t get_written_bytes() const {
+        return total_written_bytes_.load(std::memory_order_relaxed);
+        ;
+    }
 
 private:
     // for checking disk capacity when write data to disk.
-    MaterializedSchemaTableDir* dir_ = nullptr;
-    size_t written_blocks_ = 0;
-    int64_t total_written_bytes_ = 0;
+    std::shared_ptr<MaterializedSchemaTableDir> dir_ = nullptr;
+    std::atomic<size_t> written_blocks_ = 0;
+    std::atomic<int64_t> total_written_bytes_ = 0;
+    std::atomic<int64_t> last_update_capacity_written_bytes_ = 0;
 };
 using MaterializedSchemaTableWriterUPtr = std::unique_ptr<MaterializedSchemaTableWriter>;
 } // namespace doris

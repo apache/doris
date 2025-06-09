@@ -1334,7 +1334,10 @@ DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
 
 DEFINE_String(materialized_schema_table_storage_root_path, "");
-DEFINE_String(materialized_schema_table_storage_limit, "5%");    // 5%
+DEFINE_String(materialized_schema_table_storage_limit, "5%"); // 5%
+DEFINE_mInt32(materialized_schema_table_flush_limit, "100");
+DEFINE_mInt64(materialized_backend_active_tasks_ttl_sec, "86400");
+DEFINE_mInt64(materialized_backend_active_tasks_interval_ms, "100");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 

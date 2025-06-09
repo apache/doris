@@ -17,65 +17,69 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include <utility>
 
-#include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/spill/spill_reader.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
+struct MaterializedSchemaTableTimeSlice {
+    MaterializedSchemaTableTimeSlice(int64_t begin_timestamp, int64_t end_timestamp,
+                                     int64_t disk_space_bytes, std::string file_path)
+            : begin_timestamp_(begin_timestamp),
+              end_timestamp_(end_timestamp),
+              disk_space_bytes_(disk_space_bytes),
+              file_path_(std::move(file_path)) {}
+
+    std::string debug_string() {
+        return fmt::format(
+                "begin_timestamp: {}, end_timestamp: {}, disk_space_bytes: {}, file_path: {}",
+                begin_timestamp_, end_timestamp_, disk_space_bytes_, file_path_);
+    }
+
+    int64_t begin_timestamp_;
+    int64_t end_timestamp_;
+    int64_t disk_space_bytes_;
+    std::string file_path_;
+};
+
+// Not thread-safe
 class MaterializedSchemaTableReader {
 public:
-    MaterializedSchemaTableReader(std::vector<std::string> time_slice_filenames, vectorized::VExprContextSPtrs expr_ctxs)
-            : time_slice_filenames_(time_slice_filenames), expr_ctxs_(std::move(expr_ctxs)) {}
+    MaterializedSchemaTableReader(std::vector<MaterializedSchemaTableTimeSlice> time_slices,
+                                  std::vector<vectorized::VExprContextSPtr> expr_ctxs,
+                                  size_t batch_size, cctz::time_zone timezone_obj)
+            : time_slices_(std::move(time_slices)),
+              expr_ctxs_(std::move(expr_ctxs)),
+              batch_size_(batch_size),
+              timezone_obj_(timezone_obj) {}
 
     ~MaterializedSchemaTableReader() = default;
 
-    Status prepare(vectorized::Block* active_block) {
-        block_ = active_block->clone_empty();
-        vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block_);
-        RETURN_IF_ERROR(mblock.merge(*active_block));
-        return Status::OK();
-    }
+    Status prepare(vectorized::Block* active_block);
 
-    Status get_batch(vectorized::Block* output, bool* eos) {
-        int cur_batch_size = batch_size_;
-        if (offset_ >= time_slice_names_.size()) {
-            *eos = true;
-            return Status::OK();
-        }
-
-        // TODO, new sync thread
-        while (offset_ < time_slice_names_.size() && cur_batch_size-- > 0) {
-            vectorized::Block* block;
-            auto& time_slice_name = time_slice_names_[offset_++];
-
-            // 1. get time slice in stream .
-            if (!SchemaTableSpillManager::instance()->get_time_slice_in_stream(
-                        type_, time_slice_name, output)) {
-                // 2. get spilled time slice.
-                vectorized::SpillReaderUPtr reader = std::make_unique<vectorized::SpillReader>(
-                        state_->get_query_ctx()->resource_ctx(), stream_id_, time_slice_name);
-                RETURN_IF_ERROR(reader->open());
-                RETURN_IF_ERROR(reader->read(block, eos));
-                output->merge(*block);
-            }
-        }
-        return Status::OK();
-    }
+    Status get_batch(vectorized::Block* output, bool* eos);
 
 private:
     Status read_next_time_slice_(vectorized::Block* block, bool* eos);
+    Status filter_time_slice_();
 
-    vectorized::Block block_;
-    std::vector<std::string> time_slice_filenames_;
-    size_t read_time_slice_index_ = 0;
-    vectorized::VExprContextSPtrs expr_ctxs_;
-    int batch_size_ = 1;
-    int offset_ = 0;
+    std::vector<MaterializedSchemaTableTimeSlice> time_slices_;
+    size_t read_time_slice_offset_ = 0;
+    std::vector<vectorized::VExprContextSPtr> expr_ctxs_;
+    size_t batch_size_ = 1;
+    cctz::time_zone timezone_obj_;
+
+    size_t row_idx_ = 0;
+    bool read_time_slice_eos_ = false;
+    std::unique_ptr<vectorized::Block> materialized_block_ = nullptr;
 };
+
+using MaterializedSchemaTableReaderSPtr = std::shared_ptr<MaterializedSchemaTableReader>;
 
 #include "common/compile_check_end.h"
 } // namespace doris

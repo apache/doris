@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <string>
+
 #include "olap/olap_common.h"
 
 namespace doris {

@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/schema_scanner/materialized_schema_table_mgr.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
@@ -123,6 +122,7 @@ class HeapProfiler;
 class WalManager;
 class DNSCache;
 struct SyncRowsetStats;
+class MaterializedSchemaTableMgr;
 
 inline bool k_doris_exit = false;
 
@@ -260,7 +260,9 @@ public:
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
-    doris::MaterializedSchemaTableMgr* materialized_schema_table_mgr() { return _materialized_schema_table_mgr; }
+    doris::MaterializedSchemaTableMgr* materialized_schema_table_mgr() {
+        return _materialized_schema_table_mgr;
+    }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }

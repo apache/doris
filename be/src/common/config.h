@@ -1410,6 +1410,9 @@ DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 
 DECLARE_String(materialized_schema_table_storage_root_path);
 DECLARE_String(materialized_schema_table_storage_limit);
+DECLARE_mInt32(materialized_schema_table_flush_limit);
+DECLARE_mInt64(materialized_backend_active_tasks_ttl_sec);
+DECLARE_mInt64(materialized_backend_active_tasks_interval_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
 

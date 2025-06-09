@@ -41,6 +41,7 @@
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/schema_scanner/materialized_schema_table_mgr.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -181,7 +182,8 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::vector<StorePath>& materialized_schema_table_paths,
                      const std::set<std::string>& broken_paths) {
-    return env->_init(store_paths, spill_store_paths, materialized_schema_table_paths, broken_paths);
+    return env->_init(store_paths, spill_store_paths, materialized_schema_table_paths,
+                      broken_paths);
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
@@ -198,11 +200,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                                                          spill_path.path, spill_path.capacity_bytes,
                                                          spill_path.storage_medium));
     }
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> materialized_schema_table_store_map;
+    std::unordered_map<std::string, std::shared_ptr<MaterializedSchemaTableDir>>
+            materialized_schema_table_store_map;
     for (const auto& materialized_schema_table_path : materialized_schema_table_paths) {
-        materialized_schema_table_store_map.emplace(materialized_schema_table_path.path, std::make_unique<MaterializedSchemaTableDir>(
-                                materialized_schema_table_path.path, materialized_schema_table_path.capacity_bytes,
-                                materialized_schema_table_path.storage_medium));
+        materialized_schema_table_store_map.emplace(
+                materialized_schema_table_path.path,
+                std::make_shared<MaterializedSchemaTableDir>(
+                        materialized_schema_table_path.path,
+                        materialized_schema_table_path.capacity_bytes,
+                        materialized_schema_table_path.storage_medium));
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -273,8 +279,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
-    doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths, materialized_schema_table_paths,
-                                                          cache_paths);
+    doris::io::BeConfDataDirReader::init_be_conf_data_dir(
+            store_paths, spill_store_paths, materialized_schema_table_paths, cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
@@ -313,7 +319,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
     _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
-    _materialized_schema_table_mgr = new MaterializedSchemaTableMgr(std::move(materialized_schema_table_store_map));
+    _materialized_schema_table_mgr =
+            new MaterializedSchemaTableMgr(std::move(materialized_schema_table_store_map));
     _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");

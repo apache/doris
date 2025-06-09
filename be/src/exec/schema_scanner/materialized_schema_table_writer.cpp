@@ -19,30 +19,35 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
+#include "exec/schema_scanner/materialized_schema_table_dir.h"
 #include "io/fs/local_file_system.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-Status MaterializedSchemaTableWriter::write(const vectorized::Block& block, size_t& written_bytes, const std::string& file_path) {
+Status MaterializedSchemaTableWriter::write(vectorized::Block* block, size_t& written_bytes,
+                                            const std::string& file_path) {
+    Status status;
     std::unique_ptr<doris::io::FileWriter> file_writer;
     // storage_root/materialized_schema_table/table_name/begin_timestamp-end_timestamp
     RETURN_IF_ERROR(io::global_local_filesystem()->create_file(file_path, &file_writer));
     Defer defer_file_writer {[&]() {
-        RETURN_IF_ERROR(file_writer->close());
+        auto st = file_writer->close();
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to close file writer: " << st.to_string()
+                         << ", file_path: " << file_path;
+        }
         file_writer.reset();
     }};
 
     written_bytes = 0;
     size_t uncompressed_bytes = 0, compressed_bytes = 0;
-    Status status;
     std::string buff;
     int64_t buff_size {0};
-
-    if (block.rows() > 0) {
+    if (block->rows() > 0) {
         {
             PBlock pblock;
-            status = block.serialize(
+            status = block->serialize(
                     BeExecVersionManager::get_newest_version(), &pblock, &uncompressed_bytes,
                     &compressed_bytes,
                     segment_v2::CompressionTypePB::ZSTD); // ZSTD for better compression ratio
@@ -56,8 +61,7 @@ Status MaterializedSchemaTableWriter::write(const vectorized::Block& block, size
         if (dir_->reach_capacity_limit(buff_size)) {
             return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                     "data total size exceed limit, path: {}, size limit: {}, data size: {}",
-                    dir_->path(),
-                    PrettyPrinter::print_bytes(dir_->get_disk_limit_bytes()),
+                    dir_->path(), PrettyPrinter::print_bytes(dir_->get_disk_limit_bytes()),
                     PrettyPrinter::print_bytes(dir_->get_usage_bytes()));
         }
 
@@ -68,6 +72,15 @@ Status MaterializedSchemaTableWriter::write(const vectorized::Block& block, size
                     written_bytes += buff_size;
                     total_written_bytes_ += buff_size;
                     ++written_blocks_;
+                    static constexpr size_t UPDATE_CAPACITY_INTERVAL = 10 * 1024 * 1024; // 10M
+                    if (total_written_bytes_ - last_update_capacity_written_bytes_ >
+                        UPDATE_CAPACITY_INTERVAL) {
+                        auto st = dir_->update_capacity();
+                        if (!st.ok()) {
+                            LOG(WARNING) << "Failed to update disk capacity: " << st.to_string()
+                                         << ", file_path: " << file_path;
+                        }
+                    }
                 }
             }};
             {
@@ -79,4 +92,4 @@ Status MaterializedSchemaTableWriter::write(const vectorized::Block& block, size
     return status;
 }
 
-}
+} // namespace doris

@@ -19,36 +19,29 @@
 
 #include <vector>
 
-#include "util/countdown_latch.h"
-#include "util/thread.h"
+#include "common/status.h"
+#include "exec/schema_scanner.h"
 
 namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+} // namespace vectorized
+class MaterializedSchemaTableReader;
 
-class Daemon {
+class SchemaBackendActiveTasksScannerHistory : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaBackendActiveTasksScannerHistory);
+
 public:
-    Daemon() : _stop_background_threads_latch(1) {}
-    ~Daemon() = default;
+    SchemaBackendActiveTasksScannerHistory();
+    ~SchemaBackendActiveTasksScannerHistory() override;
 
-    // Start background threads
-    void start();
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
-    // Stop background threads
-    void stop();
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
 private:
-    void tcmalloc_gc_thread();
-    void memory_maintenance_thread();
-    void memtable_memory_refresh_thread();
-    void calculate_metrics_thread();
-    void je_reset_dirty_decay_thread() const;
-    void cache_adjust_capacity_thread();
-    void cache_prune_stale_thread();
-    void report_runtime_query_statistics_thread();
-    void be_proc_monitor_thread();
-    void calculate_workload_group_metrics_thread();
-    void materialized_backend_active_tasks_thread();
-
-    CountDownLatch _stop_background_threads_latch;
-    std::vector<scoped_refptr<Thread>> _threads;
+    std::shared_ptr<MaterializedSchemaTableReader> materialized_reader_;
 };
-} // namespace doris
+}; // namespace doris

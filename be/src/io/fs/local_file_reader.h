@@ -39,10 +39,11 @@ struct BeConfDataDirReader {
 
     static void get_data_dir_by_file_path(Path* file_path, std::string* data_dir_arg);
 
-    static void init_be_conf_data_dir(const std::vector<doris::StorePath>& store_paths,
-                                      const std::vector<doris::StorePath>& spill_store_paths,
-                                      const std::vector<doris::StorePath>& materialized_schema_table_paths,
-                                      const std::vector<doris::CachePath>& cache_paths);
+    static void init_be_conf_data_dir(
+            const std::vector<doris::StorePath>& store_paths,
+            const std::vector<doris::StorePath>& spill_store_paths,
+            const std::vector<doris::StorePath>& materialized_schema_table_paths,
+            const std::vector<doris::CachePath>& cache_paths);
 };
 
 struct IOContext;
