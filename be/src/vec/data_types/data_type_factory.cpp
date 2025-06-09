@@ -61,10 +61,10 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -181,8 +181,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
-                27, 9, precision, scale);
+        result = std::make_shared<vectorized::DataTypeDecimalV2>(27, 9, precision, scale);
         break;
     case FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE:
         result = std::make_shared<vectorized::DataTypeQuantileState>();
@@ -255,24 +254,24 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeDateTime>();
         break;
     case PGenericType::DECIMAL32:
-        nested = std::make_shared<DataTypeDecimal<Decimal32>>(pcolumn.decimal_param().precision(),
-                                                              pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal32>(pcolumn.decimal_param().precision(),
+                                                     pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL64:
-        nested = std::make_shared<DataTypeDecimal<Decimal64>>(pcolumn.decimal_param().precision(),
-                                                              pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal64>(pcolumn.decimal_param().precision(),
+                                                     pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimalV2>(pcolumn.decimal_param().precision(),
+                                                     pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL128I:
-        nested = std::make_shared<DataTypeDecimal<Decimal128V3>>(
-                pcolumn.decimal_param().precision(), pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal128>(pcolumn.decimal_param().precision(),
+                                                      pcolumn.decimal_param().scale());
         break;
     case PGenericType::DECIMAL256:
-        nested = std::make_shared<DataTypeDecimal<Decimal256>>(pcolumn.decimal_param().precision(),
-                                                               pcolumn.decimal_param().scale());
+        nested = std::make_shared<DataTypeDecimal256>(pcolumn.decimal_param().precision(),
+                                                      pcolumn.decimal_param().scale());
         break;
     case PGenericType::BITMAP:
         nested = std::make_shared<DataTypeBitMap>();
@@ -454,7 +453,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>(
+        nested = std::make_shared<vectorized::DataTypeDecimalV2>(
                 precision > 0 ? precision : 0, precision > 0 ? scale : 0, precision, scale);
         break;
     case TYPE_QUANTILE_STATE:

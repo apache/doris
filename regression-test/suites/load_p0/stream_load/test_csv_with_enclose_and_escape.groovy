@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -38,6 +37,8 @@ suite("test_csv_with_enclose_and_escape", "p0") {
     def normalCases = [
             'enclose_normal.csv',
             'enclose_with_escape.csv',
+            'enclose_with_escape_quote.csv',
+            'enclose_with_escape_doublequote.csv',
             'enclose_wrong_position.csv',
             'enclose_empty_values.csv'
     ]

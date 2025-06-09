@@ -46,7 +46,7 @@ public:
     DataTypes get_variadic_argument_types_impl() const override { return {}; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<DataTypeDecimal<Decimal128V3>>();
+        return std::make_shared<DataTypeDecimal128>();
     }
 
     bool skip_return_type_check() const override { return true; }

@@ -42,6 +42,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -173,7 +174,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+        if (fileFormatProperties instanceof CsvFileFormatProperties
+                || fileFormatProperties instanceof TextFileFormatProperties) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {
@@ -379,9 +381,6 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            fileScanRangeParams.setTextSerdeType(((CsvFileFormatProperties) fileFormatProperties).getTextSerdeType());
-        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

@@ -32,7 +32,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -56,8 +55,8 @@ struct HLLCardinality {
     using ReturnType = DataTypeInt64;
 
     static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -67,8 +66,8 @@ struct HLLCardinality {
 
     static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {

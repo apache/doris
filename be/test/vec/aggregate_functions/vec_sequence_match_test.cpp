@@ -81,11 +81,11 @@ TEST_F(VSequenceMatchTest, testMatchEmpty) {
     agg_function_sequence_match->create(place2);
 
     agg_function_sequence_match->merge(place, place2, nullptr);
-    ColumnVector<UInt8> column_result;
+    ColumnUInt8 column_result;
     agg_function_sequence_match->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 0);
 
-    ColumnVector<UInt8> column_result2;
+    ColumnUInt8 column_result2;
     agg_function_sequence_match->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 0);
 
@@ -110,11 +110,11 @@ TEST_F(VSequenceMatchTest, testCountEmpty) {
     agg_function_sequence_count->create(place2);
 
     agg_function_sequence_count->merge(place, place2, nullptr);
-    ColumnVector<Int64> column_result;
+    ColumnInt64 column_result;
     agg_function_sequence_count->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 0);
 
-    ColumnVector<Int64> column_result2;
+    ColumnInt64 column_result2;
     agg_function_sequence_count->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 0);
 
@@ -129,26 +129,26 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
         column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
-    auto column_timestamp = ColumnVector<Int64>::create();
+    auto column_timestamp = ColumnDateTime::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event3 = ColumnVector<UInt8>::create();
+    auto column_event3 = ColumnUInt8::create();
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
@@ -175,12 +175,12 @@ TEST_F(VSequenceMatchTest, testMatchSerialize) {
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function_sequence_match->deserialize(place2, buf_reader, nullptr);
 
-    ColumnVector<UInt8> column_result;
+    ColumnUInt8 column_result;
     agg_function_sequence_match->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 1);
     agg_function_sequence_match->destroy(place);
 
-    ColumnVector<UInt8> column_result2;
+    ColumnUInt8 column_result2;
     agg_function_sequence_match->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 1);
     agg_function_sequence_match->destroy(place2);
@@ -200,20 +200,20 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
         column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
-    auto column_timestamp = ColumnVector<Int64>::create();
+    auto column_timestamp = ColumnDateTime::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 11, 2, 0, 0, i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
@@ -240,12 +240,12 @@ TEST_F(VSequenceMatchTest, testCountSerialize) {
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function_sequence_count->deserialize(place2, buf_reader, nullptr);
 
-    ColumnVector<Int64> column_result;
+    ColumnInt64 column_result;
     agg_function_sequence_count->insert_result_into(place, column_result);
     EXPECT_EQ(column_result.get_data()[0], 2);
     agg_function_sequence_count->destroy(place);
 
-    ColumnVector<Int64> column_result2;
+    ColumnInt64 column_result2;
     agg_function_sequence_count->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 2);
     agg_function_sequence_count->destroy(place2);
@@ -265,18 +265,18 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
         column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
-    auto column_timestamp = ColumnVector<Int64>::create();
+    auto column_timestamp = ColumnDateTime::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
@@ -302,22 +302,22 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function_sequence_match->deserialize(place2, buf_reader, nullptr);
 
-    ColumnVector<UInt8> column_result;
+    ColumnUInt8 column_result;
     agg_function_sequence_match->insert_result_into(place2, column_result);
     EXPECT_EQ(column_result.get_data()[0], 0);
 
-    auto column_timestamp2 = ColumnVector<Int64>::create();
+    auto column_timestamp2 = ColumnDateTime::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
         column_timestamp2->insert_data((char*)&time_value, 0);
     }
 
-    auto column_event3 = ColumnVector<UInt8>::create();
+    auto column_event3 = ColumnUInt8::create();
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
-    auto column_event4 = ColumnVector<UInt8>::create();
+    auto column_event4 = ColumnUInt8::create();
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
@@ -332,7 +332,7 @@ TEST_F(VSequenceMatchTest, testMatchReverseSortedSerializeMerge) {
 
     agg_function_sequence_match->merge(place2, place3, nullptr);
 
-    ColumnVector<UInt8> column_result2;
+    ColumnUInt8 column_result2;
     agg_function_sequence_match->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 1);
 
@@ -354,18 +354,18 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
         column_pattern->insert(vectorized::Field::create_field<TYPE_STRING>("(?1)(?2)"));
     }
 
-    auto column_timestamp = ColumnVector<Int64>::create();
+    auto column_timestamp = ColumnDateTime::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 11, 2, 0, 0, NUM_CONDS - i);
         column_timestamp->insert_data((char*)&time_value, 0);
     }
 
-    auto column_event1 = ColumnVector<UInt8>::create();
+    auto column_event1 = ColumnUInt8::create();
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event2 = ColumnVector<UInt8>::create();
+    auto column_event2 = ColumnUInt8::create();
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
@@ -391,22 +391,22 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function_sequence_count->deserialize(place2, buf_reader, nullptr);
 
-    ColumnVector<Int64> column_result;
+    ColumnInt64 column_result;
     agg_function_sequence_count->insert_result_into(place2, column_result);
     EXPECT_EQ(column_result.get_data()[0], 1);
 
-    auto column_timestamp2 = ColumnVector<Int64>::create();
+    auto column_timestamp2 = ColumnDateTime::create();
     for (int i = 0; i < NUM_CONDS; i++) {
         VecDateTimeValue time_value;
         time_value.unchecked_set_time(2022, 11, 2, 0, 1, NUM_CONDS - i);
         column_timestamp2->insert_data((char*)&time_value, 0);
     }
 
-    auto column_event3 = ColumnVector<UInt8>::create();
+    auto column_event3 = ColumnUInt8::create();
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
     column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
 
-    auto column_event4 = ColumnVector<UInt8>::create();
+    auto column_event4 = ColumnUInt8::create();
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
     column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
 
@@ -421,7 +421,7 @@ TEST_F(VSequenceMatchTest, testCountReverseSortedSerializeMerge) {
 
     agg_function_sequence_count->merge(place2, place3, nullptr);
 
-    ColumnVector<Int64> column_result2;
+    ColumnInt64 column_result2;
     agg_function_sequence_count->insert_result_into(place2, column_result2);
     EXPECT_EQ(column_result2.get_data()[0], 2);
 

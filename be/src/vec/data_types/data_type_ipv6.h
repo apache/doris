@@ -48,7 +48,7 @@ public:
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_IPV6;
     }
-    const char* get_family_name() const override { return "IPv6"; }
+    const std::string get_family_name() const override { return "IPv6"; }
     std::string do_get_name() const override { return "IPv6"; }
 
     bool equals(const IDataType& rhs) const override;

@@ -66,7 +66,7 @@ class DataTypeDateTime final : public DataTypeNumberBase<PrimitiveType::TYPE_DAT
 public:
     DataTypeDateTime() = default;
 
-    const char* get_family_name() const override { return "DateTime"; }
+    const std::string get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIME; }
 

@@ -45,9 +45,9 @@ class RuntimeState;
 
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename T>
+template <PrimitiveType T>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris

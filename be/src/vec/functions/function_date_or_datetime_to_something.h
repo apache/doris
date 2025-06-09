@@ -87,7 +87,7 @@ public:
                                    get_name(), arguments.size());
         }
 
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType::PType);
     }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
@@ -95,9 +95,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return DateTimeTransformImpl<typename Transform::OpArgType, typename ToDataType::FieldType,
-                                     Transform>::execute(block, arguments, result,
-                                                         input_rows_count);
+        return DateTimeTransformImpl<Transform::OpArgType, ToDataType::PType, Transform>::execute(
+                block, arguments, result, input_rows_count);
     }
 };
 
