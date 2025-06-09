@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -32,6 +34,14 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
@@ -54,6 +64,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -117,10 +129,13 @@ public class TempPartitionTest {
 
     private List<List<String>> checkTablet(String tbl, String partitions, boolean isTemp, int expected)
             throws Exception {
-        String showStr = "show tablets from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ");";
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, showStr);
-        stmtExecutor.execute();
-        ShowResultSet showResultSet = stmtExecutor.getShowResultSet();
+        // show tablets from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ")
+        TableNameInfo tableNameInfo = new TableNameInfo(Arrays.asList(tbl.split("\\.")));
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(isTemp,
+            Arrays.asList(partitions.split(",")));
+        ShowTabletsFromTableCommand command = new ShowTabletsFromTableCommand(tableNameInfo, partitionNamesInfo,
+            null, null, 5, 0);
+        ShowResultSet showResultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
         List<List<String>> rows = showResultSet.getResultRows();
         if (expected != -1) {
             Assert.assertEquals(expected, rows.size());

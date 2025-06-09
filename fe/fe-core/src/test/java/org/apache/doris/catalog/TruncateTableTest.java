@@ -26,6 +26,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -39,6 +42,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -230,10 +234,13 @@ public class TruncateTableTest {
     }
 
     private List<List<String>> checkShowTabletResultNum(String tbl, String partition, int expected) throws Exception {
-        String showStr = "show tablets from " + tbl + " partition(" + partition + ")";
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, showStr);
-        stmtExecutor.execute();
-        ShowResultSet showResultSet = stmtExecutor.getShowResultSet();
+        // "show tablets from " + tbl + " partition(" + partition + ")
+        TableNameInfo tableNameInfo = new TableNameInfo(Arrays.asList(tbl.split("\\.")));
+        PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false,
+            Arrays.asList(partition.split(",")));
+        ShowTabletsFromTableCommand command = new ShowTabletsFromTableCommand(tableNameInfo, partitionNamesInfo,
+            null, null, 5, 0);
+        ShowResultSet showResultSet = command.doRun(connectContext, new StmtExecutor(connectContext, ""));
         List<List<String>> rows = showResultSet.getResultRows();
         Assert.assertEquals(expected, rows.size());
         return rows;
