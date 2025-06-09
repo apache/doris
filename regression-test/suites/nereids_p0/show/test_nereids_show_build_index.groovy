@@ -48,8 +48,10 @@ suite("test_nereids_show_build_index") {
         DUPLICATE KEY(`user_id`, `date`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
         PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V1" );
     """
-    sql "BUILD INDEX idx_user_id1 ON test_show_build_index.test_show_build_index_tbl1;"
-    sql "BUILD INDEX idx_user_id2 ON test_show_build_index.test_show_build_index_tbl2;"
+    if (!isCloudMode()) {
+        sql "BUILD INDEX idx_user_id1 ON test_show_build_index.test_show_build_index_tbl1;"
+        sql "BUILD INDEX idx_user_id2 ON test_show_build_index.test_show_build_index_tbl2;"
+    }
     sleep(30000)
 
     checkNereidsExecute("show build index from test_show_build_index;")
