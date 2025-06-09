@@ -477,7 +477,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("QUERY_TYPE",  ScalarType.createVarchar(256))
+                                    .column("QUERY_TYPE", ScalarType.createVarchar(256))
                                     .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
@@ -645,6 +645,27 @@ public class SchemaTable extends Table {
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
             )
+            .put("backend_active_tasks_history",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_active_tasks_history", TableType.SCHEMA,
+                            builder().column("TIME_SLICE", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FE_HOST", ScalarType.createVarchar(256))
+                                    .column("WORKLOAD_GROUP_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("QUERY_ID", ScalarType.createVarchar(256))
+                                    .column("TASK_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TASK_CPU_TIME_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCAN_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SCAN_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("BE_PEAK_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("QUERY_TYPE", ScalarType.createVarchar(256))
+                                    .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
             .build();
 
     private boolean fetchAllFe = false;
