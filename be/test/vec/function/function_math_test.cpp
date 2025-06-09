@@ -128,6 +128,18 @@ TEST(MathFunctionTest, cos_test) {
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, cot_test) {
+    std::string func_name = "cot";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{-1.0}, -0.6420926159343306},    {{0.5}, 1.830487721712452},
+                        {{1.0}, 0.6420926159343306},      {{0.0}, Null()},
+                        {{M_PI / 4}, 1.0000000000000002}, {{M_PI / 2}, 6.123233995736766e-17}};
+
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, sin_test) {
     std::string func_name = "sin";
 

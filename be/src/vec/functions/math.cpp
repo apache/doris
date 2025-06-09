@@ -89,6 +89,24 @@ struct AtanhName {
 using FunctionAtanh =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
+struct CotName {
+    static constexpr auto name = "cot";
+    static constexpr bool is_invalid_input(Float64 x) {
+        constexpr double epsilon = 1e-10;
+        double remainder = std::fmod(std::abs(x), M_PI);
+
+        return std::abs(x) < epsilon || std::abs(remainder) < epsilon ||
+               std::abs(remainder - M_PI) < epsilon;
+    }
+};
+
+static inline double cot_impl(double x) {
+    return 1 / std::tan(x);
+}
+
+using FunctionCot =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<CotName, cot_impl>>;
+
 template <PrimitiveType AType, PrimitiveType BType>
 struct Atan2Impl {
     using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
@@ -540,6 +558,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAtan2>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
+    factory.register_function<FunctionCot>();
     factory.register_function<FunctionE>();
     factory.register_alias("ln", "dlog1");
     factory.register_function<FunctionLog>();
