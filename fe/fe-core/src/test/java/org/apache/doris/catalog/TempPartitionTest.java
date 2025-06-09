@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
@@ -33,10 +32,12 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.base.Joiner;
@@ -118,9 +119,9 @@ public class TempPartitionTest {
     private List<List<String>> checkTablet(String tbl, String partitions, boolean isTemp, int expected)
             throws Exception {
         String showStr = "show tablets from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ");";
-        ShowTabletStmt showStmt = (ShowTabletStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, ctx);
-        ShowExecutor executor = new ShowExecutor(ctx, (ShowStmt) showStmt);
-        ShowResultSet showResultSet = executor.execute();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, showStr);
+        stmtExecutor.execute();
+        ShowResultSet showResultSet = stmtExecutor.getShowResultSet();
         List<List<String>> rows = showResultSet.getResultRows();
         if (expected != -1) {
             Assert.assertEquals(expected, rows.size());
