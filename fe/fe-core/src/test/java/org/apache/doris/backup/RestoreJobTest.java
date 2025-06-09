@@ -21,6 +21,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -169,12 +170,12 @@ public class RestoreJobTest {
         new Expectations() {
             {
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
-                        Maps.newHashMap(), (TStorageMedium) any, false, true);
+                        Maps.newHashMap(), (TStorageMedium) any, MediumAllocationMode.ADAPTIVE, true);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> selectBackendIdsForReplicaCreation(
                             ReplicaAllocation replicaAlloc, Map<Tag, Integer> nextIndexs,
-                            TStorageMedium medium, boolean isStorageMediumSpecified,
+                            TStorageMedium medium, MediumAllocationMode mediumAllocationMode,
                             boolean isOnlyForCheck) {
                         List<Long> beIds = Lists.newArrayList();
                         beIds.add(CatalogMocker.BACKEND1_ID);
@@ -261,7 +262,7 @@ public class RestoreJobTest {
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
                 new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false, false, false,
-                env, repo.getId());
+                "hdd", "strict", env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
@@ -337,5 +338,102 @@ public class RestoreJobTest {
         Partition localPart = remoteTbl.getPartition(partName);
         Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
         Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+    }
+
+    @Test
+    public void testRestoreJobWithHddMode() {
+        RestoreJob hddJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "hdd", "strict", env, repo.getId());
+
+        // In hdd mode, isSameWithUpstream should return false
+        Assert.assertFalse(hddJob.isSameWithUpstream());
+    }
+
+    @Test
+    public void testRestoreJobWithSsdMode() {
+        RestoreJob ssdJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "ssd", "strict", env, repo.getId());
+
+        // In ssd mode, isSameWithUpstream should return false
+        Assert.assertFalse(ssdJob.isSameWithUpstream());
+    }
+
+    @Test
+    public void testRestoreJobWithSameWithUpstreamMode() {
+        RestoreJob sameWithUpstreamJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "same_with_upstream", "strict", env, repo.getId());
+
+        // In same_with_upstream mode, isSameWithUpstream should return true
+        Assert.assertTrue(sameWithUpstreamJob.isSameWithUpstream());
+    }
+
+    @Test
+    public void testRestoreJobWithDefaultMode() {
+        RestoreJob defaultJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, null, "strict", env, repo.getId());
+
+        // Default mode should be same_with_upstream when storage_medium is null
+        Assert.assertTrue(defaultJob.isSameWithUpstream());
+    }
+
+    @Test
+    public void testRestoreJobPersistence() throws IOException {
+        // Create a job with same_with_upstream mode
+        RestoreJob originalJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "same_with_upstream", "adaptive", env, repo.getId());
+
+        // Serialize
+        final Path path = Files.createTempFile("restoreJobMedium", "tmp");
+        DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
+        originalJob.write(out);
+        out.flush();
+        out.close();
+
+        // Deserialize
+        DataInputStream in = new DataInputStream(Files.newInputStream(path));
+        RestoreJob deserializedJob = RestoreJob.read(in);
+
+        // Verify storage_medium is preserved
+        Assert.assertTrue(deserializedJob.isSameWithUpstream());
+        Assert.assertEquals(originalJob.getJobId(), deserializedJob.getJobId());
+
+        // Cleanup
+        in.close();
+        Files.delete(path);
+    }
+
+    @Test
+    public void testGetTargetStorageMediumWithHddMode() {
+        RestoreJob hddJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "hdd", "strict", env, repo.getId());
+
+        // In hdd mode, target storage medium should be HDD
+        Assert.assertEquals(TStorageMedium.HDD, hddJob.getTargetStorageMedium());
+    }
+
+    @Test
+    public void testGetTargetStorageMediumWithSsdMode() {
+        RestoreJob ssdJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "ssd", "strict", env, repo.getId());
+
+        // In ssd mode, target storage medium should be SSD
+        Assert.assertEquals(TStorageMedium.SSD, ssdJob.getTargetStorageMedium());
+    }
+
+    @Test
+    public void testGetTargetStorageMediumWithSameWithUpstreamMode() {
+        RestoreJob sameWithUpstreamJob = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
+                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, "same_with_upstream", "strict", env, repo.getId());
+
+        // In same_with_upstream mode, target storage medium should be null (will use upstream's medium)
+        Assert.assertNull(sameWithUpstreamJob.getTargetStorageMedium());
     }
 }
