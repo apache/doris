@@ -46,6 +46,7 @@
 #include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "util/key_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -476,17 +477,18 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
     RowLocation loc;
 
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
-        auto& rs = specified_rowsets[i];
-        auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
-        int num_segments = rs->num_segments();
+        const auto& rs = specified_rowsets[i];
+        std::vector<KeyBoundsPB> segments_key_bounds;
+        rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
+        int num_segments = static_cast<int>(rs->num_segments());
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
-        for (int i = num_segments - 1; i >= 0; i--) {
+        for (int j = num_segments - 1; j >= 0; j--) {
             // If mow table has cluster keys, the key bounds is short keys, not primary keys
             // use PrimaryKeyIndexMetaPB in primary key index?
             if (schema->cluster_key_idxes().empty()) {
-                if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                    key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+                if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
+                                        rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                     continue;
                 }
             }
