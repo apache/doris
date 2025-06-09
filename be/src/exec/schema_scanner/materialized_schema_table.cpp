@@ -98,8 +98,8 @@ Status MaterializedSchemaTable::put_block(vectorized::Block* block) {
         src[0].from_unixtime(timestamp, cctz::time_zone());
         datas[0] = src;
         auto* data = datas[0];
-        assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(data), 0);
+		uint64_t num = *reinterpret_cast<uint64_t*>(data);
+        assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(num);
     }
 
     // 2. merge block to active block.
