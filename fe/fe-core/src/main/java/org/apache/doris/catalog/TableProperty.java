@@ -69,6 +69,7 @@ public class TableProperty implements GsonPostProcessable {
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
+    private DataProperty.MediumAllocationMode mediumAllocationMode = null;
     private BinlogConfig binlogConfig;
 
     private TStorageMedium storageMedium = null;
@@ -161,6 +162,7 @@ public class TableProperty implements GsonPostProcessable {
                 buildStorageMedium();
                 buildStoragePolicy();
                 buildIsBeingSynced();
+                buildMediumAllocationMode();
                 buildCompactionPolicy();
                 buildTimeSeriesCompactionGoalSizeMbytes();
                 buildTimeSeriesCompactionFileCountThreshold();
@@ -526,6 +528,60 @@ public class TableProperty implements GsonPostProcessable {
         return isBeingSynced;
     }
 
+    public TableProperty buildMediumAllocationMode() {
+        // Handle upgrade compatibility: if the property doesn't exist, set value for old tables
+        // But only do auto-inference if mediumAllocationMode field is also null (meaning this is truly missing)
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE)
+                && mediumAllocationMode == null) {
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE,
+                        DataProperty.MediumAllocationMode.STRICT.getValue());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Auto-assigned medium_allocation_mode 'strict' for table with storage_medium "
+                            + "(backward compatibility)");
+                }
+            } else {
+                properties.put(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE,
+                        DataProperty.MediumAllocationMode.ADAPTIVE.getValue());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Auto-assigned medium_allocation_mode 'adaptive' for table without storage_medium "
+                            + "(backward compatibility)");
+                }
+            }
+        }
+
+        String mediumAllocationModeValue = properties.get(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE);
+        try {
+            mediumAllocationMode = DataProperty.MediumAllocationMode.fromString(mediumAllocationModeValue);
+
+            // Validate consistency with storage medium
+            TStorageMedium storageMedium = getStorageMedium();
+            PropertyAnalyzer.validateMediumAllocationMode(mediumAllocationMode, storageMedium);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Successfully built medium allocation mode: '{}' for table", mediumAllocationModeValue);
+            }
+
+        } catch (AnalysisException e) {
+            LOG.error("Failed to build medium allocation mode from value: '{}'. Error: {}",
+                    mediumAllocationModeValue, e.getMessage());
+            throw new RuntimeException("Invalid medium_allocation_mode configuration", e);
+        }
+        return this;
+    }
+
+    public DataProperty.MediumAllocationMode getMediumAllocationMode() {
+        if (mediumAllocationMode == null) {
+            buildMediumAllocationMode();
+        }
+        return mediumAllocationMode;
+    }
+
+    public void setMediumAllocationMode(DataProperty.MediumAllocationMode mediumAllocationMode) {
+        modifyTableProperties(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE, mediumAllocationMode.getValue());
+        this.mediumAllocationMode = mediumAllocationMode;
+    }
+
     public void removeInvalidProperties() {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
@@ -871,6 +927,7 @@ public class TableProperty implements GsonPostProcessable {
         buildCompressionType();
         buildStoragePolicy();
         buildIsBeingSynced();
+        buildMediumAllocationMode();
         buildBinlogConfig();
         buildEnableLightSchemaChange();
         buildStoreRowColumn();

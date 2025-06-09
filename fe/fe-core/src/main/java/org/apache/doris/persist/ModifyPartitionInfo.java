@@ -54,6 +54,12 @@ public class ModifyPartitionInfo implements Writable {
     @SerializedName(value = "tableProperties")
     private Map<String, String> tblProperties;
 
+    @SerializedName(value = "partitionName")
+    private String partitionName;
+
+    @SerializedName(value = "isTempPartition")
+    private boolean isTempPartition;
+
     public String getStoragePolicy() {
         return storagePolicy;
     }
@@ -64,7 +70,7 @@ public class ModifyPartitionInfo implements Writable {
 
     public ModifyPartitionInfo(long dbId, long tableId, long partitionId, DataProperty dataProperty,
             ReplicaAllocation replicaAlloc, boolean isInMemory, String storagePolicy,
-            Map<String, String> tblProperties) {
+            Map<String, String> tblProperties, String partitionName, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -76,6 +82,8 @@ public class ModifyPartitionInfo implements Writable {
         if (this.tblProperties == null) {
             this.tblProperties = Maps.newHashMap();
         }
+        this.partitionName = partitionName;
+        this.isTempPartition = isTempPartition;
     }
 
     public long getDbId() {
@@ -108,6 +116,14 @@ public class ModifyPartitionInfo implements Writable {
 
     public Map<String, String> getTblProperties() {
         return tblProperties;
+    }
+
+    public String getPartitionName() {
+        return partitionName;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 
     public static ModifyPartitionInfo read(DataInput in) throws IOException {

@@ -136,4 +136,90 @@ public class RestoreCommandTest {
         RestoreCommand command5 = new RestoreCommand(labelNameInfo, repoName2, tableRefInfos, properties2, isExclude);
         Assertions.assertThrows(DdlException.class, () -> command5.validate(connectContext));
     }
+
+    @Test
+    public void testStorageMediumHdd() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label_medium_hdd");
+        String repoName = "testRepo";
+
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        Map<String, String> properties = new HashedMap();
+        properties.put("backup_timestamp", "2025-06-12-11-15-20");
+        properties.put("storage_medium", "hdd");
+        properties.put("medium_allocation_mode", "strict");
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("hdd", command.getStorageMedium());
+        Assertions.assertEquals("strict", command.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testStorageMediumSsd() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label_medium_ssd");
+        String repoName = "testRepo";
+
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        Map<String, String> properties = new HashedMap();
+        properties.put("backup_timestamp", "2025-06-12-11-15-20");
+        properties.put("storage_medium", "ssd");
+        properties.put("medium_allocation_mode", "adaptive");
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("ssd", command.getStorageMedium());
+        Assertions.assertEquals("adaptive", command.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testStorageMediumSameWithUpstream() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label_medium_same_with_upstream");
+        String repoName = "testRepo";
+
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        Map<String, String> properties = new HashedMap();
+        properties.put("backup_timestamp", "2025-06-12-11-15-20");
+        properties.put("storage_medium", "same_with_upstream");
+        properties.put("medium_allocation_mode", "adaptive");
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("same_with_upstream", command.getStorageMedium());
+        Assertions.assertEquals("adaptive", command.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testStorageMediumDefault() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label_medium_default");
+        String repoName = "testRepo";
+
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        Map<String, String> properties = new HashedMap();
+        properties.put("backup_timestamp", "2025-06-12-11-15-20");
+        // Don't specify storage_medium and medium_allocation_mode, should use defaults
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+        Assertions.assertEquals("same_with_upstream", command.getStorageMedium());
+        Assertions.assertEquals("strict", command.getMediumAllocationMode());
+    }
+
+    @Test
+    public void testMediumAllocationModeInvalid() {
+        runBefore();
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label_medium_invalid");
+        String repoName = "testRepo";
+
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        Map<String, String> properties = new HashedMap();
+        properties.put("backup_timestamp", "2025-06-12-11-15-20");
+        properties.put("medium_allocation_mode", "invalid_mode");
+
+        RestoreCommand command = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
+        Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext));
+    }
 }

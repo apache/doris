@@ -3701,6 +3701,12 @@ public class Env {
             sb.append("\"");
         }
 
+        // medium allocation mode
+        if (olapTable.getMediumAllocationMode() != null) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_MEDIUM_ALLOCATION_MODE).append("\" = \"");
+            sb.append(olapTable.getMediumAllocationMode().name().toLowerCase()).append("\"");
+        }
+
         // storage type
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
         sb.append(olapTable.getStorageFormat()).append("\"");
@@ -5018,10 +5024,14 @@ public class Env {
                                     TimeUtils.longToTimeString(currentTimeMs));
 
                             // log
+                            // Check if this partition is a temp partition by checking if it exists
+                            // in normal partitions (getPartition with isTempPartition=false)
+                            boolean isTempPartition = olapTable.getPartition(partition.getName(), false) == null;
                             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(),
                                     partition.getId(), hddProperty, ReplicaAllocation.NOT_SET,
                                     partitionInfo.getIsInMemory(partition.getId()),
-                                    partitionInfo.getStoragePolicy(partitionId), Maps.newHashMap());
+                                    partitionInfo.getStoragePolicy(partitionId), Maps.newHashMap(),
+                                    partition.getName(), isTempPartition);
 
                             editLog.logModifyPartition(info);
                         }
@@ -6003,7 +6013,7 @@ public class Env {
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
                 newDataProperty, replicaAlloc, isInMemory, partitionInfo.getStoragePolicy(partition.getId()),
-                tblProperties);
+                tblProperties, partition.getName(), false);
         editLog.logModifyPartition(info);
         if (LOG.isDebugEnabled()) {
             LOG.debug("modify partition[{}-{}-{}] replica allocation to {}",
@@ -6048,6 +6058,7 @@ public class Env {
                 .buildMinLoadReplicaNum()
                 .buildStoragePolicy()
                 .buildStorageMedium()
+                .buildMediumAllocationMode()
                 .buildIsBeingSynced()
                 .buildCompactionPolicy()
                 .buildTimeSeriesCompactionGoalSizeMbytes()

@@ -2798,6 +2798,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(createTableInfo.getProperties(),
                     new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                 olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                olapTable.setMediumAllocationMode(dataProperty.getMediumAllocationMode());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -3008,6 +3009,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     olapTable.setStorageMedium(dataProperty.getStorageMedium());
+                    olapTable.setMediumAllocationMode(dataProperty.getMediumAllocationMode());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkDynamicPartitionPropertyKeysValid(properties);
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
@@ -3308,7 +3310,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                     startPos = 0;
                 } else {
                     startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
-                            isStorageMediumSpecified);
+                            isStorageMediumSpecified
+                                    ? DataProperty.MediumAllocationMode.STRICT
+                                    : DataProperty.MediumAllocationMode.ADAPTIVE);
                 }
                 nextIndexs.put(tag, startPos);
             }
@@ -3330,7 +3334,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 Pair<Map<Tag, List<Long>>, TStorageMedium> chosenBackendIdsAndMedium
                         = systemInfoService.selectBackendIdsForReplicaCreation(
                         replicaAlloc, nextIndexs,
-                        storageMedium, isStorageMediumSpecified, false);
+                        storageMedium, isStorageMediumSpecified
+                                ? DataProperty.MediumAllocationMode.STRICT
+                                : DataProperty.MediumAllocationMode.ADAPTIVE,
+                        false);
                 chosenBackendIds = chosenBackendIdsAndMedium.first;
                 storageMedium = chosenBackendIdsAndMedium.second;
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
