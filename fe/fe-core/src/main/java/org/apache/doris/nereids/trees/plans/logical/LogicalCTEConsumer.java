@@ -108,9 +108,10 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
         return new SlotReference(StatementScopeIdGenerator.newExprId(),
                 producerOutputSlot.getName(), producerOutputSlot.getDataType(),
                 producerOutputSlot.nullable(), ImmutableList.of(cteName),
-                slotRef != null ? (slotRef.getTable().isPresent() ? slotRef.getTable().get() : null) : null,
-                slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
-                slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+                slotRef != null ? slotRef.getOriginalTable().orElse(null) : null,
+                slotRef != null ? slotRef.getOriginalColumn().orElse(null) : null,
+                slotRef != null ? slotRef.getOneLevelTable().orElse(null) : null,
+                slotRef != null ? slotRef.getOneLevelColumn().orElse(null) : null);
     }
 
     public Map<Slot, Slot> getConsumerToProducerOutputMap() {

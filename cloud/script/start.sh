@@ -16,8 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -eo pipefail
-
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 DORIS_HOME="$(

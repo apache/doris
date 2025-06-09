@@ -161,7 +161,7 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     for (const auto& p_slot_desc : pschema.slot_descs()) {
         auto* slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
-        string data_type;
+        std::string data_type;
         EnumToString(TPrimitiveType, to_thrift(slot_desc->col_type()), data_type);
         std::string is_null_str = slot_desc->is_nullable() ? "true" : "false";
         std::string data_type_str =

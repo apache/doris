@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "gutil/port.h"
 #include "util/bit_packing.h"
 #include "util/bit_util.h"
 #include "util/faststring.h"

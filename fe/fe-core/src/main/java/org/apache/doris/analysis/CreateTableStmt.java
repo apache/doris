@@ -674,14 +674,12 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
             }
         }
 
-        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
+        if ((engineName.equals("odbc")
                 || engineName.equals("mysql") || engineName.equals("broker"))) {
             throw new AnalysisException(
                     "odbc, mysql and broker table is no longer supported."
                             + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
-                            + " For broker table, use table valued function instead."
-                            + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
-                            + " in fe.conf to reopen this feature.");
+                            + " For broker table, use table valued function instead.");
         }
     }
 

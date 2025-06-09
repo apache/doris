@@ -42,9 +42,9 @@ std::string TaskController::debug_string() {
             "TaskId={}, Memory(Used={}, Limit={}, Peak={}), Spill(RunningSpillTaskCnt={}, "
             "TotalPausedPeriodSecs={}, LatestPausedReason={})",
             print_id(task_id_),
-            MemCounter::print_bytes(resource_ctx_->memory_context()->current_memory_bytes()),
-            MemCounter::print_bytes(resource_ctx_->memory_context()->mem_limit()),
-            MemCounter::print_bytes(resource_ctx_->memory_context()->peak_memory_bytes()),
+            PrettyPrinter::print_bytes(resource_ctx_->memory_context()->current_memory_bytes()),
+            PrettyPrinter::print_bytes(resource_ctx_->memory_context()->mem_limit()),
+            PrettyPrinter::print_bytes(resource_ctx_->memory_context()->peak_memory_bytes()),
             revoking_tasks_count_, memory_sufficient_time() / NANOS_PER_SEC,
             paused_reason_.status().to_string());
 }

@@ -405,8 +405,8 @@ private:
 
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                const auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                const auto* nested_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto segid = column->get_rowset_segment_id();
                 DCHECK((segid.first.hi | segid.first.mi | segid.first.lo) != 0);
@@ -472,8 +472,8 @@ private:
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (std::is_same_v<T, StringRef>) {
-                const auto* nested_col_ptr = vectorized::check_and_get_column<
-                        vectorized::ColumnDictionary<vectorized::Int32>>(column);
+                const auto* nested_col_ptr =
+                        vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 const auto& data_array = nested_col_ptr->get_data();
                 auto& value_in_dict_flags =
                         _segment_id_to_value_in_dict_flags[column->get_rowset_segment_id()];

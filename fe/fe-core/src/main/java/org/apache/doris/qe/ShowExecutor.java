@@ -34,7 +34,6 @@ import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
-import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
 import org.apache.doris.analysis.ShowCloudWarmUpStmt;
@@ -81,7 +80,6 @@ import org.apache.doris.analysis.ShowPrivilegesStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
-import org.apache.doris.analysis.ShowQueryStatsStmt;
 import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowReplicaDistributionStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
@@ -294,7 +292,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -382,8 +379,6 @@ public class ShowExecutor {
             handleShowUserProperty();
         } else if (stmt instanceof ShowDataStmt) {
             handleShowData();
-        } else if (stmt instanceof ShowQueryStatsStmt) {
-            handleShowQueryStats();
         } else if (stmt instanceof ShowCharsetStmt) {
             handleShowCharset();
         } else if (stmt instanceof ShowCollationStmt) {
@@ -489,8 +484,6 @@ public class ShowExecutor {
             handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
-        } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
-            handleShowCatalogRecycleBin();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
         } else if (stmt instanceof ShowBuildIndexStmt) {
@@ -1180,7 +1173,7 @@ public class ShowExecutor {
         try {
             if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable(((HMSExternalTable) table).getRemoteTable())));
+                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
                 return;
             }
@@ -1910,11 +1903,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
     }
 
-    private void handleShowQueryStats() throws AnalysisException {
-        ShowQueryStatsStmt showStmt = (ShowQueryStatsStmt) stmt;
-        resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
-    }
-
     private void handleShowPartitions() throws AnalysisException {
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) stmt;
         if (showStmt.getCatalog().isInternalCatalog()) {
@@ -2322,8 +2310,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
 
-    private void handleShowBackends() {
+    private void handleShowBackends() throws AnalysisException {
         final ShowBackendsStmt showStmt = (ShowBackendsStmt) stmt;
+        try {
+            showStmt.analyze(null);
+        } catch (Exception e) {
+            throw (AnalysisException) e;
+        }
         List<List<String>> backendInfos = BackendsProcDir.getBackendInfos();
 
         backendInfos.sort(new Comparator<List<String>>() {
@@ -2336,8 +2329,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), backendInfos);
     }
 
-    private void handleShowFrontends() {
+    private void handleShowFrontends() throws AnalysisException {
         final ShowFrontendsStmt showStmt = (ShowFrontendsStmt) stmt;
+        try {
+            showStmt.analyze(null);
+        } catch (Exception e) {
+            throw (AnalysisException) e;
+        }
 
         List<List<String>> infos = Lists.newArrayList();
         FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), showStmt.getDetailType(), infos);
@@ -3335,17 +3333,6 @@ public class ShowExecutor {
         } finally {
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
         }
-    }
-
-    private void handleShowCatalogRecycleBin() throws AnalysisException {
-        ShowCatalogRecycleBinStmt showStmt = (ShowCatalogRecycleBinStmt) stmt;
-
-        Predicate<String> predicate = showStmt.getNamePredicate();
-        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()
-                .filter(x -> predicate.test(x.get(1)))
-                .collect(Collectors.toList());
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
     private void handleShowTypeCastStmt() throws AnalysisException {

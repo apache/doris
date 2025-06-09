@@ -130,7 +130,12 @@ public:
                 << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
         if (PREDICT_FALSE(_num_elements == 0)) {
-            return Status::OK();
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            } else {
+                return Status::OK();
+            }
         }
 
         int32_t skip_num = pos - _cur_index;

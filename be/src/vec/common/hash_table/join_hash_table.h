@@ -106,7 +106,7 @@ public:
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
 
-        if (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+        if (is_mark_join) {
             bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
             bool is_left_half_join =
@@ -178,7 +178,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(vectorized::ColumnVector<uint32_t>& build_idxs,
+    bool iterate_map(vectorized::ColumnOffset32& build_idxs,
                      vectorized::ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
@@ -292,15 +292,6 @@ private:
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
-                if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                              JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-                    if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
-                        probe_idxs[matched_cnt] = probe_idx;
-                        build_idxs[matched_cnt] = build_idx;
-                        matched_cnt++;
-                    }
-                }
-
                 if (keys[probe_idx] == build_keys[build_idx]) {
                     build_idxs[matched_cnt] = build_idx;
                     probe_idxs[matched_cnt] = probe_idx;

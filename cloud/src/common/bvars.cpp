@@ -117,6 +117,18 @@ bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute("txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_conflict_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_conflict_counter_minute("txn_kv", "commit_conflict", &g_bvar_txn_kv_commit_conflict_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_put_conflict_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_put_conflict_counter_minute("delete_bitmap_lock", "txn_put_conflict", &g_bvar_delete_bitmap_lock_txn_put_conflict_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_fail", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_fail_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_load", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_compaction_commit", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_commit_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_compaction_lease", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_lease_counter, 60);
+bvar::Adder<int64_t> g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter;
+bvar::Window<bvar::Adder<int64_t> > g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter_minute("delete_bitmap_lock", "txn_remove_conflict_by_compaction_abort", &g_bvar_delete_bitmap_lock_txn_remove_conflict_by_compaction_abort_counter, 60);
 
 // fdb's bvars
 const int64_t BVAR_FDB_INVALID_VALUE = -99999999L;
@@ -172,5 +184,6 @@ BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_check_failed("checker", "
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checker", "leaked_delete_bitmaps");
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps("checker", "abnormal_delete_bitmaps");
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned("checker", "delete_bitmap_keys_scanned");
+BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version("checker", "max_rowsets_with_useless_delete_bitmap_version");
 
 // clang-format on

@@ -37,7 +37,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -243,7 +242,7 @@ public:
                 }
 
             } else { // non-nullable
-                if (WhichDataType(left_arg.type).is_string()) {
+                if (is_string_type(left_arg.type->get_primitive_type())) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);

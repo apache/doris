@@ -29,7 +29,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -254,22 +253,10 @@ public class AlterRoutineLoadStmt extends DdlStmt implements NotFallbackInParser
         if (jobProperties.containsKey(CreateRoutineLoadStmt.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP);
             if (!StringUtils.isEmpty(workloadGroup)) {
-                ConnectContext tmpCtx = new ConnectContext();
-                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-                tmpCtx.getSessionVariable().setWorkloadGroup(workloadGroup);
-                long wgId;
-                try {
-                    // NOTE(wb): why get 0th wg here;
-                    // currently a routineload can only be executed in one workload group;
-                    // but the workload group thrift sent from FE to BE is a list, this is for scalability.
-                    wgId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                            .getWorkloadGroup(tmpCtx).get(0)
-                            .getId();
-                } catch (Throwable t) {
-                    LOG.info("Get workload group failed when alter routine load,", t);
-                    throw  t;
-                }
-                analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP, String.valueOf(wgId));
+                // NOTE: delay check workload group's existence check when alter routine load job
+                // because we can only get clusterId when alter job.
+                analyzedJobProperties.put(CreateRoutineLoadStmt.WORKLOAD_GROUP,
+                        jobProperties.get(CreateRoutineLoadStmt.WORKLOAD_GROUP));
             }
         }
         if (jobProperties.containsKey(LoadStmt.KEY_ENCLOSE)) {

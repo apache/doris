@@ -27,7 +27,7 @@ import java.util.Map;
 
 public class WalFileFormatProperties extends FileFormatProperties {
     public WalFileFormatProperties() {
-        super(TFileFormatType.FORMAT_WAL);
+        super(TFileFormatType.FORMAT_WAL, FileFormatProperties.FORMAT_WAL);
     }
 
     @Override

@@ -28,7 +28,7 @@
 #define MEMORY_SANITIZER 1
 #endif
 
-#if _MSC_VER || MEMORY_SANITIZER
+#if defined(_MSC_VER) || defined(MEMORY_SANITIZER)
 
 std::string demangle(const char* name, int& status) {
     status = 0;

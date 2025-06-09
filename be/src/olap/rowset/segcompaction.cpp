@@ -36,7 +36,6 @@
 #include "beta_rowset_writer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"

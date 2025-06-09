@@ -18,6 +18,16 @@
 import org.junit.Assert;
 
 suite("test_grant_priv_workload") {
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
     def user1 = 'test_grant_priv_workload_user1'
     def user2 = 'test_grant_priv_workload_user2'
     def pwd = '123456'
@@ -30,6 +40,8 @@ suite("test_grant_priv_workload") {
 
     sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}'"""
     sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'"""
+
+    sql "create workload group if not exists ${workload1} ${forComputeGroupStr} properties('cpu_share'='123')"
 
     // test only have USAGE_PRIV, can not grant to other user
     sql """grant USAGE_PRIV on WORKLOAD GROUP ${workload1} to ${user1}"""
@@ -52,6 +64,7 @@ suite("test_grant_priv_workload") {
         }
     }
 
+    sql "drop workload group ${workload1} ${forComputeGroupStr}"
     sql """drop user if exists ${user1}"""
     sql """drop user if exists ${user2}"""
 }

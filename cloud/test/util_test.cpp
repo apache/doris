@@ -29,6 +29,7 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
+#include "cpp/aws_common.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "recycler/recycler.h"
@@ -324,4 +325,10 @@ TEST(UtilTest, test_sync_executor) {
     EXPECT_EQ(1, res.size());
     EXPECT_EQ(finished, true);
     std::for_each(res.begin(), res.end(), [](auto&& n) { EXPECT_EQ(0, n); });
+}
+
+TEST(UtilTest, test_split) {
+    auto path = doris::get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+    LOG(INFO) << "config:" << config::ca_cert_file_paths << " path:" << path;
+    ASSERT_FALSE(path.empty());
 }

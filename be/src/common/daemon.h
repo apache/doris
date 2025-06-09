@@ -19,7 +19,6 @@
 
 #include <vector>
 
-#include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 

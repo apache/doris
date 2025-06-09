@@ -34,7 +34,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -100,7 +99,7 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_STRING ||
                _type == FieldType::OLAP_FIELD_TYPE_HLL ||
-               _type == FieldType::OLAP_FIELD_TYPE_OBJECT ||
+               _type == FieldType::OLAP_FIELD_TYPE_BITMAP ||
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
@@ -131,6 +130,7 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
+    bool has_char_type() const;
 
     void set_aggregation_method(FieldAggregationMethod agg) {
         _aggregation = agg;
@@ -263,8 +263,8 @@ public:
     int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
     IndexType index_type() const { return _index_type; }
-    const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
-    const std::map<string, string>& properties() const { return _properties; }
+    const std::vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
+    const std::map<std::string, std::string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
         if (_properties.contains("gram_size")) {
             return std::stoi(_properties.at("gram_size"));
@@ -291,7 +291,7 @@ private:
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
-    std::map<string, string> _properties;
+    std::map<std::string, std::string> _properties;
 };
 
 using TabletIndexPtr = std::shared_ptr<TabletIndex>;
@@ -397,6 +397,15 @@ public:
     long row_store_page_size() const { return _row_store_page_size; }
     void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
     long storage_page_size() const { return _storage_page_size; }
+    bool has_global_row_id() const {
+        for (auto [col_name, _] : _field_name_to_index) {
+            if (col_name.start_with(StringRef(BeConsts::GLOBAL_ROWID_COL.data(),
+                                              BeConsts::GLOBAL_ROWID_COL.size()))) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
@@ -478,8 +487,8 @@ public:
     // only reserve extracted columns
     void reserve_extracted_columns();
 
-    string get_all_field_names() const {
-        string str = "[";
+    std::string get_all_field_names() const {
+        std::string str = "[";
         for (auto p : _field_name_to_index) {
             if (str.size() > 1) {
                 str += ", ";
@@ -491,8 +500,8 @@ public:
     }
 
     // Dump [(name, type, is_nullable), ...]
-    string dump_structure() const {
-        string str = "[";
+    std::string dump_structure() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -510,8 +519,8 @@ public:
         return str;
     }
 
-    string dump_full_schema() const {
-        string str = "[";
+    std::string dump_full_schema() const {
+        std::string str = "[";
         for (auto p : _cols) {
             if (str.size() > 1) {
                 str += ", ";
@@ -557,7 +566,7 @@ private:
     std::vector<TabletIndexPtr> _indexes;
     std::vector<Cache::Handle*> _index_cache_handlers;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
-    std::unordered_map<int32_t, int32_t> _field_id_to_index;
+    std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
     std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
             _field_path_to_index;
 

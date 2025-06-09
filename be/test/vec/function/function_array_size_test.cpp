@@ -29,7 +29,7 @@ TEST(function_array_size_test, size) {
 
     // size(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {
@@ -40,7 +40,7 @@ TEST(function_array_size_test, size) {
 
     // size(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
@@ -59,7 +59,7 @@ TEST(function_array_size_test, cardinality) {
 
     // cardinality(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {
@@ -70,7 +70,7 @@ TEST(function_array_size_test, cardinality) {
 
     // cardinality(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};
@@ -89,7 +89,7 @@ TEST(function_array_size_test, array_size) {
 
     // array_size(Array<Int32>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_INT};
 
         TestArray vec = {Int32(1), Int32(2), Int32(3)};
         DataSet data_set = {
@@ -100,7 +100,7 @@ TEST(function_array_size_test, array_size) {
 
     // array_size(Array<String>)
     {
-        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_VARCHAR};
 
         TestArray vec1 = {std::string("abc"), std::string(""), std::string("def")};
         TestArray vec2 = {std::string("abc"), std::string("123"), std::string("def")};

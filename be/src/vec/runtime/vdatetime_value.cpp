@@ -2777,14 +2777,6 @@ bool date_day_offset_dict::DATE_DAY_OFFSET_ITEMS_INIT = false;
 
 date_day_offset_dict date_day_offset_dict::instance = date_day_offset_dict();
 
-date_day_offset_dict& date_day_offset_dict::get() {
-    return instance;
-}
-
-bool date_day_offset_dict::get_dict_init() {
-    return DATE_DAY_OFFSET_ITEMS_INIT;
-}
-
 date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
     // Init days before epoch.
@@ -2811,10 +2803,6 @@ date_day_offset_dict::date_day_offset_dict() {
     }
 
     DATE_DAY_OFFSET_ITEMS_INIT = true;
-}
-
-int date_day_offset_dict::daynr(int year, int month, int day) const {
-    return DATE_DAY_OFFSET_DICT[year - START_YEAR][month - 1][day - 1];
 }
 
 template <typename T>
@@ -3011,9 +2999,14 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
             return false;
         }
         if constexpr (is_datetime) {
-            PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
-                                                           (seconds / 60) % 60, seconds % 60,
-                                                           microseconds, true));
+            if constexpr (need_check) {
+                PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
+                                                               (seconds / 60) % 60, seconds % 60,
+                                                               microseconds, true));
+            } else {
+                this->unchecked_set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60,
+                                         microseconds);
+            }
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information

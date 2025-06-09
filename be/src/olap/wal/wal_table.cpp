@@ -17,9 +17,9 @@
 
 #include "olap/wal/wal_table.h"
 
+#include <absl/strings/str_split.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "gutil/strings/split.h"
 #include "http/action/http_stream.h"
 #include "http/action/stream_load.h"
 #include "http/ev_http_server.h"
@@ -87,14 +87,22 @@ Status WalTable::_relay_wal_one_by_one() {
     std::vector<std::shared_ptr<WalInfo>> need_retry_wals;
     for (auto wal_info : _replaying_queue) {
         wal_info->add_retry_num();
-        auto st = _replay_wal_internal(wal_info->get_wal_path());
+        Status st;
+        int64_t file_size = 0;
+        std::filesystem::path file_path(wal_info->get_wal_path());
+        if (!std::filesystem::exists(file_path)) {
+            st = Status::InternalError("wal file {} does not exist", wal_info->get_wal_path());
+        } else {
+            file_size = std::filesystem::file_size(file_path);
+            st = _replay_wal_internal(wal_info->get_wal_path());
+        }
         auto msg = st.msg();
         if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
             st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
             (msg.find("has already been used") != msg.npos &&
              (msg.find("COMMITTED") != msg.npos || msg.find("VISIBLE") != msg.npos))) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
-                      << ", st=" << st.to_string();
+                      << ", st=" << st.to_string() << ", file size=" << file_size;
             // delete wal
             WARN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(_table_id, wal_info->get_wal_id()),
                           "failed to delete wal=" + wal_info->get_wal_path());
@@ -204,7 +212,7 @@ Status WalTable::_construct_sql_str(const std::string& wal, const std::string& l
     std::string columns;
     RETURN_IF_ERROR(_read_wal_header(wal, columns));
     std::vector<std::string> column_id_vector =
-            strings::Split(columns, ",", strings::SkipWhitespace());
+            absl::StrSplit(columns, ",", absl::SkipWhitespace());
     std::map<int64_t, std::string> column_info_map;
     RETURN_IF_ERROR(_get_column_info(_db_id, _table_id, column_info_map));
     std::stringstream ss_name;
@@ -243,6 +251,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->group_commit = false;
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
+    ctx->max_filter_ratio = 1;
     auto st = _http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish

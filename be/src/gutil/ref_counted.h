@@ -255,17 +255,8 @@ public:
 
     T* get() const { return ptr_; }
 
-// The following is disabled in Kudu's version of this file since it's
-// relatively dangerous. Chromium is planning on doing the same in their
-// tree, but hasn't done so yet. See http://code.google.com/p/chromium/issues/detail?id=110610
-#if SCOPED_REFPTR_ALLOW_IMPLICIT_CONVERSION_TO_PTR
-    // Allow scoped_refptr<C> to be used in boolean expression
-    // and comparison operations.
-    operator T*() const { return ptr_; }
-#else
     typedef T* scoped_refptr::*Testable;
     operator Testable() const { return ptr_ ? &scoped_refptr::ptr_ : NULL; }
-#endif
 
     T* operator->() const {
         assert(ptr_ != NULL);
