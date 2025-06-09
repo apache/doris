@@ -118,12 +118,6 @@ public class CreateRoutineLoadInfo {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
-            .add(FORMAT)
-            .add(JSONPATHS)
-            .add(STRIP_OUTER_ARRAY)
-            .add(NUM_AS_STRING)
-            .add(FUZZY_PARSE)
-            .add(JSONROOT)
             .add(STRICT_MODE)
             .add(TIMEZONE)
             .add(LoadStmt.STRICT_MODE)
@@ -388,23 +382,6 @@ public class CreateRoutineLoadInfo {
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
             LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
-
-        String encloseStr = jobProperties.get(KEY_ENCLOSE);
-        if (encloseStr != null) {
-            if (encloseStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                enclose = encloseStr.getBytes()[0];
-            }
-        }
-        String escapeStr = jobProperties.get(KEY_ESCAPE);
-        if (escapeStr != null) {
-            if (escapeStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                escape = escapeStr.getBytes()[0];
-            }
-        }
 
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
