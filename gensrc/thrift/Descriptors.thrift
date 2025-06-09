@@ -121,7 +121,7 @@ enum TSchemaTableType {
     SCH_VARIABLES = 32,
     SCH_VIEWS = 33,
     SCH_INVALID = 34,
-    SCH_ROWSETS = 35
+    SCH_ROWSETS = 35,
     SCH_BACKENDS = 36,
     SCH_COLUMN_STATISTICS = 37,
     SCH_PARAMETERS = 38,
@@ -140,7 +140,8 @@ enum TSchemaTableType {
     SCH_FILE_CACHE_STATISTICS = 51,
     SCH_CATALOG_META_CACHE_STATISTICS = 52;
     // consistent with the master
-    SCH_ROUTINE_LOAD_JOBS = 54;
+    SCH_ROUTINE_LOAD_JOBS = 54,
+    SCH_BACKEND_CONFIGURATION=55;
 }
 
 enum THdfsCompression {
