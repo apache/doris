@@ -21,11 +21,15 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/segment_v2.pb.h>
 
+#include <cstdint>
 #include <cstring>
+#include <exception>
+#include <limits>
 #include <memory>
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1229,6 +1233,41 @@ StoragePageCache::CacheKey Segment::get_segment_footer_cache_key() const {
     // So we use the size of file minus 12 as the cache key, which is unique for each segment file.
     return StoragePageCache::CacheKey(_file_reader->path().native(), _file_reader->size(),
                                       _file_reader->size() - 12);
+}
+
+Status Segment::get_zone_maps(std::map<uint32_t, ZoneMapInfo>& zone_maps) {
+    DCHECK_EQ(zone_maps.size(), 0);
+    std::shared_ptr<SegmentFooterPB> footer_pb;
+    OlapReaderStatistics stats;
+    RETURN_IF_ERROR(_get_segment_footer(footer_pb, &stats));
+
+    const auto pb_columns_count = footer_pb->columns().size();
+    const auto columns_count = std::min(pb_columns_count, config::cache_zone_map_max_columns_count);
+
+    if (columns_count <= 0) {
+        return Status::OK(); // no columns, no zone maps
+    }
+
+    for (size_t ordinal = 0; ordinal != columns_count; ++ordinal) {
+        const auto& column_pb = footer_pb->columns(ordinal);
+        if (!column_pb.has_unique_id() ||
+            column_pb.unique_id() == std::numeric_limits<decltype(column_pb.unique_id())>::max()) {
+            continue; // no unique id, no zone map
+        }
+
+        for (int i = 0; i < column_pb.indexes_size(); i++) {
+            const auto& index_meta = column_pb.indexes(i);
+            if (index_meta.type() != ZONE_MAP_INDEX) {
+                continue;
+            }
+
+            ZoneMapPB zone_map_pb(index_meta.zone_map_index().segment_zone_map());
+            zone_maps[column_pb.unique_id()] = ZoneMapInfo {
+                    std::move(zone_map_pb), (FieldType)(column_pb.type()), column_pb.length()};
+            break;
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris::segment_v2
