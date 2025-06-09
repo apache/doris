@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TWarmUpTabletsResponse;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -198,7 +199,10 @@ public class CloudWarmUpJob implements Writable {
         info.add(Long.toString(maxBatchSize));
         info.add(TimeUtils.longToTimeStringWithms(finishedTimeMs));
         info.add(errMsg);
-        info.add(tables.stream().map(t -> t.getLeft() + "." + t.getMiddle() + "." + t.getRight())
+        info.add(tables.stream()
+                .map(t -> StringUtils.isEmpty(t.getRight())
+                        ? t.getLeft() + "." + t.getMiddle()
+                        : t.getLeft() + "." + t.getMiddle() + "." + t.getRight())
                 .collect(Collectors.joining(", ")));
         return info;
     }
