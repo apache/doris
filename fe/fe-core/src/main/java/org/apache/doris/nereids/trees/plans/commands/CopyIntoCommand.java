@@ -44,6 +44,7 @@ public class CopyIntoCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         copyIntoInfo.validate(ctx);
         CopyStmt copyStmt = copyIntoInfo.toLegacyStatement(executor.getOriginStmt());
+        copyStmt.setUserInfo(ConnectContext.get().getCurrentUserIdentity());
         DdlExecutor.executeCopyStmt(ctx.getEnv(), copyStmt);
         // copy into used
         if (executor.getContext().getState().getResultSet() != null) {

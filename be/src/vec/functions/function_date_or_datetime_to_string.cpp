@@ -20,21 +20,21 @@
 
 #include "vec/functions/function_date_or_datetime_to_string.h"
 
-#include "vec/data_types/data_type_time_v2.h" // IWYU pragma: keep
+#include "vec/data_types/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-using FunctionDayName = FunctionDateOrDateTimeToString<DayNameImpl<Int64>>;
-using FunctionDayNameV2 = FunctionDateOrDateTimeToString<DayNameImpl<UInt32>>;
-using FunctionMonthName = FunctionDateOrDateTimeToString<MonthNameImpl<Int64>>;
-using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<UInt32>>;
+using FunctionDayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIME>>;
+using FunctionDayNameV2 = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATEV2>>;
+using FunctionMonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIME>>;
+using FunctionMonthNameV2 = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATEV2>>;
 
-using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<UInt64>>;
-using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<UInt64>>;
+using FunctionDateTimeV2DayName = FunctionDateOrDateTimeToString<DayNameImpl<TYPE_DATETIMEV2>>;
+using FunctionDateTimeV2MonthName = FunctionDateOrDateTimeToString<MonthNameImpl<TYPE_DATETIMEV2>>;
 
-using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<UInt32>>;
-using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<UInt64>>;
+using FunctionDateIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATEV2>>;
+using FunctionDateTimeIso8601 = FunctionDateOrDateTimeToString<ToIso8601Impl<TYPE_DATETIMEV2>>;
 
 void register_function_date_time_to_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayName>();

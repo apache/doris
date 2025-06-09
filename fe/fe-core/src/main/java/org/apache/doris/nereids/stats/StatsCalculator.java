@@ -597,7 +597,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 } else {
                     cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
                 }
-                if (slot.getColumn().isPresent()) {
+                if (slot.getOriginalColumn().isPresent()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
@@ -642,7 +642,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic updateMinMaxForListPartitionKey(OlapTable olapTable,
             List<String> selectedPartitionNames,
             SlotReference slot, ColumnStatistic cache) {
-        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getOriginalColumn().get());
         if (partitionColumnIdx != -1) {
             try {
                 LiteralExpr minExpr = null;
@@ -686,7 +686,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic updateMinMaxForTheFirstRangePartitionKey(OlapTable olapTable,
             List<String> selectedPartitionNames,
             SlotReference slot, ColumnStatistic cache) {
-        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getOriginalColumn().get());
         // for multi partition keys, only the first partition key need to adjust min/max
         if (partitionColumnIdx == 0) {
             // update partition column min/max by partition info
@@ -777,7 +777,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private boolean isVisibleSlotReference(Slot slot) {
         if (slot instanceof SlotReference) {
-            Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+            Optional<Column> colOpt = ((SlotReference) slot).getOriginalColumn();
             if (colOpt.isPresent()) {
                 return colOpt.get().isVisible();
             }
@@ -1235,8 +1235,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             catalogId = -1;
             dbId = -1;
         }
-        return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+        ColumnStatistic columnStatistics = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                 catalogId, dbId, table.getId(), idxId, colName);
+        if (!columnStatistics.isUnKnown
+                && columnStatistics.ndv == 0
+                && (columnStatistics.minExpr != null || columnStatistics.maxExpr != null)
+                && columnStatistics.numNulls == columnStatistics.count) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnStatistics;
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId, List<String> partitionNames) {

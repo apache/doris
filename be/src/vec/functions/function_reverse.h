@@ -32,7 +32,8 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_string_or_fixed_string(arguments[0]) || is_array(arguments[0]))
+        DCHECK(is_string_type(arguments[0]->get_primitive_type()) ||
+               arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << fmt::format("Illegal type {} used for argument of function {}",
                                arguments[0]->get_name(), get_name());
 

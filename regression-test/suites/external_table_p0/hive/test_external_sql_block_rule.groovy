@@ -22,20 +22,18 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
         return;
     }
 
-    String hivePrefix = "hive2";
-    String catalog_name = "test_${hivePrefix}_external_sql_block_rule";
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+    String hms_port = context.config.otherConfigs.get("hive2HmsPort")
 
-    sql """drop catalog if exists ${catalog_name} """
+    sql """drop catalog if exists test_hive2_external_sql_block_rule """
 
-    sql """CREATE CATALOG ${catalog_name} PROPERTIES (
+    sql """CREATE CATALOG test_hive2_external_sql_block_rule PROPERTIES (
             'type'='hms',
             'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
             'hadoop.username' = 'hive'
         );"""
 
-    sql "use ${catalog_name}.`default`";
+    sql "use test_hive2_external_sql_block_rule.`default`";
     qt_sql01 """select * from parquet_partition_table order by l_linenumber,l_orderkey limit 10;"""
 
     sql """drop sql_block_rule if exists external_hive_partition"""
@@ -84,21 +82,21 @@ suite("test_external_sql_block_rule", "external_docker,hive,external_docker_hive
     // login as external_block_user1 
     def result1 = connect('external_block_user1', '', context.config.jdbcUrl) {
         test {
-            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
+            sql """select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition, reach partition_num : 3"""
         }
     }
     // login as external_block_user2
     def result2 = connect('external_block_user2', '', context.config.jdbcUrl) {
         test {
-            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
+            sql """select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition2, reach tablet_num : 3"""
         }
     }
     // login as external_block_user3
     def result3 = connect('external_block_user3', '', context.config.jdbcUrl) {
         test {
-            sql """select * from ${catalog_name}.`default`.parquet_partition_table order by l_linenumber limit 10;"""
+            sql """select * from test_hive2_external_sql_block_rule.`default`.parquet_partition_table order by l_linenumber limit 10;"""
             exception """sql hits sql block rule: external_hive_partition3, reach cardinality : 3"""
         }
     }

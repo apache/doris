@@ -191,7 +191,7 @@ public class InsertUtils {
         }
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        long timeoutSecond = ctx.getExecTimeout();
+        long timeoutSecond = ctx.getExecTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new AnalysisException("database is invalid for dbName: " + s));

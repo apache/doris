@@ -18,6 +18,7 @@
 #include "runtime_filter/runtime_filter.h"
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 #include "vec/exprs/vexpr.h"
@@ -103,7 +104,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");
         }
-        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_OBJECT) {
+        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_BITMAP) {
             return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
                                          build_ctx->root()->data_type()->get_name());
         }
@@ -129,7 +130,12 @@ std::string RuntimeFilter::_debug_string() const {
                        _has_remote_target ? "GLOBAL" : "LOCAL");
 }
 
-void RuntimeFilter::_check_wrapper_state(std::vector<RuntimeFilterWrapper::State> assumed_states) {
+void RuntimeFilter::_check_wrapper_state(
+        const std::vector<RuntimeFilterWrapper::State>& assumed_states) {
+    // _wrapper is null mean rf is published
+    if (!_wrapper) {
+        return;
+    }
     try {
         _wrapper->check_state(assumed_states);
     } catch (const Exception& e) {

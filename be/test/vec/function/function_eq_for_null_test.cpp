@@ -28,7 +28,6 @@
 #include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -201,9 +200,9 @@ TEST(EqForNullFunctionTest, left_only_null_right_nullable) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -248,9 +247,9 @@ TEST(EqForNullFunctionTest, left_only_null_right_not_nullable) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -288,9 +287,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_only_null) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -336,9 +335,9 @@ TEST(EqForNullFunctionTest, left_not_nullable_right_only_null) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -377,9 +376,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -420,9 +419,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_not_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -465,9 +464,9 @@ TEST(EqForNullFunctionTest, left_not_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -509,9 +508,9 @@ TEST(EqForNullFunctionTest, left_const_not_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -556,9 +555,9 @@ TEST(EqForNullFunctionTest, left_const_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -605,9 +604,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_const_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(0);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(1);
+            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 

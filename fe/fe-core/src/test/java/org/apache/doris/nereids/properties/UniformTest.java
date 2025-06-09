@@ -103,13 +103,13 @@ class UniformTest extends TestWithFeService {
     @Test
     void testSetOp() {
         Plan plan = PlanChecker.from(connectContext)
-                .analyze("select name from agg limit 1 except select name from agg")
+                .analyze("(select name from agg limit 1) except select name from agg")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()
                 .isUniform(plan.getOutput().get(0)));
         plan = PlanChecker.from(connectContext)
-                .analyze("select id from agg intersect select name from agg limit 1")
+                .analyze("select id from agg intersect (select name from agg limit 1)")
                 .rewrite()
                 .getPlan();
         Assertions.assertTrue(plan.getLogicalProperties().getTrait()

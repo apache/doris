@@ -70,7 +70,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/json/path_in_data.h"
 #include "vec/olap/vgeneric_iterators.h"
 
@@ -597,8 +597,8 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
         }
         // it contains children or column missing in storage, so treat it as variant
         return identifier.is_nullable
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
-                       : std::make_shared<vectorized::DataTypeObject>();
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>())
+                       : std::make_shared<vectorized::DataTypeVariant>();
     }
     // TODO support normal column type
     return nullptr;

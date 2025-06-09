@@ -42,6 +42,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanNodeId;
@@ -81,6 +83,7 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -93,6 +96,7 @@ import java.util.stream.Collectors;
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
+    protected static final String URI_KEY = "uri";
 
     public static final String PROP_TABLE_ID = "table_id";
 
@@ -105,7 +109,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private List<String> pathPartitionKeys;
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-    protected Map<String, String> locationProperties = Maps.newHashMap();
+    protected Map<String, String> backendConnectProperties = Maps.newHashMap();
+    protected StorageProperties storageProperties;
+    // Processed parameters derived from user input; includes normalization and default value filling.
+    Map<String, String> processedParams;
     protected String filePath;
 
     protected Optional<String> resourceName = Optional.empty();
@@ -127,8 +134,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         return fileFormatProperties.getCompressionType();
     }
 
-    public Map<String, String> getLocationProperties() {
-        return locationProperties;
+    public Map<String, String> getBackendConnectProperties() {
+        return backendConnectProperties;
     }
 
     public List<String> getPathPartitionKeys() {
@@ -167,7 +174,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
 
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+        if (fileFormatProperties instanceof CsvFileFormatProperties
+                || fileFormatProperties instanceof TextFileFormatProperties) {
             FileFormatUtils.parseCsvSchema(csvSchema, getOrDefaultAndRemove(copiedProps,
                     CsvFileFormatProperties.PROP_CSV_SCHEMA, ""));
             if (LOG.isDebugEnabled()) {
@@ -181,7 +189,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         .map(String::trim)
                         .collect(Collectors.toList()))
                 .orElse(Lists.newArrayList());
-
+        this.processedParams = new HashMap<>(copiedProps);
         return copiedProps;
     }
 
@@ -370,10 +378,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
         fileScanRangeParams.setFormatType(fileFormatProperties.getFileFormatType());
-        fileScanRangeParams.setProperties(locationProperties);
-        if (fileFormatProperties instanceof CsvFileFormatProperties) {
-            fileScanRangeParams.setTextSerdeType(((CsvFileFormatProperties) fileFormatProperties).getTextSerdeType());
-        }
+        Map<String, String> beProperties = new HashMap<>();
+        beProperties.putAll(backendConnectProperties);
+        fileScanRangeParams.setProperties(beProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());
@@ -384,8 +391,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         }
 
         if (getTFileType() == TFileType.FILE_HDFS) {
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            String fsName = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
+            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(storageProperties.getBackendConfigProperties());
+            String fsName = storageProperties.getBackendConfigProperties().get(HdfsResource.HADOOP_FS_NAME);
             tHdfsParams.setFsName(fsName);
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }

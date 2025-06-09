@@ -45,6 +45,6 @@ suite("ssb_sf1_q4_1_nereids") {
         ORDER BY d_year, c_nation;
         """
 
-        resultFile(file = "../sql/q4.1.out", tag = "q4.1")
+        resultFile("../sql/q4.1.out", "q4.1")
     }
 }

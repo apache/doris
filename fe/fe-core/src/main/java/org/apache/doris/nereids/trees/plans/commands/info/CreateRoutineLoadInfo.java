@@ -38,6 +38,9 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
@@ -54,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -85,12 +89,6 @@ public class CreateRoutineLoadInfo {
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
     public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
-    public static final String FORMAT = "format"; // the value is csv or json, default is csv
-    public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
-    public static final String JSONPATHS = "jsonpaths";
-    public static final String JSONROOT = "json_root";
-    public static final String NUM_AS_STRING = "num_as_string";
-    public static final String FUZZY_PARSE = "fuzzy_parse";
     public static final String PARTIAL_COLUMNS = "partial_columns";
     public static final String WORKLOAD_GROUP = "workload_group";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
@@ -115,12 +113,6 @@ public class CreateRoutineLoadInfo {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
-            .add(FORMAT)
-            .add(JSONPATHS)
-            .add(STRIP_OUTER_ARRAY)
-            .add(NUM_AS_STRING)
-            .add(FUZZY_PARSE)
-            .add(JSONROOT)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
@@ -128,8 +120,14 @@ public class CreateRoutineLoadInfo {
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
             .add(WORKLOAD_GROUP)
-            .add(LoadStmt.KEY_ENCLOSE)
-            .add(LoadStmt.KEY_ESCAPE)
+            .add(FileFormatProperties.PROP_FORMAT)
+            .add(JsonFileFormatProperties.PROP_JSON_PATHS)
+            .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
+            .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
+            .add(JsonFileFormatProperties.PROP_FUZZY_PARSE)
+            .add(JsonFileFormatProperties.PROP_JSON_ROOT)
+            .add(CsvFileFormatProperties.PROP_ENCLOSE)
+            .add(CsvFileFormatProperties.PROP_ESCAPE)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadInfo.class);
@@ -156,24 +154,9 @@ public class CreateRoutineLoadInfo {
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
     private int sendBatchParallelism = 1;
     private boolean loadToSingleTablet = false;
-    /**
-     * RoutineLoad support json data.
-     * Require Params:
-     * 1) dataFormat = "json"
-     * 2) jsonPaths = "$.XXX.xxx"
-     */
-    private String format = ""; //default is csv.
-    private String jsonPaths = "";
-    private String jsonRoot = ""; // MUST be a jsonpath string
-    private boolean stripOuterArray = false;
-    private boolean numAsString = false;
-    private boolean fuzzyParse = false;
+    private FileFormatProperties fileFormatProperties;
 
-    private byte enclose;
-
-    private byte escape;
-
-    private long workloadGroupId = -1;
+    private String workloadGroupName;
 
     /**
      * support partial columns load(Only Unique Key Columns)
@@ -391,36 +374,21 @@ public class CreateRoutineLoadInfo {
             RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
             LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
-        String encloseStr = jobProperties.get(LoadStmt.KEY_ENCLOSE);
-        if (encloseStr != null) {
-            if (encloseStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                enclose = encloseStr.getBytes()[0];
-            }
-        }
-        String escapeStr = jobProperties.get(LoadStmt.KEY_ESCAPE);
-        if (escapeStr != null) {
-            if (escapeStr.length() != 1) {
-                throw new AnalysisException("enclose must be single-char");
-            } else {
-                escape = escapeStr.getBytes()[0];
-            }
-        }
-
         String inputWorkloadGroupStr = jobProperties.get(WORKLOAD_GROUP);
         if (!StringUtils.isEmpty(inputWorkloadGroupStr)) {
-            try {
-                ConnectContext tmpCtx = new ConnectContext();
-                tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
-                tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
-                this.workloadGroupId = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroup(tmpCtx).get(0)
-                        .getId();
-            } catch (Throwable t) {
-                LOG.info("Get workload group failed when create routine load info, ", t);
-                throw t;
+            ConnectContext tmpCtx = new ConnectContext();
+            tmpCtx.setCurrentUserIdentity(ConnectContext.get().getCurrentUserIdentity());
+            tmpCtx.setQualifiedUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            tmpCtx.getSessionVariable().setWorkloadGroup(inputWorkloadGroupStr);
+            if (Config.isCloudMode()) {
+                tmpCtx.setCloudCluster(ConnectContext.get().getCloudCluster());
             }
+            List<TPipelineWorkloadGroup> wgList = Env.getCurrentEnv().getWorkloadGroupMgr()
+                    .getWorkloadGroup(tmpCtx);
+            if (wgList.size() == 0) {
+                throw new UserException("Can not find workload group " + inputWorkloadGroupStr);
+            }
+            this.workloadGroupName = inputWorkloadGroupStr;
         }
 
         if (ConnectContext.get() != null) {
@@ -428,23 +396,9 @@ public class CreateRoutineLoadInfo {
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
 
-        format = jobProperties.get(FORMAT);
-        if (format != null) {
-            if (format.equalsIgnoreCase("csv")) {
-                format = ""; // if it's not json, then it's mean csv and set empty
-            } else if (format.equalsIgnoreCase("json")) {
-                format = "json";
-                jsonPaths = jobProperties.getOrDefault(JSONPATHS, "");
-                jsonRoot = jobProperties.getOrDefault(JSONROOT, "");
-                stripOuterArray = Boolean.parseBoolean(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
-                numAsString = Boolean.parseBoolean(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
-                fuzzyParse = Boolean.parseBoolean(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
-            } else {
-                throw new UserException("Format type is invalid. format=`" + format + "`");
-            }
-        } else {
-            format = "csv"; // default csv
-        }
+        String format = jobProperties.getOrDefault(FileFormatProperties.PROP_FORMAT, "csv");
+        fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
+        fileFormatProperties.analyzeFileFormatProperties(jobProperties, false);
     }
 
     private void checkDataSourceProperties() throws UserException {
@@ -458,12 +412,11 @@ public class CreateRoutineLoadInfo {
      */
     public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
         return new CreateRoutineLoadStmt(labelNameInfo.transferToLabelName(), dbName, name, tableName, null,
-            ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
+            ctx.getStatementContext().getOriginStatement(), ctx.getCurrentUserIdentity(),
             jobProperties, typeName, routineLoadDesc,
             desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
-            execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape, workloadGroupId,
-            loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,
-            dataSourceProperties
+            execMemLimit, sendBatchParallelism, timezone, workloadGroupName, loadToSingleTablet,
+            strictMode, isPartialUpdate, dataSourceProperties, fileFormatProperties
         );
     }
 }

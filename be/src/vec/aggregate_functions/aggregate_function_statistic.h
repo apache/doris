@@ -50,9 +50,9 @@ inline std::string to_string(STATISTICS_FUNCTION_KIND kind) {
     }
 }
 
-template <typename T, std::size_t _level>
+template <PrimitiveType T, std::size_t _level>
 struct StatFuncOneArg {
-    using Type = T;
+    static constexpr PrimitiveType Type = T;
     using Data = VarMoments<Float64, _level>;
     using DataType = Float64;
 };
@@ -63,8 +63,8 @@ class AggregateFunctionVarianceSimple
                   typename StatFunc::Data,
                   AggregateFunctionVarianceSimple<StatFunc, NullableInput>> {
 public:
-    using InputCol = ColumnVector<typename StatFunc::Type>;
-    using ResultCol = ColumnVector<Float64>;
+    using InputCol = ColumnVector<StatFunc::Type>;
+    using ResultCol = ColumnFloat64;
     using InputType = typename StatFunc::DataType;
 
     explicit AggregateFunctionVarianceSimple(STATISTICS_FUNCTION_KIND kind_,

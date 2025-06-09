@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -95,7 +94,7 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     @Override
-    protected void initNormalizeAndCheckProps() throws UserException {
+    protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         hiveConfParams = loadConfigFromFile(getResourceConfigPropName());
         initHmsConnectionProperties();

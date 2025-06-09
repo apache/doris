@@ -32,7 +32,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
@@ -83,9 +82,11 @@ public:
             for (size_t j = 0; j < _repeated_times; ++j) {
                 if (support_complex) {
                     if constexpr (std::is_same_v<DataType, DataTypeString>) {
-                        Array vec1 = {Field(String("item0" + std::to_string(i))),
-                                      Field(String("item1" + std::to_string(i)))};
-                        input_col->insert(vec1);
+                        Array vec1 = {Field::create_field<TYPE_STRING>(
+                                              String("item0" + std::to_string(i))),
+                                      Field::create_field<TYPE_STRING>(
+                                              String("item1" + std::to_string(i)))};
+                        input_col->insert(Field::create_field<TYPE_ARRAY>(vec1));
                     } else {
                         input_col->insert_default();
                     }
@@ -176,8 +177,8 @@ TEST_F(VAggCollectTest, test_empty) {
     test_agg_collect<DataTypeInt128>("collect_list");
     test_agg_collect<DataTypeInt128>("collect_set");
 
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_list");
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_set");
+    test_agg_collect<DataTypeDecimalV2>("collect_list");
+    test_agg_collect<DataTypeDecimalV2>("collect_set");
 
     test_agg_collect<DataTypeDate>("collect_list");
     test_agg_collect<DataTypeDate>("collect_set");
@@ -192,8 +193,8 @@ TEST_F(VAggCollectTest, test_with_data) {
     test_agg_collect<DataTypeInt128>("collect_list", 20);
     test_agg_collect<DataTypeInt128>("collect_set", 30);
 
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_list", 10);
-    test_agg_collect<DataTypeDecimal<Decimal128V2>>("collect_set", 11);
+    test_agg_collect<DataTypeDecimalV2>("collect_list", 10);
+    test_agg_collect<DataTypeDecimalV2>("collect_set", 11);
 
     test_agg_collect<DataTypeDateTime>("collect_list", 5);
     test_agg_collect<DataTypeDateTime>("collect_set", 6);
@@ -221,7 +222,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -245,7 +246,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_list_aint64_with_max_size) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {1, 2, 3};
@@ -269,7 +270,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {2, 1, 3};
@@ -293,7 +294,7 @@ TEST_F(AggregateFunctionCollectTest, test_collect_set_aint64_with_max_size) {
     auto data_type = std::make_shared<DataTypeInt64>();
     auto array_data_type = std::make_shared<DataTypeArray>(make_nullable(data_type));
 
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnInt64::create();
     std::vector<ColumnArray::Offset64> offs = {0, 3};
     std::vector<int64_t> vals = {2, 1, 3};

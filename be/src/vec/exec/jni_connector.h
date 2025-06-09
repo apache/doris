@@ -45,9 +45,9 @@ class RuntimeState;
 
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename T>
+template <PrimitiveType T>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris
@@ -366,7 +366,8 @@ private:
     template <PrimitiveType primitive_type>
     void _parse_value_range(const ColumnValueRange<primitive_type>& col_val_range,
                             const std::string& column_name) {
-        using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+        using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                           typename PrimitiveTypeTraits<primitive_type>::CppType>;
 
         if (col_val_range.is_fixed_value_range()) {
             ScanPredicate<CppType> in_predicate(column_name);

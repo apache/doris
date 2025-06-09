@@ -30,8 +30,6 @@
 #include "absl/strings/substitute.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/port.h"
-#include "util/debug/sanitizer_scopes.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -340,7 +338,6 @@ void ThreadPool::shutdown() {
     // The shutdown/destroy of ThreadPool is guaranteed to take place before doris_main exits by
     // ExecEnv::destroy().
     DorisMetrics::instance()->metric_registry()->deregister_entity(_metric_entity);
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     std::unique_lock<std::mutex> l(_lock);
     check_not_pool_thread_unlocked();
 
@@ -539,7 +536,6 @@ void ThreadPool::wait() {
 
 void ThreadPool::dispatch_thread() {
     std::unique_lock<std::mutex> l(_lock);
-    debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     if (!_threads.insert(Thread::current_thread()).second) {
         throw Exception(Status::InternalError("duplicate token"));
     }

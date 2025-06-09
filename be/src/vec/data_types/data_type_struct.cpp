@@ -270,7 +270,7 @@ Field DataTypeStruct::get_default() const {
     for (size_t i = 0; i < size; ++i) {
         t.push_back(elems[i]->get_default());
     }
-    return t;
+    return Field::create_field<TYPE_STRUCT>(t);
 }
 
 bool DataTypeStruct::equals(const IDataType& rhs) const {

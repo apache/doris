@@ -66,16 +66,21 @@ protected:
                                .get();
             }
             int64_t value = 0;
-            WhichDataType which(type);
-            if (which.idx == TypeIndex::Int8) {
+            switch (type->get_primitive_type()) {
+            case PrimitiveType::TYPE_TINYINT:
                 value = assert_cast<const ColumnInt8*, TypeCheckOnRelease::DISABLE>(column)
                                 ->get_element(0);
-            } else if (which.idx == TypeIndex::Int16) {
+                break;
+            case PrimitiveType::TYPE_SMALLINT:
                 value = assert_cast<const ColumnInt16*, TypeCheckOnRelease::DISABLE>(column)
                                 ->get_element(0);
-            } else if (which.idx == TypeIndex::Int32) {
+                break;
+            case PrimitiveType::TYPE_INT:
                 value = assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(column)
                                 ->get_element(0);
+                break;
+            default:
+                break;
             }
             if (value <= 0) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
