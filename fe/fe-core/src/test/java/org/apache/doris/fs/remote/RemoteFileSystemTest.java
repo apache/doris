@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fsv2.remote;
+package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -45,6 +46,11 @@ public class RemoteFileSystemTest {
     @BeforeEach
     void setUp() {
         remoteFileSystem = Mockito.spy(new RemoteFileSystem("test", StorageBackend.StorageType.HDFS) {
+            @Override
+            public StorageProperties getStorageProperties() {
+                return null;
+            }
+
             @Override
             public Status exists(String remotePath) {
                 return null;
