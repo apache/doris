@@ -127,6 +127,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
     private static final String PROP_FORCE_REPLACE = RestoreStmt.PROP_FORCE_REPLACE;
+    private static final String PROP_MEDIUM_SYNC_POLICY = RestoreStmt.PROP_MEDIUM_SYNC_POLICY;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -219,6 +220,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isAtomicRestore = false;
     // Whether to restore the table by replacing the exists but conflicted table.
     private boolean isForceReplace = false;
+    // Medium sync policy: "hdd" or "same_with_upstream"
+    private String mediumSyncPolicy = RestoreStmt.MEDIUM_SYNC_POLICY_HDD;
 
     // restore properties
     @SerializedName("prop")
@@ -237,8 +240,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForceReplace, Env env,
-            long repoId) {
+            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForceReplace,
+            String mediumSyncPolicy, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -260,6 +263,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         if (this.isAtomicRestore) {
             this.isForceReplace = isForceReplace;
         }
+        this.mediumSyncPolicy = (mediumSyncPolicy == null || mediumSyncPolicy.trim().isEmpty()) 
+                                  ? RestoreStmt.MEDIUM_SYNC_POLICY_HDD : mediumSyncPolicy;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_COLOCATE, String.valueOf(reserveColocate));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
@@ -268,17 +273,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
         properties.put(PROP_FORCE_REPLACE, String.valueOf(isForceReplace));
+        properties.put(PROP_MEDIUM_SYNC_POLICY, mediumSyncPolicy);
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveColocate, boolean reserveDynamicPartitionEnable, boolean isBeingSynced,
-            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForeReplace, Env env,
-            long repoId,
+            boolean isCleanTables, boolean isCleanPartitions, boolean isAtomicRestore, boolean isForeReplace,
+            String mediumSyncPolicy, Env env, long repoId,
             BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
                 reserveColocate, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
-                isAtomicRestore, isForeReplace, env, repoId);
+                isAtomicRestore, isForeReplace, mediumSyncPolicy, env, repoId);
 
         this.backupMeta = backupMeta;
     }
@@ -301,6 +307,27 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public List<ColocatePersistInfo> getColocatePersistInfos() {
         return colocatePersistInfos;
+    }
+
+    public String getMediumSyncPolicy() {
+        return mediumSyncPolicy;
+    }
+
+    public boolean preserveStorageMedium() {
+        boolean preserve = RestoreStmt.MEDIUM_SYNC_POLICY_SAME_WITH_UPSTREAM.equals(mediumSyncPolicy);
+        return preserve;
+    }
+
+    private boolean isStorageMediumSpecified() {
+        switch (mediumSyncPolicy) {
+            case RestoreStmt.MEDIUM_SYNC_POLICY_HDD:
+                return false; 
+            case RestoreStmt.MEDIUM_SYNC_POLICY_SAME_WITH_UPSTREAM:
+                return false;  
+            default:
+                LOG.warn("Unknown medium sync policy: {}, using non-specified as default", mediumSyncPolicy);
+                return false; // Default to non-specified (allow fallback)
+        }
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -856,8 +883,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     // reset all ids in this table
                     String srcDbName = jobInfo.dbName;
+                    LOG.info("Using medium sync policy '{}' for table {}", 
+                            mediumSyncPolicy, remoteOlapTbl.getName());
+                    
                     Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
-                            reserveColocate, colocatePersistInfos, srcDbName);
+                            reserveColocate, colocatePersistInfos, srcDbName, mediumSyncPolicy);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -1390,12 +1420,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletRef baseTabletRef = tabletBases == null ? null : tabletBases.get(restoreTablet.getId());
-                // All restored replicas will be saved to HDD by default.
+                // Determine storage medium based on tablet binding status and medium sync policy
                 TStorageMedium storageMedium = TStorageMedium.HDD;
-                if (tabletBases != null) {
-                    // ensure this tablet is bound to the same backend disk as the origin table's tablet.
+                if (baseTabletRef != null || preserveStorageMedium()) {
+                    // Use storage medium from partition data property in two scenarios:
+                    // 1. Tablet has local binding (baseTabletRef != null): ensures binding to same disk type
+                    // 2. medium_sync_policy = "same_with_upstream": preserves upstream storage medium
+                    // Note: localTbl partition contains the upstream medium info from backup meta
                     storageMedium = localTbl.getPartitionInfo().getDataProperty(restorePart.getId()).getStorageMedium();
-                }
+                } 
+                LOG.info("tablet {} storage medium {} same with upstream or preserve storage medium", restoreTablet.getId(), storageMedium);
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), storageMedium);
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
@@ -1503,8 +1537,19 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 // replicas
                 try {
+                    // Determine preferred storage medium for this partition based on medium sync policy
+                    TStorageMedium preferredMedium = TStorageMedium.HDD;
+                    if (preserveStorageMedium()) {
+                        // When medium_sync_policy is "same_with_upstream", prefer original storage medium from backup
+                        DataProperty partitionDataProperty = remoteTbl.getPartitionInfo().getDataProperty(oldPartId);
+                        if (partitionDataProperty != null) {
+                            preferredMedium = partitionDataProperty.getStorageMedium();
+                        } 
+                    }
+                    LOG.debug("partition {} storage medium {} same with upstream or preserve storage medium", partName, preferredMedium);
                     Pair<Map<Tag, List<Long>>, TStorageMedium> beIdsAndMedium = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexes, preferredMedium, 
+                                                              false, false);
                     Map<Tag, List<Long>> beIds = beIdsAndMedium.first;
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
@@ -2808,6 +2853,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
+        mediumSyncPolicy = properties.getOrDefault(PROP_MEDIUM_SYNC_POLICY, RestoreStmt.MEDIUM_SYNC_POLICY_HDD);
     }
 
     @Override
@@ -2819,6 +2865,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
+        mediumSyncPolicy = properties.getOrDefault(PROP_MEDIUM_SYNC_POLICY, RestoreStmt.MEDIUM_SYNC_POLICY_HDD);
     }
 
     @Override

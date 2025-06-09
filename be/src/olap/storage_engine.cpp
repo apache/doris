@@ -547,19 +547,48 @@ int StorageEngine::_get_and_set_next_disk_index(int64 partition_id,
 void StorageEngine::_get_candidate_stores(TStorageMedium::type storage_medium,
                                           std::vector<DirInfo>& dir_infos) {
     std::vector<double> usages;
+    std::vector<DirInfo> fallback_dir_infos;
+    // First pass: try to get stores with specified storage medium
     for (auto& it : _store_map) {
         DataDir* data_dir = it.second.get();
-        if (data_dir->is_used()) {
-            if ((_available_storage_medium_type_count == 1 ||
-                 data_dir->storage_medium() == storage_medium) &&
-                !data_dir->reach_capacity_limit(0)) {
-                double usage = data_dir->get_usage(0);
-                DirInfo dir_info;
-                dir_info.data_dir = data_dir;
-                dir_info.usage = usage;
-                dir_info.available_level = 0;
+        if (data_dir->is_used() && !data_dir->reach_capacity_limit(0)) {
+            double usage = data_dir->get_usage(0);
+            DirInfo dir_info;
+            dir_info.data_dir = data_dir;
+            dir_info.usage = usage;
+            dir_info.available_level = 0;
+
+            if (data_dir->storage_medium() == storage_medium) {
                 usages.push_back(usage);
                 dir_infos.push_back(dir_info);
+            } else if (_available_storage_medium_type_count == 1 ||
+                       config::enable_storage_medium_fallback) {
+                fallback_dir_infos.push_back(dir_info);
+            }
+        }
+    }
+    // Second pass: if no stores found with specified medium, use fallback stores
+    // - When only one storage medium type available: always use it regardless of config
+    // - When multiple storage medium types available: use fallback only if enabled
+    if (dir_infos.empty() && !fallback_dir_infos.empty()) {
+        bool should_use_fallback = (_available_storage_medium_type_count == 1) ||
+                                   (_available_storage_medium_type_count > 1 &&
+                                    config::enable_storage_medium_fallback);
+
+        if (should_use_fallback) {
+            dir_infos = std::move(fallback_dir_infos);
+            // Rebuild usages for fallback directories
+            usages.clear();
+            for (const auto& dir_info : dir_infos) {
+                usages.push_back(dir_info.usage);
+            }
+
+            if (_available_storage_medium_type_count == 1) {
+                LOG(INFO) << "Only one storage medium type available, using it for storage medium "
+                          << storage_medium;
+            } else {
+                LOG(INFO) << "No available stores found for specified storage medium "
+                          << storage_medium << ", trying fallback to alternative storage mediums";
             }
         }
     }

@@ -29,11 +29,15 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Set;
 
 public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInParser {
+    private static final Logger LOG = LogManager.getLogger(RestoreStmt.class);
+
     private static final String PROP_ALLOW_LOAD = "allow_load";
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
@@ -46,6 +50,11 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
     public static final String PROP_FORCE_REPLACE = "force_replace";
+    public static final String PROP_MEDIUM_SYNC_POLICY = "medium_sync_policy";
+    
+    // Medium sync policy values
+    public static final String MEDIUM_SYNC_POLICY_HDD = "hdd";
+    public static final String MEDIUM_SYNC_POLICY_SAME_WITH_UPSTREAM = "same_with_upstream";
 
     private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
@@ -60,6 +69,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private boolean isCleanPartitions = false;
     private boolean isAtomicRestore = false;
     private boolean isForceReplace = false;
+    private String mediumSyncPolicy = "hdd";
     private byte[] meta = null;
     private byte[] jobInfo = null;
 
@@ -137,6 +147,10 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
     public boolean isForceReplace() {
         return isForceReplace;
+    }
+
+    public String getMediumSyncPolicy() {
+        return mediumSyncPolicy;
     }
 
     @Override
@@ -227,6 +241,25 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
 
         // is force replace
         isForceReplace = eatBooleanProperty(copiedProperties, PROP_FORCE_REPLACE, isForceReplace);
+
+        // medium sync policy
+        if (copiedProperties.containsKey(PROP_MEDIUM_SYNC_POLICY)) {
+            String value = copiedProperties.get(PROP_MEDIUM_SYNC_POLICY);
+            LOG.info("RestoreStmt.analyzeProperties: found medium_sync_policy property with value: {}", value);
+            if (MEDIUM_SYNC_POLICY_HDD.equalsIgnoreCase(value) 
+                    || MEDIUM_SYNC_POLICY_SAME_WITH_UPSTREAM.equalsIgnoreCase(value)) {
+                mediumSyncPolicy = value.toLowerCase();
+                LOG.info("RestoreStmt.analyzeProperties: set mediumSyncPolicy to: {}", mediumSyncPolicy);
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Invalid medium sync policy value: " + value + ". Valid values are: " 
+                        + MEDIUM_SYNC_POLICY_HDD + ", " + MEDIUM_SYNC_POLICY_SAME_WITH_UPSTREAM);
+            }
+            copiedProperties.remove(PROP_MEDIUM_SYNC_POLICY);
+        } else {
+            LOG.info("RestoreStmt.analyzeProperties: no medium_sync_policy property found, using default: {}", 
+                     mediumSyncPolicy);
+        }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,

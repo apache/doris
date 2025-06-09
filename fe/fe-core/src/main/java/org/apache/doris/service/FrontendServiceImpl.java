@@ -3102,6 +3102,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isForceReplace()) {
             properties.put(RestoreStmt.PROP_FORCE_REPLACE, "true");
         }
+        LOG.info("RPC DEBUG: medium sync policy field analysis - " +
+                 "isSetMediumSyncPolicy={}, getMediumSyncPolicy={}, " +
+                 "medium_sync_policy_field_null={}", 
+                 request.isSetMediumSyncPolicy(),
+                 request.getMediumSyncPolicy(),
+                 request.medium_sync_policy == null);
+        
+        if (request.isSetMediumSyncPolicy()) {
+            properties.put(RestoreStmt.PROP_MEDIUM_SYNC_POLICY, request.getMediumSyncPolicy());
+            LOG.info("RPC: setting medium sync policy to properties: {}", request.getMediumSyncPolicy());
+        } else {
+            String mediumSyncPolicy = request.getMediumSyncPolicy();
+            if (mediumSyncPolicy != null && !mediumSyncPolicy.isEmpty()) {
+                properties.put(RestoreStmt.PROP_MEDIUM_SYNC_POLICY, mediumSyncPolicy);
+                LOG.info("RPC: compatibility mode - found medium sync policy value: {}", mediumSyncPolicy);
+            } else {
+                LOG.info("RPC: no medium sync policy specified, will use default HDD policy");
+            }
+        }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
@@ -3134,10 +3153,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("The request is compressed, but the config "
                     + "`enable_restore_snapshot_rpc_compressed` is not enabled.");
         }
-
+        // Log the final properties before creating RestoreStmt
+        LOG.info("RPC: creating RestoreStmt with properties: {}", properties);
+        
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, meta, jobInfo);
         restoreStmt.setIsBeingSynced();
-        LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
+        LOG.info("RPC: created RestoreStmt with mediumSyncPolicy={}, isBeingSynced={}", 
+                 restoreStmt.getMediumSyncPolicy(), restoreStmt.isBeingSynced());
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(request.getUser());

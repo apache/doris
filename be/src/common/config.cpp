@@ -229,6 +229,8 @@ DEFINE_Int32(alter_index_worker_count, "3");
 DEFINE_Int32(clone_worker_count, "3");
 // the count of thread to clone
 DEFINE_Int32(storage_medium_migrate_count, "1");
+// Enable storage medium fallback when specified medium is not available
+DEFINE_mBool(enable_storage_medium_fallback, "false");
 // the count of thread to check consistency
 DEFINE_Int32(check_consistency_worker_count, "1");
 // the count of thread to upload

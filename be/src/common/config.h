@@ -274,6 +274,8 @@ DECLARE_Int32(alter_index_worker_count);
 DECLARE_Int32(clone_worker_count);
 // the count of thread to clone
 DECLARE_Int32(storage_medium_migrate_count);
+// Enable storage medium fallback when specified medium is not available
+DECLARE_mBool(enable_storage_medium_fallback);
 // the count of thread to check consistency
 DECLARE_Int32(check_consistency_worker_count);
 // the count of thread to upload
