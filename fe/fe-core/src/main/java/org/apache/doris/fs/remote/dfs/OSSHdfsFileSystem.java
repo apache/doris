@@ -15,10 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fsv2;
+package org.apache.doris.fs.remote.dfs;
 
-import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 
-public interface FileSystemProvider {
-    FileSystem get(SessionContext ctx);
+public class OSSHdfsFileSystem extends DFSFileSystem {
+    public OSSHdfsFileSystem(OSSHdfsProperties properties) {
+        super(properties, StorageBackend.StorageType.HDFS);
+    }
 }

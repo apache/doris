@@ -17,74 +17,66 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.datasource.property.constants.AzureProperties;
-import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.fs.remote.dfs.JFSFileSystem;
-import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
-
-import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 public class FileSystemFactory {
 
-    public static RemoteFileSystem get(String name, StorageBackend.StorageType type, Map<String, String> properties) {
-        // TODO: rename StorageBackend.StorageType
-        if (type == StorageBackend.StorageType.S3) {
-            if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
-                return new AzureFileSystem(properties);
+    public static RemoteFileSystem get(Map<String, String> properties) throws UserException {
+        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        return get(storageProperties);
+    }
+
+    public static RemoteFileSystem get(StorageBackend.StorageType storageType, String bindBreakName,
+                                       Map<String, String> properties) {
+        if (storageType.equals(StorageBackend.StorageType.BROKER)) {
+            return new BrokerFileSystem(bindBreakName, properties);
+        }
+        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        return get(storageProperties);
+    }
+
+    public static RemoteFileSystem get(StorageProperties storageProperties) {
+        return StorageTypeMapper.create(storageProperties);
+    }
+
+    // This method is a temporary workaround for handling properties.
+    // It will be removed when broker properties are officially supported.
+    public static RemoteFileSystem get(String name, Map<String, String> properties) {
+        return new BrokerFileSystem(name, properties);
+    }
+
+    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties,
+                                       String bindBrokerName)
+            throws UserException {
+        if (fileSystemType == FileSystemType.BROKER) {
+            return new BrokerFileSystem(bindBrokerName, properties);
+        }
+        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(properties);
+
+        for (StorageProperties storageProperties : storagePropertiesList) {
+            if (storageProperties.getStorageName().equalsIgnoreCase(fileSystemType.name())) {
+                return StorageTypeMapper.create(storageProperties);
             }
-            return new S3FileSystem(properties);
-        } else if (type == StorageBackend.StorageType.HDFS || type == StorageBackend.StorageType.GFS) {
-            return new DFSFileSystem(properties);
-        } else if (type == StorageBackend.StorageType.OFS) {
-            return new OFSFileSystem(properties);
-        } else if (type == StorageBackend.StorageType.JFS) {
-            return new JFSFileSystem(properties);
-        } else if (type == StorageBackend.StorageType.BROKER) {
-            return new BrokerFileSystem(name, properties);
-        } else {
-            throw new UnsupportedOperationException(type.toString() + "backend is not implemented");
         }
+        throw new RuntimeException("Unsupported file system type: " + fileSystemType);
     }
 
-    public static RemoteFileSystem getRemoteFileSystem(FileSystemType type, Map<String, String> properties,
-                                                       String bindBrokerName) {
-        switch (type) {
-            case S3:
-                if (AzureProperties.checkAzureProviderPropertyExist(properties)) {
-                    return new AzureFileSystem(properties);
-                }
-                return new S3FileSystem(properties);
-            case FILE:
-            case DFS:
-                return new DFSFileSystem(properties);
-            case OFS:
-                return new OFSFileSystem(properties);
-            case JFS:
-                return new JFSFileSystem(properties);
-            case BROKER:
-                return new BrokerFileSystem(bindBrokerName, properties);
-            case AZURE:
-                return new AzureFileSystem(properties);
-            default:
-                throw new IllegalStateException("Not supported file system type: " + type);
+    public static RemoteFileSystem get(BrokerDesc brokerDesc) {
+        if (null != brokerDesc.getStorageProperties()) {
+            return get(brokerDesc.getStorageProperties());
         }
-    }
-
-    public static RemoteFileSystem getS3FileSystem(Map<String, String> properties) {
-        // use for test
-        return get(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, properties);
-    }
-
-    public static org.apache.hadoop.fs.FileSystem getNativeByPath(Path path, Configuration conf) throws IOException {
-        return path.getFileSystem(conf);
+        if (null != brokerDesc.getStorageType()
+                && brokerDesc.getStorageType().equals(StorageBackend.StorageType.BROKER)) {
+            return new BrokerFileSystem(brokerDesc.getName(), brokerDesc.getProperties());
+        }
+        throw new RuntimeException("Unexpected storage type: " + brokerDesc.getStorageType());
     }
 }

@@ -34,7 +34,7 @@ import java.io.InputStream;
 public interface ObjStorage<C> {
 
     // CHUNK_SIZE for multi part upload
-    public static final int CHUNK_SIZE = 5 * 1024 * 1024;
+    int CHUNK_SIZE = 5 * 1024 * 1024;
 
     C getClient() throws UserException;
 
