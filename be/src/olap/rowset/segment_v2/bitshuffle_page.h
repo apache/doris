@@ -146,8 +146,9 @@ public:
             _first_value = cell(0);
             _last_value = cell(_count - 1);
         }
-        RETURN_IF_CATCH_EXCEPTION({ *slice = _finish(SIZE_OF_TYPE); });
-        return Status::OK();
+        Status status;
+        RETURN_IF_CATCH_EXCEPTION({ status = _finish(SIZE_OF_TYPE, slice); });
+        return status;
     }
 
     Status reset() override {
@@ -191,7 +192,7 @@ private:
     BitshufflePageBuilder(const PageBuilderOptions& options)
             : _options(options), _count(0), _remain_element_capacity(0), _finished(false) {}
 
-    OwnedSlice _finish(int final_size_of_type) {
+    Status _finish(int final_size_of_type, OwnedSlice* slice) {
         _data.resize(final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
@@ -214,9 +215,7 @@ private:
             // This means the bitshuffle function fails.
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
-            // It does not matter what will be returned here,
-            // since we have logged fatal in warn_with_bitshuffle_error().
-            return OwnedSlice();
+            return Status::RuntimeError("bitshuffle page failed");
         }
         // update header
         encode_fixed32_le(&_buffer[0], _count);
@@ -226,7 +225,8 @@ private:
         _finished = true;
         // before build(), update buffer length to the actual compressed size
         _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
-        return _buffer.build();
+        *slice = _buffer.build();
+        return Status::OK();
     }
 
     using CppType = typename TypeTraits<Type>::CppType;
