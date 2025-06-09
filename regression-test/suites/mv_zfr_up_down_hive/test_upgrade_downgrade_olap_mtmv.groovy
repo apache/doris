@@ -101,7 +101,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     def master_ip = get_master_ip()
 
     def tokens = context.config.jdbcUrl.split('/')
-    def url_tmp1 = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+    def url_tmp1 = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
     def follower_jdbc_url = url_tmp1.replaceAll(/\/\/[0-9.]+:/, "//${follower_ip}:")
     logger.info("follower_jdbc_url: " + follower_jdbc_url)
 
