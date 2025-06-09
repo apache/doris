@@ -290,16 +290,14 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getNdvFunction(String totalRows) {
-        String sampleRows = "SUM(`t1`.`count`)";
-        String onceCount = "SUM(IF(`t1`.`count` = 1, 1, 0))";
-        String countDistinct = "COUNT(1)";
+        String n = "SUM(`t1`.`count`)"; // sample rows
+        String f1 = "SUM(IF(`t1`.`count` = 1 and `t1`.`column_key` is not null, 1, 0))";
+        String d = "COUNT(`t1`.`column_key`)"; // sample ndv
         // DUJ1 estimator: n*d / (n - f1 + f1*n/N)
         // f1 is the count of element that appears only once in the sample.
         // (https://github.com/postgres/postgres/blob/master/src/backend/commands/analyze.c)
         // (http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.93.8637&rep=rep1&type=pdf)
-        // sample_row * count_distinct / ( sample_row - once_count + once_count * sample_row / total_row)
-        return MessageFormat.format("{0} * {1} / ({0} - {2} + {2} * {0} / {3})", sampleRows,
-                countDistinct, onceCount, totalRows);
+        return MessageFormat.format("{0} * {1} / ({0} - {2} + {2} * {0} / {3})", n, d, f1, totalRows);
     }
 
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
