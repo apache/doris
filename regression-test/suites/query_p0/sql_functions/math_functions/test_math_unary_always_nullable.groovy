@@ -60,6 +60,26 @@ suite("test_math_unary_alway_nullable") {
         select atanh(0.0), atanh(0.0) is NULL, number from numbers("number"="10")
     """
 
+    qt_gamma_1 """
+        select gamma(-1.0), gamma(-1.0) is null;
+    """
+    qt_gamma_2 """
+        select gamma(5.0), gamma(5.0) is null;
+    """
+    qt_gamma_3 """
+        select gamma(0.0), gamma(0.0) is NULL, number from numbers("number"="10")
+    """
+
+    qt_lgamma_1 """
+        select lgamma(-1.0), lgamma(-1.0) is null;
+    """
+    qt_lgamma_2 """
+        select lgamma(5.0), lgamma(5.0) is null;
+    """
+    qt_lgamma_3 """
+        select lgamma(0.0), lgamma(0.0) is NULL, number from numbers("number"="10")
+    """
+
     qt_sqrt_1 """
         select sqrt(-1), sqrt(-1) is null;
     """

@@ -199,6 +199,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromMilliseco
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
@@ -283,6 +284,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lgamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -683,6 +685,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(FromIso8601Date.class, "from_iso8601_date"),
             scalar(FromUnixtime.class, "from_unixtime"),
             scalar(G.class, "g"),
+            scalar(Gamma.class, "gamma"),
             scalar(GetJsonBigInt.class, "get_json_bigint"),
             scalar(GetJsonDouble.class, "get_json_double"),
             scalar(GetJsonInt.class, "get_json_int"),
@@ -787,6 +790,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Least.class, "least"),
             scalar(Left.class, "left", "strleft"),
             scalar(Length.class, "length"),
+            scalar(Lgamma.class, "lgamma"),
             scalar(Crc32.class, "crc32"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),

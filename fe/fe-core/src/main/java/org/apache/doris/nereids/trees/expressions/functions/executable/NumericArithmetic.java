@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
+import org.apache.commons.math3.special.Gamma;
 import org.apache.commons.math3.util.FastMath;
 
 import java.math.BigDecimal;
@@ -997,6 +998,32 @@ public class NumericArithmetic {
     @ExecFunction(name = "atan2")
     public static Expression atan2(DoubleLiteral first, DoubleLiteral second) {
         return checkOutputBoundary(new DoubleLiteral(Math.atan2(first.getValue(), second.getValue())));
+    }
+
+    /**
+     * gamma
+     */
+    @ExecFunction(name = "gamma")
+    public static Expression gamma(DoubleLiteral first) {
+        double value = first.getValue();
+        final double epsilon = Math.ulp(1.0);
+        if (value <= 0 && Math.abs(value - Math.floor(value)) < epsilon) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(Gamma.gamma(value)));
+    }
+
+    /**
+     * gamma
+     */
+    @ExecFunction(name = "lgamma")
+    public static Expression lgamma(DoubleLiteral first) {
+        double value = first.getValue();
+        final double epsilon = Math.ulp(1.0);
+        if (value <= epsilon) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        return checkOutputBoundary(new DoubleLiteral(Gamma.logGamma(value)));
     }
 
     /**

@@ -114,6 +114,44 @@ TEST(MathFunctionTest, atanh_test) {
             check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
+TEST(MathFunctionTest, gamma_test) {
+    std::string func_name = "gamma";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {{{0.5}, 1.772453850905516},
+                        {{1.0}, 1.0},
+                        {{2.0}, 1.0},
+                        {{3.0}, 2.0},
+                        {{5.0}, 24.0},
+                        {{1.5}, 0.886226925452758},
+                        {{0.0}, Null()},
+                        {{-1.0}, Null()}};
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(MathFunctionTest, lgamma_test) {
+    std::string func_name = "lgamma";
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+
+    DataSet data_set = {
+            {{0.5}, 0.5723649429247001},
+            {{1.0}, 0.0},
+            {{2.0}, 0.0},
+            {{3.0}, 0.6931471805599453},
+            {{4.0}, 1.791759469228055},
+            {{1.5}, -0.12078223763524522},
+            {{0.0}, Null()},
+            {{-0.1}, Null()},
+    };
+
+    static_cast<void>(
+            check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
 TEST(MathFunctionTest, cos_test) {
     std::string func_name = "cos";
 
