@@ -4357,14 +4357,6 @@ show_param ::=
         RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
     :}
     /* Database */
-    | KW_DATABASES opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
-    :}
-    | KW_DATABASES KW_FROM ident:catalogName opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
-    :}
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
     {:
@@ -4374,14 +4366,6 @@ show_param ::=
     | KW_DATA KW_TYPES
     {:
         RESULT = new ShowDataTypesStmt();
-    :}
-    | KW_SCHEMAS opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
-    :}
-    | KW_SCHEMAS KW_FROM ident:catalogName opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* Catalog */
     | KW_CATALOGS opt_wild_where
