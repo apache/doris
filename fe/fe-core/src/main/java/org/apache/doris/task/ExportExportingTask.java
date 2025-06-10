@@ -56,9 +56,6 @@ public class ExportExportingTask extends MasterTask {
 
     protected final ExportJob job;
 
-    ThreadPoolExecutor exportExecPool = ThreadPoolManager.newDaemonCacheThreadPool(
-            Config.maximum_parallelism_of_export_job, "exporting-pool-", false);
-
     public ExportExportingTask(ExportJob job) {
         this.job = job;
         this.signature = job.getId();
@@ -115,6 +112,11 @@ public class ExportExportingTask extends MasterTask {
         List<ExportJob.OutfileInfo> outfileInfoList = Lists.newArrayList();
 
         int parallelNum = selectStmtList.size();
+        // Create thread pool with queue size based on actual parallelism
+        // Queue size = max(parallelNum, maximum_parallelism_of_export_job) to ensure all tasks can be queued
+        int queueSize = Math.max(parallelNum, Config.maximum_parallelism_of_export_job);
+        ThreadPoolExecutor exportExecPool = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.maximum_parallelism_of_export_job, queueSize, "exporting-pool-", false);
         CompletionService<ExportResult> completionService = new ExecutorCompletionService<>(exportExecPool);
 
         // begin exporting
@@ -213,8 +215,10 @@ public class ExportExportingTask extends MasterTask {
                         job.getStmtExecutor(idx).cancel();
                     }
                 }
+                exportExecPool.shutdownNow();
+            } else {
+                exportExecPool.shutdown();
             }
-            exportExecPool.shutdownNow();
         }
 
         if (isFailed) {
