@@ -197,7 +197,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     private OlapTable getOlapTableDirectly(SlotReference slot) {
-        return slot.getTable()
+        return slot.getOriginalTable()
                .filter(OlapTable.class::isInstance)
                .map(OlapTable.class::cast)
                .orElse(null);
@@ -219,7 +219,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         .orElseThrow(() -> new AnalysisException(
                                     "No SlotReference found in Match, SQL is " + match.toSql()));
 
-        Column column = slot.getColumn()
+        Column column = slot.getOriginalColumn()
                         .orElseThrow(() -> new AnalysisException(
                                     "SlotReference in Match failed to get Column, SQL is " + match.toSql()));
 

@@ -147,9 +147,11 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
-    LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: " << time_cost_ms
-              << " ms, deleted group size:" << deleted_task_groups.size()
-              << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
+    if (deleted_task_groups.size() > 0) {
+        LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: "
+                  << time_cost_ms << " ms, deleted group size:" << deleted_task_groups.size()
+                  << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
+    }
 }
 
 void WorkloadGroupMgr::do_sweep() {
@@ -699,14 +701,14 @@ int64_t WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_(
             "[MemoryGC] start WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_, {}, "
             "number of overcommited groups: {}, total exceeded memory: {}.",
             revoke_reason, exceeded_memory_heap.size(),
-            MemCounter::print_bytes(total_exceeded_memory));
+            PrettyPrinter::print_bytes(total_exceeded_memory));
     Defer defer {[&]() {
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
                 "[MemoryGC] end WorkloadGroupMgr::revoke_memory_from_other_overcommited_groups_, "
                 "{}, number of overcommited groups: {}, free memory {}. cost(us): {}, details: {}",
-                revoke_reason, exceeded_memory_heap.size(), MemCounter::print_bytes(freed_mem),
+                revoke_reason, exceeded_memory_heap.size(), PrettyPrinter::print_bytes(freed_mem),
                 watch.elapsed_time() / 1000, ss.str());
     }};
 

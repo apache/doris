@@ -174,7 +174,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             } else {
                 if (!Env.getCurrentEnv().isMaster()) {
                     // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
                     MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
                     try {
                         remoteExecutor.forward(extCatalog.getId(), id);
@@ -305,11 +305,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         List<Pair<String, String>> tableNames;
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
             tableNames = ExternalInfoSchemaDatabase.listTableNames().stream()
-                    .map(tableName -> Pair.of(tableName, tableName))
+                    .map(tableName -> {
+                        lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                        return Pair.of(tableName, tableName);
+                    })
                     .collect(Collectors.toList());
         } else if (name.equals(MysqlDb.DATABASE_NAME)) {
             tableNames = ExternalMysqlDatabase.listTableNames().stream()
-                    .map(tableName -> Pair.of(tableName, tableName))
+                    .map(tableName -> {
+                        lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
+                        return Pair.of(tableName, tableName);
+                    })
                     .collect(Collectors.toList());
         } else {
             tableNames = extCatalog.listTableNames(null, remoteName).stream().map(tableName -> {

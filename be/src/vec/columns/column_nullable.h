@@ -32,7 +32,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -208,8 +207,9 @@ public:
 
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
-        const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
-        assert_cast<ColumnType*>(nested_column.get())
+        const auto& src_concrete =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(src);
+        assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(nested_column.get())
                 ->insert_from(src_concrete.get_nested_column(), n);
         auto is_null = src_concrete.get_null_map_data()[n];
         if (is_null) {
@@ -319,11 +319,6 @@ public:
         }
         return false;
     }
-
-    bool is_date_type() const override { return get_nested_column().is_date_type(); }
-    bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
-    void set_date_type() override { get_nested_column().set_date_type(); }
-    void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
     bool is_nullable() const override { return true; }
     bool is_concrete_nullable() const override { return true; }

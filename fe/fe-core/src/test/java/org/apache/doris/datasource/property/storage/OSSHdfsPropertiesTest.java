@@ -116,7 +116,7 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.secret_key", "testSecretKey");
         origProps.put("oss.region", "cn-shanghai");
 
-        OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createAll(origProps).get(0);
+        OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("HDFS", props.getStorageName());
     }
 

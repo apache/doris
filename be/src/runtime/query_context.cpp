@@ -202,9 +202,9 @@ QueryContext::~QueryContext() {
         mem_tracker_msg = fmt::format(
                 "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                 "PeakUsed={}",
-                print_id(_query_id), MemCounter::print_bytes(query_mem_tracker()->limit()),
-                MemCounter::print_bytes(query_mem_tracker()->consumption()),
-                MemCounter::print_bytes(query_mem_tracker()->peak_consumption()));
+                print_id(_query_id), PrettyPrinter::print_bytes(query_mem_tracker()->limit()),
+                PrettyPrinter::print_bytes(query_mem_tracker()->consumption()),
+                PrettyPrinter::print_bytes(query_mem_tracker()->peak_consumption()));
     }
     [[maybe_unused]] uint64_t group_id = 0;
     if (workload_group()) {

@@ -70,5 +70,7 @@ suite("test_split_by_regexp") {
     qt_select11 "select split_by_regexp('aa,bbb,cccc', ',', 4);"
     qt_select12 "select split_by_regexp('aa,bbb,cccc', ',', 100000000);"
     qt_select13 "select split_by_regexp('aa,bbb,cccc', ',', 10000000000000);"
+    qt_select14 "select v1,split_by_regexp(v1, '') from test_split_by_regexp order by k1;"
+    qt_select15 "select v2,split_by_regexp(v2, '') from test_split_by_regexp order by k1;"
 }
 

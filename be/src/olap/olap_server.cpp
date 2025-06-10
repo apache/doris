@@ -51,7 +51,6 @@
 #include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gutil/ref_counted.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "io/fs/path.h"
 #include "olap/base_tablet.h"
@@ -82,6 +81,7 @@
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
@@ -662,6 +662,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
+        int64_t cur_time = UnixMillis();
         if (!config::disable_auto_compaction &&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
@@ -700,6 +701,10 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             for (const auto& tablet : tablets_compaction) {
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     tablet->set_last_base_compaction_schedule_time(UnixMillis());
+                } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+                    tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+                } else if (compaction_type == CompactionType::FULL_COMPACTION) {
+                    tablet->set_last_full_compaction_schedule_time(UnixMillis());
                 }
                 Status st = _submit_compaction_task(tablet, compaction_type, false);
                 if (!st.ok()) {
@@ -711,6 +716,17 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = 5000; // 5s to check disable_auto_compaction
         }
+
+        // wait some seconds for ut test
+        {
+            std ::vector<std ::any> args {};
+            args.emplace_back(1);
+            doris ::SyncPoint ::get_instance()->process(
+                    "StorageEngine::_compaction_tasks_producer_callback", std ::move(args));
+        }
+        int64_t end_time = UnixMillis();
+        DorisMetrics::instance()->compaction_producer_callback_a_round_time->set_value(end_time -
+                                                                                       cur_time);
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
@@ -1049,6 +1065,15 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                       << ", num_total_queued_tasks: " << thread_pool->get_queue_size();
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+                DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(1);
+                DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                        _cumu_compaction_thread_pool->get_queue_size());
+            } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+                DorisMetrics::instance()->base_compaction_task_running_total->increment(1);
+                DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                        _base_compaction_thread_pool->get_queue_size());
+            }
             bool is_large_task = true;
             Defer defer {[&]() {
                 DBUG_EXECUTE_IF("StorageEngine._submit_compaction_task.sleep", { sleep(5); })
@@ -1063,6 +1088,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                     if (!is_large_task) {
                         _cumu_compaction_thread_pool_small_tasks_running--;
                     }
+                    DorisMetrics::instance()->cumulative_compaction_task_running_total->increment(
+                            -1);
+                    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                            _cumu_compaction_thread_pool->get_queue_size());
+                } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+                    DorisMetrics::instance()->base_compaction_task_running_total->increment(-1);
+                    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                            _base_compaction_thread_pool->get_queue_size());
                 }
             }};
             do {
@@ -1121,6 +1154,13 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
             TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
             tablet->execute_compaction(*compaction);
         });
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) [[likely]] {
+            DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(
+                    _cumu_compaction_thread_pool->get_queue_size());
+        } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+            DorisMetrics::instance()->base_compaction_task_pending_total->set_value(
+                    _base_compaction_thread_pool->get_queue_size());
+        }
         if (!st.ok()) {
             if (!force) {
                 _permit_limiter.release(permits);
@@ -1659,8 +1699,9 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             if (version != max_version + 1) {
+                int32_t max_version_config = tablet->max_version_config();
                 // Keep only the most recent versions
-                while (tablet_iter->second.size() > config::max_tablet_version_num) {
+                while (tablet_iter->second.size() > max_version_config) {
                     need_removed_tasks.emplace_back(tablet, version);
                     task_iter = tablet_iter->second.erase(task_iter);
                     version = task_iter->first;
@@ -1699,9 +1740,8 @@ void StorageEngine::_check_tablet_delete_bitmap_score_callback() {
         }
         uint64_t max_delete_bitmap_score = 0;
         uint64_t max_base_rowset_delete_bitmap_score = 0;
-        std::vector<CloudTabletSPtr> tablets;
-        _tablet_manager.get()->get_topn_tablet_delete_bitmap_score(
-                &max_delete_bitmap_score, &max_base_rowset_delete_bitmap_score);
+        _tablet_manager->get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
+                                                             &max_base_rowset_delete_bitmap_score);
         if (max_delete_bitmap_score > 0) {
             _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
         }

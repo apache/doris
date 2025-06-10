@@ -650,9 +650,9 @@ DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
 DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
-DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
-DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
-DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
+DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_min);
+DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_max);
+DECLARE_Int32(fragment_mgr_async_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
@@ -685,6 +685,7 @@ DECLARE_Int32(num_cores);
 // When BE start, If there is a broken disk, BE process will exit by default.
 // Otherwise, we will ignore the broken disk,
 DECLARE_Bool(ignore_broken_disk);
+DECLARE_Bool(ignore_file_cache_dir_upgrade_failure);
 
 // Sleep time in milliseconds between memory maintenance iterations
 DECLARE_mInt32(memory_maintenance_sleep_time_ms);
@@ -857,6 +858,8 @@ DECLARE_Int32(query_cache_max_partition_count);
 // This is to avoid too many version num.
 DECLARE_mInt32(max_tablet_version_num);
 
+DECLARE_mInt32(time_series_max_tablet_version_num);
+
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport
 DECLARE_String(thrift_server_type_of_fe);
@@ -926,9 +929,6 @@ DECLARE_mInt32(max_segment_num_per_rowset);
 // segment_compression_threshold_kb.
 DECLARE_mInt32(segment_compression_threshold_kb);
 
-// The connection timeout when connecting to external table such as odbc table.
-DECLARE_mInt32(external_table_connect_timeout_sec);
-
 // Time to clean up useless JDBC connection pool cache
 DECLARE_mInt32(jdbc_connection_pool_cache_clear_time_sec);
 
@@ -953,6 +953,9 @@ DECLARE_mString(kafka_debug);
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 DECLARE_mInt32(routine_load_consumer_pool_size);
+
+// the timeout of condition variable wait in blocking_get and blocking_put
+DECLARE_mInt32(blocking_queue_cv_wait_timeout_ms);
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1274,6 +1277,9 @@ DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
 // core directly if the compaction found there's duplicate key on mow table
 DECLARE_mBool(enable_mow_compaction_correctness_check_core);
+// USED FOR DEBUGING
+// let compaction fail if the compaction found there's duplicate key on mow table
+DECLARE_mBool(enable_mow_compaction_correctness_check_fail);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
 // missing rows correctness check when compaction for mow table
@@ -1292,6 +1298,8 @@ DECLARE_mInt32(publish_version_gap_logging_threshold);
 DECLARE_mBool(enable_mow_get_agg_by_cache);
 // get agg correctness check for mow table
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
+DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1541,7 +1549,6 @@ DECLARE_mInt32(check_score_rounds_num);
 DECLARE_Int32(query_cache_size);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
-DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
 // Enable sleep 5s between delete cumulative compaction.
@@ -1566,6 +1573,14 @@ DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
+
+DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
+
+// the max length of segments key bounds, in bytes
+// ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
+DECLARE_mInt32(segments_key_bounds_truncation_threshold);
+// ATTENTION: for test only, use random segments key bounds truncation threshold every time
+DECLARE_mBool(random_segments_key_bounds_truncation);
 
 #ifdef BE_TEST
 // test s3

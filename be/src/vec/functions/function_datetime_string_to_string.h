@@ -31,7 +31,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -135,7 +134,7 @@ public:
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
 
         const auto* nullable_column = check_and_get_column<ColumnNullable>(source_col.get());
-        const auto* sources = assert_cast<const ColumnVector<typename Transform::FromType>*>(
+        const auto* sources = assert_cast<const ColumnVector<Transform::FromPType>*>(
                 nullable_column ? nullable_column->get_nested_column_ptr().get()
                                 : source_col.get());
 

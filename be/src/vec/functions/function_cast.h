@@ -24,19 +24,14 @@
 #include <fmt/format.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
-#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <iterator>
-#include <limits>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -55,12 +50,10 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_common.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -72,9 +65,11 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
@@ -84,11 +79,10 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
@@ -103,7 +97,7 @@ class DateLUTImpl;
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris
@@ -114,10 +108,7 @@ namespace doris::vectorized {
   */
 inline UInt32 extract_to_decimal_scale(const ColumnWithTypeAndName& named_column) {
     const auto* arg_type = named_column.type.get();
-    bool ok = check_and_get_data_type<DataTypeUInt64>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt32>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt16>(arg_type) ||
-              check_and_get_data_type<DataTypeUInt8>(arg_type);
+    bool ok = check_and_get_data_type<DataTypeUInt8>(arg_type);
     if (!ok) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Illegal type of toDecimal() scale {}",
                                named_column.type->get_name());
@@ -162,18 +153,20 @@ struct ConvertImpl {
                           Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-            if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType> ||
-                            IsTimeV2Type<FromDataType>) ||
-                          !IsDataTypeDecimalOrNumber<ToDataType>)
+            if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
+                            IsDatelikeV1Types<FromDataType> || IsDatelikeV2Types<FromDataType>) ||
+                          !IsDataTypeDecimalOrNumber<ToDataType>) {
                 return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                             named_from.column->get_name(), Name::name);
+            }
         }
 
         if (const ColVecFrom* col_from =
@@ -261,9 +254,9 @@ struct ConvertImpl {
                 block.replace_by_position(result, std::move(col_to));
 
                 return Status::OK();
-            } else if constexpr (IsTimeType<FromDataType>) {
+            } else if constexpr (IsDatelikeV1Types<FromDataType>) {
                 for (size_t i = 0; i < size; ++i) {
-                    if constexpr (IsTimeType<ToDataType>) {
+                    if constexpr (IsDatelikeV1Types<ToDataType>) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
                         if constexpr (IsDateTimeType<ToDataType>) {
                             DataTypeDateTime::cast_to_date_time(vec_to[i]);
@@ -280,9 +273,9 @@ struct ConvertImpl {
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64());
                     }
                 }
-            } else if constexpr (IsTimeV2Type<FromDataType>) {
+            } else if constexpr (IsDatelikeV2Types<FromDataType>) {
                 for (size_t i = 0; i < size; ++i) {
-                    if constexpr (IsTimeV2Type<ToDataType>) {
+                    if constexpr (IsDatelikeV2Types<ToDataType>) {
                         if constexpr (IsDateTimeV2Type<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date_time_v2(vec_from[i], vec_to[i]);
                         } else if constexpr (IsDateTimeV2Type<FromDataType> &&
@@ -292,7 +285,7 @@ struct ConvertImpl {
                             UInt32 scale = additions;
                             vec_to[i] = ToFieldType(vec_from[i] / std::pow(10, 6 - scale));
                         }
-                    } else if constexpr (IsTimeType<ToDataType>) {
+                    } else if constexpr (IsDatelikeV1Types<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date_time(vec_from[i], vec_to[i]);
                         } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
@@ -379,16 +372,16 @@ struct ConvertImplToTimeType {
                           uint32_t result, size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromFieldType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
 
         using DateValueType = std::conditional_t<
-                IsTimeV2Type<ToDataType>,
+                IsDatelikeV2Types<ToDataType>,
                 std::conditional_t<IsDateV2Type<ToDataType>, DateV2Value<DateV2ValueType>,
                                    DateV2Value<DateTimeV2ValueType>>,
                 VecDateTimeValue>;
-        using ColVecTo = ColumnVector<ToFieldType>;
+        using ColVecTo = ColumnVector<ToDataType::PType>;
 
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
@@ -422,7 +415,7 @@ struct ConvertImplToTimeType {
                     date_value = current_date_value;
                     int64_t microsecond = TimeValue::round_time(vec_from[i], scale);
                     // Only TimeV2 type needs microseconds
-                    if constexpr (IsTimeV2Type<ToDataType>) {
+                    if constexpr (IsDatelikeV2Types<ToDataType>) {
                         vec_null_map_to[i] = !date_value.template date_add_interval<MICROSECOND>(
                                 TimeInterval {MICROSECOND, microsecond, false});
                     } else {
@@ -498,7 +491,7 @@ struct ConvertImplGenericFromString {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-            const bool is_complex = is_complex_type(data_type_to);
+            const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
             format_options.escape_char = '\\';
@@ -622,8 +615,8 @@ struct ConvertImplGenericFromJsonb {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-            const bool is_complex = is_complex_type(data_type_to);
-            const bool is_dst_string = is_string_or_fixed_string(data_type_to);
+            const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
+            const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
                 JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
@@ -1006,13 +999,13 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
     }
 
-    if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
+    if constexpr (std::is_same_v<DataTypeDecimal32, DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
     }
 
-    if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
+    if constexpr (std::is_same_v<DataTypeDecimal64, DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
@@ -1106,9 +1099,6 @@ public:
 };
 
 using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8>;
-using FunctionToUInt16 = FunctionConvert<DataTypeUInt16, NameToUInt16>;
-using FunctionToUInt32 = FunctionConvert<DataTypeUInt32, NameToUInt32>;
-using FunctionToUInt64 = FunctionConvert<DataTypeUInt64, NameToUInt64>;
 using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8>;
 using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16>;
 using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32>;
@@ -1119,11 +1109,11 @@ using FunctionToFloat64 = FunctionConvert<DataTypeFloat64, NameToFloat64>;
 
 using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2, NameToFloat64>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString>;
-using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32>;
-using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64>;
-using FunctionToDecimal128 = FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128>;
-using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3>;
-using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256>;
+using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal32, NameToDecimal32>;
+using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal64, NameToDecimal64>;
+using FunctionToDecimal128 = FunctionConvert<DataTypeDecimalV2, NameToDecimal128>;
+using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal128, NameToDecimal128V3>;
+using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal256, NameToDecimal256>;
 using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4>;
 using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate>;
@@ -1137,18 +1127,6 @@ struct FunctionTo;
 template <>
 struct FunctionTo<DataTypeUInt8> {
     using Type = FunctionToUInt8;
-};
-template <>
-struct FunctionTo<DataTypeUInt16> {
-    using Type = FunctionToUInt16;
-};
-template <>
-struct FunctionTo<DataTypeUInt32> {
-    using Type = FunctionToUInt32;
-};
-template <>
-struct FunctionTo<DataTypeUInt64> {
-    using Type = FunctionToUInt64;
 };
 template <>
 struct FunctionTo<DataTypeInt8> {
@@ -1179,23 +1157,23 @@ struct FunctionTo<DataTypeFloat64> {
     using Type = FunctionToFloat64;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal32>> {
+struct FunctionTo<DataTypeDecimal32> {
     using Type = FunctionToDecimal32;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal64>> {
+struct FunctionTo<DataTypeDecimal64> {
     using Type = FunctionToDecimal64;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128V2>> {
+struct FunctionTo<DataTypeDecimalV2> {
     using Type = FunctionToDecimal128;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128V3>> {
+struct FunctionTo<DataTypeDecimal128> {
     using Type = FunctionToDecimal128V3;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal256>> {
+struct FunctionTo<DataTypeDecimal256> {
     using Type = FunctionToDecimal256;
 };
 template <>
@@ -1262,8 +1240,9 @@ struct StringParsing {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
-        using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
-                                            ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
+        using ColVecTo =
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
+                                   ColumnVector<ToDataType::PType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const auto* col_from_string = check_and_get_column<ColumnString>(col_from);
@@ -1295,6 +1274,7 @@ struct StringParsing {
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
         [[maybe_unused]] UInt32 scale = 0;
+        // TODO: TimeV2 type also need scale
         if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
             const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                     block.get_by_position(result).type.get());
@@ -1334,20 +1314,20 @@ struct StringParsing {
 };
 
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>, Name>
-        : StringParsing<DataTypeDecimal<Decimal32>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal32, Name>
+        : StringParsing<DataTypeDecimal32, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
-        : StringParsing<DataTypeDecimal<Decimal64>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal64, Name>
+        : StringParsing<DataTypeDecimal64, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>, Name>
-        : StringParsing<DataTypeDecimal<Decimal128V2>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimalV2, Name>
+        : StringParsing<DataTypeDecimalV2, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>, Name>
-        : StringParsing<DataTypeDecimal<Decimal128V3>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal128, Name>
+        : StringParsing<DataTypeDecimal128, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
-        : StringParsing<DataTypeDecimal<Decimal256>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal256, Name>
+        : StringParsing<DataTypeDecimal256, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeIPv4, Name> : StringParsing<DataTypeIPv4, Name> {};
 template <typename Name>
@@ -1489,7 +1469,7 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
+                   (IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType>)&&!(
                            check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDate>(from_type.get()) ||
                            check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
@@ -1520,7 +1500,7 @@ private:
         };
     }
 
-    template <typename FieldType>
+    template <PrimitiveType FieldType>
     WrapperType create_decimal_wrapper(const DataTypePtr& from_type,
                                        const DataTypeDecimal<FieldType>* to_type) const {
         using ToDataType = DataTypeDecimal<FieldType>;
@@ -1654,7 +1634,7 @@ private:
         DataTypePtr from_nested_type = from_type->get_nested_type();
 
         /// In query SELECT CAST([] AS Array(Array(String))) from type is Array(Nothing)
-        bool from_empty_array = is_nothing(from_nested_type);
+        bool from_empty_array = from_nested_type->get_primitive_type() == INVALID_TYPE;
 
         if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
             !from_empty_array) {
@@ -1777,7 +1757,7 @@ private:
             auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
             auto& col_from = col_with_type_and_name.column;
-            auto& variant = assert_cast<const ColumnObject&>(*col_from);
+            auto& variant = assert_cast<const ColumnVariant&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
                 // ColumnObject should be finalized before parsing, finalize maybe modify original column structure
@@ -1790,9 +1770,9 @@ private:
             bool is_root_valuable =
                     variant.is_scalar_variant() ||
                     (!variant.is_null_root() &&
-                     !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
-                     !WhichDataType(data_type_to).is_string() &&
-                     !WhichDataType(data_type_to).is_json());
+                     variant.get_root_type()->get_primitive_type() != INVALID_TYPE &&
+                     !is_string_type(data_type_to->get_primitive_type()) &&
+                     data_type_to->get_primitive_type() != TYPE_JSONB);
             if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
@@ -1824,16 +1804,16 @@ private:
                     // TODO not found root cause, a tmp fix
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
-                } else if (WhichDataType(data_type_to).is_string()) {
+                } else if (is_string_type(data_type_to->get_primitive_type())) {
                     // serialize to string
                     return ConvertImplGenericToString::execute2(context, block, arguments, result,
                                                                 input_rows_count);
-                } else if (WhichDataType(data_type_to).is_json()) {
+                } else if (data_type_to->get_primitive_type() == TYPE_JSONB) {
                     // serialize to json by parsing
                     return ConvertImplGenericToJsonb::execute(context, block, arguments, result,
                                                               input_rows_count);
                 } else if (!data_type_to->is_nullable() &&
-                           !WhichDataType(data_type_to).is_string()) {
+                           !is_string_type(data_type_to->get_primitive_type())) {
                     // other types
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
@@ -1861,7 +1841,7 @@ private:
             auto& from_type = col_with_type_and_name.type;
             auto& col_from = col_with_type_and_name.column;
             // set variant root column/type to from column/type
-            auto variant = ColumnObject::create(true /*always nullable*/);
+            auto variant = ColumnVariant::create(true /*always nullable*/);
             variant->create_root(from_type, col_from->assume_mutable());
             block.replace_by_position(result, std::move(variant));
             return Status::OK();
@@ -1870,12 +1850,12 @@ private:
 
     // create cresponding variant value to wrap from_type
     WrapperType create_variant_wrapper(const DataTypePtr& from_type,
-                                       const DataTypeObject& to_type) const {
+                                       const DataTypeVariant& to_type) const {
         return &ConvertImplGenericToVariant::execute;
     }
 
     // create cresponding type convert from variant
-    WrapperType create_variant_wrapper(const DataTypeObject& from_type,
+    WrapperType create_variant_wrapper(const DataTypeVariant& from_type,
                                        const DataTypePtr& to_type) const {
         return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                       const uint32_t result, size_t input_rows_count) -> Status {
@@ -2051,8 +2031,8 @@ private:
             using Types = std::decay_t<decltype(types)>;
             using ToDataType = typename Types::LeftType;
 
-            if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
-                            IsTimeV2Type<ToDataType> ||
+            if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> ||
+                            IsDatelikeV1Types<ToDataType> || IsDatelikeV2Types<ToDataType> ||
                             std::is_same_v<ToDataType, DataTypeTimeV2>)) {
                 return false;
             }
@@ -2061,7 +2041,8 @@ private:
                 using Types2 = std::decay_t<decltype(types2)>;
                 using FromDataType = typename Types2::LeftType;
                 if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
-                                IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
+                                IsDatelikeV1Types<FromDataType> ||
+                                IsDatelikeV2Types<FromDataType> ||
                                 std::is_same_v<FromDataType, DataTypeTimeV2>)) {
                     return false;
                 }
@@ -2168,18 +2149,22 @@ private:
 
     /// 'from_type' and 'to_type' are nested types in case of Nullable.
     /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
-    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
-                             const DataTypePtr& to_type, bool requested_result_is_nullable) const {
+    WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_from_type,
+                             const DataTypePtr& origin_to_type,
+                             bool requested_result_is_nullable) const {
+        auto to_type = get_serialized_type(origin_to_type);
+        auto from_type = get_serialized_type(origin_from_type);
+
         if (from_type->equals(*to_type)) {
             return create_identity_wrapper(from_type);
         }
 
         // variant needs to be judged first
         if (to_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
+            return create_variant_wrapper(from_type, static_cast<const DataTypeVariant&>(*to_type));
         }
         if (from_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
+            return create_variant_wrapper(static_cast<const DataTypeVariant&>(*from_type), to_type);
         }
 
         switch (from_type->get_primitive_type()) {
@@ -2199,9 +2184,6 @@ private:
             using ToDataType = typename Types::LeftType;
 
             if constexpr (std::is_same_v<ToDataType, DataTypeUInt8> ||
-                          std::is_same_v<ToDataType, DataTypeUInt16> ||
-                          std::is_same_v<ToDataType, DataTypeUInt32> ||
-                          std::is_same_v<ToDataType, DataTypeUInt64> ||
                           std::is_same_v<ToDataType, DataTypeInt8> ||
                           std::is_same_v<ToDataType, DataTypeInt16> ||
                           std::is_same_v<ToDataType, DataTypeInt32> ||
@@ -2221,11 +2203,11 @@ private:
                 return true;
             }
 
-            if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V2>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V3>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
+            if constexpr (std::is_same_v<ToDataType, DataTypeDecimal32> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal64> ||
+                          std::is_same_v<ToDataType, DataTypeDecimalV2> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal128> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal256>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
                 return true;
@@ -2256,7 +2238,7 @@ private:
         case PrimitiveType::TYPE_HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             return create_bitmap_wrapper(context, from_type,
                                          static_cast<const DataTypeBitMap&>(*to_type));
         case PrimitiveType::TYPE_JSONB:

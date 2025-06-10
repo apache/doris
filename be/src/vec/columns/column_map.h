@@ -34,7 +34,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
@@ -47,14 +46,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
+class Arena;
 /** A column of map values.
   */
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {

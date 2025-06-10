@@ -144,7 +144,7 @@ public:
             }
 
             const auto* bitmap_type_info =
-                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>();
+                    get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>();
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;
             options.write_value_index = false;

@@ -93,7 +93,8 @@ public class S3Util {
                 .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
                 .build();
         return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.create())
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
                 .endpointOverride(endpoint)
                 .credentialsProvider(getAwsCredencialsProvider(credential))
                 .region(Region.of(region))
@@ -133,17 +134,56 @@ public class S3Util {
             StsClient stsClient = StsClient.builder()
                     .credentialsProvider(InstanceProfileCredentialsProvider.create())
                     .build();
+
             return StsAssumeRoleCredentialsProvider.builder()
                     .stsClient(stsClient)
-                    .refreshRequest(r -> r.roleArn(roleArn).externalId(externalId)
-                            .roleSessionName("aws-sdk-java-v2-fe"))
-                    .build();
+                    .refreshRequest(builder -> {
+                        builder.roleArn(roleArn).roleSessionName("aws-sdk-java-v2-fe");
+                        if (!Strings.isNullOrEmpty(externalId)) {
+                            builder.externalId(externalId);
+                        }
+                    }).build();
         }
         return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
                     EnvironmentVariableCredentialsProvider.create(),
                     WebIdentityTokenFileCredentialsProvider.create(),
                     ProfileCredentialsProvider.create(),
                     InstanceProfileCredentialsProvider.create());
+    }
+
+    public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,
+                                         AwsCredentialsProvider credential) {
+        EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
+                .builder()
+                .baseDelay(Duration.ofSeconds(1))
+                .maxBackoffTime(Duration.ofMinutes(1))
+                .build();
+        // retry 3 time with Equal backoff
+        RetryPolicy retryPolicy = RetryPolicy
+                .builder()
+                .numRetries(3)
+                .backoffStrategy(backoffStrategy)
+                .build();
+        ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
+        return S3Client.builder()
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
+                .endpointOverride(endpoint)
+                .credentialsProvider(credential)
+                .region(Region.of(region))
+                .overrideConfiguration(clientConf)
+                // disable chunkedEncoding because of bos not supported
+                .serviceConfiguration(S3Configuration.builder()
+                        .chunkedEncodingEnabled(false)
+                        .pathStyleAccessEnabled(isUsePathStyle)
+                        .build())
+                .build();
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle, String accessKey,
@@ -167,7 +207,8 @@ public class S3Util {
                 .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
                 .build();
         return S3Client.builder()
-                .httpClient(UrlConnectionHttpClient.create())
+                .httpClient(UrlConnectionHttpClient.builder().socketTimeout(Duration.ofSeconds(30))
+                        .connectionTimeout(Duration.ofSeconds(30)).build())
                 .endpointOverride(endpoint)
                 .credentialsProvider(getAwsCredencialsProvider(endpoint, region, accessKey, secretKey,
                         sessionToken, roleArn, externalId))
@@ -179,5 +220,21 @@ public class S3Util {
                         .pathStyleAccessEnabled(isUsePathStyle)
                         .build())
                 .build();
+    }
+
+    public static String getLongestPrefix(String globPattern) {
+        int length = globPattern.length();
+        int earliestSpecialCharIndex = length;
+
+        char[] specialChars = {'*', '?', '[', '{', '\\'};
+
+        for (char specialChar : specialChars) {
+            int index = globPattern.indexOf(specialChar);
+            if (index != -1 && index < earliestSpecialCharIndex) {
+                earliestSpecialCharIndex = index;
+            }
+        }
+
+        return globPattern.substring(0, earliestSpecialCharIndex);
     }
 }

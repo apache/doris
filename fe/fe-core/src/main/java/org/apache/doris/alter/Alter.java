@@ -835,15 +835,10 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                // Because the current dropMTMV will delete jobs related to materialized views,
-                // this method will maintain its own metadata for deleting jobs,
-                // so it cannot be called during playback
-                if (!isReplay) {
-                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) origTable);
-                }
-            }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
+            if (origTable instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
+            }
         }
     }
 
@@ -855,8 +850,8 @@ public class Alter {
 
         String tableName = dbTableName.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
-        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns(),
-                stmt.getComment());
+        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+                stmt.getColumns(), stmt.getComment());
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
@@ -867,14 +862,15 @@ public class Alter {
             try {
                 if (comment != null) {
                     view.setComment(comment);
-                } else {
+                }
+                // when do alter view modify comment, inlineViewDef and newFullSchema will be empty.
+                if (!Strings.isNullOrEmpty(inlineViewDef)) {
                     view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
                     view.setNewFullSchema(newFullSchema);
                 }
                 String viewName = view.getName();
                 db.unregisterTable(viewName);
                 db.registerTable(view);
-
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode, comment);
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);
@@ -1311,9 +1307,11 @@ public class Alter {
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
+            if (alterMTMV.isNeedRebuildJob()) {
+                Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
+            }
             // 4. log it and replay it in the follower
             if (!isReplay) {
-                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {

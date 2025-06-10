@@ -77,10 +77,35 @@ suite("test_javaudf_map") {
         ); """
 
         qt_select_2 """ select m,udfss(m) from map_ss order by id; """
+
+
+        sql """ CREATE TABLE IF NOT EXISTS map_si (
+              `id` INT(11) NULL COMMENT "",
+              `m` Map<String, int> NULL COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+        ); """
+        sql """ INSERT INTO map_si VALUES(1, {"114":514,"1919":810});         """
+        sql """ INSERT INTO map_si VALUES(2, {"a":22,"def":33,"hij":44});   """
+        sql """ DROP FUNCTION IF EXISTS udfsi(Map<String, Int>); """
+
+        sql """ CREATE FUNCTION udfsi(Map<String, Int>) RETURNS Map<String, Int> PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.MapsiTest",
+            "type"="JAVA_UDF"
+        ); """
+
+        qt_select_3 """ select m,udfsi(m) from map_si order by id; """
     } finally {
         try_sql("DROP FUNCTION IF EXISTS udfii(Map<INT, INT>);")
         try_sql("DROP FUNCTION IF EXISTS udfss(Map<String, String>);")
+        try_sql("DROP FUNCTION IF EXISTS udfsi(Map<String, Int>);")
         try_sql("DROP TABLE IF EXISTS map_ii")
         try_sql("DROP TABLE IF EXISTS map_ss")
+        try_sql("DROP TABLE IF EXISTS map_si")
     }
 }

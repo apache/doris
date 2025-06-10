@@ -87,7 +87,7 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
     }
     // call function
     uint32_t num_columns_without_result = block->columns();
-    auto res_data_column = ColumnVector<UInt8>::create(block->rows());
+    auto res_data_column = ColumnUInt8::create(block->rows());
 
     ColumnPtr argument_column =
             block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -107,7 +107,7 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
     }
 
     if (_data_type->is_nullable()) {
-        auto null_map = ColumnVector<UInt8>::create(block->rows(), 0);
+        auto null_map = ColumnUInt8::create(block->rows(), 0);
         block->insert({ColumnNullable::create(std::move(res_data_column), std::move(null_map)),
                        _data_type, _expr_name});
     } else {

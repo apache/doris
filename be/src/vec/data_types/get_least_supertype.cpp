@@ -28,11 +28,12 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -40,9 +41,8 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
 
@@ -147,14 +147,12 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
             if (min_bit_width_of_integer <= 8) {
                 *type = std::make_shared<DataTypeUInt8>();
                 return;
-            } else if (min_bit_width_of_integer <= 16) {
-                *type = std::make_shared<DataTypeUInt16>();
-                return;
-            } else if (min_bit_width_of_integer <= 32) {
-                *type = std::make_shared<DataTypeUInt32>();
-                return;
             } else if (min_bit_width_of_integer <= 64) {
-                *type = std::make_shared<DataTypeUInt64>();
+                throw Exception(Status::InternalError(
+                        "min_bit_width_of_integer={}, max_bits_of_signed_integer={}, "
+                        "max_bits_of_unsigned_integer={}",
+                        min_bit_width_of_integer, max_bits_of_signed_integer,
+                        max_bits_of_unsigned_integer));
                 return;
             } else {
                 LOG(WARNING) << "Logical error: "
@@ -175,7 +173,7 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
         non_nothing_types.reserve(types.size());
 
         for (const auto& type : types) {
-            if (!WhichDataType(type).is_nothing()) {
+            if (type->get_primitive_type() != PrimitiveType::INVALID_TYPE) {
                 non_nothing_types.emplace_back(type);
             }
         }

@@ -38,10 +38,10 @@ Make sure BuildKit configured in the machine. if not follow [docker-with-BuildKi
 ### 2. The doris image should contains
 
 ```shell
-/opt/apache-doris/{fe, be, cloud}
+/opt/apache-doris/{fe, be, ms}
 ```
 
-If don't create cloud cluster, the image no need to contains the cloud pkg.
+If don't create cloud cluster, the image no need to contains the ms pkg.
 
 If build doris use `sh build.sh --fe --be --cloud` **without do any change on their origin conf or shells**, then its `output/` satisfy with all above, then run command in doris root directory will generate such a image. If you want to pack a product that is not the `output/` directory, you can modify `Dockerfile` by yourself.
 
@@ -49,7 +49,38 @@ If build doris use `sh build.sh --fe --be --cloud` **without do any change on th
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
+The Dockerfile default use JDK 17, for doris 2.1, 3.0, master, they all default use JDK 17.
+
+But doris 2.0 still use JDK 8, for build 2.0 image, user need specific use JDK 8 with arg `JDK_IMAGE=openjdk:8u342-jdk`. Here is build 2.0 image command:
+
+
+```shell
+docker build -f docker/runtime/doris-compose/Dockerfile \
+     --build-arg JDK_IMAGE=openjdk:8u342-jdk            \
+    -t <image> .
+```
+
+
 The `<image>` is the name you want the docker image to have.
+
+User can also download a doris release package from [Doris Home](https://doris.apache.org/docs/releasenotes/all-release) or [Doris Github](https://github.com/apache/doris/releases), extract it, then build its image with arg `OUTPUT_PATH`
+
+for example:
+
+ ```shell
+cd ~/tmp
+wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.5-bin-x64.tar.gz
+tar xvf apache-doris-3.0.5-bin-x64.tar.gz  # after extract, there will be a directory ./apache-doris-3.0.5-bin-x64/{fe, be, ms}
+
+# -f: the Dockerfile file
+# -t: the builded image
+# . : current directory, here it's ~/tmp, then output path is ~/tmp/apache-doris-3.0.5-bin-x64
+docker build \
+     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64 \
+     -f ~/workspace/doris/docker/runtime/doris-compose/Dockerfile \
+     -t my-doris:v3.0.5 \
+     .
+```
 
 ### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
 

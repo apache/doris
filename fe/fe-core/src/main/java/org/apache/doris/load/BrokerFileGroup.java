@@ -36,12 +36,15 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.thrift.TFileCompressType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -69,7 +72,6 @@ public class BrokerFileGroup implements Writable {
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
-    private TFileCompressType compressType = TFileCompressType.UNKNOWN;
     private boolean isNegative;
     private List<Long> partitionIds; // can be null, means no partition specified
     private List<String> filePaths;
@@ -97,20 +99,9 @@ public class BrokerFileGroup implements Writable {
     // load from table
     private long srcTableId = -1;
     private boolean isLoadFromTable = false;
-
-    private boolean stripOuterArray = false;
-    private String jsonPaths = "";
-    private String jsonRoot = "";
-    private boolean fuzzyParse = true;
-    private boolean readJsonByLine = false;
-    private boolean numAsString = false;
-    private boolean trimDoubleQuotes = false;
-    private int skipLines;
     private boolean ignoreCsvRedundantCol = false;
 
-    private byte enclose;
-
-    private  byte escape;
+    private FileFormatProperties fileFormatProperties;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -186,24 +177,13 @@ public class BrokerFileGroup implements Writable {
             olapTable.readUnlock();
         }
 
-        lineDelimiter = dataDescription.getLineDelimiter();
-        if (lineDelimiter == null) {
-            lineDelimiter = "\n";
+        fileFormatProperties = dataDescription.getFileFormatProperties();
+        fileFormat = fileFormatProperties.getFormatName();
+        if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
+            lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
         }
 
-        enclose = dataDescription.getEnclose();
-        escape = dataDescription.getEscape();
-
-        fileFormat = dataDescription.getFileFormat();
-        columnSeparator = dataDescription.getColumnSeparator();
-        if (columnSeparator == null) {
-            if (fileFormat != null && fileFormat.equalsIgnoreCase("hive_text")) {
-                columnSeparator = "\001";
-            } else {
-                columnSeparator = "\t";
-            }
-        }
-        compressType = dataDescription.getCompressType();
         isNegative = dataDescription.isNegative();
 
         // FilePath
@@ -233,44 +213,10 @@ public class BrokerFileGroup implements Writable {
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
-        stripOuterArray = dataDescription.isStripOuterArray();
-        jsonPaths = dataDescription.getJsonPaths();
-        jsonRoot = dataDescription.getJsonRoot();
-        fuzzyParse = dataDescription.isFuzzyParse();
-        // ATTN: for broker load, we only support reading json format data line by line,
-        // so if this is set to false, it must be stream load.
-        readJsonByLine = dataDescription.isReadJsonByLine();
-        numAsString = dataDescription.isNumAsString();
-        trimDoubleQuotes = dataDescription.getTrimDoubleQuotes();
-        skipLines = dataDescription.getSkipLines();
     }
 
     public long getTableId() {
         return tableId;
-    }
-
-    public String getColumnSeparator() {
-        return columnSeparator;
-    }
-
-    public String getLineDelimiter() {
-        return lineDelimiter;
-    }
-
-    public byte getEnclose() {
-        return enclose;
-    }
-
-    public byte getEscape() {
-        return escape;
-    }
-
-    public String getFileFormat() {
-        return fileFormat;
-    }
-
-    public TFileCompressType getCompressType() {
-        return compressType;
     }
 
     public boolean isNegative() {
@@ -345,44 +291,13 @@ public class BrokerFileGroup implements Writable {
         this.fileSize = fileSize;
     }
 
-    public boolean isStripOuterArray() {
-        return stripOuterArray;
-    }
-
-    public boolean isFuzzyParse() {
-        return fuzzyParse;
-    }
-
-    public boolean isReadJsonByLine() {
-        return readJsonByLine;
-    }
-
-    public boolean isNumAsString() {
-        return numAsString;
-    }
-
-    public String getJsonPaths() {
-        return jsonPaths;
-    }
-
-    public String getJsonRoot() {
-        return jsonRoot;
-    }
-
     public boolean isBinaryFileFormat() {
-        if (fileFormat == null) {
-            // null means default: csv
-            return false;
-        }
-        return fileFormat.equalsIgnoreCase("parquet") || fileFormat.equalsIgnoreCase("orc");
+        return fileFormatProperties instanceof ParquetFileFormatProperties
+                || fileFormatProperties instanceof OrcFileFormatProperties;
     }
 
-    public boolean getTrimDoubleQuotes() {
-        return trimDoubleQuotes;
-    }
-
-    public int getSkipLines() {
-        return skipLines;
+    public FileFormatProperties getFileFormatProperties() {
+        return fileFormatProperties;
     }
 
     public boolean getIgnoreCsvRedundantCol() {
@@ -592,10 +507,9 @@ public class BrokerFileGroup implements Writable {
                 importColumnDescs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
         }
-        return new NereidsBrokerFileGroup(tableId, columnSeparator, lineDelimiter, fileFormat, compressType,
-                isNegative, partitionIds, filePaths, fileSize, fileFieldNames, columnNamesFromPath, importColumnDescs,
-                columnToHadoopFunction, precedingFilter, whereExpr, deleteCondition, mergeType, sequenceCol,
-                srcTableId, isLoadFromTable, stripOuterArray, jsonPaths, jsonRoot, fuzzyParse, readJsonByLine,
-                numAsString, trimDoubleQuotes, skipLines, ignoreCsvRedundantCol, enclose, escape);
+        return new NereidsBrokerFileGroup(tableId, isNegative, partitionIds, filePaths, fileSize, fileFieldNames,
+                columnNamesFromPath, importColumnDescs, columnToHadoopFunction, precedingFilter, whereExpr,
+                deleteCondition, mergeType, sequenceCol, srcTableId, isLoadFromTable, ignoreCsvRedundantCol,
+                fileFormatProperties);
     }
 }

@@ -114,8 +114,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::HLL:
         return TYPE_HLL;
 
-    case TPrimitiveType::OBJECT:
-        return TYPE_OBJECT;
+    case TPrimitiveType::BITMAP:
+        return TYPE_BITMAP;
 
     case TPrimitiveType::QUANTILE_STATE:
         return TYPE_QUANTILE_STATE;
@@ -233,8 +233,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_HLL:
         return TPrimitiveType::HLL;
 
-    case TYPE_OBJECT:
-        return TPrimitiveType::OBJECT;
+    case TYPE_BITMAP:
+        return TPrimitiveType::BITMAP;
 
     case TYPE_QUANTILE_STATE:
         return TPrimitiveType::QUANTILE_STATE;
@@ -343,8 +343,8 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_HLL:
         return "HLL";
 
-    case TYPE_OBJECT:
-        return "OBJECT";
+    case TYPE_BITMAP:
+        return "BITMAP";
 
     case TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
@@ -371,107 +371,6 @@ std::string type_to_string(PrimitiveType t) {
     };
 
     return "";
-}
-
-std::string type_to_odbc_string(PrimitiveType t) {
-    // ODBC driver requires types in lower case
-    switch (t) {
-    default:
-    case INVALID_TYPE:
-        return "invalid";
-
-    case TYPE_NULL:
-        return "null";
-
-    case TYPE_BOOLEAN:
-        return "boolean";
-
-    case TYPE_TINYINT:
-        return "tinyint";
-
-    case TYPE_SMALLINT:
-        return "smallint";
-
-    case TYPE_INT:
-        return "int";
-
-    case TYPE_BIGINT:
-        return "bigint";
-
-    case TYPE_LARGEINT:
-        return "largeint";
-
-    case TYPE_FLOAT:
-        return "float";
-
-    case TYPE_DOUBLE:
-        return "double";
-
-    case TYPE_DATE:
-        return "date";
-
-    case TYPE_DATETIME:
-        return "datetime";
-
-    case TYPE_DATEV2:
-        return "datev2";
-
-    case TYPE_DATETIMEV2:
-        return "datetimev2";
-
-    case TYPE_TIMEV2:
-        return "timev2";
-
-    case TYPE_VARCHAR:
-        return "string";
-
-    case TYPE_STRING:
-        return "string";
-
-    case TYPE_JSONB:
-        return "jsonb";
-
-    case TYPE_BINARY:
-        return "binary";
-
-    case TYPE_IPV4:
-        return "ipv4";
-
-    case TYPE_IPV6:
-        return "ipv6";
-
-    case TYPE_DECIMALV2:
-        return "decimalv2";
-
-    case TYPE_DECIMAL32:
-        return "decimal32";
-
-    case TYPE_DECIMAL64:
-        return "decimal64";
-
-    case TYPE_DECIMAL128I:
-        return "decimal128";
-
-    case TYPE_DECIMAL256:
-        return "decimal256";
-
-    case TYPE_CHAR:
-        return "char";
-
-    case TYPE_HLL:
-        return "hll";
-
-    case TYPE_OBJECT:
-        return "object";
-
-    case TYPE_QUANTILE_STATE:
-        return "quantile_state";
-
-    case TYPE_AGG_STATE:
-        return "agg_state";
-    };
-
-    return "unknown";
 }
 
 // for test only

@@ -17,15 +17,10 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.CreatePolicyStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,7 +35,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -105,7 +99,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
     @SerializedName(value = "stmtIdx")
     private int stmtIdx;
 
-    private Expr wherePredicate = null;
+    private Expression wherePredicate = null;
 
     public RowPolicy() {
         super(PolicyTypeEnum.ROW);
@@ -126,7 +120,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
      */
     public RowPolicy(long policyId, final String policyName, long dbId, UserIdentity user, String roleName,
             String originStmt, int stmtIdx,
-            final long tableId, final FilterType filterType, final Expr wherePredicate) {
+            final long tableId, final FilterType filterType, final Expression wherePredicate) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.roleName = roleName;
@@ -140,7 +134,7 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
 
     public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
             UserIdentity user, String roleName,
-            String originStmt, int stmtIdx, final FilterType filterType, final Expr wherePredicate) {
+            String originStmt, int stmtIdx, final FilterType filterType, final Expression wherePredicate) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.roleName = roleName;
@@ -164,14 +158,19 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (wherePredicate != null) {
+        if (this.wherePredicate != null) {
             return;
         }
         try {
-            SqlScanner input = new SqlScanner(new StringReader(originStmt), 0L);
-            SqlParser parser = new SqlParser(input);
-            CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getStmt(parser, stmtIdx);
-            wherePredicate = stmt.getWherePredicate();
+            NereidsParser nereidsParser = new NereidsParser();
+            String sql = getOriginStmt();
+            CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+            Optional<Expression> wherePredicate = command.getWherePredicate();
+            if (!wherePredicate.isPresent()) {
+                LOG.warn("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+                return;
+            }
+            this.wherePredicate = wherePredicate.get();
         } catch (Exception e) {
             String errorMsg = String.format("table policy parse originStmt error, originStmt: %s, stmtIdx: %s.",
                     originStmt, stmtIdx);
@@ -224,18 +223,10 @@ public class RowPolicy extends Policy implements RowFilterPolicy {
 
     @Override
     public Expression getFilterExpression() throws AnalysisException {
-        NereidsParser nereidsParser = new NereidsParser();
-        String sql = getOriginStmt();
-        if (getStmtIdx() != 0) {
-            // Under normal circumstances, the index will only be equal to 0
-            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+        if (wherePredicate == null) {
+            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
         }
-        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
-        Optional<Expression> wherePredicate = command.getWherePredicate();
-        if (!wherePredicate.isPresent()) {
-            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "], " + sql);
-        }
-        return wherePredicate.get();
+        return wherePredicate;
     }
 
     @Override

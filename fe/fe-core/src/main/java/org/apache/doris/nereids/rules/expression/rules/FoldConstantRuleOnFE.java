@@ -375,13 +375,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
 
     @Override
     public Expression visitUser(User user, ExpressionRewriteContext context) {
-        String res = context.cascadesContext.getConnectContext().getUserIdentity().toString();
+        String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
         return new VarcharLiteral(res);
     }
 
     @Override
     public Expression visitSessionUser(SessionUser user, ExpressionRewriteContext context) {
-        String res = context.cascadesContext.getConnectContext().getUserIdentity().toString();
+        String res = context.cascadesContext.getConnectContext().getUserWithLoginRemoteIpString();
         return new VarcharLiteral(res);
     }
 

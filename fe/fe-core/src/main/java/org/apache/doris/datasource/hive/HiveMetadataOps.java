@@ -39,6 +39,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -71,7 +72,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         this(catalog, createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
                 jdbcClientConfig));
-        hadoopAuthenticator = catalog.getAuthenticator();
+        hadoopAuthenticator = catalog.getPreExecutionAuthenticator().getHadoopAuthenticator();
         client.setHadoopAuthenticator(hadoopAuthenticator);
     }
 
@@ -112,6 +113,36 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         long dbId = Env.getCurrentEnv().getNextId();
         if (databaseExist(fullDbName)) {
             if (stmt.isSetIfNotExists()) {
+                LOG.info("create database[{}] which already exists", fullDbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
+            }
+        }
+        try {
+            HiveDatabaseMetadata catalogDatabase = new HiveDatabaseMetadata();
+            catalogDatabase.setDbName(fullDbName);
+            if (properties.containsKey(LOCATION_URI_KEY)) {
+                catalogDatabase.setLocationUri(properties.get(LOCATION_URI_KEY));
+            }
+            // remove it when set
+            properties.remove(LOCATION_URI_KEY);
+            catalogDatabase.setProperties(properties);
+            catalogDatabase.setComment(properties.getOrDefault("comment", ""));
+            client.createDatabase(catalogDatabase);
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+        LOG.info("createDb dbName = " + fullDbName + ", id = " + dbId);
+    }
+
+    @Override
+    public void createDbImpl(CreateDatabaseCommand command) throws DdlException {
+        String fullDbName = command.getDbName();
+        Map<String, String> properties = command.getProperties();
+        long dbId = Env.getCurrentEnv().getNextId();
+        if (databaseExist(fullDbName)) {
+            if (command.isIfNotExists()) {
                 LOG.info("create database[{}] which already exists", fullDbName);
                 return;
             } else {
@@ -193,7 +224,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
             // set default owner
             if (!props.containsKey("owner")) {
                 if (ConnectContext.get() != null) {
-                    props.put("owner", ConnectContext.get().getUserIdentity().getUser());
+                    props.put("owner", ConnectContext.get().getCurrentUserIdentity().getUser());
                 }
             }
 

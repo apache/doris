@@ -70,6 +70,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
@@ -2619,6 +2620,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public void clearNullableFromNereids() {
         nullableFromNereids = Optional.empty();
+    }
+
+    public Set<SlotRef> getInputSlotRef() {
+        Set<SlotRef> slots = new HashSet<>();
+        if (this instanceof SlotRef) {
+            slots.add((SlotRef) this);
+            return slots;
+        } else {
+            for (Expr expr : children) {
+                slots.addAll(expr.getInputSlotRef());
+            }
+        }
+        return slots;
     }
 }
 

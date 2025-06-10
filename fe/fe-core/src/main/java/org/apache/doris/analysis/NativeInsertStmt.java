@@ -393,7 +393,7 @@ public class NativeInsertStmt extends InsertStmt {
         createDataSink();
 
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        long timeoutSecond = ConnectContext.get().getExecTimeoutS();
         if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
             label = new LabelName(db.getFullName(),
                     insertType.labePrefix + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));

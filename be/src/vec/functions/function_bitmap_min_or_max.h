@@ -82,7 +82,7 @@ private:
                 continue;
             }
 
-            result_column->insert(Impl::calculate(value));
+            result_column->insert(Field::create_field<TYPE_BIGINT>(Impl::calculate(value)));
         }
     }
 };

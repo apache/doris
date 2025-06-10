@@ -90,6 +90,7 @@ public:
         return msg;
     }
 
+    static bool reserve_process_memory(int64_t bytes);
     static bool try_reserve_process_memory(int64_t bytes);
     static void shrink_process_reserved(int64_t bytes);
 

@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/cumulative_compaction.h"
@@ -107,6 +106,7 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
         config::enable_ordered_data_compaction = true;
         config::ordered_data_compaction_min_segment_size = 10;
+        config::segments_key_bounds_truncation_threshold = -1;
     }
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(absolute_dir).ok());

@@ -67,18 +67,17 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_STRUCT;
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
-
-    TypeIndex get_type_id() const override { return TypeIndex::Struct; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
     }
     std::string do_get_name() const override;
-    const char* get_family_name() const override { return "Struct"; }
+    const std::string get_family_name() const override { return "Struct"; }
 
     bool supports_sparse_serialization() const { return true; }
 
@@ -89,7 +88,6 @@ public:
     Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for struct");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;
