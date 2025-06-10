@@ -492,7 +492,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                     continue;
                 }
             }
-            picked_segments.emplace_back(i);
+            picked_segments.emplace_back(j);
         }
         if (picked_segments.empty()) {
             continue;
