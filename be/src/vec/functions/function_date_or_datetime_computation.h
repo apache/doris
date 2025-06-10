@@ -1228,11 +1228,10 @@ public:
         ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res->get_data();
         for (int i = 0; i < arg->size(); i++) {
-            auto v = arg->get_element(i);
+            const auto* v =
+                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>*>(&arg->get_element(i));
             // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
-            res_data[i] = TimeValue::make_time(DataTypeDateTimeV2::get_hour(v),
-                                               DataTypeDateTimeV2::get_minute(v),
-                                               DataTypeDateTimeV2::get_second(v));
+            res_data[i] = TimeValue::make_time(v->hour(), v->minute(), v->second());
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
