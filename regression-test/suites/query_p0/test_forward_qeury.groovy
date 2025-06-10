@@ -43,7 +43,12 @@ suite("test_forward_query", 'docker') {
 
         cluster.injectDebugPoints(NodeType.FE, ['StmtExecutor.forward_all_queries' : [forwardAllQueries:true, execute:1]])
 
-        def ret = sql """ SELECT * FROM ${tbl} """
+        def stmt = prepareStatement("""INSERT INTO ${tbl} VALUES(?);""")
+        stmt.setInt(1, 2)
+        stmt.executeUpdate()
+
+        def ret = sql """ SELECT * FROM ${tbl} order by k1"""
         assertEquals(ret[0][0], 1)
+        assertEquals(ret[1][0], 2)
     }
 }

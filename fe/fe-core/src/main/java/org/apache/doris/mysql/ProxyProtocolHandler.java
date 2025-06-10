@@ -49,12 +49,18 @@ public class ProxyProtocolHandler {
     private static final String TCP4 = "TCP4";
     private static final String TCP6 = "TCP6";
 
+    public enum ProtocolType {
+        PROTOCOL_WITH_IP, // protocol with source ip
+        PROTOCOL_WITHOUT_IP, // v2 protocol without source ip
+        NOT_PROXY_PROTOCOL  // not proxy protocol
+    }
+
     public static class ProxyProtocolResult {
         public String sourceIP = null;
         public int sourcePort = -1;
         public String destIp = null;
         public int destPort = -1;
-        public boolean isUnknown = false;
+        public ProtocolType pType = ProtocolType.PROTOCOL_WITH_IP;
 
         @Override
         public String toString() {
@@ -63,7 +69,7 @@ public class ProxyProtocolHandler {
                     + ", sourcePort=" + sourcePort
                     + ", destIp='" + destIp + '\''
                     + ", destPort=" + destPort
-                    + ", isUnknown=" + isUnknown
+                    + ", pType=" + pType
                     + '}';
         }
     }
@@ -71,10 +77,18 @@ public class ProxyProtocolHandler {
     public static ProxyProtocolResult handle(BytesChannel channel) throws IOException {
         // First read 1 byte to see if it is V1 or V2
         ByteBuffer buffer = ByteBuffer.allocate(1);
-        int readLen = channel.read(buffer);
-        if (readLen != 1) {
+        int readLen = channel.testReadWithTimeout(buffer, 10);
+        if (readLen == -1) {
+            throw new IOException("Remote peer closed the channel, ignore.");
+        } else if (readLen == 0) {
+            // 0 means remote peer does not send proxy protocol content.
+            ProxyProtocolResult result = new ProxyProtocolResult();
+            result.pType = ProtocolType.NOT_PROXY_PROTOCOL;
+            return result;
+        } else if (readLen != 1) {
             throw new IOException("Invalid proxy protocol, expect incoming bytes first");
         }
+
         buffer.flip();
         byte firstByte = buffer.get();
         if ((char) firstByte == V1_HEADER[0]) {
@@ -120,7 +134,7 @@ public class ProxyProtocolHandler {
                         throw new ProtocolException("Invalid proxy protocol v1. '\\r' is not found before '\\n'",
                                 debugInfo.toString());
                     }
-                    result.isUnknown = true;
+                    result.pType = ProtocolType.PROTOCOL_WITHOUT_IP;
                     return result;
                 } else if (carriageFound) {
                     throw new ProtocolException("Invalid proxy protocol v1. "

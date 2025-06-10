@@ -32,7 +32,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/string_ref.h"
@@ -180,10 +179,10 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     size_t get_max_row_byte_size() const override;
-    void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                       size_t max_row_byte_size) const override;
 
-    void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const override;
+
+    void deserialize_vec(StringRef* keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -200,10 +199,17 @@ public:
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
+    void append_data_by_selector(IColumn::MutablePtr& res,
+                                 const IColumn::Selector& selector) const override;
+
+    void append_data_by_selector(IColumn::MutablePtr& res, const IColumn::Selector& selector,
+                                 size_t begin, size_t end) const override;
+
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
-        const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
-        assert_cast<ColumnType*>(nested_column.get())
+        const auto& src_concrete =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(src);
+        assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(nested_column.get())
                 ->insert_from(src_concrete.get_nested_column(), n);
         auto is_null = src_concrete.get_null_map_data()[n];
         if (is_null) {
@@ -215,9 +221,7 @@ public:
         }
     }
 
-    void insert_from_not_nullable(const IColumn& src, size_t n);
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
-    void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
     void insert_many_fix_len_data(const char* pos, size_t num) override {
         _push_false_to_nullmap(num);
@@ -285,6 +289,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
@@ -315,17 +320,9 @@ public:
         return false;
     }
 
-    bool is_date_type() const override { return get_nested_column().is_date_type(); }
-    bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
-    void set_date_type() override { get_nested_column().set_date_type(); }
-    void set_datetime_type() override { get_nested_column().set_datetime_type(); }
-
     bool is_nullable() const override { return true; }
     bool is_concrete_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
-    bool is_column_array() const override { return get_nested_column().is_column_array(); }
-    bool is_column_map() const override { return get_nested_column().is_column_map(); }
-    bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
 
     bool is_exclusive() const override {
         return IColumn::is_exclusive() && nested_column->is_exclusive() &&
@@ -436,6 +433,13 @@ public:
 
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
+    }
+
+    void finalize() override { get_nested_column().finalize(); }
+
+    void erase(size_t start, size_t length) override {
+        get_nested_column().erase(start, length);
+        get_null_map_column().erase(start, length);
     }
 
 private:

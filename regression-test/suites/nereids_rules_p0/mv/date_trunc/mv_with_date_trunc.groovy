@@ -1447,7 +1447,7 @@ suite("mv_with_date_trunc") {
     logger.info("lineitem table stats: " + result)
     result = sql """show index stats lineitem lineitem"""
     logger.info("lineitem index stats: " + result)
-    mv_rewrite_success(query4_0, "mv4_0")
+    mv_rewrite_success(query4_0, "mv4_0", true, is_partition_statistics_ready(db, ["lineitem", "mv4_0"]))
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""
 

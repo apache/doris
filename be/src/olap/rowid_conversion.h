@@ -42,13 +42,20 @@ public:
             constexpr size_t RESERVED_MEMORY = 10 * 1024 * 1024; // 10M
             if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(RESERVED_MEMORY)) {
                 return Status::MemoryLimitExceeded(fmt::format(
-                        "RowIdConversion init_segment_map failed, memory exceed limit, {}, "
+                        "RowIdConversion init_segment_map failed, process memory exceed limit or "
+                        "sys available memory less than low water mark , {}, "
                         "consuming "
                         "tracker:<{}>, peak used {}, current used {}.",
-                        doris::GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str(),
-                        doris::thread_context()->thread_mem_tracker()->label(),
-                        doris::thread_context()->thread_mem_tracker()->peak_consumption(),
-                        doris::thread_context()->thread_mem_tracker()->consumption()));
+                        doris::GlobalMemoryArbitrator::process_mem_log_str(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->label(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->peak_consumption(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->consumption()));
             }
 
             uint32_t id = _segments_rowid_map.size();

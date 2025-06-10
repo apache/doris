@@ -63,9 +63,13 @@ public class SchemaScanNode extends ScanNode {
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
-    public SchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
+    public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
+                          String schemaCatalog, String schemaDb, String schemaTable) {
         super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
+        this.schemaCatalog = schemaCatalog;
+        this.schemaDb = schemaDb;
+        this.schemaTable = schemaTable;
     }
 
     public String getTableName() {
@@ -92,14 +96,26 @@ public class SchemaScanNode extends ScanNode {
         schemaCatalog = analyzer.getSchemaCatalog();
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
-        frontendIP = FrontendOptions.getLocalHostAddress();
-        frontendPort = Config.rpc_port;
+        if (ConnectContext.get().getSessionVariable().enableSchemaScanFromMasterFe
+                && tableName.equalsIgnoreCase("tables")) {
+            frontendIP = Env.getCurrentEnv().getMasterHost();
+            frontendPort = Env.getCurrentEnv().getMasterRpcPort();
+        } else {
+            frontendIP = FrontendOptions.getLocalHostAddress();
+            frontendPort = Config.rpc_port;
+        }
     }
 
     private void setFeAddrList(TPlanNode msg) {

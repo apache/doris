@@ -17,7 +17,7 @@
 
 suite("q23") {
     sql """ set enable_force_spill  =true; """
-    sql """ set min_revocable_mem = 65536; """
+    sql """ set spill_min_revocable_mem = 65536; """
     sql """ use regression_test_tpcds_sf1_p1; """
 
     qt_select1 """

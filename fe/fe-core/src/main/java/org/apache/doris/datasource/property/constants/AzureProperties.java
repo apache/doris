@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.constants;
 
-
+import org.apache.doris.common.Config;
 import org.apache.doris.common.credentials.CloudCredential;
 
 import java.util.Arrays;
@@ -36,7 +36,7 @@ public class AzureProperties extends BaseProperties {
     public static final String SESSION_TOKEN = "azure.session_token";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
 
-    public static final String AZURE_ENDPOINT_TEMPLATE = "%s.blob.core.windows.net/%s";
+    public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
     public static class FS {
         public static final String SESSION_TOKEN = "fs.azure.session.token";
@@ -47,7 +47,7 @@ public class AzureProperties extends BaseProperties {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);
     }
 
-    public static Boolean checkAzureProviderPropertyExist(Map<String, String> properties) {
+    public static boolean checkAzureProviderPropertyExist(Map<String, String> properties) {
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().toLowerCase().contains(S3Properties.PROVIDER)
                     && entry.getValue().toUpperCase().equals(AzureProperties.AZURE_NAME)) {
@@ -56,4 +56,15 @@ public class AzureProperties extends BaseProperties {
         }
         return false;
     }
+
+    public static String formatAzureEndpoint(String endpoint, String accountName) {
+        if (Config.force_azure_blob_global_endpoint) {
+            return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
+        }
+        if (endpoint.contains("://")) {
+            return endpoint;
+        }
+        return "https://" + endpoint;
+    }
+
 }

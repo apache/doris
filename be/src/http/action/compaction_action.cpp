@@ -28,9 +28,9 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -153,6 +153,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         std::vector<TabletSharedPtr> tablet_vec = _engine.tablet_manager()->get_all_tablet(
                 [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
+            tablet->set_last_full_compaction_schedule_time(UnixMillis());
             RETURN_IF_ERROR(
                     _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, false));
         }
@@ -166,6 +167,15 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         if (fetch_from_remote && !tablet->should_fetch_from_peer()) {
             return Status::NotSupported("tablet should do compaction locally");
         }
+        DBUG_EXECUTE_IF("CompactionAction._handle_run_compaction.submit_cumu_task", {
+            RETURN_IF_ERROR(_engine.submit_compaction_task(
+                    tablet, CompactionType::CUMULATIVE_COMPACTION, false));
+            LOG(INFO) << "Manual debug compaction task is successfully triggered";
+            *json_result =
+                    R"({"status": "Success", "msg": "debug compaction task is successfully triggered. Table id: )" +
+                    std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
+            return Status::OK();
+        })
 
         // 3. execute compaction task
         std::packaged_task<Status()> task([this, tablet, compaction_type, fetch_from_remote]() {
@@ -173,6 +183,15 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         });
         std::future<Status> future_obj = task.get_future();
         std::thread(std::move(task)).detach();
+
+        // 更新schedule_time
+        if (compaction_type == PARAM_COMPACTION_BASE) {
+            tablet->set_last_base_compaction_schedule_time(UnixMillis());
+        } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
+            tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+        } else if (compaction_type == PARAM_COMPACTION_FULL) {
+            tablet->set_last_full_compaction_schedule_time(UnixMillis());
+        }
 
         // 4. wait for result for 2 seconds by async
         std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
@@ -232,8 +251,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
                 msg = "compaction task for this tablet is running";
                 compaction_type = "full";
                 run_status = true;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   compaction_type);
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
                 return Status::OK();
             }
         }
@@ -246,8 +265,8 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
                 msg = "compaction task for this tablet is running";
                 compaction_type = "cumulative";
                 run_status = true;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   compaction_type);
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
                 return Status::OK();
             }
         }
@@ -260,14 +279,13 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
                 msg = "compaction task for this tablet is running";
                 compaction_type = "base";
                 run_status = true;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   compaction_type);
+                *json_result = absl::Substitute(json_template, run_status, msg, tablet_id,
+                                                compaction_type);
                 return Status::OK();
             }
         }
         // not running any compaction
-        *json_result =
-                strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+        *json_result = absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
         return Status::OK();
     }
 }

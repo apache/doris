@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.distribute;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
@@ -33,9 +34,11 @@ import java.util.Objects;
 
 /** NereidsSpecifyInstances */
 public abstract class NereidsSpecifyInstances<S extends ScanSource> {
+    public final StatementContext statementContext;
     public final List<WorkerScanSource<S>> workerScanSources;
 
-    public NereidsSpecifyInstances(List<WorkerScanSource<S>> workerScanSources) {
+    public NereidsSpecifyInstances(StatementContext statementContext, List<WorkerScanSource<S>> workerScanSources) {
+        this.statementContext = Objects.requireNonNull(statementContext, "statementContext can not be null");
         this.workerScanSources = Objects.requireNonNull(workerScanSources,
                 "workerScanSources can not be null");
     }
@@ -44,7 +47,7 @@ public abstract class NereidsSpecifyInstances<S extends ScanSource> {
     public List<AssignedJob> buildAssignedJobs(UnassignedJob unassignedJob) {
         List<AssignedJob> instances = Lists.newArrayListWithCapacity(workerScanSources.size());
         int instanceNum = 0;
-        ConnectContext context = ConnectContext.get();
+        ConnectContext context = statementContext.getConnectContext();
         for (WorkerScanSource<S> workerToScanSource : workerScanSources) {
             TUniqueId instanceId = context.nextInstanceId();
             DistributedPlanWorker worker = workerToScanSource.worker;

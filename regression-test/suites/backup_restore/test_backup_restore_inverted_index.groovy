@@ -16,7 +16,8 @@
 // under the License.
 
 suite("test_backup_restore_inverted_index", "backup_restore") {
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String suiteName = "test_backup_restore_inverted_index"
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "test_backup_restore_inverted_index_db"
     String tableName = "test_backup_restore_inverted_index_table"
 
@@ -74,7 +75,7 @@ suite("test_backup_restore_inverted_index", "backup_restore") {
 
     def restore_index_comment = sql "SHOW CREATE TABLE ${dbName}.${tableName}"
 
-    assertTrue(restore_index_comment[0][1].contains("USING INVERTED PROPERTIES(\"parser\" = \"english\", \"lower_case\" = \"true\", \"support_phrase\" = \"true\")"))
+    assertTrue(restore_index_comment[0][1].contains("USING INVERTED PROPERTIES(\"lower_case\" = \"true\", \"parser\" = \"english\", \"support_phrase\" = \"true\")"))
 
     result = sql "SELECT id, TOKENIZE(comment,'\"parser\"=\"english\"') as token FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 2)

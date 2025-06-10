@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
@@ -75,8 +76,8 @@ public class DateTimeV2Type extends DateLikeType {
         if (dataType instanceof DateTimeV2Type) {
             return (DateTimeV2Type) dataType;
         }
-        if (dataType instanceof IntegralType || dataType instanceof BooleanType
-                || dataType instanceof NullType || dataType instanceof DateTimeType) {
+        if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
+                || dataType instanceof DateTimeType || dataType instanceof DateType || dataType instanceof DateV2Type) {
             return SYSTEM_DEFAULT;
         }
         return MAX;
@@ -87,7 +88,14 @@ public class DateTimeV2Type extends DateLikeType {
      * maybe we need to check for validity?
      */
     public static DateTimeV2Type forTypeFromString(String s) {
-        int scale = DateTimeLiteral.determineScale(s);
+        int scale = MAX_SCALE;
+        if (DateTimeChecker.isValidDateTime(s)) {
+            try {
+                scale = DateTimeLiteral.determineScale(s);
+            } catch (Exception e) {
+                // let be to process it
+            }
+        }
         if (scale > MAX_SCALE) {
             scale = MAX_SCALE;
         }

@@ -37,6 +37,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.RpcException;
@@ -235,7 +236,6 @@ public class CloudSystemInfoService extends SystemInfoService {
             if (be == null) {
                 be = new ArrayList<>();
                 clusterIdToBackend.put(clusterId, be);
-                MetricRepo.registerCloudMetrics(clusterId, clusterName);
             }
             Set<String> existed = be.stream().map(i -> i.getHost() + ":" + i.getHeartbeatPort())
                     .collect(Collectors.toSet());
@@ -250,6 +250,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             sortBackends.add(b);
             Collections.sort(sortBackends, Comparator.comparing(Backend::getId));
             clusterIdToBackend.put(clusterId, sortBackends);
+            MetricRepo.registerCloudMetrics(clusterId, clusterName);
             LOG.info("update (add) cloud cluster map, clusterName={} clusterId={} backendNum={} current backend={}",
                     clusterName, clusterId, sortBackends.size(), sortBackends);
         }
@@ -434,7 +435,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     @Override
+    public void modifyBackends(ModifyBackendOp op) throws UserException {
+        throw new UserException("Modifying backends is not supported in cloud mode");
+    }
+
+    @Override
     public void modifyBackendHost(ModifyBackendHostNameClause clause) throws UserException {
+        throw new UserException("Modifying backend hostname is not supported in cloud mode");
+    }
+
+    @Override
+    public void modifyBackendHostName(String srcHost, int srcPort, String destHost) throws UserException {
         throw new UserException("Modifying backend hostname is not supported in cloud mode");
     }
 
@@ -492,12 +503,7 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public boolean containClusterName(String clusterName) {
-        rlock.lock();
-        try {
-            return clusterNameToId.containsKey(clusterName);
-        } finally {
-            rlock.unlock();
-        }
+        return clusterNameToId.containsKey(clusterName);
     }
 
     @Override
@@ -533,7 +539,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         Map<Long, Backend> idToBackend = Maps.newHashMap();
         try {
-            String cluster = ctx.getCurrentCloudCluster();
+            String cluster = ctx.getCloudCluster();
             if (Strings.isNullOrEmpty(cluster)) {
                 throw new AnalysisException("cluster name is empty");
             }
@@ -550,27 +556,17 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<Backend> getBackendsByClusterName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (clusterId.isEmpty()) {
-                return new ArrayList<>();
-            }
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (clusterId.isEmpty()) {
+            return new ArrayList<>();
         }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public List<Backend> getBackendsByClusterId(final String clusterId) {
-        rlock.lock();
-        try {
-            // copy a new List
-            return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
-        } finally {
-            rlock.unlock();
-        }
+        // copy a new List
+        return new ArrayList<>(clusterIdToBackend.getOrDefault(clusterId, new ArrayList<>()));
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
@@ -588,27 +584,18 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public List<String> getCloudClusterIds() {
-        rlock.lock();
-        try {
-            return new ArrayList<>(clusterIdToBackend.keySet());
-        } finally {
-            rlock.unlock();
-        }
+        return new ArrayList<>(clusterIdToBackend.keySet());
     }
 
     public String getCloudStatusByName(final String clusterName) {
-        rlock.lock();
-        try {
-            String clusterId = clusterNameToId.getOrDefault(clusterName, "");
-            if (Strings.isNullOrEmpty(clusterId)) {
-                // for rename cluster or dropped cluster
-                LOG.warn("cant find clusterId by clusteName {}", clusterName);
-                return "";
-            }
-            return getCloudStatusByIdNoLock(clusterId);
-        } finally {
-            rlock.unlock();
+        String clusterId = clusterNameToId.getOrDefault(clusterName, "");
+        if (Strings.isNullOrEmpty(clusterId)) {
+            // for rename cluster or dropped cluster
+            LOG.warn("cant find clusterId by clusteName {}", clusterName);
+            return "";
         }
+        // It is safe to return a null/empty status string, the caller handles it properly
+        return getCloudStatusByIdNoLock(clusterId);
     }
 
     public String getCloudStatusById(final String clusterId) {
@@ -1049,7 +1036,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
             // root ? see StatisticsUtil.buildConnectContext
-            if (ConnectContext.get() != null && ConnectContext.get().getUserIdentity().isRootUser()) {
+            if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity().isRootUser()) {
                 LOG.warn("auto start daemon thread run in root, not resume cluster {}-{}", clusterName, clusterStatus);
                 return null;
             }

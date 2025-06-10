@@ -73,7 +73,7 @@ public class InformationFunction extends Expr {
             strValue = ClusterNamespace.getNameFromFullName(analyzer.getDefaultDb());
         } else if (funcType.equalsIgnoreCase("USER")) {
             type = Type.VARCHAR;
-            strValue = ConnectContext.get().getUserIdentity().toString();
+            strValue = ConnectContext.get().getUserWithLoginRemoteIpString();
         } else if (funcType.equalsIgnoreCase("CURRENT_USER")) {
             type = Type.VARCHAR;
             strValue = ConnectContext.get().getCurrentUserIdentity().toString();

@@ -35,9 +35,6 @@ public class RuntimeFilterTypeHelperTest {
         runtimeFilterType = "BLOOM_FILTER";
         Assert.assertEquals(new Long(2L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
 
-        runtimeFilterType = "IN,BLOOM_FILTER";
-        Assert.assertEquals(new Long(3L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
         runtimeFilterType = "MIN_MAX";
         Assert.assertEquals(new Long(4L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
 
@@ -47,47 +44,17 @@ public class RuntimeFilterTypeHelperTest {
         runtimeFilterType = "MIN_MAX, BLOOM_FILTER";
         Assert.assertEquals(new Long(6L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
 
-        runtimeFilterType = "IN,BLOOM_FILTER,MIN_MAX";
-        Assert.assertEquals(new Long(7L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
         runtimeFilterType = "IN_OR_BLOOM_FILTER";
         Assert.assertEquals(new Long(8L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
 
-        runtimeFilterType = "IN,IN_OR_BLOOM_FILTER";
-        Assert.assertEquals(new Long(9L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
-        runtimeFilterType = "BLOOM_FILTER,IN_OR_BLOOM_FILTER";
-        Assert.assertEquals(new Long(10L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
-        runtimeFilterType = "IN,BLOOM_FILTER,IN_OR_BLOOM_FILTER";
-        Assert.assertEquals(new Long(11L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
         runtimeFilterType = "MIN_MAX,IN_OR_BLOOM_FILTER";
         Assert.assertEquals(new Long(12L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
-        runtimeFilterType = "IN,MIN_MAX,IN_OR_BLOOM_FILTER";
-        Assert.assertEquals(new Long(13L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
-        runtimeFilterType = "BLOOM_FILTER,MIN_MAX,IN_OR_BLOOM_FILTER";
-        Assert.assertEquals(new Long(14L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
-
-        runtimeFilterType = "IN,BLOOM_FILTER,MIN_MAX,IN_OR_BLOOM_FILTER";
-        Assert.assertEquals(new Long(15L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
 
         long runtimeFilterTypeValue = 0L;
         Assert.assertEquals("", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue));
 
         runtimeFilterTypeValue = 1L;
         Assert.assertEquals("IN", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue));
-
-        runtimeFilterTypeValue = 3L;
-        Assert.assertEquals("BLOOM_FILTER,IN", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
-
-        runtimeFilterTypeValue = 7L;
-        Assert.assertEquals("BLOOM_FILTER,IN,MIN_MAX", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
-
-        runtimeFilterTypeValue = 15L;
-        Assert.assertEquals("BLOOM_FILTER,IN,IN_OR_BLOOM_FILTER,MIN_MAX", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
     }
 
     @Test(expected = DdlException.class)
@@ -99,6 +66,24 @@ public class RuntimeFilterTypeHelperTest {
     @Test(expected = DdlException.class)
     public void testInvalidDecode() throws DdlException {
         RuntimeFilterTypeHelper.decode(32L);
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidSqlMode2() throws DdlException {
+        RuntimeFilterTypeHelper.encode("BLOOM_FILTER,IN");
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidSqlMode3() throws DdlException {
+        RuntimeFilterTypeHelper.encode("BLOOM_FILTER,IN_OR_BLOOM_FILTER");
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidSqlMode4() throws DdlException {
+        RuntimeFilterTypeHelper.encode("IN,IN_OR_BLOOM_FILTER");
         Assert.fail("No exception throws");
     }
 }

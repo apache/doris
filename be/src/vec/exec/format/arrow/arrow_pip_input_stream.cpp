@@ -17,22 +17,17 @@
 
 #include "arrow_pip_input_stream.h"
 
-#include "arrow/array.h"
+#include <utility>
+
 #include "arrow/buffer.h"
 #include "arrow/io/buffered.h"
-#include "arrow/io/stdio.h"
-#include "arrow/ipc/options.h"
-#include "arrow/ipc/reader.h"
-#include "arrow/record_batch.h"
 #include "arrow/result.h"
-#include "common/logging.h"
-#include "io/fs/stream_load_pipe.h"
-#include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ArrowPipInputStream::ArrowPipInputStream(io::FileReaderSPtr file_reader)
-        : _file_reader(file_reader), _pos(0), _begin(true), _read_buf(new uint8_t[4]) {
+        : _file_reader(std::move(file_reader)), _pos(0), _begin(true), _read_buf(new uint8_t[4]) {
     set_mode(arrow::io::FileMode::READ);
 }
 
@@ -56,7 +51,7 @@ Status ArrowPipInputStream::HasNext(bool* get) {
     //    and the `RecordBatchStreamReader::Open` function will directly report an error when it gets this buff
     Slice file_slice(_read_buf, 4);
     size_t read_length = 0;
-    RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, NULL));
+    RETURN_IF_ERROR(_file_reader->read_at(0, file_slice, &read_length, nullptr));
     if (read_length == 0) {
         *get = false;
     } else {
@@ -68,7 +63,7 @@ Status ArrowPipInputStream::HasNext(bool* get) {
 arrow::Result<int64_t> ArrowPipInputStream::Read(int64_t nbytes, void* out) {
     // RecordBatchStreamReader::Open will create a new reader that will stream a batch of arrow data.
     // But the first four bytes of this batch of data were taken by the HasNext function, so they need to be copied back here.
-    uint8_t* out_ptr = (uint8_t*)out;
+    auto* out_ptr = (uint8_t*)out;
     if (_begin) {
         memmove(out_ptr, _read_buf, 4);
         out_ptr += 4;
@@ -77,7 +72,7 @@ arrow::Result<int64_t> ArrowPipInputStream::Read(int64_t nbytes, void* out) {
 
     Slice file_slice(out_ptr, nbytes);
     size_t read_length = 0;
-    Status status = _file_reader->read_at(0, file_slice, &read_length, NULL);
+    Status status = _file_reader->read_at(0, file_slice, &read_length, nullptr);
     if (UNLIKELY(!status.ok())) {
         return arrow::Status::IOError("Error to read data from pip");
     }
@@ -97,4 +92,5 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ArrowPipInputStream::Read(int64_t 
     return buffer;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -68,7 +68,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     std::string head(_is_not_in ? "not_" : "");
     std::string real_function_name = head + std::string(function_name);
     auto arg_type = remove_nullable(argument_template[0].type);
-    if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
+    if (is_complex_type(arg_type->get_primitive_type())) {
         real_function_name = "collection_" + real_function_name;
     }
     _function = SimpleFunctionFactory::instance().get_function(
@@ -144,6 +144,26 @@ Status VInPredicate::execute(VExprContext* context, Block* block, int* result_co
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     return Status::OK();
+}
+
+size_t VInPredicate::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) {
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+
+    for (int i = 0; i < _children.size(); ++i) {
+        estimate_size += _children[i]->estimate_memory(rows);
+    }
+
+    if (_data_type->is_nullable()) {
+        estimate_size += rows * sizeof(uint8_t);
+    }
+
+    estimate_size += rows * sizeof(uint8_t);
+
+    return estimate_size;
 }
 
 const std::string& VInPredicate::expr_name() const {

@@ -119,7 +119,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
             sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, Long.toString(-1));
-            sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(3));
+            sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(1));
         }
     }
 

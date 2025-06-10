@@ -34,6 +34,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateDataSyncJobCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -113,6 +114,26 @@ public abstract class SyncJob implements Writable {
         RUNNING,
         PAUSED,
         CANCELLED
+    }
+
+    public static SyncJob fromCommand(long jobId, CreateDataSyncJobCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+        SyncJob syncJob;
+        try {
+            switch (command.getDataSyncJobType()) {
+                case CANAL:
+                    syncJob = new CanalSyncJob(jobId, command.getJobName(), db.getId());
+                    break;
+                default:
+                    throw new DdlException("Unknown load job type.");
+            }
+            syncJob.setChannelDescriptions(command.getChannelDescriptions());
+            syncJob.checkAndSetBinlogInfo(command.getBinlogDesc());
+            return syncJob;
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
     }
 
     public static SyncJob fromStmt(long jobId, CreateDataSyncJobStmt stmt) throws DdlException {

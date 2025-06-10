@@ -66,8 +66,8 @@ public class Column implements GsonPostProcessable {
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
+    public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
-    public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -531,7 +531,7 @@ public class Column implements GsonPostProcessable {
         return isAutoInc;
     }
 
-    public void setIsAutoInc(boolean isAutoinc) {
+    public void setIsAutoInc(boolean isAutoInc) {
         this.isAutoInc = isAutoInc;
     }
 
@@ -721,7 +721,7 @@ public class Column implements GsonPostProcessable {
             case DOUBLE:
                 return 8;
             case QUANTILE_STATE:
-            case OBJECT:
+            case BITMAP:
                 return 16;
             case CHAR:
                 return stringLength;
@@ -847,11 +847,6 @@ public class Column implements GsonPostProcessable {
             throw new DdlException("Dest column name is empty");
         }
 
-        // now nested type can only support change order
-        if (type.isComplexType() && !type.equals(other.type)) {
-            throw new DdlException("Can not change " + type + " to " + other);
-        }
-
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
@@ -888,13 +883,13 @@ public class Column implements GsonPostProcessable {
             }
         }
 
-        if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
-                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR) || (
-                getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
-            if (getStrLen() > other.getStrLen()) {
-                throw new DdlException("Cannot shorten string length");
-            }
+        if (type.isStringType() && other.type.isStringType()) {
+            ColumnType.checkForTypeLengthChange(type, other.type);
         }
+
+        // Nested types only support changing the order and increasing the length of the nested char type
+        // Char-type only support length growing
+        ColumnType.checkSupportSchemaChangeForComplexType(type, other.type, false);
 
         // now we support convert decimal to varchar type
         if ((getDataType() == PrimitiveType.DECIMALV2 || getDataType().isDecimalV3Type())
@@ -1013,7 +1008,7 @@ public class Column implements GsonPostProcessable {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
         }
-        if (getDataType() == PrimitiveType.BITMAP && defaultValue != null) {
+        if ((getDataType() == PrimitiveType.BITMAP) && defaultValue != null) {
             if (defaultValueExprDef != null) {
                 sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
             }

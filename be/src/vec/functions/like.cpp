@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -545,11 +544,6 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     return Status::OK();
 }
 
-Status FunctionLikeBase::close(FunctionContext* context,
-                               FunctionContext::FunctionStateScope scope) {
-    return Status::OK();
-}
-
 Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
                                            const ColumnString::Offsets& value_offsets,
                                            ColumnUInt8::Container& result,
@@ -573,7 +567,7 @@ Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
 
         /// Determine which index it refers to.
         /// begin + value_offsets[i] is the start offset of string at i+1
-        while (begin + value_offsets[i] < pos) {
+        while (i < value_offsets.size() && begin + value_offsets[i] < pos) {
             ++i;
         }
 

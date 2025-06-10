@@ -56,9 +56,14 @@ public class ShowQueryProfileCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA_QUERY_IDS;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rows = ProfileManager.getInstance().getProfileMetaWithType(ProfileType.QUERY, this.limit);
-        return new ShowResultSet(META_DATA_QUERY_IDS, rows);
+        return new ShowResultSet(getMetaData(), rows);
     }
 
     @Override

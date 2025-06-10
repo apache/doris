@@ -42,6 +42,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
 
@@ -49,18 +50,23 @@ using namespace ErrorCode;
 
 MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info)
+                   bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
+                   const std::shared_ptr<ResourceContext>& resource_ctx)
         : _mem_type(MemType::ACTIVE),
           _tablet_id(tablet_id),
           _enable_unique_key_mow(enable_unique_key_mow),
           _keys_type(tablet_schema->keys_type()),
           _tablet_schema(tablet_schema),
+          _resource_ctx(resource_ctx),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
           _total_size_of_aggregate_states(0) {
     g_memtable_cnt << 1;
-    _query_thread_context.init_unlocked();
+    _mem_tracker = std::make_shared<MemTracker>();
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     _arena = std::make_unique<vectorized::Arena>();
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_tablet_schema);
     _num_columns = _tablet_schema->num_columns();
@@ -77,7 +83,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     }
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
-    _mem_tracker = std::make_shared<MemTracker>();
+    _row_in_blocks = std::make_unique<DorisVector<RowInBlock*>>();
 }
 
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
@@ -97,7 +103,7 @@ void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescript
 }
 
 void MemTable::_init_agg_functions(const vectorized::Block* block) {
-    for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         vectorized::AggregateFunctionPtr function;
         if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow) {
             // In such table, non-key column's aggregation type is NONE, so we need to construct
@@ -125,7 +131,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         _agg_functions[cid] = function;
     }
 
-    for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+    for (auto cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
         _offsets_of_aggregate_states[cid] = _total_size_of_aggregate_states;
         _total_size_of_aggregate_states += _agg_functions[cid]->size_of_data();
 
@@ -143,7 +149,37 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
+    {
+        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+        g_memtable_cnt << -1;
+        if (_keys_type != KeysType::DUP_KEYS) {
+            for (auto it = _row_in_blocks->begin(); it != _row_in_blocks->end(); it++) {
+                if (!(*it)->has_init_agg()) {
+                    continue;
+                }
+                // We should release agg_places here, because they are not released when a
+                // load is canceled.
+                for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
+                    auto function = _agg_functions[i];
+                    DCHECK(function != nullptr);
+                    function->destroy((*it)->agg_places(i));
+                }
+            }
+        }
+
+        std::for_each(_row_in_blocks->begin(), _row_in_blocks->end(),
+                      std::default_delete<RowInBlock>());
+        // Arena has to be destroyed after agg state, because some agg state's memory may be
+        // allocated in arena.
+        _arena.reset();
+        _vec_row_comparator.reset();
+        _row_in_blocks.reset();
+        _agg_functions.clear();
+        _input_mutable_block.clear();
+        _output_mutable_block.clear();
+    }
     if (_is_flush_success) {
         // If the memtable is flush success, then its memtracker's consumption should be 0
         if (_mem_tracker->consumption() != 0 && config::crash_in_memory_tracker_inaccurate) {
@@ -151,28 +187,6 @@ MemTable::~MemTable() {
                        << _mem_tracker->consumption();
         }
     }
-    g_memtable_cnt << -1;
-    if (_keys_type != KeysType::DUP_KEYS) {
-        for (auto it = _row_in_blocks.begin(); it != _row_in_blocks.end(); it++) {
-            if (!(*it)->has_init_agg()) {
-                continue;
-            }
-            // We should release agg_places here, because they are not released when a
-            // load is canceled.
-            for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
-                auto function = _agg_functions[i];
-                DCHECK(function != nullptr);
-                function->destroy((*it)->agg_places(i));
-            }
-        }
-    }
-    std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
-    _arena.reset();
-    _vec_row_comparator.reset();
-    _row_in_blocks.clear();
-    _agg_functions.clear();
-    _input_mutable_block.clear();
-    _output_mutable_block.clear();
 }
 
 int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* right) const {
@@ -181,7 +195,9 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
 }
 
 Status MemTable::insert(const vectorized::Block* input_block,
-                        const std::vector<uint32_t>& row_idxs) {
+                        const DorisVector<uint32_t>& row_idxs) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
 
     if (_is_first_insertion) {
@@ -194,7 +210,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
             if (_partial_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS) {
                 // for unique key fixed partial update, sequence column index in block
                 // may be different with the index in `_tablet_schema`
-                for (size_t i = 0; i < clone_block.columns(); i++) {
+                for (int32_t i = 0; i < clone_block.columns(); i++) {
                     if (clone_block.get_by_position(i).name == SEQUENCE_COL) {
                         _seq_col_idx_in_block = i;
                         break;
@@ -224,7 +240,7 @@ Status MemTable::insert(const vectorized::Block* input_block,
     RETURN_IF_ERROR(_input_mutable_block.add_rows(input_block, row_idxs.data(),
                                                   row_idxs.data() + num_rows, &_column_offset));
     for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
+        _row_in_blocks->emplace_back(new RowInBlock {cursor_in_mutableblock + i});
     }
 
     _stat.raw_rows += num_rows;
@@ -252,7 +268,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
     // dst is non-sequence row, or dst sequence is smaller
     if constexpr (!has_skip_bitmap_col) {
         DCHECK(_skip_bitmap_col_idx == -1);
-        for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+        for (size_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
             auto* col_ptr = mutable_block.mutable_columns()[cid].get();
             _agg_functions[cid]->add(dst_row->agg_places(cid),
                                      const_cast<const doris::vectorized::IColumn**>(&col_ptr),
@@ -265,7 +281,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
                 assert_cast<vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                         mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
                         ->get_data()[src_row->_row_pos];
-        for (uint32_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
+        for (size_t cid = _tablet_schema->num_key_columns(); cid < _num_columns; ++cid) {
             const auto& col = _tablet_schema->column(cid);
             if (cid != _skip_bitmap_col_idx && skip_bitmap.contains(col.unique_id())) {
                 continue;
@@ -279,11 +295,11 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
 }
 Status MemTable::_put_into_output(vectorized::Block& in_block) {
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    std::vector<uint32_t> row_pos_vec;
+    DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
-    for (int i = 0; i < _row_in_blocks.size(); i++) {
-        row_pos_vec.emplace_back(_row_in_blocks[i]->_row_pos);
+    for (int i = 0; i < _row_in_blocks->size(); i++) {
+        row_pos_vec.emplace_back((*_row_in_blocks)[i]->_row_pos);
     }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
                                           row_pos_vec.data() + in_block.rows());
@@ -294,19 +310,19 @@ size_t MemTable::_sort() {
     _stat.sort_times++;
     size_t same_keys_num = 0;
     // sort new rows
-    Tie tie = Tie(_last_sorted_pos, _row_in_blocks.size());
+    Tie tie = Tie(_last_sorted_pos, _row_in_blocks->size());
     for (size_t i = 0; i < _tablet_schema->num_key_columns(); i++) {
         auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
             return _input_mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
         };
-        _sort_one_column(_row_in_blocks, tie, cmp);
+        _sort_one_column(*_row_in_blocks, tie, cmp);
     }
     bool is_dup = (_keys_type == KeysType::DUP_KEYS);
     // sort extra round by _row_pos to make the sort stable
     auto iter = tie.iter();
     while (iter.next()) {
-        pdqsort(std::next(_row_in_blocks.begin(), iter.left()),
-                std::next(_row_in_blocks.begin(), iter.right()),
+        pdqsort(std::next(_row_in_blocks->begin(), iter.left()),
+                std::next(_row_in_blocks->begin(), iter.right()),
                 [&is_dup](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
                     return is_dup ? lhs->_row_pos > rhs->_row_pos : lhs->_row_pos < rhs->_row_pos;
                 });
@@ -324,9 +340,9 @@ size_t MemTable::_sort() {
             return value < 0;
         }
     };
-    auto new_row_it = std::next(_row_in_blocks.begin(), _last_sorted_pos);
-    std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
-    _last_sorted_pos = _row_in_blocks.size();
+    auto new_row_it = std::next(_row_in_blocks->begin(), _last_sorted_pos);
+    std::inplace_merge(_row_in_blocks->begin(), new_row_it, _row_in_blocks->end(), cmp_func);
+    _last_sorted_pos = _row_in_blocks->size();
     return same_keys_num;
 }
 
@@ -340,7 +356,7 @@ Status MemTable::_sort_by_cluster_keys() {
     auto clone_block = in_block.clone_without_columns();
     _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
-    std::vector<RowInBlock*> row_in_blocks;
+    DorisVector<RowInBlock*> row_in_blocks;
     std::unique_ptr<int, std::function<void(int*)>> row_in_blocks_deleter((int*)0x01, [&](int*) {
         std::for_each(row_in_blocks.begin(), row_in_blocks.end(),
                       std::default_delete<RowInBlock>());
@@ -375,7 +391,7 @@ Status MemTable::_sort_by_cluster_keys() {
 
     in_block = mutable_block.to_block();
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    std::vector<uint32_t> row_pos_vec;
+    DorisVector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < row_in_blocks.size(); i++) {
@@ -389,15 +405,15 @@ Status MemTable::_sort_by_cluster_keys() {
                                           row_pos_vec.data() + in_block.rows(), &column_offset);
 }
 
-void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
+void MemTable::_sort_one_column(DorisVector<RowInBlock*>& row_in_blocks, Tie& tie,
                                 std::function<int(const RowInBlock*, const RowInBlock*)> cmp) {
     auto iter = tie.iter();
     while (iter.next()) {
-        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
-                std::next(row_in_blocks.begin(), iter.right()),
+        pdqsort(std::next(row_in_blocks.begin(), static_cast<int>(iter.left())),
+                std::next(row_in_blocks.begin(), static_cast<int>(iter.right())),
                 [&cmp](auto lhs, auto rhs) -> bool { return cmp(lhs, rhs) < 0; });
         tie[iter.left()] = 0;
-        for (int i = iter.left() + 1; i < iter.right(); i++) {
+        for (auto i = iter.left() + 1; i < iter.right(); i++) {
             tie[i] = (cmp(row_in_blocks[i - 1], row_in_blocks[i]) == 0);
         }
     }
@@ -426,8 +442,6 @@ void MemTable::_finalize_one_row(RowInBlock* row,
                 function->reset(agg_place);
             }
         }
-
-        _arena->clear();
 
         if constexpr (is_final) {
             row->remove_init_agg();
@@ -461,7 +475,7 @@ void MemTable::_aggregate() {
             vectorized::MutableBlock::build_mutable_block(&in_block);
     _vec_row_comparator->set_block(&mutable_block);
     auto& block_data = in_block.get_columns_with_type_and_name();
-    std::vector<RowInBlock*> temp_row_in_blocks;
+    DorisVector<RowInBlock*> temp_row_in_blocks;
     temp_row_in_blocks.reserve(_last_sorted_pos);
     RowInBlock* prev_row = nullptr;
     int row_pos = -1;
@@ -480,7 +494,7 @@ void MemTable::_aggregate() {
     };
 
     if (!has_skip_bitmap_col || _seq_col_idx_in_block == -1) {
-        for (RowInBlock* cur_row : _row_in_blocks) {
+        for (RowInBlock* cur_row : *_row_in_blocks) {
             if (!temp_row_in_blocks.empty() && (*_vec_row_comparator)(prev_row, cur_row) == 0) {
                 if (!prev_row->has_init_agg()) {
                     init_for_agg(prev_row);
@@ -539,7 +553,7 @@ void MemTable::_aggregate() {
         auto& skip_bitmaps = assert_cast<vectorized::ColumnBitmap*>(
                                      mutable_block.mutable_columns()[_skip_bitmap_col_idx].get())
                                      ->get_data();
-        for (auto* cur_row : _row_in_blocks) {
+        for (auto* cur_row : *_row_in_blocks) {
             const BitmapValue& skip_bitmap = skip_bitmaps[cur_row->_row_pos];
             bool with_seq_col = !skip_bitmap.contains(_seq_col_unique_id);
             // compare keys, the keys of row_with_seq_col and row_with_seq_col is the same,
@@ -573,12 +587,14 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
-        _row_in_blocks = temp_row_in_blocks;
-        _last_sorted_pos = _row_in_blocks.size();
+        *_row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks->size();
     }
 }
 
 void MemTable::shrink_memtable_by_agg() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            _resource_ctx->memory_context()->mem_tracker()->write_tracker());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     if (_keys_type == KeysType::DUP_KEYS) {
         return;
@@ -608,6 +624,13 @@ bool MemTable::need_agg() const {
     return false;
 }
 
+size_t MemTable::get_flush_reserve_memory_size() const {
+    if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
+        return 0; // no need to reserve
+    }
+    return static_cast<size_t>(static_cast<double>(_input_mutable_block.allocated_bytes()) * 1.2);
+}
+
 Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
     size_t same_keys_num = _sort();
     if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
@@ -629,8 +652,6 @@ Status MemTable::_to_block(std::unique_ptr<vectorized::Block>* res) {
         RETURN_IF_ERROR(_sort_by_cluster_keys());
     }
     _input_mutable_block.clear();
-    // After to block, all data in arena is saved in the block
-    _arena.reset();
     *res = vectorized::Block::create_unique(_output_mutable_block.to_block());
     return Status::OK();
 }
@@ -640,4 +661,5 @@ Status MemTable::to_block(std::unique_ptr<vectorized::Block>* res) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

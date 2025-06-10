@@ -37,9 +37,10 @@
 
 namespace doris::vectorized {
 
-template <typename IntegerType>
+template <PrimitiveType IntegerPType>
 class FunctionDecodeAsVarchar : public IFunction {
 public:
+    using IntegerType = typename PrimitiveTypeTraits<IntegerPType>::CppType;
     static constexpr auto name = "decode_as_varchar";
     static FunctionPtr create() { return std::make_shared<FunctionDecodeAsVarchar>(); }
 
@@ -50,17 +51,7 @@ public:
     bool is_variadic() const override { return true; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (std::is_same_v<IntegerType, Int16>) {
-            return {std::make_shared<DataTypeInt16>()};
-        } else if constexpr (std::is_same_v<IntegerType, Int32>) {
-            return {std::make_shared<DataTypeInt32>()};
-        } else if constexpr (std::is_same_v<IntegerType, Int64>) {
-            return {std::make_shared<DataTypeInt64>()};
-        } else if constexpr (std::is_same_v<IntegerType, Int128>) {
-            return {std::make_shared<DataTypeInt128>()};
-        } else {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IntegerType");
-        }
+        return {std::make_shared<typename PrimitiveTypeTraits<IntegerPType>::DataType>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -75,8 +66,9 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const ColumnVector<IntegerType>* col_source = assert_cast<const ColumnVector<IntegerType>*>(
-                block.get_by_position(arguments[0]).column.get());
+        const auto* col_source =
+                assert_cast<const typename PrimitiveTypeTraits<IntegerPType>::ColumnType*>(
+                        block.get_by_position(arguments[0]).column.get());
 
         auto col_res = ColumnString::create();
 
@@ -87,7 +79,7 @@ public:
 
         for (Int32 i = 0; i < input_rows_count; ++i) {
             IntegerType value = col_source->get_element(i);
-            const UInt8* const __restrict ui8_ptr = reinterpret_cast<const UInt8*>(&value);
+            const auto* const __restrict ui8_ptr = reinterpret_cast<const UInt8*>(&value);
             UInt32 str_size = static_cast<UInt32>(*ui8_ptr) & 0x7F;
 
             if (str_size >= sizeof(IntegerType)) {
@@ -106,6 +98,7 @@ public:
             simd::reverse_copy_bytes(col_res_data.data() + col_res_offset[i - 1], str_size,
                                      ui8_ptr + sizeof(IntegerType) - str_size, str_size);
         }
+        col_res_data.resize(col_res_offset[col_res_offset.size() - 1]);
 
         block.get_by_position(result).column = std::move(col_res);
 
@@ -114,10 +107,10 @@ public:
 };
 
 void register_function_decode_as_varchar(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionDecodeAsVarchar<Int16>>();
-    factory.register_function<FunctionDecodeAsVarchar<Int32>>();
-    factory.register_function<FunctionDecodeAsVarchar<Int64>>();
-    factory.register_function<FunctionDecodeAsVarchar<Int128>>();
+    factory.register_function<FunctionDecodeAsVarchar<TYPE_SMALLINT>>();
+    factory.register_function<FunctionDecodeAsVarchar<TYPE_INT>>();
+    factory.register_function<FunctionDecodeAsVarchar<TYPE_BIGINT>>();
+    factory.register_function<FunctionDecodeAsVarchar<TYPE_LARGEINT>>();
 }
 
 } // namespace doris::vectorized

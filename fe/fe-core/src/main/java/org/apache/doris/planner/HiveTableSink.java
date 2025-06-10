@@ -122,13 +122,13 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         setSerDeProperties(tSink);
 
         THiveLocationParams locationParams = new THiveLocationParams();
-        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties());
+        LocationPath locationPath = new LocationPath(sd.getLocation(), targetTable.getHadoopProperties(), false);
         String location = locationPath.getPath().toString();
         String storageLocation = locationPath.toStorageLocation().toString();
         TFileType fileType = locationPath.getTFileTypeForBE();
         if (fileType == TFileType.FILE_S3) {
             locationParams.setWritePath(storageLocation);
-            locationParams.setOriginalWritePath(sd.getLocation());
+            locationParams.setOriginalWritePath(location);
             locationParams.setTargetPath(location);
             if (insertCtx.isPresent()) {
                 HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
@@ -150,6 +150,9 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         }
         locationParams.setFileType(fileType);
         tSink.setLocation(locationParams);
+        if (fileType.equals(TFileType.FILE_BROKER)) {
+            tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
+        }
 
         tSink.setHadoopConfig(targetTable.getHadoopProperties());
 
@@ -158,7 +161,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     }
 
     private String createTempPath(String location) {
-        String user = ConnectContext.get().getUserIdentity().getUser();
+        String user = ConnectContext.get().getCurrentUserIdentity().getUser();
         return LocationPath.getTempWritePath(location, "/tmp/.doris_staging/" + user);
     }
 

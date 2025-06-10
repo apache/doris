@@ -158,7 +158,8 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     return {status_code, msg, sb.GetString()};
 }
 
-static std::string format_http_request(const brpc::HttpHeader& request) {
+static std::string format_http_request(brpc::Controller* cntl) {
+    const brpc::HttpHeader& request = cntl->http_request();
     auto& unresolved_path = request.unresolved_path();
     auto& uri = request.uri();
     std::stringstream ss;
@@ -173,6 +174,8 @@ static std::string format_http_request(const brpc::HttpHeader& request) {
     for (auto it = request.HeaderBegin(); it != request.HeaderEnd(); ++it) {
         ss << "\n" << it->first << ":" << it->second;
     }
+    std::string body = cntl->request_attachment().to_string();
+    ss << "\nbody=" << (body.empty() ? "(empty)" : body);
     return ss.str();
 }
 
@@ -509,6 +512,10 @@ static HttpResponse process_get_value(MetaServiceImpl* service, brpc::Controller
     return process_http_get_value(service->txn_kv().get(), ctrl->http_request().uri());
 }
 
+static HttpResponse process_set_value(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    return process_http_set_value(service->txn_kv().get(), ctrl);
+}
+
 // show all key ranges and their count.
 static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Controller* ctrl) {
     auto txn_kv = std::dynamic_pointer_cast<FdbTxnKv>(service->txn_kv());
@@ -737,6 +744,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
             {"get_value", process_get_value},
+            {"set_value", process_set_value},
             {"show_meta_ranges", process_show_meta_ranges},
             {"txn_lazy_commit", process_txn_lazy_commit},
             {"injection_point", process_injection_point},
@@ -744,11 +752,11 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
+            {"v1/set_value", process_set_value},
             {"v1/show_meta_ranges", process_show_meta_ranges},
             {"v1/txn_lazy_commit", process_txn_lazy_commit},
             {"v1/injection_point", process_injection_point},
-            // for get
-            {"get_instance", process_get_instance_info},
+            {"v1/fix_tablet_stats", process_fix_tablet_stats},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},
@@ -785,7 +793,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     // Prepare input request info
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
-    std::string http_request = format_http_request(cntl->http_request());
+    std::string http_request = format_http_request(cntl);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");

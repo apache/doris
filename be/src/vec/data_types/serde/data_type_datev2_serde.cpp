@@ -41,22 +41,28 @@ Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int6
 Status DataTypeDateV2SerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt32 int_val = assert_cast<const ColumnUInt32&>(*ptr).get_element(row_num);
+    UInt32 int_val = assert_cast<const ColumnDateV2&>(*ptr).get_element(row_num);
     DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
 
     char buf[64];
     char* pos = val.to_string(buf);
     // DateTime to_string the end is /0
     bw.write(buf, pos - buf - 1);
+    if (_nesting_level > 1) {
+        bw.write('"');
+    }
     return Status::OK();
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
@@ -64,17 +70,12 @@ Status DataTypeDateV2SerDe::deserialize_column_from_json_vector(
 
 Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                            const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnUInt32&>(column);
+    if (_nesting_level > 1) {
+        slice.trim_quote();
+    }
+    auto& column_data = assert_cast<ColumnDateV2&>(column);
     UInt32 val = 0;
-    if (options.date_olap_format) {
-        tm time_tm;
-        char* res = strptime(slice.data, "%Y-%m-%d", &time_tm);
-        if (nullptr != res) {
-            val = ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-        } else {
-            val = MIN_DATE_V2;
-        }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
+    if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -82,39 +83,37 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int64_t start,
-                                                int64_t end, const cctz::time_zone& ctz) const {
-    const auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
+Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz) const {
+    const auto& col_data = static_cast<const ColumnDateV2&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         auto daynr = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(col_data[i]).daynr() -
                      date_threshold;
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
-            checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
-void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
-                                                 int start, int end,
-                                                 const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
-    auto concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
-    int64_t divisor = 1;
-    int64_t multiplier = 1;
-
-    multiplier = 24 * 60 * 60; // day => secs
-    for (size_t value_i = start; value_i < end; ++value_i) {
+Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
+    auto& col_data = static_cast<ColumnDateV2&>(column).get_data();
+    const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
+    for (auto value_i = start; value_i < end; ++value_i) {
         DateV2Value<DateV2ValueType> v;
-        v.from_unixtime(static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
-                        ctz);
+        v.get_date_from_daynr(concrete_array->Value(value_i) + date_threshold);
         col_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
     }
+    return Status::OK();
 }
 
 template <bool is_binary_format>
@@ -122,7 +121,7 @@ Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int64_t row_idx, bool col_const,
                                                    const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     DateV2Value<DateV2ValueType> date_val =
             binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data[col_index]);
@@ -163,7 +162,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end,
                                                 std::vector<StringRef>& buffer_list) const {
-    const auto& col_data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
@@ -178,7 +177,8 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
 }
 
 Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, Slice& slice,
-                                                               int rows, int* num_deserialized,
+                                                               uint64_t rows,
+                                                               uint64_t* num_deserialized,
                                                                const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
         return Status::OK();
@@ -193,11 +193,11 @@ Status DataTypeDateV2SerDe::deserialize_column_from_fixed_json(IColumn& column, 
 }
 
 void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& column,
-                                                                  int times) const {
+                                                                  uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }
-    auto& col = static_cast<ColumnVector<UInt32>&>(column);
+    auto& col = assert_cast<ColumnDateV2&>(column);
     auto sz = col.size();
     UInt32 val = col.get_element(sz - 1);
 

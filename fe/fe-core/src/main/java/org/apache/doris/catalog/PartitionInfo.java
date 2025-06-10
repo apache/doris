@@ -71,6 +71,7 @@ public class PartitionInfo {
     @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> storage policy
+    @SerializedName("IdToStoragePolicy")
     protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
     @SerializedName("IdToReplicaAllocation")
@@ -437,7 +438,7 @@ public class PartitionInfo {
                 idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
             }
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
-            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.getOrDefault(entry.getValue(), ""));
         }
     }
 

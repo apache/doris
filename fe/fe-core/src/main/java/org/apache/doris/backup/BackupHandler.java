@@ -19,7 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
-import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
@@ -46,12 +45,17 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -204,6 +208,31 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
+    // handle create repository command
+    public void createRepository(CreateRepositoryCommand command) throws DdlException {
+        if (!env.getBrokerMgr().containsBroker(command.getBrokerName())
+                && command.getStorageType() == StorageBackend.StorageType.BROKER) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "broker does not exist: " + command.getBrokerName());
+        }
+
+        RemoteFileSystem fileSystem;
+        fileSystem = FileSystemFactory.get(command.getStorageType(), command.getBrokerName(), command.getProperties());
+        long repoId = env.getNextId();
+        Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
+                fileSystem);
+
+        Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
+        if (!st.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: " + st.getErrMsg());
+        }
+        if (!repo.ping()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "Failed to create repository: failed to connect to the repo");
+        }
+    }
+
     // handle create repository stmt
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
         if (!env.getBrokerMgr().containsBroker(stmt.getBrokerName())
@@ -212,10 +241,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     "broker does not exist: " + stmt.getBrokerName());
         }
 
-        RemoteFileSystem fileSystem = FileSystemFactory.get(stmt.getBrokerName(), stmt.getStorageType(),
-                    stmt.getProperties());
+        RemoteFileSystem fileSystem;
+        fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getBrokerName(), stmt.getProperties());
         long repoId = env.getNextId();
-        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), fileSystem);
+        Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
+                fileSystem);
 
         Status st = repoMgr.addAndInitRepoIfNotExist(repo, false);
         if (!st.ok()) {
@@ -228,54 +258,94 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 
-    public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
+    /**
+     * Alters an existing repository by applying the given new properties.
+     *
+     * @param repoName    The name of the repository to alter.
+     * @param newProps    The new properties to apply to the repository.
+     * @param strictCheck If true, only allows altering S3 or Azure repositories and validates properties accordingly.
+     *                    TODO: Investigate why only S3 and Azure repositories are supported for alter operation
+     * @throws DdlException if the repository does not exist, fails to apply properties, or cannot connect
+     * to the updated repository.
+     */
+    public void alterRepository(String repoName, Map<String, String> newProps, boolean strictCheck)
+            throws DdlException {
         tryLock();
         try {
-            Repository repo = repoMgr.getRepo(stmt.getName());
-            if (repo == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
+            Repository oldRepo = repoMgr.getRepo(repoName);
+            if (oldRepo == null) {
+                throw new DdlException("Repository does not exist");
             }
-
-            if (repo.getRemoteFileSystem() instanceof S3FileSystem
-                    || repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
-                Status status = repo.alterRepositoryS3Properties(oldProperties);
-                if (!status.ok()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
-                }
-                RemoteFileSystem fileSystem = null;
-                if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
-                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                            StorageBackend.StorageType.S3, oldProperties);
-                } else if (repo.getRemoteFileSystem() instanceof AzureFileSystem) {
-                    fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
-                            StorageBackend.StorageType.AZURE, oldProperties);
-                }
-
-                Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
-                        repo.getLocation(), fileSystem);
-                if (!newRepo.ping()) {
-                    LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Repo can not ping with new s3 properties");
-                }
-
-                Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
-                if (!st.ok()) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Failed to alter repository: " + st.getErrMsg());
-                }
-                for (AbstractJob job : getAllCurrentJobs()) {
-                    if (!job.isDone() && job.getRepoId() == repo.getId()) {
-                        job.updateRepo(newRepo);
-                    }
-                }
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Only support alter s3 or azure repository");
+            // Merge new properties with the existing repository's properties
+            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
+            // Create new remote file system with merged properties
+            RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
+            // Create new Repository instance with updated file system
+            Repository newRepo = new Repository(
+                    oldRepo.getId(), oldRepo.getName(), oldRepo.isReadOnly(),
+                    oldRepo.getLocation(), fileSystem
+            );
+            // Verify the repository can be connected with new settings
+            if (!newRepo.ping()) {
+                LOG.warn("Failed to connect repository {}. msg: {}", repoName, newRepo.getErrorMsg());
+                throw new DdlException("Repository ping failed with new properties");
             }
+            // Apply the new repository metadata
+            Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
+            if (!st.ok()) {
+                throw new DdlException("Failed to alter repository: " + st.getErrMsg());
+            }
+            // Update all running jobs that are using this repository
+            updateOngoingJobs(oldRepo.getId(), newRepo);
         } finally {
             seqlock.unlock();
+        }
+    }
+
+    /**
+     * Merges new user-provided properties into the existing repository's configuration.
+     * In strict mode, only supports S3 or Azure repositories and applies internal S3 merge logic.
+     *
+     * @param repo        The existing repository.
+     * @param newProps    New user-specified properties.
+     * @param strictCheck Whether to enforce S3/Azure-only and validate the new properties.
+     * @return A complete set of merged properties.
+     * @throws DdlException if the merge fails or the repository type is unsupported.
+     */
+    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps, boolean strictCheck)
+            throws DdlException {
+        if (strictCheck) {
+            if (!(repo.getRemoteFileSystem() instanceof S3FileSystem
+                    || repo.getRemoteFileSystem() instanceof AzureFileSystem)) {
+                throw new DdlException("Only support altering S3 or Azure repository");
+            }
+            // Let the repository validate and enrich the new S3/Azure properties
+            Map<String, String> propsCopy = new HashMap<>(newProps);
+            Status status = repo.alterRepositoryS3Properties(propsCopy);
+            if (!status.ok()) {
+                throw new DdlException("Failed to merge S3 properties: " + status.getErrMsg());
+            }
+            return propsCopy;
+        } else {
+            // General case: just override old props with new ones
+            Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+            combined.putAll(newProps);
+            return combined;
+        }
+    }
+
+    /**
+     * Updates all currently running jobs associated with the given repository ID.
+     * Used to ensure that all jobs operate on the new repository instance after alteration.
+     *
+     * @param repoId  The ID of the altered repository.
+     * @param newRepo The new repository instance.
+     */
+    private void updateOngoingJobs(long repoId, Repository newRepo) {
+        for (AbstractJob job : getAllCurrentJobs()) {
+            if (!job.isDone() && job.getRepoId() == repoId) {
+                job.updateRepo(newRepo);
+            }
         }
     }
 
@@ -402,6 +472,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
             db.readUnlock();
         }
 
+        while (DebugPointUtil.isEnable("BackupHandler.backup.block")) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                LOG.info("error ", e);
+            }
+        }
+
         List<TableRef> tblRefs = Lists.newArrayList();
         if (abstractBackupTableRefClause != null && !abstractBackupTableRefClause.isExclude()) {
             tblRefs = abstractBackupTableRefClause.getTableRefList();
@@ -435,11 +513,24 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
-                            tblName, tbl.getType().toString());
+                            tblName, tbl.isTemporary() ? "temporary" : tbl.getType().toString());
                     tblRefsNotSupport.add(tblRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
+                }
+            }
+
+            if (tbl.isTemporary()) {
+                if (Config.ignore_backup_not_support_table_type || tblRefs.size() > 1) {
+                    LOG.warn("Table '{}' is a temporary table, can not backup and ignore it."
+                            + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
+                            Util.getTempTableDisplayName(tblName));
+                    tblRefsNotSupport.add(tblRef);
+                    continue;
+                } else {
+                    ErrorReport.reportDdlException("Table " + Util.getTempTableDisplayName(tblName)
+                            + " is a temporary table, do not support backup");
                 }
             }
 
@@ -558,15 +649,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(stmt.getLabel(), backupTimestamp,
                     db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(),
+                    stmt.getTimeoutMs(), metaVersion, stmt.reserveReplica(), stmt.reserveColocate(),
                     stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(),
-                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                    stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
                     env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
         } else {
             restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
-                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveDynamicPartitionEnable(),
-                stmt.isBeingSynced(), stmt.isCleanTables(), stmt.isCleanPartitions(), stmt.isAtomicRestore(),
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), stmt.reserveReplica(), stmt.reserveColocate(),
+                stmt.reserveDynamicPartitionEnable(), stmt.isBeingSynced(), stmt.isCleanTables(),
+                stmt.isCleanPartitions(), stmt.isAtomicRestore(), stmt.isForceReplace(),
                 env, repository.getId());
         }
 
@@ -726,6 +818,25 @@ public class BackupHandler extends MasterDaemon implements Writable {
         tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
     }
 
+    public void cancel(CancelBackupCommand command) throws DdlException {
+        String dbName = command.getDbName();
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+        AbstractJob job = getCurrentJob(db.getId());
+        if (job == null || (job instanceof BackupJob && command.isRestore())
+                || (job instanceof RestoreJob && !command.isRestore())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "No "
+                    + (command.isRestore() ? "restore" : "backup" + " job")
+                    + " is currently running");
+        }
+
+        Status status = job.cancel();
+        if (!status.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
+        }
+
+        LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
+    }
+
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
@@ -748,12 +859,18 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
-
         if (job == null) {
             LOG.warn("failed to find backup or restore job for task: {}", task);
             // return true to remove this task from AgentTaskQueue
             return true;
         }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid snapshot task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
         if (job instanceof BackupJob) {
             if (task.isRestoreTask()) {
                 LOG.warn("expect finding restore job, but get backup job {} for task: {}", job, task);
@@ -778,19 +895,25 @@ public class BackupHandler extends MasterDaemon implements Writable {
             LOG.info("invalid upload task: {}, no backup job is found. db id: {}", task, task.getDbId());
             return false;
         }
-        BackupJob restoreJob = (BackupJob) job;
-        if (restoreJob.getJobId() != task.getJobId() || restoreJob.getState() != BackupJobState.UPLOADING) {
+        BackupJob backupJob = (BackupJob) job;
+        if (backupJob.getJobId() != task.getJobId() || backupJob.getState() != BackupJobState.UPLOADING) {
             LOG.info("invalid upload task: {}, job id: {}, job state: {}",
-                     task, restoreJob.getJobId(), restoreJob.getState().name());
+                     task, backupJob.getJobId(), backupJob.getState().name());
             return false;
         }
-        return restoreJob.finishSnapshotUploadTask(task, request);
+        return backupJob.finishSnapshotUploadTask(task, request);
     }
 
     public boolean handleDownloadSnapshotTask(DownloadTask task, TFinishTaskRequest request) {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (!(job instanceof RestoreJob)) {
             LOG.warn("failed to find restore job for task: {}", task);
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid download task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }
@@ -802,6 +925,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
         AbstractJob job = getCurrentJob(task.getDbId());
         if (!(job instanceof RestoreJob)) {
             LOG.warn("failed to find restore job for task: {}", task);
+            // return true to remove this task from AgentTaskQueue
+            return true;
+        }
+
+        if (job.getJobId() != task.getJobId()) {
+            LOG.warn("invalid dir move task: {}, job id: {}, task job id: {}", task, job.getJobId(), task.getJobId());
             // return true to remove this task from AgentTaskQueue
             return true;
         }

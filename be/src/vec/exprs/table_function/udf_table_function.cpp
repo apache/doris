@@ -41,8 +41,7 @@ const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
-    _return_type = DataTypeFactory::instance().create_data_type(
-            TypeDescriptor::from_thrift(t_fn.ret_type));
+    _return_type = DataTypeFactory::instance().create_data_type(t_fn.ret_type);
     // as the java-utdf function in java code is eg: ArrayList<String>
     // so we need a array column to save the execute result, and make_nullable could help deal with nullmap
     _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(_return_type)));
@@ -131,12 +130,11 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     jobject output_map = JniUtil::convert_to_java_map(env, output_params);
     DCHECK(_jni_ctx != nullptr);
     DCHECK(_jni_ctx->executor != nullptr);
-    JNI_CALL_METHOD_CHECK_EXCEPTION(
-            long, output_address, env,
-            CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id, input_map,
-                           output_map));
+    long output_address = env->CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id,
+                                              input_map, output_map);
     env->DeleteLocalRef(input_map);
     env->DeleteLocalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {

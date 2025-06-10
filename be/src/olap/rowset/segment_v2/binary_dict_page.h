@@ -99,8 +99,6 @@ private:
     };
     // query for dict item -> dict id
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
-    // used to remember the insertion order of dict keys
-    std::vector<Slice> _dict_items;
     // TODO(zc): rethink about this arena
     vectorized::Arena _arena;
     faststring _buffer;

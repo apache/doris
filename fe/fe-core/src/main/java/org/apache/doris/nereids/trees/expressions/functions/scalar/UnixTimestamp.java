@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -176,7 +177,8 @@ public class UnixTimestamp extends ScalarFunction implements ExplicitlyCastableS
         if (null == upper) {
             upper = DateTimeLiteral.MAX_DATETIME;
         }
-        if (lower.compareTo(MAX) <= 0 && upper.compareTo(MAX) > 0) {
+        if (((ComparableLiteral) lower).compareTo(MAX) <= 0
+                && ((ComparableLiteral) upper).compareTo(MAX) > 0) {
             return false;
         } else {
             return true;

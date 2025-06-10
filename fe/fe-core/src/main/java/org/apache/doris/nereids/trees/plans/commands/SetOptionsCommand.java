@@ -81,21 +81,6 @@ public class SetOptionsCommand extends Command implements Forward, NeedAuditEncr
     }
 
     @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("SET ");
-        int idx = 0;
-        for (SetVarOp variableInfo : setVarOpList) {
-            if (idx != 0) {
-                sb.append(", ");
-            }
-            sb.append(variableInfo.toSql());
-            idx++;
-        }
-        return sb.toString();
-    }
-
-    @Override
     public void afterForwardToMaster(ConnectContext ctx) throws Exception {
         for (SetVarOp varOp : setVarOpList) {
             varOp.validate(ctx);

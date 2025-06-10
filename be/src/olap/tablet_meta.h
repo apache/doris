@@ -39,7 +39,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/file_system.h"
 #include "olap/binlog_config.h"
 #include "olap/lru_cache.h"
@@ -129,8 +128,9 @@ public:
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
+    static Status load_from_file(const std::string& file_path, TabletMetaPB* tablet_meta_pb);
     Status save(const std::string& file_path);
-    Status save_as_json(const string& file_path);
+    Status save_as_json(const std::string& file_path);
     static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
@@ -216,9 +216,9 @@ public:
     }
 
     // used for after tablet cloned to clear stale rowset
-    void clear_stale_rowset() { _stale_rs_metas.clear(); }
+    void clear_stale_rowset();
 
-    void clear_rowsets() { _rs_metas.clear(); }
+    void clear_rowsets();
 
     // MUST hold EXCLUSIVE `_meta_lock` in belonged Tablet
     // `to_add` MUST NOT have overlapped version with `_rs_metas` in tablet meta.
@@ -242,6 +242,7 @@ public:
 
     DeleteBitmapPtr delete_bitmap_ptr() { return _delete_bitmap; }
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
+    void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
@@ -300,6 +301,7 @@ public:
 
 private:
     Status _save_meta(DataDir* data_dir);
+    void _check_mow_rowset_cache_version_size(size_t rowset_cache_version_size);
 
     // _del_predicates is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
@@ -383,7 +385,6 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
-    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -443,6 +444,7 @@ public:
      * Clears bitmaps in range [lower_key, upper_key)
      */
     void remove(const BitmapKey& lower_key, const BitmapKey& upper_key);
+    void remove(const std::vector<std::tuple<BitmapKey, BitmapKey>>& key_ranges);
 
     /**
      * Checks if the given row is marked deleted
@@ -502,6 +504,14 @@ public:
                 DeleteBitmap* subset_delete_map) const;
 
     /**
+     * Gets count of delete_bitmap with given range [start, end)
+     *
+     * @parma start start
+     * @parma end end
+     */
+    size_t get_count_with_range(const BitmapKey& start, const BitmapKey& end) const;
+
+    /**
      * Merges the given segment delete bitmap into *this
      *
      * @param bmk
@@ -536,15 +546,24 @@ public:
      * @return shared_ptr to a bitmap, which may be empty
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
+    std::shared_ptr<roaring::Roaring> get_agg_without_cache(const BitmapKey& bmk,
+                                                            const int64_t start_version = 0) const;
 
     void remove_sentinel_marks();
 
-    void add_to_remove_queue(const std::string& version_str,
-                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
-                                                          DeleteBitmap::BitmapKey>>& vector);
-    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
-
     uint64_t get_delete_bitmap_count();
+
+    void traverse_rowset_and_version(
+            const std::function<int(const RowsetId& rowsetId, int64_t version)>& func) const;
+
+    bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
+
+    // return the size of the map
+    size_t remove_rowset_cache_version(const RowsetId& rowset_id);
+
+    void clear_rowset_cache_version();
+
+    std::set<RowsetId> get_rowset_cache_version();
 
     class AggCachePolicy : public LRUCachePolicy {
     public:
@@ -577,12 +596,12 @@ public:
     };
 
 private:
+    DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
+
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
-    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
-    std::map<std::string,
-             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
-            _stale_delete_bitmap;
+    mutable std::shared_mutex _rowset_cache_version_lock;
+    mutable std::map<RowsetId, std::map<SegmentId, Version>> _rowset_cache_version;
 };
 
 inline TabletUid TabletMeta::tablet_uid() const {

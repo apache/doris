@@ -59,8 +59,8 @@ void check_array_data(const IColumn& arr, const std::vector<std::string>& data) 
 }
 
 TEST(ColumnArrayOldTest, IntArrayTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto data_column = ColumnVector<int32_t>::create();
+    auto off_column = ColumnOffset64::create();
+    auto data_column = ColumnInt32::create();
     // init column array with [[1,2,3],[],[4]]
     std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4};
     std::vector<int32_t> vals = {1, 2, 3, 4};
@@ -84,7 +84,7 @@ TEST(ColumnArrayOldTest, IntArrayTest) {
 }
 
 TEST(ColumnArrayOldTest, StringArrayTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnString::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
     std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -108,81 +108,8 @@ TEST(ColumnArrayOldTest, StringArrayTest) {
     }
 }
 
-TEST(ColumnArrayTest, String64ArrayTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto str64_column = ColumnString64::create();
-    // init column array with [["abc","d"],["ef"],[], [""]];
-    std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
-    std::vector<std::string> vals = {"abc", "d", "ef", ""};
-    for (size_t i = 1; i < offs.size(); ++i) {
-        off_column->insert_data((const char*)(&offs[i]), 0);
-    }
-    for (auto& v : vals) {
-        str64_column->insert_data(v.data(), v.size());
-    }
-
-    ColumnArray str64_array_column(std::move(str64_column), std::move(off_column));
-    EXPECT_EQ(str64_array_column.size(), offs.size() - 1);
-    for (size_t i = 0; i < str64_array_column.size(); ++i) {
-        auto v = get<Array>(str64_array_column[i]);
-        EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
-        for (size_t j = 0; j < v.size(); ++j) {
-            EXPECT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
-        }
-    }
-    // test insert ColumnArray<ColumnStr<uint64_t>> into ColumnArray<ColumnStr<uint32_t>>
-    auto str32_column = ColumnString::create();
-    ColumnArray str32_array_column(std::move(str32_column));
-    std::vector<uint32_t> indices;
-    indices.push_back(0);
-    indices.push_back(1);
-    indices.push_back(3);
-    str32_array_column.insert_indices_from(str64_array_column, indices.data(),
-                                           indices.data() + indices.size());
-    EXPECT_EQ(str32_array_column.size(), 3);
-
-    auto v = get<Array>(str32_array_column[0]);
-    EXPECT_EQ(v.size(), 2);
-    EXPECT_EQ(get<std::string>(v[0]), vals[0]);
-    EXPECT_EQ(get<std::string>(v[1]), vals[1]);
-
-    v = get<Array>(str32_array_column[1]);
-    EXPECT_EQ(v.size(), 1);
-    EXPECT_EQ(get<std::string>(v[0]), vals[2]);
-
-    v = get<Array>(str32_array_column[2]);
-    EXPECT_EQ(v.size(), 1);
-    EXPECT_EQ(get<std::string>(v[0]), vals[3]);
-}
-
-TEST(ColumnArrayTest, IntArrayPermuteTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto data_column = ColumnVector<int32_t>::create();
-    // init column array with [[1,2,3],[],[4],[5,6]]
-    std::vector<ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
-    std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
-    for (size_t i = 1; i < offs.size(); ++i) {
-        off_column->insert_data((const char*)(&offs[i]), 0);
-    }
-    for (auto& v : vals) {
-        data_column->insert_data((const char*)(&v), 0);
-    }
-    ColumnArray array_column(std::move(data_column), std::move(off_column));
-
-    IColumn::Permutation perm = {3, 2, 1, 0};
-    // return array column: [[5,6],[4]];
-    auto res1 = array_column.permute(perm, 2);
-    check_array_offsets(*res1, {2, 3});
-    check_array_data<int32_t>(*res1, {5, 6, 4});
-
-    // return array column: [[5,6],[4],[],[1,2,3]]
-    auto res2 = array_column.permute(perm, 0);
-    check_array_offsets(*res2, {2, 3, 3, 6});
-    check_array_data<int32_t>(*res2, {5, 6, 4, 1, 2, 3});
-}
-
 TEST(ColumnArrayOldTest, StringArrayPermuteTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
+    auto off_column = ColumnOffset64::create();
     auto data_column = ColumnString::create();
     // init column array with [["abc","d"],["ef"],[], [""]];
     std::vector<ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -209,8 +136,8 @@ TEST(ColumnArrayOldTest, StringArrayPermuteTest) {
 }
 
 TEST(ColumnArrayOldTest, EmptyArrayPermuteTest) {
-    auto off_column = ColumnVector<ColumnArray::Offset64>::create();
-    auto data_column = ColumnVector<int32_t>::create();
+    auto off_column = ColumnOffset64::create();
+    auto data_column = ColumnInt32::create();
     // init column array with [[],[],[],[]]
     std::vector<ColumnArray::Offset64> offs = {0, 0, 0, 0, 0};
     std::vector<int32_t> vals = {};

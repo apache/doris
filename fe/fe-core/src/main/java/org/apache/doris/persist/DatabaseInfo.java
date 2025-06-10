@@ -17,7 +17,7 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.alter.QuotaType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.Env;

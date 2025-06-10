@@ -49,7 +49,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
@@ -89,7 +88,7 @@ class DeltaWriterV2Map;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    std::vector<uint32_t> row_idxes;
+    DorisVector<uint32_t> row_idxes;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;
@@ -217,8 +216,7 @@ private:
 
     VOlapTablePartitionParam* _vpartition = nullptr;
 
-    RuntimeState* _state = nullptr;     // not owned, set when open
-    RuntimeProfile* _profile = nullptr; // not owned, set when open
+    RuntimeState* _state = nullptr; // not owned, set when open
 
     std::unordered_set<int64_t> _opened_partitions;
 

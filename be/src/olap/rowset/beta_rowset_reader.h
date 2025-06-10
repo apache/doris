@@ -80,11 +80,13 @@ public:
         return _iterator->current_block_row_locations(locations);
     }
 
-    bool update_profile(RuntimeProfile* profile) override;
+    void update_profile(RuntimeProfile* profile) override;
 
     RowsetReaderSharedPtr clone() override;
 
     void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
+
+    OlapReaderStatistics* get_stats() { return _stats; }
 
 private:
     [[nodiscard]] Status _init_iterator_once();

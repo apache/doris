@@ -33,13 +33,11 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
@@ -80,7 +78,6 @@ public:
             throw doris::Exception(
                     ErrorCode::INVALID_ARGUMENT,
                     "Incorrect number of arguments for array_enumerate_uniq function");
-            __builtin_unreachable();
         }
         bool is_nested_nullable = false;
         for (size_t i = 0; i < arguments.size(); ++i) {
@@ -167,43 +164,65 @@ public:
             }
             auto nested_type =
                     assert_cast<const DataTypeArray&>(*src_column_type).get_nested_type();
-            WhichDataType which(remove_nullable(nested_type));
-            if (which.is_uint8()) {
+            switch (nested_type->get_primitive_type()) {
+            case TYPE_BOOLEAN:
                 _execute_number<ColumnUInt8>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_int8()) {
+                break;
+            case TYPE_TINYINT:
                 _execute_number<ColumnInt8>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_int16()) {
+                break;
+            case TYPE_SMALLINT:
                 _execute_number<ColumnInt16>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_int32()) {
+                break;
+            case TYPE_INT:
                 _execute_number<ColumnInt32>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_int64()) {
+                break;
+            case TYPE_BIGINT:
                 _execute_number<ColumnInt64>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_int128()) {
+                break;
+            case TYPE_LARGEINT:
                 _execute_number<ColumnInt128>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_float32()) {
+                break;
+            case TYPE_FLOAT:
                 _execute_number<ColumnFloat32>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_float64()) {
+                break;
+            case TYPE_DOUBLE:
                 _execute_number<ColumnFloat64>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_date()) {
+                break;
+            case TYPE_DATE:
                 _execute_number<ColumnDate>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_date_time()) {
-                _execute_number<ColumnDateTime>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_date_v2()) {
+                break;
+            case TYPE_DATEV2:
                 _execute_number<ColumnDateV2>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal32()) {
-                _execute_number<ColumnDecimal32>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal64()) {
-                _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal128v3()) {
-                _execute_number<ColumnDecimal128V3>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal256()) {
-                _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_date_time_v2()) {
+                break;
+            case TYPE_DATETIME:
+                _execute_number<ColumnDateTime>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_DATETIMEV2:
                 _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_decimal128v2()) {
+                break;
+            case TYPE_DECIMAL32:
+                _execute_number<ColumnDecimal32>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_DECIMAL64:
+                _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_DECIMAL128I:
+                _execute_number<ColumnDecimal128V3>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_DECIMALV2:
                 _execute_number<ColumnDecimal128V2>(data_columns, *offsets, null_map, dst_values);
-            } else if (which.is_string()) {
+                break;
+            case TYPE_DECIMAL256:
+                _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_CHAR:
+            case TYPE_VARCHAR:
+            case TYPE_STRING:
                 _execute_string(data_columns, *offsets, null_map, dst_values);
+                break;
+            default:
+                break;
             }
         } else {
             _execute_by_hash<MethodSerialized<PHHashMap<StringRef, Int64>>, false>(

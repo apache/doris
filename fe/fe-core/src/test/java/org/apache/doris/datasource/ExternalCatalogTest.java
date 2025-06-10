@@ -276,4 +276,37 @@ public class ExternalCatalogTest extends TestWithFeService {
         dis.close();
         file.delete();
     }
+
+    @Test
+    public void testSerializationWithComment() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File("./external_catalog_with_comment_test.dat");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
+
+        TestExternalCatalog ctl = (TestExternalCatalog) mgr.getCatalog("test1");
+        String testComment = "This is a test comment for serialization";
+        ctl.setComment(testComment); // Set a custom comment value
+        ctl.write(dos);
+        dos.flush();
+        dos.close();
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
+
+        TestExternalCatalog ctl2 = (TestExternalCatalog) ExternalCatalog.read(dis);
+        Configuration conf = ctl2.getConfiguration();
+        Assertions.assertNotNull(conf);
+
+        // Verify the comment is properly serialized and deserialized
+        Assertions.assertEquals(testComment, ctl2.getComment());
+
+        // 3. delete files
+        dis.close();
+        file.delete();
+    }
 }

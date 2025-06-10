@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
@@ -93,6 +94,12 @@ public class SetSessionVarOp extends SetVarOp {
         // Check variable time_zone value is valid
         if (name.equalsIgnoreCase(SessionVariable.TIME_ZONE)) {
             this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(value.getStringValue()));
+        }
+        if (name.equalsIgnoreCase(SessionVariable.GROUP_COMMIT)) {
+            if (GroupCommitBlockSink.parseGroupCommit(value.getStringValue()) == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR,
+                        SessionVariable.GROUP_COMMIT, value);
+            }
         }
 
         if (name.equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)

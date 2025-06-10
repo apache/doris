@@ -31,7 +31,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/calc_delete_bitmap_executor.h"
@@ -52,9 +51,9 @@
 #include "olap/txn_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "util/trace.h"
@@ -151,9 +150,10 @@ Status RowsetBuilder::check_tablet_version_count() {
     bool injection = false;
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { injection = true; });
+    int32_t max_version_config = _tablet->max_version_config();
     if (injection) {
         // do not return if injection
-    } else if (!_tablet->exceed_version_limit(config::max_tablet_version_num - 100) ||
+    } else if (!_tablet->exceed_version_limit(max_version_config - 100) ||
                GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::OK();
     }
@@ -167,12 +167,13 @@ Status RowsetBuilder::check_tablet_version_count() {
     int version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
-    if (version_count > config::max_tablet_version_num) {
+    if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
                 "tablet: {}. Please reduce the frequency of loading data or adjust the "
-                "max_tablet_version_num in be.conf to a larger value.",
-                version_count, config::max_tablet_version_num, _tablet->tablet_id());
+                "max_tablet_version_num or time_series_max_tablet_version_num in be.conf to a "
+                "larger value.",
+                version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();
 }
@@ -258,7 +259,7 @@ Status BaseRowsetBuilder::build_rowset() {
 }
 
 Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
-    if (!_tablet->enable_unique_key_merge_on_write()) {
+    if (!_tablet->enable_unique_key_merge_on_write() || _rowset->num_segments() == 0) {
         return Status::OK();
     }
     std::lock_guard<std::mutex> l(_lock);
@@ -274,20 +275,18 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         }
     }
 
-    // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                     "tablet_id: "
-                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-        return Status::OK();
-    }
     auto* beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
     if (segments.size() > 1) {
         // calculate delete bitmap between segments
-        RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(), segments,
-                                                                     _delete_bitmap));
+        if (config::enable_calc_delete_bitmap_between_segments_concurrently) {
+            RETURN_IF_ERROR(_calc_delete_bitmap_token->submit(_tablet, _rowset->rowset_id(),
+                                                              segments, _delete_bitmap));
+        } else {
+            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_rowset->rowset_id(),
+                                                                         segments, _delete_bitmap));
+        }
     }
 
     // For partial update, we need to fill in the entire row of data, during the calculation
@@ -298,13 +297,13 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
         // we print it's summarize logs here before commit.
         LOG(INFO) << fmt::format(
                 "{} calc delete bitmap summary before commit: tablet({}), txn_id({}), "
-                "rowset_ids({}), cur max_version({}), bitmap num({}), num rows updated({}), num "
-                "rows new added({}), num rows deleted({}), total rows({})",
+                "rowset_ids({}), cur max_version({}), bitmap num({}), bitmap_cardinality({}), num "
+                "rows updated({}), num rows new added({}), num rows deleted({}), total rows({})",
                 _partial_update_info->partial_update_mode_str(), tablet()->tablet_id(), _req.txn_id,
                 _rowset_ids.size(), rowset_writer()->context().mow_context->max_version,
-                _delete_bitmap->delete_bitmap.size(), rowset_writer()->num_rows_updated(),
-                rowset_writer()->num_rows_new_added(), rowset_writer()->num_rows_deleted(),
-                rowset_writer()->num_rows());
+                _delete_bitmap->get_delete_bitmap_count(), _delete_bitmap->cardinality(),
+                rowset_writer()->num_rows_updated(), rowset_writer()->num_rows_new_added(),
+                rowset_writer()->num_rows_deleted(), rowset_writer()->num_rows());
         return Status::OK();
     }
 
@@ -322,8 +321,6 @@ Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_wait_delete_bitmap_timer);
     RETURN_IF_ERROR(_calc_delete_bitmap_token->wait());
-    LOG(INFO) << "Got result of calc delete bitmap task from executor, tablet_id: "
-              << _tablet->tablet_id() << ", txn_id: " << _req.txn_id;
     return Status::OK();
 }
 

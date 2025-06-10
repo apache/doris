@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -32,8 +33,11 @@ namespace doris::vectorized {
 class Block;
 class SpillReader {
 public:
-    SpillReader(int64_t stream_id, std::string file_path)
-            : stream_id_(stream_id), file_path_(std::move(file_path)) {}
+    SpillReader(std::shared_ptr<ResourceContext> resource_context, int64_t stream_id,
+                std::string file_path)
+            : stream_id_(stream_id),
+              file_path_(std::move(file_path)),
+              _resource_ctx(std::move(resource_context)) {}
 
     ~SpillReader() { (void)close(); }
 
@@ -51,12 +55,14 @@ public:
 
     size_t block_count() const { return block_count_; }
 
-    void set_counters(RuntimeProfile::Counter* read_timer,
-                      RuntimeProfile::Counter* deserialize_timer,
-                      RuntimeProfile::Counter* read_bytes) {
-        read_timer_ = read_timer;
-        deserialize_timer_ = deserialize_timer;
-        read_bytes_ = read_bytes;
+    void set_counters(RuntimeProfile* profile) {
+        _read_file_timer = profile->get_counter("SpillReadFileTime");
+        _deserialize_timer = profile->get_counter("SpillReadDerializeBlockTime");
+        _read_block_count = profile->get_counter("SpillReadBlockCount");
+        _read_block_data_size = profile->get_counter("SpillReadBlockBytes");
+        _read_file_size = profile->get_counter("SpillReadFileBytes");
+        _read_rows_count = profile->get_counter("SpillReadRows");
+        _read_file_count = profile->get_counter("SpillReadFileCount");
     }
 
 private:
@@ -72,9 +78,15 @@ private:
 
     PBlock pb_block_;
 
-    RuntimeProfile::Counter* read_timer_;
-    RuntimeProfile::Counter* deserialize_timer_;
-    RuntimeProfile::Counter* read_bytes_;
+    RuntimeProfile::Counter* _read_file_timer = nullptr;
+    RuntimeProfile::Counter* _deserialize_timer = nullptr;
+    RuntimeProfile::Counter* _read_block_count = nullptr;
+    RuntimeProfile::Counter* _read_block_data_size = nullptr;
+    RuntimeProfile::Counter* _read_file_size = nullptr;
+    RuntimeProfile::Counter* _read_rows_count = nullptr;
+    RuntimeProfile::Counter* _read_file_count = nullptr;
+
+    std::shared_ptr<ResourceContext> _resource_ctx = nullptr;
 };
 
 using SpillReaderUPtr = std::unique_ptr<SpillReader>;

@@ -28,8 +28,11 @@ struct RowRefWithFlag {
     bool visited;
     uint32_t row_num = 0;
     RowRefWithFlag() = default;
+#include "common/compile_check_avoid_begin.h"
+    //To consider performance, checks are avoided here.
     RowRefWithFlag(size_t row_num_count, bool is_visited = false)
             : visited(is_visited), row_num(row_num_count) {}
+#include "common/compile_check_avoid_end.h"
 };
 
 template <typename T>

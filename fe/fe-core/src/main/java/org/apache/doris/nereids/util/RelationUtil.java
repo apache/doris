@@ -23,24 +23,28 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -49,6 +53,13 @@ import java.util.stream.Collectors;
  * relation util
  */
 public class RelationUtil {
+    private static final String SYNC_MV_PLANER_DISABLE_RULES = "OLAP_SCAN_PARTITION_PRUNE, PRUNE_EMPTY_PARTITION, "
+            + "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, HAVING_TO_FILTER, ELIMINATE_GROUP_BY, SIMPLIFY_AGG_GROUP_BY, "
+            + "MERGE_PERCENTILE_TO_ARRAY, VARIANT_SUB_PATH_PRUNING, INFER_PREDICATES, INFER_AGG_NOT_NULL, "
+            + "INFER_SET_OPERATOR_DISTINCT, INFER_FILTER_NOT_NULL, INFER_JOIN_NOT_NULL, PUSH_DOWN_MAX_MIN_FILTER, "
+            + "ELIMINATE_SORT, ELIMINATE_AGGREGATE, ELIMINATE_LIMIT, ELIMINATE_SEMI_JOIN, ELIMINATE_NOT_NULL, "
+            + "ELIMINATE_JOIN_BY_UK, ELIMINATE_JOIN_BY_FK, ELIMINATE_GROUP_BY_KEY, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, "
+            + "ELIMINATE_FILTER_GROUP_BY_KEY";
 
     /**
      * get table qualifier
@@ -114,13 +125,18 @@ public class RelationUtil {
             throw new AnalysisException(java.lang.String.format("Catalog %s does not exist.", catalogName));
         }
         try {
-            DatabaseIf<TableIf> db = catalog.getDb(dbName).orElseThrow(() -> new AnalysisException(
+            DatabaseIf<TableIf> db = catalog.getDbOrException(dbName, s -> new AnalysisException(
                     "Database [" + dbName + "] does not exist."));
-            Pair<String, String> sourceTblNameWithMetaTblName = catalog.getSourceTableNameWithMetaTableName(tableName);
-            String sourceTableName = sourceTblNameWithMetaTblName.first;
-            TableIf table = db.getTable(sourceTableName).orElseThrow(() -> new AnalysisException(
-                    "Table [" + sourceTableName + "] does not exist in database [" + dbName + "]."));
-            return Pair.of(db, table);
+            Pair<String, String> tableNameWithSysTableName
+                    = SysTable.getTableNameWithSysTableName(tableName);
+            TableIf tbl = db.getTableOrException(tableNameWithSysTableName.first,
+                    s -> new AnalysisException(
+                            "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
+            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
+                throw new AnalysisException("Unknown sys table '" + tableName + "'");
+            }
+            return Pair.of(db, tbl);
         } catch (Throwable e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -137,23 +153,55 @@ public class RelationUtil {
             Optional<String> querySql = new NereidsParser().parseForSyncMv(createMvSql);
             if (querySql.isPresent()) {
                 LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(querySql.get());
-                StatementContext statementContext = new StatementContext(ConnectContext.get(),
+                ConnectContext connectContext = ConnectContext.get();
+                StatementContext statementContext = new StatementContext(connectContext,
                         new OriginStatement(querySql.get(), 0));
                 NereidsPlanner planner = new NereidsPlanner(statementContext);
                 if (statementContext.getConnectContext().getStatementContext() == null) {
                     statementContext.getConnectContext().setStatementContext(statementContext);
                 }
-                planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
-                LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
-
-                logicalPlan
-                        .collect(plan -> plan instanceof LogicalProject
-                                && ((LogicalProject<?>) plan).child() instanceof LogicalCatalogRelation)
-                        .stream().forEach(plan -> {
-                            LogicalProject logicalProject = (LogicalProject) plan;
-                            columns.addAll(logicalProject.getInputSlots().stream().map(Slot::getName)
-                                    .collect(Collectors.toList()));
-                        });
+                Set<String> tempDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
+                connectContext.getSessionVariable().setDisableNereidsRules(SYNC_MV_PLANER_DISABLE_RULES);
+                connectContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+                LogicalPlan logicalPlan;
+                try {
+                    // disable rbo sync mv rewrite
+                    connectContext.getSessionVariable()
+                            .setVarOnce(SessionVariable.ENABLE_SYNC_MV_COST_BASED_REWRITE, "true");
+                    // disable constant fold
+                    connectContext.getSessionVariable().setVarOnce(SessionVariable.DEBUG_SKIP_FOLD_CONSTANT, "true");
+                    planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY,
+                            ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
+                    logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
+                } finally {
+                    // after operate, roll back the disable rules
+                    connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
+                    connectContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+                }
+                Map<Boolean, List<Object>> partitionedPlan = logicalPlan
+                        .collect(plan -> true)
+                        .stream()
+                        .collect(Collectors.partitioningBy(
+                                plan -> plan instanceof LogicalProject
+                                        && ((LogicalProject<?>) plan).child() instanceof LogicalCatalogRelation
+                        ));
+                List<Object> projects = partitionedPlan.get(true);
+                if (projects.isEmpty()) {
+                    // for scan
+                    partitionedPlan.get(false)
+                            .stream()
+                            .filter(plan -> plan instanceof LogicalCatalogRelation)
+                            .map(plan -> (LogicalCatalogRelation) plan)
+                            .forEach(plan -> columns.addAll(logicalPlan.getOutput().stream().map(Slot::getName).collect(
+                                    Collectors.toList())));
+                } else {
+                    // for projects
+                    projects
+                            .stream()
+                            .map(plan -> (LogicalProject<?>) plan)
+                            .forEach(plan -> columns.addAll(plan.getInputSlots().stream().map(Slot::getName).collect(
+                                    Collectors.toList())));
+                }
             } else {
                 throw new AnalysisException(String.format("can't parse %s ", createMvSql));
             }
@@ -164,3 +212,4 @@ public class RelationUtil {
         return columns;
     }
 }
+

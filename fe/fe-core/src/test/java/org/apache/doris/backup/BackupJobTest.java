@@ -18,7 +18,6 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
@@ -29,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
@@ -96,6 +96,9 @@ public class BackupJobTest {
 
     private MockRepositoryMgr repoMgr;
 
+    public BackupJobTest() throws UserException {
+    }
+
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
         public MockBackupHandler(Env env) {
@@ -124,7 +127,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            FileSystemFactory.get("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+            FileSystemFactory.get("broker", Maps.newHashMap()));
 
     @BeforeClass
     public static void start() {
@@ -234,7 +237,7 @@ public class BackupJobTest {
         Assert.assertEquals(backupTbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames),
                             ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
-        AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, tabletId);
+        AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, id.get() - 1);
         Assert.assertTrue(task instanceof SnapshotTask);
         SnapshotTask snapshotTask = (SnapshotTask) task;
 

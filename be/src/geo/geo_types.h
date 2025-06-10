@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/factory_creator.h"
 #include "geo/geo_common.h"
@@ -60,6 +61,13 @@ public:
     virtual std::string as_wkt() const = 0;
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
+
+    virtual bool disjoint(const GeoShape* rhs) const { return false; }
+
+    virtual bool intersects(const GeoShape* rhs) const { return false; }
+
+    virtual bool touches(const GeoShape* rhs) const { return false; }
+
     virtual std::string to_string() const { return ""; }
     static std::string as_binary(GeoShape* rhs);
 
@@ -81,6 +89,10 @@ public:
     GeoParseStatus from_coord(const GeoCoordinate& point);
 
     GeoCoordinateList to_coords() const;
+
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
 
     GeoShapeType type() const override { return GEO_SHAPE_POINT; }
 
@@ -119,6 +131,10 @@ public:
 
     GeoCoordinateList to_coords() const;
 
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
+
     GeoShapeType type() const override { return GEO_SHAPE_LINE_STRING; }
     const S2Polyline* polyline() const { return _polyline.get(); }
 
@@ -137,6 +153,7 @@ private:
 
 class GeoPolygon : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoPolygon);
+    friend class GeoMultiPolygon;
 
 public:
     GeoPolygon();
@@ -148,7 +165,14 @@ public:
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
 
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
+
+    bool polygon_touch_point(const S2Polygon* polygon, const S2Point* point) const;
+    bool polygon_touch_polygon(const S2Polygon* polygon1, const S2Polygon* polygon2) const;
+
     std::string as_wkt() const override;
 
     int numLoops() const;
@@ -163,6 +187,36 @@ private:
     std::unique_ptr<S2Polygon> _polygon;
 };
 
+class GeoMultiPolygon : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoMultiPolygon);
+
+public:
+    GeoMultiPolygon();
+    ~GeoMultiPolygon() override;
+
+    GeoParseStatus check_self_intersection();
+    GeoParseStatus from_coords(const std::vector<GeoCoordinateListList>& list);
+    const std::vector<std::unique_ptr<GeoCoordinateListList>> to_coords() const;
+
+    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
+    const std::vector<std::unique_ptr<GeoPolygon>>& polygons() const { return _polygons; }
+
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
+    bool contains(const GeoShape* rhs) const override;
+    std::string as_wkt() const override;
+
+    double getArea() const;
+
+protected:
+    void encode(std::string* buf) override;
+    bool decode(const void* data, size_t size) override;
+
+private:
+    std::vector<std::unique_ptr<GeoPolygon>> _polygons;
+};
+
 class GeoCircle : public GeoShape {
     ENABLE_FACTORY_CREATOR(GeoCircle);
 
@@ -174,6 +228,11 @@ public:
 
     GeoShapeType type() const override { return GEO_SHAPE_CIRCLE; }
 
+    const S2Cap* circle() const { return _cap.get(); }
+
+    bool intersects(const GeoShape* rhs) const override;
+    bool disjoint(const GeoShape* rhs) const override;
+    bool touches(const GeoShape* rhs) const override;
     bool contains(const GeoShape* rhs) const override;
     std::string as_wkt() const override;
 

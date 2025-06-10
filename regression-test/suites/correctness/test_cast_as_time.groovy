@@ -55,4 +55,20 @@ suite("test_cast_as_time") {
     qt_select5 """
        select cast("10:10:10" as datetimev2)
     """   
+    qt_select6 """
+       select cast("40000:10:10" as time) , cast("-40000:10:10" as time)
+    """   
+    qt_select7 """
+       select cast("-10:10:10" as time) , cast("-123" as time) 
+    """   
+    qt_select8 """
+       select cast('-1:02:03' as time), cast('01:-20:03' as time)
+    """   
+    qt_select8 """
+       select cast('2013-01-01 01:02:03' as time)
+    """  
+    qt_select9 """
+       select hour(cast(-121314 as time)) , minute(cast(-121314 as time)), second(cast(-121314 as time)) ;
+    """  
+
 }

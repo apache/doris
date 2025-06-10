@@ -32,11 +32,10 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "beta_rowset_writer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
@@ -65,6 +64,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
@@ -167,15 +167,14 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         // will be cleaned up by the GC background. So here we only print the error
         // message when we encounter an error.
         RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
-                                       strings::Substitute("Failed to delete file=$0", seg_path));
+                                       absl::Substitute("Failed to delete file=$0", seg_path));
         if (schema->has_inverted_index() &&
             schema->get_inverted_index_storage_format() >= InvertedIndexStorageFormatPB::V2) {
             auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
             VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    fs->delete_file(idx_path),
-                    strings::Substitute("Failed to delete file=$0", idx_path));
+            RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(idx_path),
+                                           absl::Substitute("Failed to delete file=$0", idx_path));
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
@@ -189,7 +188,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                     VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                     RETURN_NOT_OK_STATUS_WITH_WARN(
                             fs->delete_file(idx_path),
-                            strings::Substitute("Failed to delete file=$0", idx_path));
+                            absl::Substitute("Failed to delete file=$0", idx_path));
                 }
                 // Erase the origin index file cache
                 auto idx_file_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
@@ -255,7 +254,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
     DCHECK(_seg_compact_mem_tracker != nullptr);
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
+    SCOPED_ATTACH_TASK(_seg_compact_mem_tracker);
     /* throttle segcompaction task if memory depleted */
     if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
@@ -380,7 +379,7 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
         return;
     }
     if (!status.ok()) {
-        int16_t errcode = status.code();
+        int errcode = status.code();
         switch (errcode) {
         case FETCH_MEMORY_EXCEEDED:
         case SEGCOMPACTION_INIT_READER:
@@ -464,4 +463,5 @@ bool SegcompactionWorker::cancel() {
     return _is_compacting_state_mutable.exchange(false);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

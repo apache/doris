@@ -30,6 +30,7 @@ public class DeleteBitmapUpdateLockContext {
     private Map<Long, Long> baseCompactionCnts;
     private Map<Long, Long> cumulativeCompactionCnts;
     private Map<Long, Long> cumulativePoints;
+    private Map<Long, Long> tabletStates;
     private Map<Long, Set<Long>> tableToPartitions;
     private Map<Long, Partition> partitions;
     private Map<Long, Map<Long, Set<Long>>> backendToPartitionTablets;
@@ -40,6 +41,7 @@ public class DeleteBitmapUpdateLockContext {
         baseCompactionCnts = Maps.newHashMap();
         cumulativeCompactionCnts = Maps.newHashMap();
         cumulativePoints = Maps.newHashMap();
+        tabletStates = Maps.newHashMap();
         tableToPartitions = Maps.newHashMap();
         partitions = Maps.newHashMap();
         backendToPartitionTablets = Maps.newHashMap();
@@ -61,6 +63,10 @@ public class DeleteBitmapUpdateLockContext {
 
     public Map<Long, Long> getCumulativePoints() {
         return cumulativePoints;
+    }
+
+    public Map<Long, Long> getTabletStates() {
+        return tabletStates;
     }
 
     public Map<Long, Map<Long, Set<Long>>> getBackendToPartitionTablets() {

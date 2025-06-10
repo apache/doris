@@ -216,7 +216,10 @@ class StreamLoadAction implements SuiteAction {
             throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
         }
 
-        return resp.getEntity().getContent()
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        resp.getEntity().writeTo(buffer); // 完整读取数据
+        log.info("entity new size is ${buffer.size()}")
+        return new ByteArrayInputStream(buffer.toByteArray());
     }
 
     private RequestBuilder prepareRequestHeader(RequestBuilder requestBuilder) {
@@ -365,13 +368,15 @@ class StreamLoadAction implements SuiteAction {
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
             }
 
-            if (time > 0) {
-                long elapsed = endTime - startTime
-                if (elapsed > time) {
-                    log.info("Stream load consums more time than expected, elapsed ${elapsed} ms, expect ${time} ms")
-                } else {
-                    log.info("Stream load consums time elapsed ${elapsed} ms, expect ${time} ms")
-                }
+             if (time > 0) {
+                 long elapsed = endTime - startTime
+                 try {
+                     // stream load may cost more time than expected in regression test, because of case run in parallel.
+                     // So we allow stream load cost more time, use 4 * time as threshold.
+                     Assert.assertTrue("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}", elapsed <= 4 * time)
+                 } catch (Throwable t) {
+                     throw new IllegalStateException("Stream load Expect elapsed <= 4 * ${time}, but meet ${elapsed}")
+                 }
             }
         }
     }

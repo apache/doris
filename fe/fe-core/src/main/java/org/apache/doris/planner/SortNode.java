@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
@@ -71,6 +72,8 @@ public class SortNode extends PlanNode {
     // exchange node, and the sort node is used for the ORDER BY .
     private boolean mergeByexchange = false;
 
+    private boolean useLocalMerge = false;
+
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private boolean isColocate = false;
@@ -80,6 +83,9 @@ public class SortNode extends PlanNode {
     private boolean isUnusedExprRemoved = false;
 
     private ArrayList<Boolean> nullabilityChangedFlags = Lists.newArrayList();
+
+    // topn filter target: ScanNode id + slot desc
+    private List<Pair<Integer, Integer>> topnFilterTargets;
 
     /**
      * Constructor.
@@ -151,6 +157,17 @@ public class SortNode extends PlanNode {
 
     public void setMergeByExchange() {
         this.mergeByexchange = true;
+        // mergeByexchange = true means that the sort data will be merged once at the
+        // exchange node
+        // If enable_local_merge = true at the same time, it can be merged once before
+        // the exchange node
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().getEnableLocalMergeSort()
+                && this.mergeByexchange) {
+            this.useLocalMerge = true;
+        } else {
+            this.useLocalMerge = false;
+        }
     }
 
     public boolean getUseTopnOpt() {
@@ -202,7 +219,7 @@ public class SortNode extends PlanNode {
         output.append("\n");
 
         if (useTopnOpt) {
-            output.append(detailPrefix + "TOPN OPT\n");
+            output.append(detailPrefix + "TOPN filter targets: ").append(topnFilterTargets).append("\n");
         }
         if (useTwoPhaseReadOpt) {
             output.append(detailPrefix + "OPT TWO PHASE\n");
@@ -217,6 +234,12 @@ public class SortNode extends PlanNode {
             output.append("full sort\n");
         }
 
+        if (useLocalMerge) {
+            output.append(detailPrefix + "local merge sort\n");
+        }
+        if (mergeByexchange) {
+            output.append(detailPrefix + "merge by exchange\n");
+        }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
@@ -342,6 +365,7 @@ public class SortNode extends PlanNode {
         msg.sort_node.setOffset(offset);
         msg.sort_node.setUseTopnOpt(useTopnOpt);
         msg.sort_node.setMergeByExchange(this.mergeByexchange);
+        msg.sort_node.setUseLocalMerge(this.useLocalMerge);
         msg.sort_node.setIsAnalyticSort(isAnalyticSort);
         msg.sort_node.setIsColocate(isColocate);
 
@@ -393,5 +417,14 @@ public class SortNode extends PlanNode {
     public void setOffset(long offset) {
         super.setOffset(offset);
         updateSortAlgorithm();
+    }
+
+    public List<Pair<Integer, Integer>> getTopnFilterTargets() {
+        return topnFilterTargets;
+    }
+
+    public void setTopnFilterTargets(
+            List<Pair<Integer, Integer>> topnFilterTargets) {
+        this.topnFilterTargets = topnFilterTargets;
     }
 }

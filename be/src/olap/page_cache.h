@@ -37,33 +37,54 @@ namespace doris {
 
 class PageCacheHandle;
 
-template <typename TAllocator>
-class PageBase : private TAllocator, public LRUCacheValueBase {
+template <typename T>
+class MemoryTrackedPageBase : public LRUCacheValueBase {
 public:
-    PageBase() = default;
-    PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
-    PageBase(const PageBase&) = delete;
-    PageBase& operator=(const PageBase&) = delete;
-    ~PageBase() override;
+    MemoryTrackedPageBase() = default;
+    MemoryTrackedPageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
 
-    char* data() { return _data; }
+    MemoryTrackedPageBase(const MemoryTrackedPageBase&) = delete;
+    MemoryTrackedPageBase& operator=(const MemoryTrackedPageBase&) = delete;
+    ~MemoryTrackedPageBase() = default;
+
+    T data() { return _data; }
     size_t size() { return _size; }
-    size_t capacity() { return _capacity; }
 
-    void reset_size(size_t n) {
-        DCHECK(n <= _capacity);
-        _size = n;
-    }
-
-private:
-    char* _data = nullptr;
-    // Effective size, smaller than capacity, such as data page remove checksum suffix.
+protected:
+    T _data;
     size_t _size = 0;
-    size_t _capacity = 0;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 };
 
-using DataPage = PageBase<Allocator<false>>;
+class MemoryTrackedPageWithPageEntity : Allocator<false>, public MemoryTrackedPageBase<char*> {
+public:
+    MemoryTrackedPageWithPageEntity(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
+
+    size_t capacity() { return this->_capacity; }
+
+    ~MemoryTrackedPageWithPageEntity() override;
+
+    void reset_size(size_t n) {
+        DCHECK(n <= this->_capacity);
+        this->_size = n;
+    }
+
+private:
+    size_t _capacity = 0;
+};
+
+template <typename T>
+class MemoryTrackedPageWithPagePtr : public MemoryTrackedPageBase<std::shared_ptr<T>> {
+public:
+    MemoryTrackedPageWithPagePtr(size_t b, segment_v2::PageTypePB page_type);
+
+    ~MemoryTrackedPageWithPagePtr() override;
+
+    void set_data(std::shared_ptr<T> data) { this->_data = data; }
+};
+
+using SemgnetFooterPBPage = MemoryTrackedPageWithPagePtr<segment_v2::SegmentFooterPB>;
+using DataPage = MemoryTrackedPageWithPageEntity;
 
 // Wrapper around Cache, and used for cache page of column data
 // in Segment.
@@ -150,6 +171,17 @@ public:
     void insert(const CacheKey& key, DataPage* data, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
 
+    // Insert a std::share_ptr which points to a page into this cache.
+    // size should be the size of the page instead of shared_ptr.
+    // Internal implementation will wrap shared_ptr with MemoryTrackedPageWithPagePtr
+    // Since we are using std::shared_ptr, so lify cycle of the page is not managed by
+    // this cache alone.
+    // User could store a weak_ptr to the page, and lock it when needed.
+    // See Segment::_get_segment_footer for example.
+    template <typename T>
+    void insert(const CacheKey& key, T data, size_t size, PageCacheHandle* handle,
+                segment_v2::PageTypePB page_type, bool in_memory = false);
+
     std::shared_ptr<MemTrackerLimiter> mem_tracker(segment_v2::PageTypePB page_type) {
         return _get_page_cache(page_type)->mem_tracker();
     }
@@ -210,9 +242,17 @@ public:
     }
 
     LRUCachePolicy* cache() const { return _cache; }
-    Slice data() const {
-        auto* cache_value = (DataPage*)_cache->value(_handle);
-        return {cache_value->data(), cache_value->size()};
+    Slice data() const;
+
+    template <typename T>
+    T get() const {
+        static_assert(std::is_same<typename std::remove_cv<T>::type,
+                                   std::shared_ptr<typename T::element_type>>::value,
+                      "T must be a std::shared_ptr");
+        using ValueType = typename T::element_type; // Type that shared_ptr points to
+        MemoryTrackedPageWithPagePtr<ValueType>* page =
+                (MemoryTrackedPageWithPagePtr<ValueType>*)_cache->value(_handle);
+        return page->data();
     }
 
 private:

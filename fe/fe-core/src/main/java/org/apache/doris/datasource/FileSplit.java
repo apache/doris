@@ -111,4 +111,8 @@ public class FileSplit implements Split {
             return SplitWeight.standard();
         }
     }
+
+    public long getSelfSplitWeight() {
+        return selfSplitWeight;
+    }
 }

@@ -42,8 +42,8 @@ DataTypes _create_scala_data_types() {
     DataTypePtr dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime>());
     DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDate>());
     DataTypePtr dc = std::make_shared<DataTypeNullable>(vectorized::create_decimal(10, 2, false));
-    DataTypePtr dcv2 = std::make_shared<DataTypeNullable>(
-            std::make_shared<DataTypeDecimal<vectorized::Decimal128V2>>(27, 9));
+    DataTypePtr dcv2 =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDecimalV2>(27, 9));
     DataTypePtr n3 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
     DataTypePtr n1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
     DataTypePtr s1 = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
@@ -96,11 +96,11 @@ TEST(ResizeTest, ArrayTypeWithValuesTest) {
     DataTypePtr a = std::make_shared<DataTypeArray>(d);
     auto col_a = a->create_column();
     Array af;
-    af.push_back(Int64(1));
-    af.push_back(Int64(2));
-    af.push_back(Int64(3));
-    col_a->insert(af);
-    col_a->insert(af);
+    af.push_back(Field::create_field<TYPE_BIGINT>(Int64(1)));
+    af.push_back(Field::create_field<TYPE_BIGINT>(Int64(2)));
+    af.push_back(Field::create_field<TYPE_BIGINT>(Int64(3)));
+    col_a->insert(Field::create_field<TYPE_ARRAY>(af));
+    col_a->insert(Field::create_field<TYPE_ARRAY>(af));
 
     col_a->resize(10);
     MutableColumnPtr b = a->create_column();

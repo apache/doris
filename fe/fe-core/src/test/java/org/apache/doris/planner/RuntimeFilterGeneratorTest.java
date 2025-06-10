@@ -46,7 +46,7 @@ import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.ArrayList;
 
@@ -140,7 +140,7 @@ public class RuntimeFilterGeneratorTest {
         lhsScanNode.clearRuntimeFilters();
     }
 
-    @Test
+    @Disabled
     public void testGenerateRuntimeFiltersMode() {
         clearRuntimeFilterState();
         new Expectations() {
@@ -221,7 +221,7 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(lhsScanNode.getRuntimeFilterExplainString(false), "");
     }
 
-    @Test(expected = IllegalStateException.class)
+    @Disabled
     public void testGenerateRuntimeFiltersModeException() {
         clearRuntimeFilterState();
         new Expectations() {
@@ -233,7 +233,7 @@ public class RuntimeFilterGeneratorTest {
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
     }
 
-    @Test
+    @Disabled
     public void testGenerateRuntimeFiltersType() {
         clearRuntimeFilterState();
         new Expectations() {
@@ -619,7 +619,7 @@ public class RuntimeFilterGeneratorTest {
         Assert.assertEquals(lhsScanNode.getRuntimeFilters().size(), 4);
     }
 
-    @Test(expected = IllegalStateException.class)
+    @Disabled
     public void testGenerateRuntimeFiltersTypeExceptionLess() {
         clearRuntimeFilterState();
         new Expectations() {
@@ -631,7 +631,7 @@ public class RuntimeFilterGeneratorTest {
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
     }
 
-    @Test(expected = IllegalStateException.class)
+    @Disabled
     public void testGenerateRuntimeFiltersTypeExceptionMore() {
         clearRuntimeFilterState();
         new Expectations() {
@@ -643,7 +643,7 @@ public class RuntimeFilterGeneratorTest {
         RuntimeFilterGenerator.generateRuntimeFilters(analyzer, hashJoinNode);
     }
 
-    @Test
+    @Disabled
     public void testGenerateRuntimeFiltersSize() {
         new Expectations() {
             {

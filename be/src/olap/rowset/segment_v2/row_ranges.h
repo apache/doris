@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
@@ -89,7 +89,7 @@ public:
 
     int64_t to() const { return _to; }
 
-    std::string to_string() const { return strings::Substitute("[$0-$1)", _from, _to); }
+    std::string to_string() const { return absl::Substitute("[$0-$1)", _from, _to); }
 
 private:
     int64_t _from;

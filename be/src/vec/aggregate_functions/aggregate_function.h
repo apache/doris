@@ -233,6 +233,19 @@ public:
     virtual Status verify_result_type(const bool without_key, const DataTypes& argument_types,
                                       const DataTypePtr result_type) const = 0;
 
+    // agg function is used result column push_back to insert result,
+    // and now want's resize column early and use operator[] to insert result.
+    // but like result column is string column, it's can't resize dirctly with operator[]
+    // need template specialization agg for the string type in insert_result_into_range
+    virtual bool result_column_could_resize() const { return false; }
+
+    virtual void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+                                          const size_t start, const size_t end) const {
+        for (size_t i = start; i < end; ++i) {
+            insert_result_into(place, to);
+        }
+    }
+
 protected:
     DataTypes argument_types;
     int version {};
@@ -545,7 +558,7 @@ public:
 };
 
 /// Implements several methods for manipulation with data. T - type of structure with data for aggregation.
-template <typename T, typename Derived>
+template <typename T, typename Derived, bool create_with_argument_types = false>
 class IAggregateFunctionDataHelper : public IAggregateFunctionHelper<Derived> {
 protected:
     using Data = T;
@@ -559,7 +572,13 @@ public:
     IAggregateFunctionDataHelper(const DataTypes& argument_types_)
             : IAggregateFunctionHelper<Derived>(argument_types_) {}
 
-    void create(AggregateDataPtr __restrict place) const override { new (place) Data; }
+    void create(AggregateDataPtr __restrict place) const override {
+        if constexpr (create_with_argument_types) {
+            new (place) Data(IAggregateFunction::argument_types);
+        } else {
+            new (place) Data;
+        }
+    }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override { data(place).~Data(); }
 

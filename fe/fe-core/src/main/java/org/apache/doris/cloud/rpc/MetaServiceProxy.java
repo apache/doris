@@ -185,19 +185,21 @@ public class MetaServiceProxy {
                 } catch (StatusRuntimeException sre) {
                     LOG.info("failed to request meta servive code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
                             sre.getMessage(), tried);
-                    if (tried >= Config.meta_service_rpc_retry_cnt
-                            || (sre.getStatus().getCode() != Status.Code.UNAVAILABLE
-                                && sre.getStatus().getCode() != Status.Code.UNKNOWN)) {
+                    if ((tried > Config.meta_service_rpc_retry_cnt
+                                || (sre.getStatus().getCode() != Status.Code.UNAVAILABLE
+                                    && sre.getStatus().getCode() != Status.Code.UNKNOWN))
+                            && (tried > Config.meta_service_rpc_timeout_retry_times
+                                || sre.getStatus().getCode() != Status.Code.DEADLINE_EXCEEDED)) {
                         throw new RpcException("", sre.getMessage(), sre);
                     }
                 } catch (Exception e) {
                     LOG.info("failed to request meta servive trycnt {}", tried, e);
-                    if (tried >= Config.meta_service_rpc_retry_cnt) {
+                    if (tried > Config.meta_service_rpc_retry_cnt) {
                         throw new RpcException("", e.getMessage(), e);
                     }
                 } catch (Throwable t) {
                     LOG.info("failed to request meta servive trycnt {}", tried, t);
-                    if (tried >= Config.meta_service_rpc_retry_cnt) {
+                    if (tried > Config.meta_service_rpc_retry_cnt) {
                         throw new RpcException("", t.getMessage());
                     }
                 }

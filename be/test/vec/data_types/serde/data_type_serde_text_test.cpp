@@ -178,32 +178,42 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
-        std::vector<FieldType_RandStr> date_scala_field_types = {
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIME, "2020-01-01 12:00:00"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
-                                  "2020-01-01 12:00:00.666666"),
+        struct DataTestField {
+            FieldType type;
+            string str;
+            string max_str;
+            string min_str;
+        };
+        std::vector<DataTestField> date_scala_field_types = {
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATE,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATE,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATEV2,
+                               .str = "2020-01-01",
+                               .max_str = "9999-12-31",
+                               .min_str = "0001-01-01"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIME,
+                               .str = "2020-01-01 12:00:00",
+                               .max_str = "9999-12-31 23:59:59",
+                               .min_str = "0001-01-01 00:00:00"},
+                DataTestField {.type = FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+                               .str = "2020-01-01 12:00:00",
+                               .max_str = "9999-12-31 23:59:59",
+                               .min_str = "0001-01-01 00:00:00"},
         };
         for (auto pair : date_scala_field_types) {
-            auto type = pair.first;
+            auto type = pair.type;
             DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
             std::cout << "========= This type is  " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
-
-            std::unique_ptr<WrapperField> min_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
-
-            min_wf->set_to_min();
-            max_wf->set_to_max();
-            static_cast<void>(rand_wf->from_string(pair.second, 0, 0));
-
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-            string rand_date = rand_wf->to_string();
+            string min_s = pair.min_str;
+            string max_s = pair.max_str;
+            string rand_date = pair.str;
 
             Slice min_rb(min_s.data(), min_s.size());
             Slice max_rb(max_s.data(), max_s.size());
@@ -213,7 +223,6 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
             // make use c++ lib equals to wrapper field from_string behavior
             DataTypeSerDe::FormatOptions formatOptions;
-            formatOptions.date_olap_format = true;
 
             Status st = serde->deserialize_one_cell_from_json(*col, min_rb, formatOptions);
             EXPECT_EQ(st.ok(), true);
@@ -327,7 +336,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
                 WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
         std::string test_str = generate(128);
         static_cast<void>(rand_wf->from_string(test_str, 0, 0));
-        Field string_field(test_str);
+        Field string_field = Field::create_field<TYPE_STRING>(test_str);
         ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
         DataTypeSerDe::FormatOptions default_format_option;
         DataTypeSerDeSPtr serde = nullable_ptr->get_serde();
@@ -399,14 +408,14 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "\"\\N\", "
                          "\"\x1\x2\x3,\\u0001bc\"]",
                          "[\"heeeee\", null, \"null\", \"\\N\", null, \"sssssssss\"]"}),
-                FieldType_RandStr(
-                        FieldType::OLAP_FIELD_TYPE_DATE,
-                        {"[\\\"2022-07-13\\\",\"2022-07-13 12:30:00\"]",
-                         "[2022-07-13 12:30:00, \"2022-07-13\"]",
-                         "[2022-07-13 12:30:00.000, 2022-07-13]"},
-                        {"[null, null]", "[2022-07-13, null]", "[2022-07-13, 2022-07-13]"},
-                        {"[null, 2022-07-13]", "[2022-07-13, 2022-07-13]",
-                         "[2022-07-13, 2022-07-13]"}),
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE,
+                                  {"[\\\"2022-07-13\\\",\"2022-07-13 12:30:00\"]",
+                                   "[2022-07-13 12:30:00, \"2022-07-13\"]",
+                                   "[2022-07-13 12:30:00.000, 2022-07-13]"},
+                                  {"[null, \"2022-07-13\"]", "[\"2022-07-13\", \"2022-07-13\"]",
+                                   "[\"2022-07-13\", \"2022-07-13\"]"},
+                                  {"[null, \"2022-07-13\"]", "[\"2022-07-13\", \"2022-07-13\"]",
+                                   "[\"2022-07-13\", \"2022-07-13\"]"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME,
                         {
@@ -594,10 +603,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}",
                          "\\N"},
-                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:null, 2022-07-13:null, "
-                         "null:null, 2022-07-13:null}",
-                         "{2022-07-13:2022-07-13 00:00:00, 2022-07-13:2022-07-13 12:30:00, "
-                         "2022-07-13:null}",
+                        {"{\"2022-07-13\":2022-07-13 12:30:00, \"2022-07-13\":null, "
+                         "\"2022-07-13\":null, null:null, \"2022-07-13\":null}",
+                         "{\"2022-07-13\":2022-07-13 00:00:00, \"2022-07-13\":2022-07-13 12:30:00, "
+                         "\"2022-07-13\":null}",
                          "\\N"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
@@ -688,10 +697,10 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          // escaped char ':'
                          "{2022-07-13 12\\:30\\:00: 2022-07-13, 2022-07-13 12\\:30\\:00.000: "
                          "2022-07-13 12:30:00.000, 2022-07-13:\'2022-07-13 12:30:00\'}"},
-                        {"{2022-07-13:2022-07-13 12:30:00, 2022-07-13:null, 2022-07-13:null, "
-                         "null:null, 2022-07-13:2022-07-13 12:30:00}",
-                         "{2022-07-13:2022-07-13 00:00:00, 2022-07-13:2022-07-13 12:30:00, "
-                         "2022-07-13:2022-07-13 12:30:00}"}),
+                        {"{\"2022-07-13\":2022-07-13 12:30:00, \"2022-07-13\":null, "
+                         "\"2022-07-13\":null, null:null, \"2022-07-13\":2022-07-13 12:30:00}",
+                         "{\"2022-07-13\":2022-07-13 00:00:00, \"2022-07-13\":2022-07-13 12:30:00, "
+                         "\"2022-07-13\":2022-07-13 12:30:00}"}),
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DATETIME, FieldType::OLAP_FIELD_TYPE_DECIMAL,
                         {"{2022-07-13 12:30:00: 12.45675432, 2022-07-13: 12.45675432, null: null}",

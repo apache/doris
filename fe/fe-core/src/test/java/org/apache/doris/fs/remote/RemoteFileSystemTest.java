@@ -17,142 +17,162 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
-import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
-import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.fs.FileSystemType;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.backup.Status;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
-import mockit.Mock;
-import mockit.MockUp;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
-import org.apache.hadoop.fs.LocalFileSystem;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.junit.Assert;
-import org.junit.Test;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
-import java.io.IOException;
-import java.net.URI;
-import java.security.PrivilegedExceptionAction;
+import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.Map;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class RemoteFileSystemTest {
 
+    private RemoteFileSystem remoteFileSystem;
+    private FileSystem mockFileSystem;
+
+    @BeforeEach
+    void setUp() {
+        remoteFileSystem = Mockito.spy(new RemoteFileSystem("test", StorageBackend.StorageType.HDFS) {
+            @Override
+            public StorageProperties getStorageProperties() {
+                return null;
+            }
+
+            @Override
+            public Status exists(String remotePath) {
+                return null;
+            }
+
+            @Override
+            public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
+                return null;
+            }
+
+            @Override
+            public Status upload(String localPath, String remotePath) {
+                return null;
+            }
+
+            @Override
+            public Status directUpload(String content, String remoteFile) {
+                return null;
+            }
+
+            @Override
+            public Status rename(String origFilePath, String destFilePath) {
+                return null;
+            }
+
+            @Override
+            public Status delete(String remotePath) {
+                return null;
+            }
+
+            @Override
+            public Status makeDir(String remotePath) {
+                return null;
+            }
+
+            @Override
+            public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+                return null;
+            }
+        });
+        mockFileSystem = Mockito.mock(FileSystem.class);
+    }
+
     @Test
-    public void testFilesystemAndAuthType() throws UserException {
+    @DisplayName("listFiles should return OK status and populate result list when files are found")
+    void listFilesReturnsOkWhenFilesFound() throws Exception {
+        String remotePath = "/test/path";
+        List<RemoteFile> result = new ArrayList<>();
+        RemoteIterator<LocatedFileStatus> mockIterator = Mockito.mock(RemoteIterator.class);
+        LocatedFileStatus mockFileStatus = Mockito.mock(LocatedFileStatus.class);
 
-        // These paths should use s3 filesystem, and use simple auth
-        ArrayList<String> s3Paths = new ArrayList<>();
-        s3Paths.add("s3://a/b/c");
-        s3Paths.add("s3a://a/b/c");
-        s3Paths.add("s3n://a/b/c");
-        s3Paths.add("oss://a/b/c");  // default use s3 filesystem
-        s3Paths.add("gs://a/b/c");
-        s3Paths.add("bos://a/b/c");
-        s3Paths.add("cos://a/b/c");
-        s3Paths.add("cosn://a/b/c");
-        s3Paths.add("lakefs://a/b/c");
-        s3Paths.add("obs://a/b/c");
+        Mockito.doReturn(mockFileSystem).when(remoteFileSystem).nativeFileSystem(remotePath);
+        Mockito.when(mockFileSystem.listFiles(new Path(remotePath), true)).thenReturn(mockIterator);
+        Mockito.when(mockIterator.hasNext()).thenReturn(true, false);
+        Mockito.when(mockIterator.next()).thenReturn(mockFileStatus);
+        Mockito.when(mockFileStatus.getPath()).thenReturn(new Path("/test/path/file1"));
+        Mockito.when(mockFileStatus.isDirectory()).thenReturn(false);
+        Mockito.when(mockFileStatus.getLen()).thenReturn(100L);
+        Mockito.when(mockFileStatus.getBlockSize()).thenReturn(128L);
+        Mockito.when(mockFileStatus.getModificationTime()).thenReturn(123456789L);
+        Mockito.when(mockFileStatus.getBlockLocations()).thenReturn(null);
 
-        // These paths should use dfs filesystem, and auth will be changed by configure
-        ArrayList<String> dfsPaths = new ArrayList<>();
-        dfsPaths.add("ofs://a/b/c");
-        dfsPaths.add("gfs://a/b/c");
-        dfsPaths.add("hdfs://a/b/c");
-        dfsPaths.add("oss://a/b/c");  // if endpoint contains 'oss-dls.aliyuncs', will use dfs filesystem
+        Status status = remoteFileSystem.listFiles(remotePath, true, result);
 
-        new MockUp<UserGroupInformation>(UserGroupInformation.class) {
-            @Mock
-            public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException, InterruptedException {
-                return (T) new LocalFileSystem();
-            }
+        Assertions.assertEquals(Status.OK, status);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("/test/path/file1", result.get(0).getPath().toString());
+    }
+
+    @Test
+    @DisplayName("listFiles should return NOT_FOUND status when FileNotFoundException is thrown")
+    void listFilesReturnsNotFoundWhenFileNotFoundExceptionThrown() throws Exception {
+
+        mockFileSystem = Mockito.mock(FileSystem.class);
+        String remotePath = "/nonexistent/path";
+        List<RemoteFile> result = new ArrayList<>();
+        Mockito.doReturn(mockFileSystem).when(remoteFileSystem).nativeFileSystem(remotePath);
+        Mockito.doThrow(new FileNotFoundException("File not found"))
+                .when(mockFileSystem).listFiles(Mockito.any(Path.class), Mockito.anyBoolean());
+
+        Status status = remoteFileSystem.listFiles(remotePath, true, result);
+
+        Assertions.assertEquals(Status.ErrCode.NOT_FOUND, status.getErrCode());
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    @DisplayName("listDirectories should return OK status and populate result set with directories")
+    void listDirectoriesReturnsOkWhenDirectoriesFound() throws Exception {
+        String remotePath = "/test/path";
+        Set<String> result = new HashSet<>();
+        FileStatus[] mockFileStatuses = {
+                Mockito.mock(FileStatus.class),
+                Mockito.mock(FileStatus.class)
         };
 
-        new MockUp<HadoopKerberosAuthenticator>(HadoopKerberosAuthenticator.class) {
-            @Mock
-            public synchronized UserGroupInformation getUGI() throws IOException {
-                return UserGroupInformation.getCurrentUser();
-            }
-        };
+        Mockito.doReturn(mockFileSystem).when(remoteFileSystem).nativeFileSystem(remotePath);
+        Mockito.when(mockFileSystem.listStatus(new Path(remotePath))).thenReturn(mockFileStatuses);
+        Mockito.when(mockFileStatuses[0].isDirectory()).thenReturn(true);
+        Mockito.when(mockFileStatuses[0].getPath()).thenReturn(new Path("/test/path/dir1"));
+        Mockito.when(mockFileStatuses[1].isDirectory()).thenReturn(false);
 
-        Configuration confWithoutKerberos = new Configuration();
+        Status status = remoteFileSystem.listDirectories(remotePath, result);
 
-        Configuration confWithKerberosIncomplete = new Configuration();
-        confWithKerberosIncomplete.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-
-        Configuration confWithKerberos = new Configuration();
-        confWithKerberos.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, "kerberos");
-        confWithKerberos.set(AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL, "principal");
-        confWithKerberos.set(AuthenticationConfig.HADOOP_KERBEROS_KEYTAB, "keytab");
-
-        ImmutableMap<String, String> s3props = ImmutableMap.of("s3.endpoint", "http://127.0.0.1");
-        s3props.forEach(confWithKerberos::set);
-        s3props.forEach(confWithoutKerberos::set);
-        s3props.forEach(confWithKerberosIncomplete::set);
-
-        for (String path : s3Paths) {
-            checkS3Filesystem(path, confWithKerberos, s3props);
-        }
-        for (String path : s3Paths) {
-            checkS3Filesystem(path, confWithKerberosIncomplete, s3props);
-        }
-        for (String path : s3Paths) {
-            checkS3Filesystem(path, confWithoutKerberos, s3props);
-        }
-
-        s3props = ImmutableMap.of("s3.endpoint", "oss://xx-oss-dls.aliyuncs/abc");
-        System.setProperty("java.security.krb5.realm", "realm");
-        System.setProperty("java.security.krb5.kdc", "kdc");
-
-        for (String path : dfsPaths) {
-            checkDFSFilesystem(path, confWithKerberos, HadoopKerberosAuthenticator.class.getName(), s3props);
-        }
-        for (String path : dfsPaths) {
-            checkDFSFilesystem(path, confWithKerberosIncomplete, HadoopSimpleAuthenticator.class.getName(), s3props);
-        }
-        for (String path : dfsPaths) {
-            checkDFSFilesystem(path, confWithoutKerberos, HadoopSimpleAuthenticator.class.getName(), s3props);
-        }
-
+        Assertions.assertEquals(Status.OK, status);
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertTrue(result.contains("/test/path/dir1/"));
     }
 
-    private void checkS3Filesystem(String path, Configuration conf, Map<String, String> m) throws UserException {
-        RemoteFileSystem fs = createFs(path, conf, m);
-        Assert.assertTrue(fs instanceof S3FileSystem);
-        HadoopAuthenticator authenticator = ((S3FileSystem) fs).getAuthenticator();
-        Assert.assertTrue(authenticator instanceof HadoopSimpleAuthenticator);
-    }
+    @Test
+    @DisplayName("renameDir should return COMMON_ERROR when destination directory exists")
+    void renameDirReturnsErrorWhenDestinationExists() throws Exception {
+        String origFilePath = "/test/path/orig";
+        String destFilePath = "/test/path/dest";
 
-    private void checkDFSFilesystem(String path, Configuration conf, String authClass, Map<String, String> m) throws UserException {
-        RemoteFileSystem fs = createFs(path, conf, m);
-        Assert.assertTrue(fs instanceof DFSFileSystem);
-        HadoopAuthenticator authenticator = ((DFSFileSystem) fs).getAuthenticator();
-        Assert.assertEquals(authClass, authenticator.getClass().getName());
-    }
+        Mockito.doReturn(new Status(Status.ErrCode.OK, ""))
+                .when(remoteFileSystem).exists(destFilePath);
 
-    private RemoteFileSystem createFs(String path, Configuration conf, Map<String, String> m) throws UserException {
-        LocationPath locationPath = new LocationPath(path, m);
-        FileSystemType fileSystemType = locationPath.getFileSystemType();
-        URI uri = locationPath.getPath().toUri();
-        String fsIdent = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
-        FileSystemCache fileSystemCache = new FileSystemCache();
-        RemoteFileSystem fs = fileSystemCache.getRemoteFileSystem(
-            new FileSystemCache.FileSystemCacheKey(
-                Pair.of(fileSystemType, fsIdent),
-                ImmutableMap.of(),
-                null,
-                conf));
-        fs.nativeFileSystem(path);
-        return fs;
-    }
+        Status status = remoteFileSystem.renameDir(origFilePath, destFilePath, () -> {
+        });
 
+        Assertions.assertEquals(Status.ErrCode.COMMON_ERROR, status.getErrCode());
+        Assertions.assertEquals("Destination directory already exists: /test/path/dest", status.getErrMsg());
+    }
 }

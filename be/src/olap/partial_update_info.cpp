@@ -266,7 +266,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
-            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
                                 to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
                                         std::string::npos)) {
                 BitmapValue v = BitmapValue {};
@@ -399,14 +399,14 @@ Status FixedReadPlan::fill_missing_columns(
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
                             assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    auto_inc_column->insert(
-                            (assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
-                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get()))->get_element(idx));
+                    auto_inc_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(
+assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
+block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get())->get_element(idx)));
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
-                    missing_col->insert_default();
+                    missing_col->insert(tablet_column.get_vec_type()->get_default());
                 }
                 // clang-format on
             }
@@ -579,7 +579,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                             new_col.get())
                             ->insert_default();
                 } else {
-                    new_col->insert_default();
+                    new_col->insert(tablet_column.get_vec_type()->get_default());
                 }
             } else {
                 auto pos_in_old_block = read_index.at(cid).at(segment_pos);
@@ -653,7 +653,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                             new_col.get())
                             ->insert_default();
                 } else {
-                    new_col->insert_default();
+                    new_col->insert(tablet_column.get_vec_type()->get_default());
                 }
             } else {
                 new_col->insert_from(old_value_col, pos_in_old_block);

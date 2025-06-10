@@ -23,7 +23,8 @@ import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
-import lombok.extern.log4j.Log4j2;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * This class represents a work handler for processing event tasks consumed by a Disruptor.
@@ -32,9 +33,8 @@ import lombok.extern.log4j.Log4j2;
  * If the event job execution fails, the work handler logs an error message and pauses the event job.
  * The work handler also handles system events by scheduling batch scheduler tasks.
  */
-@Log4j2
 public class TaskHandler implements WorkHandler<TaskEvent> {
-
+    private static final Logger LOG = LogManager.getLogger(TaskHandler.class);
 
     /**
      * Processes an event task by retrieving the associated event job and executing it if it is running.
@@ -50,7 +50,7 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
                 onTransientTaskHandle(event);
                 break;
             default:
-                log.warn("unknown task type: {}", event.getTaskType());
+                LOG.warn("unknown task type: {}", event.getTaskType());
                 break;
         }
     }
@@ -60,14 +60,14 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         TransientTaskManager transientTaskManager = Env.getCurrentEnv().getTransientTaskManager();
         TransientTaskExecutor taskExecutor = transientTaskManager.getMemoryTaskExecutor(taskId);
         if (taskExecutor == null) {
-            log.info("Memory task executor is null, task id: {}", taskId);
+            LOG.info("Memory task executor is null, task id: {}", taskId);
             return;
         }
 
         try {
             taskExecutor.execute();
         } catch (JobException e) {
-            log.warn("Memory task execute failed, taskId: {}, msg : {}", taskId, e.getMessage());
+            LOG.warn("Memory task execute failed, taskId: {}, msg : {}", taskId, e.getMessage());
         } finally {
             transientTaskManager.removeMemoryTask(taskId);
         }

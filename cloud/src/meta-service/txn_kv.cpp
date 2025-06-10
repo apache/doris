@@ -259,6 +259,7 @@ int Network::init() {
                 bool expected = true;
                 Network::working.compare_exchange_strong(expected, false);
             });
+    pthread_setname_np(network_thread_->native_handle(), "fdb_network_thread");
 
     return 0;
 }
@@ -528,6 +529,7 @@ void Transaction::remove(std::string_view begin, std::string_view end) {
 
 TxnErrorCode Transaction::commit() {
     fdb_error_t err = 0;
+    TEST_INJECTION_POINT_CALLBACK("Transaction::commit.inject_random_fault", &err);
     TEST_SYNC_POINT_CALLBACK("transaction:commit:get_err", &err);
     if (err == 0) [[likely]] {
         StopWatch sw;

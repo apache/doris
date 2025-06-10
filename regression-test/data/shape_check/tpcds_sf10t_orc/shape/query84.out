@@ -26,6 +26,6 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[household_demographics] apply RFs: RF3
 ----------------PhysicalProject
-------------------filter((cast(ib_upper_bound as BIGINT) <= 87855) and (income_band.ib_lower_bound >= 37855))
+------------------filter((income_band.ib_lower_bound >= 37855) and (income_band.ib_upper_bound <= 87855))
 --------------------PhysicalOlapScan[income_band]
 

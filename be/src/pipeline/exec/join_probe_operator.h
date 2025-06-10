@@ -37,14 +37,14 @@ protected:
             : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
-    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block,
-                               bool keep_origin = true);
+    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block);
     // output expr
     vectorized::Block _join_block;
 
     size_t _mark_column_id = -1;
 
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
+    RuntimeProfile::Counter* _intermediate_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
     RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;

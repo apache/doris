@@ -120,4 +120,18 @@ private:
 #define LOG_ERROR TaggableLogger(__FILE__, __LINE__, google::GLOG_ERROR)
 #define LOG_FATAL TaggableLogger(__FILE__, __LINE__, google::GLOG_FATAL)
 
+// Avoid the printed log message is truncated by the glog max log size limit
+#define LOG_LONG_STRING(severity, long_log_str)                                \
+    do {                                                                       \
+        constexpr size_t max_log_size = 30000 - 100;                           \
+        size_t pos = 0;                                                        \
+        size_t total_size = long_log_str.size();                               \
+        size_t tmp_size = std::min(max_log_size, total_size);                  \
+        while (pos < total_size) {                                             \
+            tmp_size = std::min(max_log_size, total_size - pos);               \
+            LOG(severity) << std::string(long_log_str.data() + pos, tmp_size); \
+            pos += tmp_size;                                                   \
+        }                                                                      \
+    } while (0)
+
 } // namespace doris

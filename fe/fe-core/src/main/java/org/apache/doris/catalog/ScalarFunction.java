@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
@@ -53,6 +54,8 @@ public class ScalarFunction extends Function {
     private String prepareFnSymbol;
     @SerializedName("cfs")
     private String closeFnSymbol;
+
+    TDictFunction dictFunction = null;
 
     // Only used for serialization
     protected ScalarFunction() {
@@ -209,6 +212,10 @@ public class ScalarFunction extends Function {
         return closeFnSymbol;
     }
 
+    public void setDictFunction(TDictFunction dictFunction) {
+        this.dictFunction = dictFunction;
+    }
+
     @Override
     public String toSql(boolean ifNotExists) {
         StringBuilder sb = new StringBuilder("CREATE ");
@@ -253,6 +260,9 @@ public class ScalarFunction extends Function {
             fn.getScalarFn().setSymbol(symbolName);
         } else {
             fn.getScalarFn().setSymbol("");
+        }
+        if (dictFunction != null) {
+            fn.setDictFunction(dictFunction);
         }
         return fn;
     }

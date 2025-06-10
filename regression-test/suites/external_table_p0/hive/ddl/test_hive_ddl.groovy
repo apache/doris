@@ -683,6 +683,17 @@ suite("test_hive_ddl", "p0,external,hive,external_docker,external_docker_hive") 
                 exception "Floating point type column can not be partition column"
             }
 
+            try {
+                sql """
+                    CREATE TEMPORARY TABLE test_hive_db_temp_tbl (
+                      `col` STRING COMMENT 'col'
+                    )  ENGINE=hive
+                 """
+                throw new IllegalStateException("Should throw error")
+            } catch (Exception ex) {
+                assertTrue(ex.getMessage().contains("Do not support temporary table"), ex.getMessage())
+            }
+
             sql """ drop database if exists `test_hive_db_tbl` """;
         }
 

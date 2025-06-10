@@ -34,7 +34,10 @@ suite ("aggOnAggMV10") {
         """
 
     sql """insert into aggOnAggMV10 values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into aggOnAggMV10 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV10 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV10 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV10 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV10 values("2020-01-03",3,"c",3,3,3);"""
 
     createMV("create materialized view aggOnAggMV10_mv as select deptno, commission, sum(salary) from aggOnAggMV10 group by deptno, commission;")
@@ -44,7 +47,7 @@ suite ("aggOnAggMV10") {
     sql """insert into aggOnAggMV10 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV10 with sync;"
-    sql """alter table aggOnAggMV10 modify column time_col set stats ('row_count'='4');"""
+    sql """alter table aggOnAggMV10 modify column time_col set stats ('row_count'='7');"""
 
     sql """set enable_stats=false;"""
 

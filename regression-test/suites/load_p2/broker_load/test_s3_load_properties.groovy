@@ -19,7 +19,18 @@ suite("test_s3_load_properties", "p2") {
     def s3BucketName = getS3BucketName()
     def s3Endpoint = getS3Endpoint()
     def s3Region = getS3Region()
-    sql "create workload group if not exists broker_load_test properties ( 'cpu_share'='1024'); "
+
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
+    sql "create workload group if not exists broker_load_test $forComputeGroupStr properties ( 'cpu_share'='1024'); "
 
     sql "set workload_group=broker_load_test;"
 
@@ -57,9 +68,22 @@ suite("test_s3_load_properties", "p2") {
 
     /* ========================================================== normal ========================================================== */
     for (String table : basicTables) {
-        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
+        def attributes = new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
                 "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-                "", "", "", "", ""))
+                "", "", "", "", "")
+        // 'use_new_load_scan_node' is deprecated and its value will be ignored. Testing backward compatibility.
+        switch (table) {
+            case 'dup_tbl_basic':
+                attributes.addProperties("use_new_load_scan_node", "false")
+                break
+            case 'uniq_tbl_basic':
+                attributes.addProperties("use_new_load_scan_node", "true")
+                break
+            default:
+                // omit this property
+                break
+        }
+        attributesList.add(attributes)
     }
 
     attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
@@ -186,19 +210,6 @@ suite("test_s3_load_properties", "p2") {
 //                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17)",
 //                "", "", "", "","").addProperties("skip_lines", "10"))
 //    }
-
-    /* ========================================================== deprecated properties ========================================================== */
-    for (String table : basicTables) {
-        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
-                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-                "", "", "", "", "")).addProperties("use_new_load_scan_node", "true")
-    }
-
-    for (String table : basicTables) {
-        attributesList.add(new LoadAttributes("s3://${s3BucketName}/regression/load/data/basic_data.csv",
-                "${table}", "LINES TERMINATED BY \"\n\"", "COLUMNS TERMINATED BY \"|\"", "FORMAT AS \"CSV\"", "(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18)",
-                "", "", "", "", "")).addProperties("use_new_load_scan_node", "false")
-    }
 
     /* ========================================================== wrong column sep ========================================================== */
     for (String table : basicTables) {
@@ -538,7 +549,7 @@ suite("test_s3_load_properties", "p2") {
             """
         logger.info("submit sql: ${sql_str}");
         sql """${sql_str}"""
-        logger.info("Submit load with lable: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
+        logger.info("Submit load with label: $label, table: $attributes.dataDesc.tableName, path: $attributes.dataDesc.path")
 
         def max_try_milli_secs = 600000
         while (max_try_milli_secs > 0) {

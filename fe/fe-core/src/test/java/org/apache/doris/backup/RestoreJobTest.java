@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
@@ -38,6 +37,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.fs.FileSystemFactory;
@@ -91,6 +91,9 @@ public class RestoreJobTest {
 
     private MockRepositoryMgr repoMgr;
 
+    public RestoreJobTest() throws UserException {
+    }
+
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
         public MockBackupHandler(Env env) {
@@ -122,7 +125,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            FileSystemFactory.get("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+            FileSystemFactory.get("broker", Maps.newHashMap()));
 
     private BackupMeta backupMeta;
 
@@ -245,7 +248,7 @@ public class RestoreJobTest {
 
                 for (Tablet tablet : index.getTablets()) {
                     List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
-                            tablet.getId() + ".idx",  tablet.getId() + ".hdr");
+                            tablet.getId() + ".idx", tablet.getId() + ".hdr");
                     BackupTabletInfo tabletInfo = new BackupTabletInfo(tablet.getId(), files);
                     idxInfo.sortedTabletInfoList.add(tabletInfo);
                 }
@@ -256,7 +259,7 @@ public class RestoreJobTest {
         db.unregisterTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false,
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false, false, false,
                 env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();

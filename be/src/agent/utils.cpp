@@ -53,13 +53,10 @@ class TMasterResult;
 class TReportRequest;
 } // namespace doris
 
-using std::map;
-using std::string;
 using apache::thrift::transport::TTransportException;
 
 namespace doris {
 
-static FrontendServiceClientCache s_client_cache;
 static std::unique_ptr<MasterServerClient> s_client;
 
 MasterServerClient* MasterServerClient::create(const ClusterInfo* cluster_info) {
@@ -72,11 +69,15 @@ MasterServerClient* MasterServerClient::instance() {
 }
 
 MasterServerClient::MasterServerClient(const ClusterInfo* cluster_info)
-        : _cluster_info(cluster_info) {}
+        : _cluster_info(cluster_info),
+          _client_cache(std::make_unique<FrontendServiceClientCache>(
+                  config::max_master_fe_client_cache_size)) {
+    _client_cache->init_metrics("master_fe");
+}
 
 Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(&s_client_cache, _cluster_info->master_fe_addr,
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
@@ -91,12 +92,12 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
         try {
             client->finishTask(*result, request);
         } catch ([[maybe_unused]] TTransportException& e) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!client_status.ok()) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to get master client from cache. "
                              << "host=" << _cluster_info->master_fe_addr.hostname
                              << ", port=" << _cluster_info->master_fe_addr.port
@@ -119,7 +120,7 @@ Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMaste
 
 Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(&s_client_cache, _cluster_info->master_fe_addr,
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
@@ -136,14 +137,14 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
 #endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                     LOG(WARNING) << "fail to get master client from cache. "
                                  << "host=" << _cluster_info->master_fe_addr.hostname
                                  << ", port=" << _cluster_info->master_fe_addr.port
@@ -156,7 +157,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
             } else {
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
-#ifdef ADDRESS_SANITIZER
+#ifndef ADDRESS_SANITIZER
                 LOG(WARNING) << "fail to report to master: " << e.what();
 #endif
                 return Status::InternalError("Fail to report to master");
@@ -177,7 +178,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
 Status MasterServerClient::confirm_unused_remote_files(
         const TConfirmUnusedRemoteFilesRequest& request, TConfirmUnusedRemoteFilesResult* result) {
     Status client_status;
-    FrontendServiceConnection client(&s_client_cache, _cluster_info->master_fe_addr,
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
                                      config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
@@ -192,8 +193,10 @@ Status MasterServerClient::confirm_unused_remote_files(
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
+#ifndef ADDRESS_SANITIZER
                 // if not TIMED_OUT, retry
                 LOG(WARNING) << "master client, retry finishTask: " << e.what();
+#endif
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
@@ -224,12 +227,12 @@ Status MasterServerClient::confirm_unused_remote_files(
     return Status::OK();
 }
 
-bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_stderr) {
+bool AgentUtils::exec_cmd(const std::string& command, std::string* errmsg, bool redirect_stderr) {
     // The exit status of the command.
     uint32_t rc = 0;
 
     // Redirect stderr to stdout to get error message.
-    string cmd = command;
+    std::string cmd = command;
     if (redirect_stderr) {
         cmd += " 2>&1";
     }
@@ -268,7 +271,8 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
     }
 }
 
-bool AgentUtils::write_json_to_file(const map<string, string>& info, const string& path) {
+bool AgentUtils::write_json_to_file(const std::map<std::string, std::string>& info,
+                                    const std::string& path) {
     rapidjson::Document json_info(rapidjson::kObjectType);
     for (auto& it : info) {
         json_info.AddMember(rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),

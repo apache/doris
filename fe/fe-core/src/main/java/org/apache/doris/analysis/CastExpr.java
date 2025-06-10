@@ -140,6 +140,9 @@ public class CastExpr extends Expr {
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }
+            if (type.isScalarType()) {
+                targetTypeDef = new TypeDef(type);
+            }
             analysisDone();
             return;
         }
@@ -333,6 +336,10 @@ public class CastExpr extends Expr {
         if (fn == null) {
             //TODO(xy): check map type
             if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
+                return;
+            }
+            // same with Type.canCastTo() can be cast to jsonb
+            if (childType.isComplexType() && type.isJsonbType()) {
                 return;
             }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
@@ -573,8 +580,13 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return children.get(0).getStringValueForArray(options);
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return children.get(0).getStringValueForStreamLoad(options);
+    }
+
+    @Override
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return children.get(0).getStringValueInComplexTypeForQuery(options);
     }
 
     public void setNotFold(boolean notFold) {

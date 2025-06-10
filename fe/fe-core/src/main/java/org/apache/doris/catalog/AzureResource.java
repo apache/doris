@@ -19,18 +19,23 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.obj.AzureObjStorage;
+import org.apache.doris.fs.obj.ObjStorage;
+import org.apache.doris.fs.obj.RemoteObjects;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -50,49 +55,86 @@ public class AzureResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> newProperties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
+        this.properties = Maps.newHashMap(newProperties);
         // check properties
-        S3Properties.requiredS3PingProperties(newProperties);
+        S3Properties.requiredS3PingProperties(this.properties);
         // default need check resource conf valid, so need fix ut and regression case
-        boolean needCheck = isNeedCheck(newProperties);
+        boolean needCheck = isNeedCheck(this.properties);
         if (LOG.isDebugEnabled()) {
             LOG.debug("azure info need check validity : {}", needCheck);
         }
 
         // the endpoint for ping need add uri scheme.
-        String pingEndpoint = newProperties.get(S3Properties.ENDPOINT);
+        String pingEndpoint = this.properties.get(S3Properties.ENDPOINT);
         if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + newProperties.get(S3Properties.ENDPOINT);
-            newProperties.put(S3Properties.ENDPOINT, pingEndpoint);
-            newProperties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
+            pingEndpoint = "http://" + this.properties.get(S3Properties.ENDPOINT);
+            this.properties.put(S3Properties.ENDPOINT, pingEndpoint);
+            this.properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }
 
         if (needCheck) {
-            String bucketName = newProperties.get(S3Properties.BUCKET);
-            String rootPath = newProperties.get(S3Properties.ROOT_PATH);
-            pingAzure(bucketName, rootPath, newProperties);
+            String bucketName = this.properties.get(S3Properties.BUCKET);
+            String rootPath = this.properties.get(S3Properties.ROOT_PATH);
+            pingAzure(bucketName, rootPath, this.properties);
         }
         // optional
-        S3Properties.optionalS3Property(newProperties);
-        this.properties = newProperties;
+        S3Properties.optionalS3Property(this.properties);
     }
 
-    private static void pingAzure(String bucketName, String rootPath,
+    protected static void pingAzure(String bucketName, String rootPath,
             Map<String, String> newProperties) throws DdlException {
-        if (FeConstants.runningUnitTest) {
-            return;
+
+        Long timestamp = System.currentTimeMillis();
+        String testObj = "azure://" + bucketName + "/" + rootPath
+                + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
+
+        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        Arrays.fill(contentData, (byte) 'A');
+        AzureProperties azureProperties = (AzureProperties) StorageProperties.createPrimary(newProperties);
+        AzureObjStorage azureObjStorage = new AzureObjStorage(azureProperties);
+
+        Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(put), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
         }
 
-        String testFile = "azure://" + bucketName + "/" + rootPath + "/test-object-valid.txt";
-        AzureFileSystem fileSystem = new AzureFileSystem(newProperties);
-        Status status = fileSystem.exists(testFile);
-        if (status != Status.OK && status.getErrCode() != Status.ErrCode.NOT_FOUND) {
+        status = azureObjStorage.headObject(testObj);
+        if (!Status.OK.equals(status)) {
             throw new DdlException(
                     "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
-        LOG.info("success to ping azure");
+
+        RemoteObjects remoteObjects = azureObjStorage.listObjects(testObj, null);
+        LOG.info("remoteObjects: {}", remoteObjects);
+        Preconditions.checkArgument(remoteObjects.getObjectList().size() == 1, "remoteObjects.size() must equal 1");
+
+        status = azureObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        status = azureObjStorage.multipartUpload(testObj,
+                new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(multiPartPut), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+
+        status = azureObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            throw new DdlException(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false));
+        }
+        LOG.info("Success to ping azure blob storage.");
     }
 
     @Override

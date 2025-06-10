@@ -40,6 +40,9 @@ import java.util.List;
  * show database id command
  */
 public class ShowDatabaseIdCommand extends ShowCommand {
+    private static final ShowResultSetMetaData META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("DBName", ScalarType.createVarchar(30))).build();
     private final Long dbId;
 
     /**
@@ -63,9 +66,12 @@ public class ShowDatabaseIdCommand extends ShowCommand {
             row.add(database.getFullName());
             rows.add(row);
         }
-        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        builder.addColumn(new Column("DBName", ScalarType.createVarchar(30)));
-        return new ShowResultSet(builder.build(), rows);
+        return new ShowResultSet(getMetaData(), rows);
+    }
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     @Override

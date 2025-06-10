@@ -960,7 +960,7 @@ public class IngestionLoadJob extends LoadJob {
                 Lists.newArrayList(tableToLoadPartitions.keySet()));
         MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
+            Env.getCurrentGlobalTransactionMgr().commitTransactionWithoutLock(
                     dbId, tableList, transactionId, commitInfos,
                     new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
                             finishTimestamp, state, failMsg));

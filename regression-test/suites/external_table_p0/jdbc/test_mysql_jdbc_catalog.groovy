@@ -75,6 +75,14 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+        }
+
         sql """create database if not exists ${internal_db_name}; """
 
         sql """drop catalog if exists ${catalog_name} """
@@ -193,23 +201,18 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         // test insert
         String uuid1 = UUID.randomUUID().toString();
         connect(user, "${pwd}", url) {
-            try {
+            test {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-                fail()
-            } catch (Exception e) {
-                log.info(e.getMessage())
+                exception "denied"
             }
         }
 
         sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
 
         connect(user, "${pwd}", url) {
-            try {
-                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-            } catch (Exception e) {
-                fail();
-            }
+            sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
         }
+
         order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
 
         String uuid2 = UUID.randomUUID().toString();

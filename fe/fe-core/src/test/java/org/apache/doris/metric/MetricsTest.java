@@ -19,6 +19,7 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.JsonUtil;
+import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 
@@ -121,5 +122,47 @@ public class MetricsTest {
         }));
         Assert.assertTrue(size.get() < JsonUtil.parseArray(finalMetricJson).size());
 
+    }
+
+    @Test
+    public void testCatalogAndDatabaseMetrics() {
+        List<Metric> catalogMetrics = MetricRepo.getMetricsByName("catalog_num");
+        Assert.assertEquals(1, catalogMetrics.size());
+        GaugeMetric<Integer> catalogMetric = (GaugeMetric<Integer>) catalogMetrics.get(0);
+        Assert.assertEquals("catalog_num", catalogMetric.getName());
+        Assert.assertEquals(MetricUnit.NOUNIT, catalogMetric.getUnit());
+        Assert.assertEquals("total catalog num", catalogMetric.getDescription());
+
+        List<Metric> dbMetrics = MetricRepo.getMetricsByName("internal_database_num");
+        Assert.assertEquals(1, dbMetrics.size());
+        GaugeMetric<Integer> dbMetric = (GaugeMetric<Integer>) dbMetrics.get(0);
+        Assert.assertEquals("internal_database_num", dbMetric.getName());
+        Assert.assertEquals(MetricUnit.NOUNIT, dbMetric.getUnit());
+        Assert.assertEquals("total internal database num", dbMetric.getDescription());
+
+        List<Metric> tableMetrics = MetricRepo.getMetricsByName("internal_table_num");
+        Assert.assertEquals(1, tableMetrics.size());
+        GaugeMetric<Integer> tableMetric = (GaugeMetric<Integer>) tableMetrics.get(0);
+        Assert.assertEquals("internal_table_num", tableMetric.getName());
+        Assert.assertEquals(MetricUnit.NOUNIT, tableMetric.getUnit());
+        Assert.assertEquals("total internal table num", tableMetric.getDescription());
+
+        // Test metrics in Prometheus format
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        String metricResult = visitor.finish();
+
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_catalog_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_internal_database_num gauge"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_internal_table_num gauge"));
+
+        // Test metrics in JSON format
+        JsonMetricVisitor jsonVisitor = new JsonMetricVisitor();
+        MetricRepo.DORIS_METRIC_REGISTER.accept(jsonVisitor);
+        String jsonResult = jsonVisitor.finish();
+
+        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_catalog_num\""));
+        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_database_num\""));
+        Assert.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_internal_table_num\""));
     }
 }

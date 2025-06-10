@@ -41,6 +41,8 @@ struct RowsetWriterContext;
 class StorageEngine;
 class CloudStorageEngine;
 
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int64_t INVALID_COMPACTION_INITIATOR_ID = -100;
 // This class is a base class for compaction.
 // The entrance of this class is compact()
 // Any compaction should go through four procedures.
@@ -90,12 +92,6 @@ protected:
 
     virtual Status update_delete_bitmap() = 0;
 
-    void agg_and_remove_old_version_delete_bitmap(
-            std::vector<RowsetSharedPtr>& pre_rowsets,
-            std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
-                    to_remove_vec,
-            DeleteBitmapPtr& new_delete_bitmap);
-
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
@@ -107,6 +103,9 @@ protected:
     int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
+
+    int64_t _local_read_bytes_total {};
+    int64_t _remote_read_bytes_total {};
 
     Merger::Statistics _stats;
 
@@ -150,6 +149,12 @@ public:
 
     int64_t get_compaction_permits();
 
+    int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
+
+    int64_t calc_input_rowsets_total_size() const;
+
+    int64_t calc_input_rowsets_row_num() const;
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();
@@ -172,8 +177,6 @@ private:
 
     Status do_compact_ordered_rowsets();
 
-    void process_old_version_delete_bitmap();
-
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
     void update_compaction_level();
@@ -190,14 +193,18 @@ public:
 
     Status execute_compact() override;
 
+    int64_t initiator() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
     Status update_delete_bitmap() override;
 
-    virtual void garbage_collection();
+    virtual Status garbage_collection();
 
     CloudStorageEngine& _engine;
+
+    std::string _uuid;
 
     int64_t _expiration = 0;
 

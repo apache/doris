@@ -29,26 +29,18 @@ class JoinBuildSinkLocalState : public PipelineXSinkLocalState<SharedStateType> 
 public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    const std::vector<std::shared_ptr<IRuntimeFilter>>& runtime_filters() const {
-        return _runtime_filters;
-    }
-
 protected:
     JoinBuildSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSinkLocalState<SharedStateType>(parent, state) {}
     ~JoinBuildSinkLocalState() override = default;
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
-
-    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
-    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
-    std::vector<std::shared_ptr<IRuntimeFilter>> _runtime_filters;
 };
 
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
-    JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                            const DescriptorTbl& descs);
     ~JoinBuildSinkOperatorX() override = default;
 

@@ -24,7 +24,7 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------filter((cast(value1 as BIGINT) < 19))
+------filter((max_min_filter_push_down1.value1 < 19))
 --------PhysicalOlapScan[max_min_filter_push_down1]
 
 -- !max_expr --

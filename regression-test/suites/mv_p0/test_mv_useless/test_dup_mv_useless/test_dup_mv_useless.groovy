@@ -16,6 +16,9 @@
 // under the License.
 
 suite ("test_dup_mv_useless") {
+
+    String db = context.config.getDbNameByFile(context.file)
+    sql "use ${db}"
     def testTable = "test_dup_mv_useless_table"
     def getJobState = { tableName ->
         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${testTable}' ORDER BY CreateTime DESC LIMIT 1; """
@@ -43,10 +46,10 @@ suite ("test_dup_mv_useless") {
         exception "errCode = 2,"
     }
 
-    createMV("create materialized view k1_u1 as select k1 from ${testTable} group by k1;")
-    createMV("create materialized view k1_k2_u12 as select k1,k2 from ${testTable} group by k1,k2;")
-    createMV("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
-    createMV("create materialized view k1_k2_sumk3 as select k1,k2,sum(k3) from ${testTable} group by k1,k2;")
+    create_sync_mv(db, testTable, "k1_u1", "select k1 from ${testTable} group by k1;")
+    create_sync_mv(db, testTable, "k1_k2_u12", "select k1,k2 from ${testTable} group by k1,k2;")
+    create_sync_mv(db, testTable, "k1_k2_u21", "select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
+    create_sync_mv(db, testTable, "k1_k2_sumk3", "select k1,k2,sum(k3) from ${testTable} group by k1,k2;")
     sql "insert into ${testTable} select 4,4,4;"
 
     test {

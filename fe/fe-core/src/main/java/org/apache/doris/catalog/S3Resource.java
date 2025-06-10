@@ -19,20 +19,25 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.obj.ObjStorage;
+import org.apache.doris.fs.obj.RemoteObjects;
+import org.apache.doris.fs.obj.S3ObjStorage;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -83,8 +88,10 @@ public class S3Resource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
-        Preconditions.checkState(properties != null);
+    protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
+        Preconditions.checkState(newProperties != null);
+        this.properties = Maps.newHashMap(newProperties);
+
         // check properties
         S3Properties.requiredS3PingProperties(properties);
         // default need check resource conf valid, so need fix ut and regression case
@@ -102,45 +109,65 @@ public class S3Resource extends Resource {
         }
         String region = S3Properties.getRegionOfEndpoint(pingEndpoint);
         properties.putIfAbsent(S3Properties.REGION, region);
-        String ak = properties.get(S3Properties.ACCESS_KEY);
-        String sk = properties.get(S3Properties.SECRET_KEY);
-        String token = properties.get(S3Properties.SESSION_TOKEN);
-        CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(pingEndpoint, region, ak, sk, token);
 
         if (needCheck) {
             String bucketName = properties.get(S3Properties.BUCKET);
             String rootPath = properties.get(S3Properties.ROOT_PATH);
-            pingS3(credential, bucketName, rootPath, properties);
+            pingS3(bucketName, rootPath, properties);
         }
         // optional
         S3Properties.optionalS3Property(properties);
-        this.properties = properties;
     }
 
-    private static void pingS3(CloudCredentialWithEndpoint credential, String bucketName, String rootPath,
-            Map<String, String> properties) throws DdlException {
-        S3FileSystem fileSystem = new S3FileSystem(properties);
-        String testFile = "s3://" + bucketName + "/" + rootPath + "/test-object-valid.txt";
-        String content = "doris will be better";
-        if (FeConstants.runningUnitTest) {
-            return;
+    protected static void pingS3(String bucketName, String rootPath, Map<String, String> newProperties)
+            throws DdlException {
+
+        Long timestamp = System.currentTimeMillis();
+        String prefix = "s3://" + bucketName + "/" + rootPath;
+        String testObj = prefix + "/doris-test-object-valid-" + timestamp.toString() + ".txt";
+
+        byte[] contentData = new byte[2 * ObjStorage.CHUNK_SIZE];
+        Arrays.fill(contentData, (byte) 'A');
+        S3ObjStorage s3ObjStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties
+                .createPrimary(newProperties));
+
+        Status status = s3ObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            String errMsg = "pingS3 failed(put),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
         }
-        Status status = Status.OK;
-        try {
-            status = fileSystem.directUpload(content, testFile);
-            if (status != Status.OK) {
-                throw new DdlException(
-                        "ping s3 failed(upload), status: " + status + ", properties: " + new PrintableMap<>(
-                                properties, "=", true, false, true, false));
-            }
-        } finally {
-            if (status.ok()) {
-                Status delete = fileSystem.delete(testFile);
-                if (delete != Status.OK) {
-                    LOG.warn("delete test file failed, status: {}, properties: {}", delete, new PrintableMap<>(
-                            properties, "=", true, false, true, false));
-                }
-            }
+
+        status = s3ObjStorage.headObject(testObj);
+        if (!Status.OK.equals(status)) {
+            String errMsg = "pingS3 failed(head),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
+        }
+
+        RemoteObjects remoteObjects = s3ObjStorage.listObjects(testObj, null);
+        LOG.info("remoteObjects: {}", remoteObjects);
+
+        status = s3ObjStorage.multipartUpload(testObj, new ByteArrayInputStream(contentData), contentData.length);
+        if (!Status.OK.equals(status)) {
+            String errMsg = "pingS3 failed(multipartUpload),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
+        }
+
+        status = s3ObjStorage.deleteObject(testObj);
+        if (!Status.OK.equals(status)) {
+            String errMsg = "pingS3 failed(delete),"
+                    + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
+                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                            newProperties, "=", true, false, true, false);
+            throw new DdlException(errMsg);
         }
 
         LOG.info("success to ping s3");
@@ -172,7 +199,7 @@ public class S3Resource extends Resource {
             String rootPath = properties.getOrDefault(S3Properties.ROOT_PATH,
                     this.properties.get(S3Properties.ROOT_PATH));
 
-            pingS3(getS3PingCredentials(changedProperties), bucketName, rootPath, changedProperties);
+            pingS3(bucketName, rootPath, changedProperties);
         }
 
         // modify properties

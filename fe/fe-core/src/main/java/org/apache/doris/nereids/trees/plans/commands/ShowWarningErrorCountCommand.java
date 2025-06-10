@@ -47,10 +47,15 @@ public class ShowWarningErrorCountCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) {
         List<List<String>> rowSet = Lists.newArrayList();
 
-        return new ShowResultSet(META_DATA, rowSet);
+        return new ShowResultSet(getMetaData(), rowSet);
     }
 
     public boolean isWarning() {

@@ -36,7 +36,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     try_sql("DROP USER ${user}")
@@ -122,7 +122,8 @@ suite("test_dml_export_table_auth","p0,auth_call") {
             WHERE STATE = "EXPORTING";"""
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().indexOf("not exist") != -1)
+            // should not cause by not have auth
+            assertTrue(e.getMessage().indexOf("denied") == -1)
         }
 
     }

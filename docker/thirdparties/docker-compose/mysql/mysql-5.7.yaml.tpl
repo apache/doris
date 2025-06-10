@@ -40,13 +40,7 @@ services:
       - ./my.cnf:/etc/mysql/conf.d/my.cnf
     networks:
       - doris--mysql_57
-  doris--mysql-hello-world:
-    image: hello-world
-    depends_on:
-      doris--mysql_57:
-        condition: service_healthy 
-    networks:
-      - doris--mysql_57
+
 networks:
   doris--mysql_57:
     ipam:

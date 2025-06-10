@@ -125,6 +125,10 @@ FileHandleCache::FileHandleCache(size_t capacity, size_t num_partitions,
     for (FileHandleCachePartition& p : _cache_partitions) {
         p.cache.set_capacity(partition_capacity);
     }
+    Status st = init();
+    if (!st) {
+        LOG(FATAL) << "failed to start file handle cache thread: " << st.to_string();
+    }
 }
 
 FileHandleCache::~FileHandleCache() {

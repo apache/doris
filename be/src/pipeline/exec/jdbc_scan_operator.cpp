@@ -18,7 +18,7 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 
 #include "common/object_pool.h"
-#include "vec/exec/scan/new_jdbc_scanner.h"
+#include "vec/exec/scan/jdbc_scanner.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -28,9 +28,9 @@ std::string JDBCScanLocalState::name_suffix() const {
                        _parent->cast<JDBCScanOperatorX>()._table_name);
 }
 
-Status JDBCScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
+Status JDBCScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scanners) {
     auto& p = _parent->cast<JDBCScanOperatorX>();
-    std::unique_ptr<vectorized::NewJdbcScanner> scanner = vectorized::NewJdbcScanner::create_unique(
+    std::unique_ptr<vectorized::JdbcScanner> scanner = vectorized::JdbcScanner::create_unique(
             state(), this, p._limit, p._tuple_id, p._query_string, p._table_type,
             _scanner_profile.get());
     RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));

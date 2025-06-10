@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
-#include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -65,7 +64,6 @@
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -169,6 +167,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
     }
+    meta->set_result_is_nullable(column.get_result_is_nullable());
+    meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -182,6 +183,10 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     // except for columns whose type don't support zone map.
     opts.need_zone_map = column.is_key() || tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
+    if (opts.need_bloom_filter) {
+        opts.bf_options.fpp =
+                tablet_schema->has_bf_fpp() ? tablet_schema->bloom_filter_fpp() : 0.05;
+    }
     auto* tablet_index = tablet_schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
         opts.need_bloom_filter = true;
@@ -234,7 +239,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
     DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
     DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
     DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
     DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
@@ -1039,7 +1044,7 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.block->get_by_position(i).column;
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
 

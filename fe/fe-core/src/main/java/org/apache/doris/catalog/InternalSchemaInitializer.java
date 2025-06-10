@@ -21,7 +21,7 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
@@ -42,6 +42,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -255,10 +256,10 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDb() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true,
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true,
                 new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
-            Env.getCurrentEnv().createDb(createDbStmt);
+            Env.getCurrentEnv().createDb(command);
         } catch (DdlException e) {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);
@@ -358,7 +359,58 @@ public class InternalSchemaInitializer extends Thread {
 
         // 3. check audit table
         optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
-        return optionalStatsTbl.isPresent();
-    }
+        if (!optionalStatsTbl.isPresent()) {
+            return false;
+        }
 
+        // 4. check and update audit table schema
+        OlapTable auditTable = (OlapTable) optionalStatsTbl.get();
+        List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;
+
+        // 5. check if we need to add new columns
+        List<AlterClause> alterClauses = Lists.newArrayList();
+        for (int i = 0; i < expectedSchema.size(); i++) {
+            ColumnDef def = expectedSchema.get(i);
+            if (auditTable.getColumn(def.getName()) == null) {
+                // add column if it doesn't exist
+                try {
+                    ColumnDef columnDef = new ColumnDef(def.getName(), def.getTypeDef(), def.isAllowNull());
+                    // find the previous column name to determine the position
+                    String afterColumn = null;
+                    if (i > 0) {
+                        for (int j = i - 1; j >= 0; j--) {
+                            String prevColName = expectedSchema.get(j).getName();
+                            if (auditTable.getColumn(prevColName) != null) {
+                                afterColumn = prevColName;
+                                break;
+                            }
+                        }
+                    }
+                    ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
+                            new ColumnPosition(afterColumn);
+                    ModifyColumnClause clause = new ModifyColumnClause(columnDef, position, null,
+                            Maps.newHashMap());
+                    clause.setColumn(columnDef.toColumn());
+                    alterClauses.add(clause);
+                } catch (Exception e) {
+                    LOG.warn("Failed to create alter clause for column: " + def.getName(), e);
+                    return false;
+                }
+            }
+        }
+
+        // apply schema changes if needed
+        if (!alterClauses.isEmpty()) {
+            try {
+                TableName tableName = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
+                        FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
+                AlterTableStmt alterStmt = new AlterTableStmt(tableName, alterClauses);
+                Env.getCurrentEnv().alterTable(alterStmt);
+            } catch (Exception e) {
+                LOG.warn("Failed to alter audit table schema", e);
+                return false;
+            }
+        }
+        return true;
+    }
 }

@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -29,6 +28,9 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.constants.AzureProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
@@ -40,7 +42,7 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     private final boolean isExternal;
     private final boolean ifNotExists;
     private final String resourceName;
-    private final Map<String, String> properties;
+    private final ImmutableMap<String, String> properties;
     private ResourceType resourceType;
 
     public CreateResourceStmt(boolean isExternal, boolean ifNotExists, String resourceName,
@@ -48,7 +50,7 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         this.isExternal = isExternal;
         this.ifNotExists = ifNotExists;
         this.resourceName = resourceName;
-        this.properties = properties;
+        this.properties = ImmutableMap.copyOf(properties);
         this.resourceType = ResourceType.UNKNOWN;
     }
 
@@ -60,7 +62,7 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         return resourceName;
     }
 
-    public Map<String, String> getProperties() {
+    public ImmutableMap<String, String> getProperties() {
         return properties;
     }
 
@@ -69,8 +71,13 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     }
 
     public void analyzeResourceType() throws UserException {
-        String type = properties.get(TYPE);
-        if (type == null) {
+        String type = null;
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            if (property.getKey().equalsIgnoreCase(TYPE)) {
+                type = property.getValue();
+            }
+        }
+        if (Strings.isNullOrEmpty(type)) {
             throw new AnalysisException("Resource type can't be null");
         }
 
@@ -86,9 +93,8 @@ public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
         if (resourceType == ResourceType.SPARK && !isExternal) {
             throw new AnalysisException("Spark is external resource");
         }
-        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
-            throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                    + "`enable_odbc_mysql_broker_table=true` in fe.conf to enable ODBC again.");
+        if (resourceType == ResourceType.ODBC_CATALOG) {
+            throw new AnalysisException("ODBC table is deprecated, use JDBC instead.");
         }
     }
 

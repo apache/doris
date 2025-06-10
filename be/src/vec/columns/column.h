@@ -20,20 +20,14 @@
 
 #pragma once
 
-#include <fmt/format.h>
-#include <glog/logging.h>
-#include <sys/types.h>
-
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
@@ -44,18 +38,6 @@
 #include "vec/core/types.h"
 
 class SipHash;
-
-#define DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()                                         \
-    if (null_data == nullptr) {                                                      \
-        for (size_t i = 0; i < s; i++) {                                             \
-            hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]);     \
-        }                                                                            \
-    } else {                                                                         \
-        for (size_t i = 0; i < s; i++) {                                             \
-            if (null_data[i] == 0)                                                   \
-                hashes[i] = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hashes[i]); \
-        }                                                                            \
-    }
 
 namespace doris::vectorized {
 
@@ -149,7 +131,12 @@ public:
 
     /// If possible, returns pointer to memory chunk which contains n-th element (if it isn't possible, throws an exception)
     /// Is used to optimize some computations (in aggregation, for example).
-    virtual StringRef get_data_at(size_t n) const = 0;
+    /// this function is used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
+    /// and should be pair with insert_data
+    virtual StringRef get_data_at(size_t n) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method get_data_at is not supported for " + get_name());
+    }
 
     virtual Int64 get_int(size_t /*n*/) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
@@ -175,6 +162,18 @@ public:
         MutablePtr res = clone_empty();
         res->insert_range_from(*this, start, length);
         return res;
+    }
+
+    /**
+    * erase data from 'start' and length elements from the column.
+    * @param length The number of elements to remove from the start position of the column
+    * @throws doris::Exception with NOT_IMPLEMENTED_ERROR if the operation is not supported
+    *         for this column type
+    * eg: erase(3, 2) means remove the idx 3 and 4 elements (0-based)
+    */
+    virtual void erase(size_t start, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method erase is not supported for " + get_name());
     }
 
     /// cut or expand inplace. `this` would be moved, only the return value is avaliable.
@@ -207,8 +206,6 @@ public:
     }
 
     /// Appends one element from other column with the same type multiple times.
-    /// we should make sure position is less than src's size and length is less than src's size,
-    /// and position + length is less than src's size
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);
@@ -228,10 +225,14 @@ public:
                                      const uint32_t* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
+    /// used in ColumnString, ColumnFixedString, ColumnVector, not support in ColumnArray|ColumnMap...
     /// Is used to optimize some computations (in aggregation, for example).
     /// Parameter length could be ignored if column values have fixed size.
     /// All data will be inserted as single element
-    virtual void insert_data(const char* pos, size_t length) = 0;
+    virtual void insert_data(const char* pos, size_t length) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method insert_data is not supported for " + get_name());
+    }
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
         throw doris::Exception(
@@ -321,35 +322,30 @@ public:
         return 0;
     }
 
-    virtual void serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
-                               size_t max_row_byte_size) const {
+    virtual void serialize_vec(StringRef* keys, size_t num_rows, size_t max_row_byte_size) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
-    virtual void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
+    virtual void serialize_vec_with_null_map(StringRef* keys, size_t num_rows,
                                              const uint8_t* null_map) const {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method serialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     // This function deserializes group-by keys into column in the vectorized way.
-    virtual void deserialize_vec(std::vector<StringRef>& keys, const size_t num_rows) {
+    virtual void deserialize_vec(StringRef* keys, const size_t num_rows) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method deserialize_vec is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     // Used in ColumnNullable::deserialize_vec
-    virtual void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
+    virtual void deserialize_vec_with_null_map(StringRef* keys, const size_t num_rows,
                                                const uint8_t* null_map) {
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method deserialize_vec_with_null_map is not supported for " + get_name());
-        __builtin_unreachable();
     }
 
     /// TODO: SipHash is slower than city or xx hash, rethink we should have a new interface
@@ -426,7 +422,6 @@ public:
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
                                get_name());
-        __builtin_unreachable();
     }
 
     /// Permutes elements using specified permutation. Is used in sortings.
@@ -511,6 +506,17 @@ public:
 
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
     virtual size_t byte_size() const = 0;
+
+    /**
+    * @brief Checks whether the current column has enough capacity to accommodate the given source column.
+    * 
+    * This pure virtual function should be implemented by derived classes to determine whether the 
+    * current column has enough reserved memory to hold the data of the specified `src` column.
+    * 
+    * @param src The source column whose data needs to be checked for fitting into the current column.
+    * @return true if the current column has enough capacity to hold the `src` data, false otherwise.
+    */
+    virtual bool has_enough_capacity(const IColumn& src) const = 0;
 
     /// Size of memory, allocated for column.
     /// This is greater or equals to byte_size due to memory reservation in containers.
@@ -608,12 +614,6 @@ public:
 
     virtual bool is_column_dictionary() const { return false; }
 
-    virtual bool is_column_array() const { return false; }
-
-    virtual bool is_column_map() const { return false; }
-
-    virtual bool is_column_struct() const { return false; }
-
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
@@ -651,34 +651,40 @@ public:
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
-    virtual bool is_date_type() const { return is_date; }
-    virtual bool is_datetime_type() const { return is_date_time; }
-
-    virtual void set_date_type() { is_date = true; }
-    virtual void set_datetime_type() { is_date_time = true; }
-
-    void copy_date_types(const IColumn& col) {
-        if (col.is_date_type()) {
-            set_date_type();
-        }
-        if (col.is_datetime_type()) {
-            set_datetime_type();
-        }
-    }
-
-    // todo(wb): a temporary implemention, need re-abstract here
-    bool is_date = false;
-    bool is_date_time = false;
-
 protected:
     template <typename Derived>
-    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const;
+    void append_data_by_selector_impl(MutablePtr& res, const Selector& selector) const {
+        append_data_by_selector_impl<Derived>(res, selector, 0, selector.size());
+    }
     template <typename Derived>
     void append_data_by_selector_impl(MutablePtr& res, const Selector& selector, size_t begin,
-                                      size_t end) const;
+                                      size_t end) const {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {} is larger than size of column: {}",
+                                   selector.size(), num_rows);
+        }
+        DCHECK_GE(end, begin);
+        DCHECK_LE(end, selector.size());
+        // here wants insert some value from this column, and the nums is (end - begin)
+        // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
+        // so can't call res->reserve(num_rows), it's will be too mush waste memory
+        res->reserve(res->size() + (end - begin));
+
+        for (size_t i = begin; i < end; ++i) {
+            static_cast<Derived&>(*res).insert_from(*this, selector[i]);
+        }
+    }
     template <typename Derived>
     void insert_from_multi_column_impl(const std::vector<const IColumn*>& srcs,
-                                       const std::vector<size_t>& positions);
+                                       const std::vector<size_t>& positions) {
+        reserve(size() + srcs.size());
+        for (size_t i = 0; i < srcs.size(); ++i) {
+            static_cast<Derived&>(*this).insert_from(*srcs[i], positions[i]);
+        }
+    }
 };
 
 using ColumnPtr = IColumn::Ptr;
@@ -714,13 +720,24 @@ const Type* check_and_get_column(const IColumn* column) {
 }
 
 template <typename Type>
-bool check_column(const IColumn& column) {
+bool is_column(const IColumn& column) {
     return check_and_get_column<Type>(&column);
 }
 
 template <typename Type>
-bool check_column(const IColumn* column) {
+bool is_column(const IColumn* column) {
     return check_and_get_column<Type>(column);
+}
+
+// check_and_get_column_ptr is used to return a ColumnPtr of a specific column type,
+// which will hold ownership. This prevents the occurrence of dangling pointers due to certain situations.
+template <typename ColumnType>
+ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = check_and_get_column<ColumnType>(column.get());
+    if (raw_type_ptr == nullptr) {
+        return nullptr;
+    }
+    return typename ColumnType::Ptr(const_cast<ColumnType*>(raw_type_ptr));
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

@@ -26,7 +26,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
@@ -60,8 +59,8 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        if (WhichDataType(_text_datatype).is_json()) {
-            JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
+        if (_text_datatype->get_primitive_type() == TYPE_JSONB) {
+            JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(text.data, text.size);
             if (doc && doc->getValue() && doc->getValue()->isArray()) {
                 auto* a = (ArrayVal*)doc->getValue();
                 if (a->numElem() > 0) {

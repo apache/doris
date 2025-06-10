@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -87,7 +85,7 @@ public class PartitionNamesInfo {
     /**
      * validate
      */
-    public void validate(ConnectContext ctx) throws UserException {
+    public void validate() throws AnalysisException {
         if (isStar && count > 0) {
             throw new AnalysisException("All partition and partition count couldn't be set at the same time.");
         }

@@ -19,12 +19,26 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.List;
 
 /** CreateTableLikeCommand */
 public class CreateTableLikeCommand extends Command implements ForwardWithSync {
@@ -40,7 +54,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
         executor.checkBlockRules();
         info.validate(ctx);
         CreateTableLikeStmt stmt = info.translateToLegacyStmt();
-        Env.getCurrentEnv().createTableLike(stmt);
+        doRun(stmt, ctx, executor);
     }
 
     @Override
@@ -51,5 +65,61 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    private void doRun(CreateTableLikeStmt stmt, ConnectContext ctx, StmtExecutor executor) throws Exception {
+        try {
+            DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getExistedDbName());
+            TableIf table = db.getTableOrDdlException(stmt.getExistedTableName());
+
+            if (table.getType() == TableIf.TableType.VIEW) {
+                throw new DdlException("Not support create table from a View");
+            }
+
+            List<String> createTableStmt = Lists.newArrayList();
+            table.readLock();
+            try {
+                if (table.isManagedTable()) {
+                    if (!CollectionUtils.isEmpty(stmt.getRollupNames())) {
+                        OlapTable olapTable = (OlapTable) table;
+                        for (String rollupIndexName : stmt.getRollupNames()) {
+                            if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
+                                throw new DdlException("Rollup index[" + rollupIndexName + "] not exists in Table["
+                                        + olapTable.getName() + "]");
+                            }
+                        }
+                    }
+                } else if (!CollectionUtils.isEmpty(stmt.getRollupNames()) || stmt.isWithAllRollup()) {
+                    throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
+                }
+
+                Env.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true, -1L,
+                        false, false);
+                if (createTableStmt.isEmpty()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
+                }
+            } finally {
+                table.readUnlock();
+            }
+
+            try {
+                // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
+                // create_priv of newTable, and select_priv of existedTable, and priv check has done in
+                // CreateTableStmt/CreateTableCommand, so we skip it
+                ctx.setSkipAuth(true);
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateTableCommand createTableCommand = (CreateTableCommand) nereidsParser
+                        .parseSingle(createTableStmt.get(0));
+                CreateTableInfo createTableInfo = createTableCommand.getCreateTableInfo();
+                createTableCommand = new CreateTableCommand(createTableCommand.getCtasQuery(),
+                        createTableInfo.withTableNameAndIfNotExists(stmt.getTableName(), stmt.isIfNotExists()));
+                createTableCommand.run(ctx, executor);
+            } finally {
+                ctx.setSkipAuth(false);
+            }
+        } catch (UserException e) {
+            throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: "
+                    + e.getMessage(), e);
+        }
     }
 }

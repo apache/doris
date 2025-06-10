@@ -785,8 +785,9 @@ suite("test_jdbc_query_mysql", "p0,external,mysql,external_docker,external_docke
 
         // test for distribute queries
         order_qt_sql38 """ SELECT count(*) FROM ${exMysqlTable} WHERE id IN (SELECT k8 FROM $jdbcMysql57Table1 WHERE k8 > 111); """
-        sql """ create view if not exists aview as select k7, k8 from $jdbcMysql57Table1; """
-        order_qt_sql39 """ SELECT * FROM aview a JOIN aview b on a.k8 = b.k8 order by a.k8 desc limit 5 """
+        sql """ drop view if exists aview_mysql """
+        sql """ create view if not exists aview_mysql as select k7, k8 from $jdbcMysql57Table1; """
+        order_qt_sql39 """ SELECT * FROM aview_mysql a JOIN aview_mysql b on a.k8 = b.k8 order by a.k8 desc limit 5 """
         order_qt_sql42 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l JOIN ${exMysqlTable} o ON l.k8 = o.id """
         order_qt_sql43 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l LEFT JOIN ${exMysqlTable} o ON l.k8 = o.id order by k8 limit 5"""
         order_qt_sql44 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 8 = 0) l RIGHT JOIN ${exMysqlTable} o ON l.k8 = o.id"""

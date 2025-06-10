@@ -22,6 +22,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class AggregateFunctionApproxTop {
 public:
@@ -31,7 +32,7 @@ public:
     static int32_t is_valid_const_columns(const std::vector<bool>& is_const_columns) {
         int32_t true_count = 0;
         bool found_false_after_true = false;
-        for (int32_t i = is_const_columns.size() - 1; i >= 0; --i) {
+        for (int64_t i = is_const_columns.size() - 1; i >= 0; --i) {
             if (is_const_columns[i]) {
                 true_count++;
                 if (found_false_after_true) {
@@ -65,16 +66,21 @@ protected:
                                .get();
             }
             int64_t value = 0;
-            WhichDataType which(type);
-            if (which.idx == TypeIndex::Int8) {
+            switch (type->get_primitive_type()) {
+            case PrimitiveType::TYPE_TINYINT:
                 value = assert_cast<const ColumnInt8*, TypeCheckOnRelease::DISABLE>(column)
                                 ->get_element(0);
-            } else if (which.idx == TypeIndex::Int16) {
+                break;
+            case PrimitiveType::TYPE_SMALLINT:
                 value = assert_cast<const ColumnInt16*, TypeCheckOnRelease::DISABLE>(column)
                                 ->get_element(0);
-            } else if (which.idx == TypeIndex::Int32) {
+                break;
+            case PrimitiveType::TYPE_INT:
                 value = assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(column)
                                 ->get_element(0);
+                break;
+            default:
+                break;
             }
             if (value <= 0) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -106,4 +112,5 @@ protected:
     mutable uint64_t _reserved = 30;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

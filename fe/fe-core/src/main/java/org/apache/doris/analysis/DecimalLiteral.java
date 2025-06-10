@@ -249,6 +249,9 @@ public class DecimalLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         if (expr instanceof DecimalLiteral) {
             return this.value.compareTo(((DecimalLiteral) expr).value);
         } else {
@@ -263,7 +266,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return value.toPlainString();
     }
 
@@ -275,11 +278,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
     @Override
     public String getStringValue() {
         return value.toPlainString();
-    }
-
-    @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
     }
 
     @Override

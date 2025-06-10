@@ -50,6 +50,11 @@ public:
                                                 int64_t index_id,
                                                 std::string_view index_path_suffix);
 
+    static std::string get_index_file_name_v1(const std::string& rowset_id, int64_t seg_id,
+                                              int64_t index_id, std::string_view index_path_suffix);
+
+    static std::string get_index_file_name_v2(const std::string& rowset_id, int64_t seg_id);
+
     static const char* get_temporary_null_bitmap_file_name() { return "null_bitmap"; }
     static const char* get_temporary_bkd_index_data_file_name() { return "bkd"; }
     static const char* get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }

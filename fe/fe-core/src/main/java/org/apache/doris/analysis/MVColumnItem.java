@@ -66,16 +66,15 @@ public class MVColumnItem {
         this.aggregationType = aggregateType;
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
         this.defineExpr = defineExpr;
-        baseColumnNames = new HashSet<>();
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
+
+        if (tableIdToColumnNames.size() == 1) {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
+        } else {
+            baseColumnNames = new HashSet<>();
         }
     }
 
@@ -104,13 +103,13 @@ public class MVColumnItem {
         }
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
+
+        if (tableIdToColumnNames.size() == 1) {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
+        } else {
+            baseColumnNames = new HashSet<>();
         }
     }
 

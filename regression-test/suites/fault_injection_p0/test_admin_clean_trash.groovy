@@ -497,7 +497,7 @@ suite("test_admin_clean_trash", "nonConcurrent") {
                 s_zip char(10),
                 s_country varchar(20),
                 s_gmt_offset decimal(5,2),
-                s_tax_precentage decimal(5,2)
+                s_tax_percentage decimal(5,2)
             )
             DUPLICATE KEY(s_store_sk)
             DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1

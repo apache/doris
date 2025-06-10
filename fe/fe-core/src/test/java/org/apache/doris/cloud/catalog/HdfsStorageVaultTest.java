@@ -30,25 +30,31 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import mockit.Mock;
 import mockit.MockUp;
-import org.junit.Before;
-import org.junit.Test;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 public class HdfsStorageVaultTest {
+    private static final Logger LOG = LogManager.getLogger(HdfsStorageVaultTest.class);
     private StorageVaultMgr mgr = new StorageVaultMgr(new SystemInfoService());
 
-    @Before
-    public void setUp() throws Exception {
+    @BeforeAll
+    public static void setUp() throws Exception {
         Config.cloud_unique_id = "cloud_unique_id";
         Config.meta_service_endpoint = "127.0.0.1:20121";
     }
@@ -75,10 +81,11 @@ public class HdfsStorageVaultTest {
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
                 "path", "abs/",
-                HdfsStorageVault.HADOOP_FS_NAME, "default"));
+                S3Properties.VALIDITY_CHECK, "false",
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "default"));
         Map<String, String> properties = vault.getCopiedProperties();
         // To check if the properties is carried correctly
-        Assertions.assertEquals(properties.get(HdfsStorageVault.HADOOP_FS_NAME), "default");
+        Assertions.assertEquals(properties.get(HdfsStorageVault.PropertyKey.HADOOP_FS_NAME), "default");
         mgr.createHdfsVault(vault);
     }
 
@@ -104,7 +111,8 @@ public class HdfsStorageVaultTest {
         };
         StorageVault vault = createHdfsVault("hdfs", ImmutableMap.of(
                 "type", "hdfs",
-                "path", "abs/"));
+                "path", "abs/",
+                S3Properties.VALIDITY_CHECK, "false"));
         mgr.createHdfsVault(vault);
         Assertions.assertThrows(DdlException.class,
                 () -> {
@@ -131,7 +139,8 @@ public class HdfsStorageVaultTest {
         };
         StorageVault vault = createHdfsVault("", ImmutableMap.of(
                 "type", "hdfs",
-                "path", "abs/"));
+                "path", "abs/",
+                S3Properties.VALIDITY_CHECK, "false"));
         Assertions.assertThrows(DdlException.class,
                 () -> {
                     mgr.createHdfsVault(vault);
@@ -161,7 +170,8 @@ public class HdfsStorageVaultTest {
         StorageVault vault = new HdfsStorageVault("name", true, false);
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
-                "path", "abs/"));
+                "path", "abs/",
+                S3Properties.VALIDITY_CHECK, "false"));
         mgr.createHdfsVault(vault);
     }
 
@@ -208,10 +218,61 @@ public class HdfsStorageVaultTest {
                 });
         vault.modifyProperties(ImmutableMap.of(
                 "type", "hdfs",
-                "path", "abs/"));
+                "path", "abs/",
+                S3Properties.VALIDITY_CHECK, "false"));
         mgr.createHdfsVault(vault);
         Assertions.assertTrue(mgr.getDefaultStorageVault() == null);
         mgr.setDefaultStorageVault(new SetDefaultStorageVaultStmt(vault.getName()));
         Assertions.assertTrue(mgr.getDefaultStorageVault().first.equals(vault.getName()));
+    }
+
+    @Test
+    public void testCheckConnectivity() {
+        try {
+            String hadoopFsName = System.getenv("HADOOP_FS_NAME");
+            String hadoopUser = System.getenv("HADOOP_USER");
+
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(hadoopFsName), "HADOOP_FS_NAME isNullOrEmpty.");
+            Assumptions.assumeTrue(!Strings.isNullOrEmpty(hadoopUser), "HADOOP_USER isNullOrEmpty.");
+
+            ImmutableMap<String, String> properties = ImmutableMap.of(
+                    HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, hadoopFsName,
+                    HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, hadoopUser,
+                    HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
+            );
+
+            HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
+            vault.modifyProperties(properties);
+        } catch (DdlException e) {
+            LOG.warn("testCheckConnectivity:", e);
+            Assertions.assertTrue(false, e.getMessage());
+        }
+    }
+
+    @Test
+    public void testCheckConnectivityException() {
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000",
+                HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser",
+                HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix"
+        );
+
+        HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
+        Assertions.assertThrows(DdlException.class, () -> {
+            vault.modifyProperties(properties);
+        });
+    }
+
+    @Test
+    public void testIgnoreCheckConnectivity() throws DdlException {
+        ImmutableMap<String, String> properties = ImmutableMap.of(
+                HdfsStorageVault.PropertyKey.HADOOP_FS_NAME, "hdfs://localhost:10000",
+                HdfsStorageVault.PropertyKey.HADOOP_USER_NAME, "notExistUser",
+                HdfsStorageVault.PropertyKey.VAULT_PATH_PREFIX, "testCheckConnectivityUtPrefix",
+                S3Properties.VALIDITY_CHECK, "false"
+        );
+
+        HdfsStorageVault vault = new HdfsStorageVault("testHdfsVault", false, false);
+        vault.modifyProperties(properties);
     }
 }

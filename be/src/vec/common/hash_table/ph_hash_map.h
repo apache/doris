@@ -159,6 +159,10 @@ public:
         _hash_map.lazy_emplace(key, [&](const auto& ctor) { ctor(key, value); });
     }
 
+    void insert(const iterator& other_iter) {
+        insert(other_iter->get_first(), other_iter->get_second());
+    }
+
     template <typename KeyHolder>
     LookupResult ALWAYS_INLINE find(KeyHolder&& key) {
         auto it = _hash_map.find(key);
@@ -193,6 +197,15 @@ public:
         const auto capacity = _hash_map.capacity();
         // phmap use 7/8th as maximum load factor.
         return (_hash_map.size() + row) > (capacity * 7 / 8);
+    }
+
+    size_t estimate_memory(size_t num_elem) const {
+        if (!add_elem_size_overflow(num_elem)) {
+            return 0;
+        }
+        auto new_size = _hash_map.capacity() * 2 + 1;
+        return phmap::priv::hashtable_debug_internal::HashtableDebugAccess<
+                HashMapImpl>::LowerBoundAllocatedByteSize(new_size);
     }
 
     size_t size() const { return _hash_map.size(); }

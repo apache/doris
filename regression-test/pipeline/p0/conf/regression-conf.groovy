@@ -137,7 +137,8 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Source="aliyun"
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"

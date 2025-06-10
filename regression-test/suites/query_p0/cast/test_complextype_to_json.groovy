@@ -96,6 +96,7 @@ suite('test_complextype_to_json', "query_p0") {
     qt_sql_arr_agg_cast_json_object """ select json_object("id", t.id, "label", cast(t.label_name as json), "field", cast(t.value_field as json)) from (select id, array_agg(label_name) as label_name, array_agg(value_field) as value_field from test_agg_to_json group by id) t order by t.id; """
 
     // map_agg result cast to json then combination to json_object
+    // cast `Map` to `Json` will failed if map contains null key, the result will be null.
     qt_sql_map_agg_cast """
         WITH `labels` as (
             SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_agg_to_json GROUP BY `id`
@@ -106,6 +107,8 @@ suite('test_complextype_to_json', "query_p0") {
         FROM `labels`
         ORDER BY `id`;
      """
+
+    // cast `Map` to `Json` will failed if map contains null key, the result will be null.
     qt_sql_map_agg_cast_json_object """
         WITH `labels` as (
             SELECT `id`, map_agg(`label_name`, `value_field`) m FROM test_agg_to_json GROUP BY `id`

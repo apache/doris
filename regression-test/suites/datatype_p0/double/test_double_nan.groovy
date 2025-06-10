@@ -20,16 +20,10 @@ suite("test_double_nan", "datatype_p0") {
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql "CREATE  TABLE if NOT EXISTS ${tableName} (k int, value double) DUPLICATE KEY(k) DISTRIBUTED BY HASH (k) BUCKETS 1 PROPERTIES ('replication_num' = '1');"
 
-    test {
-        sql """insert into ${tableName} select 1, sqrt(-1);"""
-        exception "errCode"
-    }
+    sql """insert into ${tableName} select 1, sqrt(-1);"""
 
     qt_select "select * from ${tableName} order by 1;"
-    test {
-        sql "select sqrt(-1);"
-        exception "errCode"
-    }
+    qt_select "select sqrt(-1);"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

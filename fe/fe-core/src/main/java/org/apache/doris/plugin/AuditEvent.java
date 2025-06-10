@@ -113,6 +113,10 @@ public class AuditEvent {
     public long scanBytesFromLocalStorage = -1;
     @AuditField(value = "ScanBytesFromRemoteStorage")
     public long scanBytesFromRemoteStorage = -1;
+    @AuditField(value = "SpillWriteBytesToLocalStorage")
+    public long spillWriteBytesToLocalStorage = -1;
+    @AuditField(value = "SpillReadBytesFromLocalStorage")
+    public long spillReadBytesFromLocalStorage = -1;
 
     public long pushToAuditLogQueueTime;
 
@@ -274,6 +278,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setCommandType(String commandType) {
             auditEvent.commandType = commandType;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillWriteBytesToLocalStorage(long bytes) {
+            auditEvent.spillWriteBytesToLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
+            auditEvent.spillReadBytesFromLocalStorage = bytes;
             return this;
         }
 

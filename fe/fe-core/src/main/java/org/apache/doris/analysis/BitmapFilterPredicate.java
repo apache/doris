@@ -66,8 +66,8 @@ public class BitmapFilterPredicate extends Predicate {
             throw new AnalysisException("The srcExpr type must be bitmap, not " + srcExpr.getType().toSql() + ".");
         }
 
-        if (ConnectContext.get() == null || (ConnectContext.get().getSessionVariable().getRuntimeFilterType()
-                & TRuntimeFilterType.BITMAP.getValue()) == 0) {
+        if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable().allowedRuntimeFilterType(
+                TRuntimeFilterType.BITMAP)) {
             throw new AnalysisException("In bitmap syntax requires runtime filter of bitmap_filter to be enabled. "
                     + "Please `set runtime_filter_type = 'xxx, bitmap_filter'` first.");
         }

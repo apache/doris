@@ -25,6 +25,8 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
@@ -63,14 +65,20 @@ public class ExecuteCommand extends Command {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        StatementContext statementContext = ctx.getStatementContext();
+        statementContext.setPrepareStage(false);
         PreparedStatementContext preparedStmtCtx = ctx.getPreparedStementContext(stmtName);
         if (null == preparedStmtCtx) {
             throw new AnalysisException(
                     "prepare statement " + stmtName + " not found,  maybe expired");
         }
-        PrepareCommand prepareCommand = (PrepareCommand) preparedStmtCtx.command;
-        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(prepareCommand.getLogicalPlan(), executor.getContext()
-                .getStatementContext());
+        PrepareCommand prepareCommand = preparedStmtCtx.command;
+        LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        if (logicalPlan instanceof LogicalSqlCache) {
+            throw new AnalysisException("Unsupported sql cache for server prepared statement");
+        }
+        LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(
+                logicalPlan, executor.getContext().getStatementContext());
         executor.setParsedStmt(planAdapter);
         // If it's not a short circuit query or schema version is different(indicates schema changed) or
         // has nondeterministic functions in statement, then need to do reanalyze and plan

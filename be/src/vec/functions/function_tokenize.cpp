@@ -144,8 +144,8 @@ Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block
                     get_parser_string_from_properties(properties));
             if (inverted_index_ctx.parser_type == InvertedIndexParserType::PARSER_UNKNOWN) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS>(
-                        "unsupported parser type. currently, only 'english', 'chinese', and "
-                        "'unicode' analyzers are supported.");
+                        "unsupported parser type. currently, only 'english', 'chinese', "
+                        "'unicode', 'icu', 'basic' and 'ik' analyzers are supported.");
             }
 
             inverted_index_ctx.parser_mode = get_parser_mode_string_from_properties(properties);

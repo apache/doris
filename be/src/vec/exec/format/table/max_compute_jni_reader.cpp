@@ -29,14 +29,13 @@
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
-
 namespace vectorized {
 class Block;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_desc,
                                          const TMaxComputeFileDesc& max_compute_params,
                                          const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -50,9 +49,9 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
     std::ostringstream columns_types;
     std::vector<std::string> column_names;
     int index = 0;
-    for (auto& desc : _file_slot_descs) {
+    for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
-        std::string type = JniConnector::get_jni_type(desc->type());
+        std::string type = JniConnector::get_jni_type_with_different_string(desc->type());
         column_names.emplace_back(field);
         if (index == 0) {
             required_fields << field;
@@ -90,19 +89,19 @@ Status MaxComputeJniReader::get_next_block(Block* block, size_t* read_rows, bool
     return _jni_connector->get_next_block(block, read_rows, eof);
 }
 
-Status MaxComputeJniReader::get_columns(
-        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-        std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
+Status MaxComputeJniReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+                                        std::unordered_set<std::string>* missing_cols) {
+    for (const auto& desc : _file_slot_descs) {
         name_to_type->emplace(desc->col_name(), desc->type());
     }
     return Status::OK();
 }
 
 Status MaxComputeJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     return _jni_connector->open(_state, _profile);
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -39,7 +39,7 @@ public class ExecuteEnv {
 
     private ExecuteEnv() {
         multiLoadMgr = new MultiLoadMgr();
-        scheduler = new ConnectScheduler(Config.qe_max_connection);
+        scheduler = new ConnectScheduler(Config.qe_max_connection, Config.arrow_flight_max_connections);
         startupTime = System.currentTimeMillis();
         processUUID = System.currentTimeMillis();
         String logDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :

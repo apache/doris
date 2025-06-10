@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
+import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -40,7 +41,7 @@ import java.util.stream.Collectors;
  * e.g. LogicalSelectHint (set_var(query_timeout='1800', exec_mem_limit='2147483648'))
  */
 public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements BlockFuncDepsPropagation {
+        implements BlockFuncDepsPropagation, DiffOutputInAsterisk {
 
     private final ImmutableList<SelectHint> hints;
 
@@ -111,6 +112,11 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
+    }
+
+    @Override
+    public List<Slot> computeAsteriskOutput() {
+        return child().getAsteriskOutput();
     }
 
     @Override

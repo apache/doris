@@ -57,10 +57,8 @@ public:
     size_t get_load_stream_num() { return _load_streams_map.size(); }
 
     FifoThreadPool* heavy_work_pool() { return _heavy_work_pool; }
-    FifoThreadPool* light_work_pool() { return _light_work_pool; }
 
     void set_heavy_work_pool(FifoThreadPool* pool) { _heavy_work_pool = pool; }
-    void set_light_work_pool(FifoThreadPool* pool) { _light_work_pool = pool; }
 
 private:
     std::mutex _lock;
@@ -68,7 +66,6 @@ private:
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
     FifoThreadPool* _heavy_work_pool = nullptr;
-    FifoThreadPool* _light_work_pool = nullptr;
 };
 
 } // namespace doris

@@ -394,12 +394,16 @@ TEST(ResourceTest, AddDropCluster) {
         auto* key_id = try_any_cast<int64_t*>(args[2]);
         *key_id = 1;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
         auto* key = try_any_cast<std::string*>(args[0]);
         *key = "test";
         auto* ret = try_any_cast<int*>(args[1]);
         *ret = 0;
     });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();

@@ -79,4 +79,39 @@ TEST_F(PhraseQueryTest, test_parser_info) {
     parser("english/history off.gif ~20+x", "english/history off.gif ~20+x", 6, 0, false, 0);
 }
 
+TEST_F(PhraseQueryTest, test_parser_info1) {
+    std::map<std::string, std::string> properties;
+    properties.insert({"parser", "unicode"});
+    properties.insert({"support_phrase", "true"});
+    properties.insert({"lower_case", "true"});
+
+    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
+                                     bool sequential_opt) {
+        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
+                                 properties, query_info, sequential_opt);
+    };
+
+    {
+        InvertedIndexQueryInfo query_info;
+        std::string search_str = "我在 北京 ~4+";
+        parser_info(search_str, query_info, true);
+        EXPECT_EQ(search_str, "我在 北京");
+        EXPECT_EQ(query_info.slop, 4);
+        EXPECT_EQ(query_info.ordered, true);
+        EXPECT_EQ(query_info.terms.size(), 4);
+        EXPECT_EQ(query_info.additional_terms.size(), 2);
+    }
+
+    {
+        InvertedIndexQueryInfo query_info;
+        std::string search_str = "List of Pirates of the Caribbean characters ~4+";
+        parser_info(search_str, query_info, true);
+        EXPECT_EQ(search_str, "List of Pirates of the Caribbean characters");
+        EXPECT_EQ(query_info.slop, 4);
+        EXPECT_EQ(query_info.ordered, true);
+        EXPECT_EQ(query_info.terms.size(), 4);
+        EXPECT_EQ(query_info.additional_terms.size(), 0);
+    }
+}
+
 } // namespace doris::segment_v2

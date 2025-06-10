@@ -135,13 +135,13 @@ suite("test_skip_index_compaction_fault_injection", "nonConcurrent") {
     assert (rowsetCount == 11 * replicaNum)
 
     // first
-    trigger_and_wait_compaction(tableName, "full")
+    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
 
     rowsetCount = get_rowset_count.call(tablets);
     assert (rowsetCount == 11 * replicaNum)
 
     // second
-    trigger_and_wait_compaction(tableName, "full")
+    trigger_and_wait_compaction(tableName, "full", 300, new String[]{"e-6010"})
 
     rowsetCount = get_rowset_count.call(tablets);
     if (isCloudMode) {

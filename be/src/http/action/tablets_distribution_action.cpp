@@ -26,8 +26,8 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -73,7 +73,7 @@ void TabletsDistributionAction::handle(HttpRequest* req) {
         return;
     }
     LOG(WARNING) << "invalid argument. group_by:" << req_group_method;
-    Status status = Status::InternalError(strings::Substitute("invalid argument: group_by"));
+    Status status = Status::InternalError(absl::Substitute("invalid argument: group_by"));
     std::string status_result = status.to_json();
     HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
 }

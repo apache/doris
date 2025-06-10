@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
@@ -48,7 +49,9 @@ class BufferWritable;
 class IColumn;
 
 class AggFnEvaluator {
+public:
     ENABLE_FACTORY_CREATOR(AggFnEvaluator);
+    MOCK_DEFINE(virtual) ~AggFnEvaluator() = default;
 
 public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
@@ -119,12 +122,14 @@ private:
     AggFnEvaluator(const TExprNode& desc, const bool without_key);
     AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
+#ifdef BE_TEST
+    AggFnEvaluator(bool is_merge, bool without_key)
+            : _is_merge(is_merge), _without_key(without_key) {};
+#endif
     Status _calc_argument_columns(Block* block);
 
     DataTypes _argument_types_with_sort;
     DataTypes _real_argument_types;
-
-    const TypeDescriptor _return_type;
 
     const SlotDescriptor* _intermediate_slot_desc = nullptr;
     const SlotDescriptor* _output_slot_desc = nullptr;

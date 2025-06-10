@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SlidingWindowCounter;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.InternalService.PGetWalQueueSizeRequest;
@@ -128,6 +129,11 @@ public class GroupCommitManager {
     }
 
     public long getAllWalQueueSize(Backend backend) {
+        long getAllWalQueueSizeDP = DebugPointUtil.getDebugParamOrDefault("FE.GET_ALL_WAL_QUEUE_SIZE", -1L);
+        if (getAllWalQueueSizeDP > 0) {
+            LOG.info("backend id:" + backend.getHost() + ",use dp all wal size:" + getAllWalQueueSizeDP);
+            return getAllWalQueueSizeDP;
+        }
         PGetWalQueueSizeRequest request = PGetWalQueueSizeRequest.newBuilder()
                 .setTableId(-1)
                 .build();
@@ -326,7 +332,9 @@ public class GroupCommitManager {
     private Long getCachedBackend(String cluster, long tableId) {
         OlapTable table = (OlapTable) Env.getCurrentEnv().getInternalCatalog().getTableByTableId(tableId);
         if (tableToBeMap.containsKey(encode(cluster, tableId))) {
-            if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
+            if (tableToPressureMap.get(tableId) == null) {
+                return null;
+            } else if (tableToPressureMap.get(tableId).get() < table.getGroupCommitDataBytes()) {
                 // There are multiple threads getting cached backends for the same table.
                 // Maybe one thread removes the tableId from the tableToBeMap.
                 // Another thread gets the same tableId but can not find this tableId.

@@ -18,8 +18,6 @@
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.AlterPolicyStmt;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
@@ -47,7 +45,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -117,11 +114,7 @@ public class PolicyMgr implements Writable {
         LOG.info("Create default storage success.");
     }
 
-    /**
-     * Create policy through stmt.
-     **/
-    public void createPolicy(CreatePolicyStmt stmt) throws UserException {
-        Policy policy = Policy.fromCreateStmt(stmt);
+    public void createPolicy(Policy policy, boolean isIfNotExists) throws UserException {
         writeLock();
         try {
             boolean storagePolicyExists = false;
@@ -134,7 +127,7 @@ public class PolicyMgr implements Writable {
                         .stream().anyMatch(p -> p.getPolicyName().equals(policy.getPolicyName()));
             }
             if (storagePolicyExists || existPolicy(policy)) {
-                if (stmt.isIfNotExists()) {
+                if (isIfNotExists) {
                     return;
                 }
                 throw new DdlException("the policy " + policy.getPolicyName() + " already create");
@@ -179,12 +172,13 @@ public class PolicyMgr implements Writable {
                 for (Table table : tables) {
                     if (table instanceof OlapTable) {
                         OlapTable olapTable = (OlapTable) table;
+                        String tableName = table.getDisplayName();
                         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                         for (Long partitionId : olapTable.getPartitionIds()) {
                             String policyName = partitionInfo.getDataProperty(partitionId).getStoragePolicy();
                             if (policyName.equals(dropPolicyLog.getPolicyName())) {
                                 throw new DdlException("the policy " + policyName + " is used by table: "
-                                    + table.getName());
+                                    + tableName);
                             }
                         }
                     }
@@ -372,17 +366,6 @@ public class PolicyMgr implements Writable {
         typeToPolicyMap.put(log.getType(), policies);
     }
 
-    /**
-     * Match row policy and return it.
-     **/
-    public RowPolicy getMatchTablePolicy(String ctlName, String dbName, String tableName, UserIdentity user) {
-        List<RowPolicy> res = getUserPolicies(ctlName, dbName, tableName, user);
-        if (CollectionUtils.isEmpty(res)) {
-            return null;
-        }
-        return mergeRowPolicies(res);
-    }
-
     public List<RowPolicy> getUserPolicies(String ctlName, String dbName, String tableName, UserIdentity user) {
         List<RowPolicy> res = Lists.newArrayList();
         // Make a judgment in advance to reduce the number of times to obtain getRoles
@@ -414,45 +397,63 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private RowPolicy mergeRowPolicies(List<RowPolicy> policys) {
-        if (CollectionUtils.isEmpty(policys)) {
-            return null;
-        }
-        RowPolicy andPolicy = null;
-        RowPolicy orPolicy = null;
-        for (RowPolicy rowPolicy : policys) {
-            if (CompoundPredicate.Operator.AND.equals(rowPolicy.getFilterType().getOp())) {
-                if (andPolicy == null) {
-                    andPolicy = rowPolicy.clone();
-                } else {
-                    andPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND,
-                            andPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
+    private ShowResultSet getShowPolicy(Policy finalCheckedPolicy, PolicyTypeEnum type) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        readLock();
+        try {
+            List<Policy> policies = getPoliciesByType(type).stream()
+                    .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
+            for (Policy policy : policies) {
+                if (policy.isInvalid()) {
+                    continue;
                 }
-            } else {
-                if (orPolicy == null) {
-                    orPolicy = rowPolicy;
-                } else {
-                    orPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.OR,
-                            orPolicy.getWherePredicate(), rowPolicy.getWherePredicate()));
+
+                if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
+                    // default storage policy not init.
+                    continue;
                 }
+
+                rows.add(policy.getShowInfo());
             }
+            if (type == PolicyTypeEnum.STORAGE) {
+                return new ShowResultSet(StoragePolicy.STORAGE_META_DATA, rows);
+            }
+            return new ShowResultSet(RowPolicy.ROW_META_DATA, rows);
+        } finally {
+            readUnlock();
         }
-        if (andPolicy == null) {
-            return orPolicy;
+    }
+
+
+
+    /**
+     * Show Row Policy.
+     **/
+    public ShowResultSet showRowPolicy(UserIdentity user, String role) throws AnalysisException {
+        RowPolicy rowPolicy = new RowPolicy();
+        if (user != null) {
+            rowPolicy.setUser(user);
         }
-        if (orPolicy == null) {
-            return andPolicy;
+        if (!StringUtils.isEmpty(role)) {
+            rowPolicy.setRoleName(role);
         }
-        andPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND, andPolicy.getWherePredicate(),
-                orPolicy.getWherePredicate()));
-        return andPolicy;
+
+        final Policy finalCheckedPolicy = rowPolicy;
+        return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.ROW);
+    }
+
+    /**
+     * Show Storage Policy.
+     **/
+    public ShowResultSet showStoragePolicy() throws AnalysisException {
+        Policy finalCheckedPolicy = new StoragePolicy();
+        return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.STORAGE);
     }
 
     /**
      * Show policy through stmt.
      **/
     public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
-        List<List<String>> rows = Lists.newArrayList();
         Policy checkedPolicy = null;
         switch (showStmt.getType()) {
             case STORAGE:
@@ -470,34 +471,14 @@ public class PolicyMgr implements Writable {
                 checkedPolicy = rowPolicy;
         }
         final Policy finalCheckedPolicy = checkedPolicy;
-        readLock();
-        try {
-            List<Policy> policies = getPoliciesByType(showStmt.getType()).stream()
-                    .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
-            for (Policy policy : policies) {
-                if (policy.isInvalid()) {
-                    continue;
-                }
-
-                if (policy instanceof StoragePolicy && ((StoragePolicy) policy).getStorageResource() == null) {
-                    // default storage policy not init.
-                    continue;
-                }
-
-                rows.add(policy.getShowInfo());
-            }
-            return new ShowResultSet(showStmt.getMetaData(), rows);
-        } finally {
-            readUnlock();
-        }
+        return getShowPolicy(finalCheckedPolicy, showStmt.getType());
     }
 
     /**
-     * Show objects which is using the storage policy
+     * Return objects which is using the storage policy
      **/
-    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+    public List<List<String>> showStoragePolicyUsing(String targetPolicyName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        String targetPolicyName = showStmt.getPolicyName();
 
         readLock();
         try {
@@ -589,10 +570,20 @@ public class PolicyMgr implements Writable {
                     }
                 }
             }
-            return new ShowResultSet(showStmt.getMetaData(), rows);
+            return rows;
         } finally {
             readUnlock();
         }
+    }
+
+    /**
+     * Show objects which is using the storage policy
+     **/
+    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
+        String targetPolicyName = showStmt.getPolicyName();
+        List<List<String>> rows = showStoragePolicyUsing(targetPolicyName);
+
+        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void addTablePolicies(RowPolicy policy) {
@@ -716,13 +707,11 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    /**
-     * Alter policy by stmt.
+    /*
+     * Alter policy by policyName and properties.
      **/
-    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
-        String storagePolicyName = stmt.getPolicyName();
-        Map<String, String> properties = stmt.getProperties();
-
+    public void alterPolicy(String storagePolicyName, Map<String, String> properties)
+                throws DdlException, AnalysisException {
         if (findPolicy(storagePolicyName, PolicyTypeEnum.ROW).isPresent()) {
             throw new DdlException("Current not support alter row policy");
         }
@@ -742,6 +731,13 @@ public class PolicyMgr implements Writable {
         }
         AgentTaskExecutor.submit(batchTask);
         LOG.info("Alter storage policy success. policy: {}", storagePolicy);
+    }
+
+    /*
+     * Alter policy by stmt.
+     **/
+    public void alterPolicy(AlterPolicyStmt stmt) throws DdlException, AnalysisException {
+        alterPolicy(stmt.getPolicyName(), stmt.getProperties());
     }
 
     /**

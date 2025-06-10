@@ -33,7 +33,7 @@ using std::vector;
 namespace doris {
 
 TEST(HeartbeatTest, TestHeartbeat) {
-    setenv("DORIS_HOME", "./", 1);
+    // setenv("DORIS_HOME", "./", 1);
     THeartbeatResult heartbeat_result;
     ClusterInfo ori_cluster_info;
     ori_cluster_info.cluster_id = -1;

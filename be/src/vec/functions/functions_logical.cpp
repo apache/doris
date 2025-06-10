@@ -25,17 +25,14 @@
 #include <algorithm>
 #include <ranges>
 #include <utility>
-#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -168,6 +165,10 @@ void null_execute_impl(ColumnRawPtrs arguments, ColumnWithTypeAndName& result_in
 
 } // namespace
 
+bool is_native_number(PrimitiveType type) {
+    return (is_int_or_bool(type) && type != TYPE_LARGEINT) || is_float_or_double(type);
+}
+
 template <typename Impl, typename Name>
 DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
@@ -192,8 +193,9 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
             }
         }
 
-        if (!(is_native_number(arg_type) || (Impl::special_implementation_for_nulls() &&
-                                             is_native_number(remove_nullable(arg_type))))) {
+        auto arg_primitive_type = arg_type->get_primitive_type();
+        if (!(is_native_number(arg_primitive_type) ||
+              (Impl::special_implementation_for_nulls() && is_native_number(arg_primitive_type)))) {
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "Illegal type ({}) of {} argument of function {}",
                                    arg_type->get_name(), i + 1, get_name());
@@ -227,21 +229,20 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
     return Status::OK();
 }
 
-template <typename A, typename Op>
+template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
-    using ResultType = typename Op::ResultType;
     using ArrayA = typename ColumnVector<A>::Container;
-    using ArrayC = typename ColumnVector<ResultType>::Container;
+    using ArrayC = typename ColumnVector<Op::ResultType>::Container;
 
     static void NO_INLINE vector(const ArrayA& a, ArrayC& c) {
         std::transform(a.cbegin(), a.cend(), c.begin(), [](const auto x) { return Op::apply(x); });
     }
 };
 
-template <template <typename> class Impl, typename Name>
+template <template <PrimitiveType> class Impl, typename Name>
 DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
-    if (!is_native_number(arguments[0])) {
+    if (!is_native_number(arguments[0]->get_primitive_type())) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Illegal type ({}) of argument of function {}",
                                arguments[0]->get_name(), get_name());
@@ -250,7 +251,7 @@ DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
     return std::make_shared<DataTypeUInt8>();
 }
 
-template <template <typename> class Impl, typename T>
+template <template <PrimitiveType> class Impl, PrimitiveType T>
 bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size_t result) {
     if (auto col = check_and_get_column<ColumnVector<T>>(
                 block.get_by_position(arguments[0]).column.get())) {
@@ -267,12 +268,12 @@ bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size
     return false;
 }
 
-template <template <typename> class Impl, typename Name>
+template <template <PrimitiveType> class Impl, typename Name>
 Status FunctionUnaryLogical<Impl, Name>::execute_impl(FunctionContext* context, Block& block,
                                                       const ColumnNumbers& arguments,
                                                       uint32_t result,
                                                       size_t /*input_rows_count*/) const {
-    if (!functionUnaryExecuteType<Impl, UInt8>(block, arguments, result)) {
+    if (!functionUnaryExecuteType<Impl, TYPE_BOOLEAN>(block, arguments, result)) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Illegal column {} of argument of function {}",
                                block.get_by_position(arguments[0]).column->get_name(), get_name());

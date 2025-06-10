@@ -116,6 +116,10 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
         if (h->_reader->size() == 0) {
             // may be an empty file
             LOG(INFO) << "Opened inverted index file is empty, file is " << path;
+            // need to return false to avoid the error of CLucene
+            error.set(CL_ERR_EmptyIndexSegment,
+                      fmt::format("File is empty, file is {}", path).data());
+            return false;
         }
         //Store the file length
         h->_length = h->_reader->size();
@@ -210,20 +214,6 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
     if (_handle->_fpos != _pos) {
         _handle->_fpos = _pos;
     }
-
-    DBUG_EXECUTE_IF(
-            "DorisFSDirectory::FSIndexInput::readInternal", ({
-                static thread_local std::unordered_map<const TUniqueId*, io::FileCacheStatistics*>
-                        thread_file_cache_map;
-                auto it = thread_file_cache_map.find(_io_ctx.query_id);
-                if (it != thread_file_cache_map.end()) {
-                    if (_io_ctx.file_cache_stats != it->second) {
-                        _CLTHROWA(CL_ERR_IO, "File cache statistics mismatch");
-                    }
-                } else {
-                    thread_file_cache_map[_io_ctx.query_id] = _io_ctx.file_cache_stats;
-                }
-            }));
 
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;

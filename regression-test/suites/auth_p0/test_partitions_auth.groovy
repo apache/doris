@@ -48,12 +48,12 @@ suite("test_partitions_auth","p0,auth") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     sql """grant select_priv on regression_test to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
               sql """
                  show partitions from ${dbName}.${tableName};
@@ -70,7 +70,7 @@ suite("test_partitions_auth","p0,auth") {
 
     sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
 
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """
              show partitions from ${dbName}.${tableName};
           """

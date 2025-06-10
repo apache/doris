@@ -65,12 +65,26 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 int arrayDimensions = 0;
                 if (dataType == Types.ARRAY) {
                     String columnName = rs.getString("COLUMN_NAME");
-                    try (PreparedStatement pstmt = conn.prepareStatement(
-                            String.format("SELECT array_ndims(%s) FROM %s.%s LIMIT 1",
-                                    columnName, remoteDbName, remoteTableName))) {
-                        try (ResultSet arrayRs = pstmt.executeQuery()) {
-                            if (arrayRs.next()) {
-                                arrayDimensions = arrayRs.getInt(1);
+                    PreparedStatement pstmt = null;
+                    ResultSet arrayRs = null;
+                    try {
+                        pstmt = conn.prepareStatement(
+                                String.format("SELECT array_ndims(%s) FROM %s.%s LIMIT 1",
+                                        columnName, remoteDbName, remoteTableName));
+                        arrayRs = pstmt.executeQuery();
+                        if (arrayRs.next()) {
+                            arrayDimensions = arrayRs.getInt(1);
+                        }
+                    } catch (SQLException ex) {
+                        LOG.warn("Failed to get array dimensions for column {}: {}",
+                                columnName, Util.getRootCauseMessage(ex));
+                    } finally {
+                        close(arrayRs, null);
+                        if (pstmt != null) {
+                            try {
+                                pstmt.close();
+                            } catch (SQLException ex) {
+                                LOG.warn("Failed to close prepared statement: {}", Util.getRootCauseMessage(ex));
                             }
                         }
                     }

@@ -20,7 +20,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 suite("test_bloom_filter_hit") {
+    def be_num = sql "show backends;"
+    if (be_num.size() > 1) {
+        // not suitable for multiple be cluster.
+        return
+    }
+
     def tableName = "test_bloom_filter_hit"
+    sql "set profile_level = 2;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (

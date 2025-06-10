@@ -114,4 +114,11 @@ public class AliasUdfBuilder extends UdfBuilder {
 
         return Pair.of(udfAnalyzer.analyze(aliasUdf.getUnboundFunction()), boundAliasFunction);
     }
+
+    @Override
+    public String parameterDisplayString() {
+        return aliasUdf.getArgTypes().stream()
+                .map(DataType::toString)
+                .collect(Collectors.joining(", ", "(", ")"));
+    }
 }

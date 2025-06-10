@@ -35,4 +35,16 @@ public interface PlannerHook {
      */
     default void afterAnalyze(NereidsPlanner planner) {
     }
+
+    /**
+     * the hook before rewrite
+     */
+    default void beforeRewrite(NereidsPlanner planner) {
+    }
+
+    /**
+     * the hook after rewrite
+     */
+    default void afterRewrite(NereidsPlanner planner) {
+    }
 }

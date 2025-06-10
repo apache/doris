@@ -89,7 +89,8 @@ public class BackendServiceClient {
                 .cancelPlanFragment(request);
     }
 
-    public Future<InternalService.PFetchDataResult> fetchDataAsync(InternalService.PFetchDataRequest request) {
+    public ListenableFuture<InternalService.PFetchDataResult> fetchDataAsync(
+            InternalService.PFetchDataRequest request) {
         return stub.fetchData(request);
     }
 
@@ -191,6 +192,21 @@ public class BackendServiceClient {
     public Future<InternalService.PGetBeResourceResponse> getBeResource(InternalService.PGetBeResourceRequest request,
             int timeoutSec) {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);
+    }
+
+    public Future<InternalService.PDeleteDictionaryResponse> deleteDictionary(
+            InternalService.PDeleteDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).deleteDictionary(request);
+    }
+
+    public Future<InternalService.PCommitRefreshDictionaryResponse> commitRefreshDictionary(
+            InternalService.PCommitRefreshDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).commitRefreshDictionary(request);
+    }
+
+    public Future<InternalService.PAbortRefreshDictionaryResponse> abortRefreshDictionary(
+            InternalService.PAbortRefreshDictionaryRequest request, int timeoutSec) {
+        return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).abortRefreshDictionary(request);
     }
 
     public void shutdown() {

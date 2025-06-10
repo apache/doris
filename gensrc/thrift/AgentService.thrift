@@ -77,6 +77,13 @@ enum TObjStorageType {
     GCP = 7
 }
 
+enum TCredProviderType {
+    // used for creating different credentials provider when creating s3client
+    DEFAULT = 0,  // DefaultAWSCredentialsProviderChain
+    SIMPLE = 1,  // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
+    INSTANCE_PROFILE = 2  // InstanceProfileCredentialsProvider
+}
+
 struct TS3StorageParam {
     1: optional string endpoint
     2: optional string region
@@ -90,6 +97,10 @@ struct TS3StorageParam {
     10: optional bool use_path_style = false
     11: optional string token
     12: optional TObjStorageType provider
+
+    13: optional TCredProviderType cred_provider_type
+    14: optional string role_arn  // aws assumed role's arn
+    15: optional string external_id  // aws assumed role's external_id if configure
 }
 
 struct TStoragePolicy {
@@ -441,6 +452,7 @@ struct TCalcDeleteBitmapPartitionInfo {
     5: optional list<i64> cumulative_compaction_cnts
     6: optional list<i64> cumulative_points
     7: optional list<i64> sub_txn_ids
+    8: optional list<i64> tablet_states
 }
 
 struct TCalcDeleteBitmapRequest {

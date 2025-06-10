@@ -198,12 +198,15 @@ int main(int argc, char** argv) {
     }
 
     auto conf_file = args.get<std::string>(ARG_CONF);
-    if (!config::init(conf_file.c_str(), true)) {
+    if (!config::init(conf_file.c_str(), true, true, true)) {
         std::cerr << "failed to init config file, conf=" << conf_file << std::endl;
         return -1;
     }
+    if (config::custom_conf_path.empty()) {
+        config::custom_conf_path = conf_file;
+    }
     if (!std::filesystem::equivalent(conf_file, config::custom_conf_path) &&
-        !config::init(config::custom_conf_path.c_str(), false)) {
+        !config::init(config::custom_conf_path.c_str(), true, false, false)) {
         std::cerr << "failed to init custom config file, conf=" << config::custom_conf_path
                   << std::endl;
         return -1;
@@ -221,7 +224,7 @@ int main(int argc, char** argv) {
 
     // We can invoke glog from now on
     std::string msg;
-    LOG(INFO) << "try to start doris_cloud";
+    LOG(INFO) << "try to start " << process_name;
     LOG(INFO) << build_info();
     std::cout << build_info() << std::endl;
 
@@ -230,7 +233,7 @@ int main(int argc, char** argv) {
         std::get<0>(args.args()[ARG_RECYCLER]) = true;
         LOG(INFO) << "meta_service and recycler are both not specified, "
                      "run doris_cloud as meta_service and recycler by default";
-        std::cout << "run doris_cloud as meta_service and recycler by default" << std::endl;
+        std::cout << "try to start meta_service, recycler" << std::endl;
     }
 
     brpc::Server server;
@@ -282,7 +285,7 @@ int main(int argc, char** argv) {
             std::cerr << msg << std::endl;
             return ret;
         }
-        msg = "meta-service started";
+        msg = "MetaService has been started successfully";
         LOG(INFO) << msg;
         std::cout << msg << std::endl;
     }
@@ -295,7 +298,7 @@ int main(int argc, char** argv) {
             std::cerr << msg << std::endl;
             return ret;
         }
-        msg = "recycler started";
+        msg = "Recycler has been started successfully";
         LOG(INFO) << msg;
         std::cout << msg << std::endl;
         auto periodiccally_log = [&]() {
@@ -307,6 +310,7 @@ int main(int argc, char** argv) {
             }
         };
         periodiccally_log_thread = std::thread {periodiccally_log};
+        pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
     // start service
     brpc::ServerOptions options;
@@ -324,7 +328,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     end = steady_clock::now();
-    msg = "successfully started brpc listening on port=" + std::to_string(port) +
+    msg = "successfully started service listening on port=" + std::to_string(port) +
           " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count());
     LOG(INFO) << msg;
     std::cout << msg << std::endl;

@@ -22,13 +22,13 @@
 #include <queue> // IWYU pragma: keep
 
 #include "runtime/result_writer.h"
+#include "util/runtime_profile.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
-class RuntimeProfile;
 class TDataSink;
 class TExpr;
 
@@ -72,13 +72,14 @@ public:
 
     Status get_writer_status() { return _writer_status.status(); }
 
+    void set_low_memory_mode();
+
 protected:
     Status _projection_block(Block& input_block, Block* output_block);
     const VExprContextSPtrs& _vec_output_expr_ctxs;
+    RuntimeProfile* _profile = nullptr; // not owned, set when open
 
     std::unique_ptr<Block> _get_free_block(Block*, size_t rows);
-
-    void _return_free_block(std::unique_ptr<Block>);
 
 private:
     void process_block(RuntimeState* state, RuntimeProfile* profile);
@@ -86,6 +87,7 @@ private:
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
     void _set_ready_to_finish();
 
+    void _return_free_block(std::unique_ptr<Block>);
     std::unique_ptr<Block> _get_block_from_queue();
 
     static constexpr auto QUEUE_SIZE = 3;
@@ -95,11 +97,13 @@ private:
     // Default value is ok
     AtomicStatus _writer_status;
     bool _eos = false;
+    std::atomic_bool _low_memory_mode = false;
 
     std::shared_ptr<pipeline::Dependency> _dependency;
     std::shared_ptr<pipeline::Dependency> _finish_dependency;
 
     moodycamel::ConcurrentQueue<std::unique_ptr<Block>> _free_blocks;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
 };
 
 } // namespace vectorized

@@ -27,7 +27,7 @@ namespace doris::vectorized {
 TEST(FunctionTestTemplate, two_args_template) {
     std::string func_name = "atan2";
 
-    BaseInputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
 
     DataSet data_set = {
             {{-1.0, -2.0}, -2.677945044588987},    {{0.0, 0.0}, 0.0},
@@ -41,7 +41,8 @@ TEST(FunctionTestTemplate, two_args_template) {
 TEST(FunctionTestTemplate, three_args_template) {
     std::string func_name = "concat";
 
-    BaseInputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                PrimitiveType::TYPE_VARCHAR};
 
     DataSet data_set = {{{std::string(""), std::string(""), std::string("")}, std::string("")},
                         {{std::string("123"), std::string("456"), std::string("789")},

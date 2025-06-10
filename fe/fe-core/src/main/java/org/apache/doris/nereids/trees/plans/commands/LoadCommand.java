@@ -30,7 +30,6 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.extensions.insert.InsertJob;
@@ -84,7 +83,7 @@ import java.util.stream.Collectors;
 /**
  * load OLAP table data from external bulk file
  */
-public class LoadCommand extends Command implements ForwardWithSync {
+public class LoadCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(LoadCommand.class);
 
@@ -469,10 +468,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         // TODO: support multi location by union
         String listFilePath = filePaths.get(0);
         if (bulkStorageDesc.getStorageType() == BulkStorageDesc.StorageType.S3) {
-            S3Properties.convertToStdProperties(tvfProperties);
-            tvfProperties.keySet().removeIf(S3Properties.Env.FS_KEYS::contains);
             // TODO: check file path by s3 fs list status
-            tvfProperties.put(S3TableValuedFunction.PROP_URI, listFilePath);
+            tvfProperties.put("uri", listFilePath);
         }
 
         final Map<String, String> dataDescProps = dataDesc.getProperties();
@@ -508,5 +505,10 @@ public class LoadCommand extends Command implements ForwardWithSync {
     @Override
     public StmtType stmtType() {
         return StmtType.LOAD;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

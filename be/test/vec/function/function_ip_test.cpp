@@ -56,13 +56,14 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
 
     {
         // vector vs vector
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types, data_set));
     }
 
     {
         // vector vs scalar
-        InputTypeSet input_types = {TypeIndex::String, Consted {TypeIndex::String}};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
         for (const auto& line : data_set) {
             DataSet const_cidr_dataset = {line};
             static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
@@ -72,7 +73,8 @@ TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
 
     {
         // scalar vs vector
-        InputTypeSet input_types = {Consted {TypeIndex::String}, TypeIndex::String};
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    PrimitiveType::TYPE_VARCHAR};
         for (const auto& line : data_set) {
             DataSet const_addr_dataset = {line};
             static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
@@ -95,7 +97,7 @@ TEST(FunctionIpTest, FunctionIPv4ToIPv6Test) {
              static_cast<IPv6>(0xFFFFFFFFFFFFULL)} // 255.255.255.255
     };
 
-    InputTypeSet input_types = {TypeIndex::IPv4};
+    InputTypeSet input_types = {PrimitiveType::TYPE_IPV4};
     static_cast<void>(check_function<DataTypeIPv6, true>(func_name, input_types, data_set));
 }
 
@@ -151,7 +153,8 @@ TEST(FunctionIpTest, FunctionCutIPv6Test) {
         data_set.push_back({{ipv6, (int8_t)0, bytes[i]}, results[i]});
     }
 
-    InputTypeSet input_types = {TypeIndex::IPv6, TypeIndex::Int8, TypeIndex::Int8};
+    InputTypeSet input_types = {PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_TINYINT,
+                                PrimitiveType::TYPE_TINYINT};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 

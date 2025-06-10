@@ -39,3 +39,10 @@ a	\N	abc
 \N	\N	\N
 NULL	null	\N
 
+-- !sql_before --
+{"col_11":123.321, "col_12":{"col":1, "col1":345.24}}
+
+-- !sql_after --
+{"col_11":123.321, "col_12":{"col":1, "col1":345.24}}
+{"col_11":123.331, "col_12":{"col":1, "col1":12345.24}}
+

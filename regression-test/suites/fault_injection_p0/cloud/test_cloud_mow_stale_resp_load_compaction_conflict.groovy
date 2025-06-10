@@ -74,7 +74,7 @@ suite("test_cloud_mow_stale_resp_load_compaction_conflict", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("BaseTablet::update_delete_bitmap.block", [wait_token: "token1"])
 
             // the first load
-            t1 = Thread.start {
+            def t1 = Thread.start {
                 sql "insert into ${table1} values(1,999,999),(2,888,888);"
             }
 

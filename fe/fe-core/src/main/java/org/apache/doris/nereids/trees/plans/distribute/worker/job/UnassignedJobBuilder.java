@@ -19,10 +19,10 @@ package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
-import org.apache.doris.nereids.trees.plans.distribute.worker.LoadBalanceScanWorkerSelector;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.OlapScanNode;
@@ -47,14 +47,19 @@ import java.util.Map.Entry;
  * build UnassignedJob by fragment
  */
 public class UnassignedJobBuilder {
-    private final ScanWorkerSelector scanWorkerSelector = new LoadBalanceScanWorkerSelector();
+    private final ScanWorkerSelector scanWorkerSelector;
+
+    public UnassignedJobBuilder(ScanWorkerSelector scanWorkerSelector) {
+        this.scanWorkerSelector = scanWorkerSelector;
+    }
 
     /**
      * build job from fragment.
      */
     public static FragmentIdMapping<UnassignedJob> buildJobs(
+            ScanWorkerSelector scanWorkerSelector,
             StatementContext statementContext, FragmentIdMapping<PlanFragment> fragments) {
-        UnassignedJobBuilder builder = new UnassignedJobBuilder();
+        UnassignedJobBuilder builder = new UnassignedJobBuilder(scanWorkerSelector);
 
         FragmentLineage fragmentLineage = buildFragmentLineage(fragments);
         FragmentIdMapping<UnassignedJob> unassignedJobs = new FragmentIdMapping<>();
@@ -83,6 +88,10 @@ public class UnassignedJobBuilder {
         List<ScanNode> scanNodes = collectScanNodesInThisFragment(planFragment);
         if (planFragment.specifyInstances.isPresent()) {
             return buildSpecifyInstancesJob(statementContext, planFragment, scanNodes, inputJobs);
+        } else if (planFragment.getSink() instanceof DictionarySink) {
+            // this fragment already set its instances in `visitPhysicalDistribute`.
+            // now assign to 1 BE 1 instance.
+            return new UnassignedAllBEJob(statementContext, planFragment, inputJobs);
         } else if (scanNodes.isEmpty() && isTopFragment
                 && statementContext.getGroupCommitMergeBackend() != null) {
             return new UnassignedGroupCommitJob(statementContext, planFragment, scanNodes, inputJobs);
@@ -281,7 +290,9 @@ public class UnassignedJobBuilder {
 
     // the class support find exchange nodes in the fragment, and find child fragment by exchange node id
     private static class FragmentLineage {
+        // exchange node as the source in this fragment
         private final FragmentIdMapping<Map<PlanNodeId, ExchangeNode>> parentFragmentToExchangeNode;
+        // exchange node's relative datastreamsink in child fragment
         private final ListMultimap<PlanNodeId, PlanFragmentId> exchangeToChildFragment;
 
         public FragmentLineage(

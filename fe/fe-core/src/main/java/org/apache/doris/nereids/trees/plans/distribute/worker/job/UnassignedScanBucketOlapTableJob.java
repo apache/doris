@@ -230,7 +230,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             return instances;
         }
 
-        ConnectContext context = ConnectContext.get();
+        ConnectContext context = statementContext.getConnectContext();
 
         OlapScanNode olapScanNode = (OlapScanNode) scanNodes.get(0);
         MaterializedIndex randomPartition = randomPartition(olapScanNode);

@@ -30,11 +30,17 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
     private Multimap<K, V> marks;
     private Multimap<K, V> failedMarks;
     private Status st = Status.OK;
+    private int markCount = 0;
 
     public MarkedCountDownLatch(int count) {
         super(count);
+        this.markCount = count;
         marks = HashMultimap.create();
         failedMarks = HashMultimap.create();
+    }
+
+    public int getMarkCount() {
+        return markCount;
     }
 
     public synchronized void addMark(K key, V value) {
