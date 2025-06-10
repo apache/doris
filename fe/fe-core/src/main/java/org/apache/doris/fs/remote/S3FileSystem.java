@@ -55,21 +55,10 @@ public class S3FileSystem extends ObjFileSystem {
         this.properties.putAll(s3Properties.getOrigProps());
     }
 
-
-    @Override
-    public Status renameDir(String origFilePath, String destFilePath) {
-        return super.renameDir(origFilePath, destFilePath);
-    }
-
     @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         return objStorage.listFiles(remotePath, recursive, result);
-    }
-
-    @Override
-    public Status globList(String remotePath, List<RemoteFile> result) {
-        return this.globList(remotePath, result, false);
     }
 
     // broker file pattern glob is too complex, so we use hadoop directly

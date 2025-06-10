@@ -123,7 +123,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             S3URI s3Uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String bucket = s3Uri.getBucket();
             // prefix should end with '/' for directories
-            String prefix = s3Uri.getKey();
+            String key = s3Uri.getKey();
+            String schemaAndBucket = remotePath.substring(0, remotePath.length() - key.length());
+
+            String prefix = key.endsWith("/") ? key : key + "/";
             // obtain configured S3 client
             S3Client s3 = getClient();
             String continuationToken = null;
@@ -147,7 +150,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         continue;
                     }
                     RemoteFile remoteFile = new RemoteFile(
-                            toPath(bucket, s3Object.key()),
+                            toPath(schemaAndBucket, s3Object.key()),
                             false,
                             s3Object.size(),
                             0L,
@@ -185,8 +188,23 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         return Status.OK;
     }
 
-    private Path toPath(String bucket, String key) {
-        return new Path("s3://" + bucket + "/" + key);
+    private Path toPath(String schemaAndBucket, String key) {
+        // Ensure inputs are not null
+        if (schemaAndBucket == null) {
+            schemaAndBucket = "";
+        }
+        if (key == null) {
+            key = "";
+        }
+
+        // Remove trailing slashes from the base (e.g., "s3://bucket/")
+        String cleanedBase = schemaAndBucket.replaceAll("/+$", "");
+
+        // Remove leading slashes from the key (e.g., "/path/to/file")
+        String cleanedKey = key.replaceAll("^/+", "");
+
+        // Combine cleaned base and key to form a valid Hadoop Path
+        return new Path(cleanedBase + "/" + cleanedKey);
     }
 
     public Status listDirectories(String remotePath, Set<String> result) {

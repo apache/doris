@@ -48,11 +48,6 @@ public class AzureFileSystem extends ObjFileSystem {
     }
 
     @Override
-    public Status globList(String remotePath, List<RemoteFile> result) {
-        return this.globList(remotePath, result, false);
-    }
-
-    @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         return azureObjStorage.globList(remotePath, result, fileNameOnly);
