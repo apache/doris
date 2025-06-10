@@ -20,13 +20,13 @@
 #include <bthread/bthread.h>
 #include <bthread/types.h>
 
-#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
 
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/macros.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"

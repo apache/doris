@@ -26,13 +26,12 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <fstream>
 #include <string>
 #include <vector>
 
+#include "common/macros.h"
 #include "gutil/strings/numbers.h"
-#include "io/fs/local_file_system.h"
 
 using std::string;
 using std::vector;

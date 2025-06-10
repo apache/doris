@@ -22,8 +22,6 @@ using std::string;
 using std::vector;
 
 #include "gutil/integral_types.h"
-// IWYU pragma: no_include <butil/macros.h>
-#include "gutil/macros.h" // IWYU pragma: keep
 
 
 // Convert strings to numeric values, with strict error checking.
