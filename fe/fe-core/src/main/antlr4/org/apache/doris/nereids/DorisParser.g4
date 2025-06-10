@@ -316,6 +316,8 @@ supportedShowStatement
     | SHOW CREATE (DATABASE | SCHEMA) name=multipartIdentifier                      #showCreateDatabase
     | SHOW BACKUP ((FROM | IN) database=identifier)? wildWhere?                     #showBackup
     | SHOW BROKER                                                                   #showBroker
+    | SHOW BUILD INDEX ((FROM | IN) database=identifier)?
+        wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
@@ -483,8 +485,6 @@ unsupportedShowStatement
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
-        wildWhere? sortClause? limitClause?                                         #showBuildIndex
     ;
 
 createRoutineLoad
