@@ -25,7 +25,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
@@ -274,9 +273,9 @@ Status ColumnWriter::create_agg_state_writer(const ColumnWriterOptions& opts,
                                              std::unique_ptr<ColumnWriter>* writer) {
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(*column);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
-    auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
+    auto type = agg_state_type->get_serialized_type()->get_primitive_type();
     if (type == PrimitiveType::TYPE_STRING || type == PrimitiveType::INVALID_TYPE ||
-        type == PrimitiveType::TYPE_OBJECT) {
+        type == PrimitiveType::TYPE_BITMAP) {
         *writer = std::unique_ptr<ColumnWriter>(new ScalarColumnWriter(
                 opts, std::unique_ptr<Field>(FieldFactory::create(*column)), file_writer));
     } else if (type == PrimitiveType::TYPE_ARRAY) {

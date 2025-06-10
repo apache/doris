@@ -23,12 +23,15 @@ import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import groovy.util.logging.Slf4j
 import java.sql.ResultSetMetaData
+import java.util.regex.Pattern
 import java.util.stream.Collectors
 
 @Slf4j
 class ExplainAction implements SuiteAction {
     private String sql
     private boolean verbose = false
+    private List<String> checkSlots = new ArrayList<>()
+    private List<String> expectedSlotTypes = new ArrayList<>()
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
     private Set<String> containsAnyStrings = new LinkedHashSet<>()
@@ -52,6 +55,15 @@ class ExplainAction implements SuiteAction {
 
     void sql(Closure<String> sqlSupplier) {
         this.sql = sqlSupplier.call()
+    }
+
+    void checkSlotTypeOf(String checkSlot, String expectedSlotType) {
+        this.verbose = true
+        this.checkSlots.add(checkSlot)
+        this.expectedSlotTypes.add(expectedSlotType)
+        if (checkSlots.size() != expectedSlotTypes.size()) {
+            throw new IllegalStateException("checkSlots and expectedSlotTypes size not equal")
+        }
     }
 
     void contains(String subString) {
@@ -79,10 +91,15 @@ class ExplainAction implements SuiteAction {
         String explainSql = "explain\n" + (verbose ? "verbose\n" : "") + sql
         def result = doTest(explainSql)
         String explainString = result.result
+
+        if (checkSlots.size() > 0) {
+            assertTrue(explainString != null, "Explain failed")
+            checkSlotType(explainString)
+        }
         if (checkFunction != null) {
             try {
                 Boolean checkResult = null
-                if (checkFunction.parameterTypes.size() == 1) {
+                if (checkFunction.parameterTypes.size() == 1) { 
                     if (result.exception == null) {
                         checkResult = checkFunction(explainString)
                     } else {
@@ -144,6 +161,12 @@ class ExplainAction implements SuiteAction {
         }
     }
 
+    private void assertTrue(boolean condition, String message) {
+        if (!condition) {
+            throw new IllegalStateException(message)
+        }
+    }
+
     private ActionResult doTest(String explainSql) {
         log.info("Execute sql:\n${explainSql}".toString())
         long startTime = System.currentTimeMillis()
@@ -161,6 +184,46 @@ class ExplainAction implements SuiteAction {
         } catch (Throwable t) {
             return new ActionResult(explainString, t, startTime, System.currentTimeMillis(), meta)
         }
+    }
+
+    private String getSlotId(List<String> explainResult, String exprStr) {
+        String matchLineStr = explainResult.find { it =~ Pattern.quote(exprStr) + /\[#(\d+)\]/ }
+        if (matchLineStr) {
+            def matcher = matchLineStr =~ Pattern.quote(exprStr) + /\[#(\d+)\]/
+            assert matcher.find()
+            return matcher.group(1)
+        } else {
+            assertTrue(false, "not found expr ${exprStr} with slot number in explain result")
+        }
+    }
+
+    private static String getType(String input) {
+        def matcher = input =~ /type=([^,]*),/
+        if (matcher.find()) {
+            return matcher.group(1)
+        } else {
+            assertTrue(false, "not found type in SlotDescriptor")
+        }
+    }
+
+    private checkSlotType(String originExplainResult) {
+        // get explain result strings
+        List<String> explainResult = originExplainResult.split("\n")
+        for (int i = 0; i < checkSlots.size(); i++) {
+            String checkSlot = checkSlots.get(i)
+            String expectedSlotType = expectedSlotTypes.get(i)
+            checkSlotTypeOneRun(explainResult, checkSlot, expectedSlotType)
+        }
+    }
+
+    private checkSlotTypeOneRun(List<String> explainResult, String checkSlot, String expectedSlotType) {
+        // get slot id for checkSlot expr string
+        String slotId = getSlotId(explainResult, checkSlot)
+        // get slot descriptor line like "SlotDescriptor{id=1, col=...
+        String slotDescriptor = explainResult.find { it.contains("SlotDescriptor{id=${slotId}") }
+        // extract X from "SlotDescriptor{id=1, col=..., type=X, ...}"
+        String type = getType(slotDescriptor)
+        assertTrue(type == expectedSlotType, "expect type ${expectedSlotType}, but actual type is ${type}")
     }
 
     class ActionResult {

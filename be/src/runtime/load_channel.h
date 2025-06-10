@@ -28,9 +28,8 @@
 #include <utility>
 
 #include "common/status.h"
-#include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -89,7 +88,7 @@ private:
     UniqueId _load_id;
     int64_t _txn_id = 0;
 
-    SpinLock _profile_serialize_lock;
+    std::mutex _profile_serialize_lock;
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile = nullptr;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;

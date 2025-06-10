@@ -320,6 +320,21 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
     return thread_pool->submit(std::move(spill_runnable));
 }
 
+Status PartitionedHashJoinSinkLocalState::terminate(RuntimeState* state) {
+    if (_terminated) {
+        return Status::OK();
+    }
+    HashJoinBuildSinkLocalState* inner_sink_state {nullptr};
+    if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
+        inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
+    }
+    if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator) {
+        RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->terminate(state));
+    }
+    inner_sink_state->_terminated = true;
+    return PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>::terminate(state);
+}
+
 Status PartitionedHashJoinSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     SCOPED_TIMER(_spill_total_timer);
@@ -600,7 +615,7 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     int64_t query_mem_limit = 0;
     if (eos) {
         revocable_size = revocable_mem_size(state);
-        query_mem_limit = state->get_query_ctx()->get_mem_limit();
+        query_mem_limit = state->get_query_ctx()->resource_ctx()->memory_context()->mem_limit();
         LOG(INFO) << fmt::format(
                 "Query:{}, hash join sink:{}, task:{}, eos, need spill:{}, query mem limit:{}, "
                 "revocable memory:{}",

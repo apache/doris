@@ -69,7 +69,6 @@ import java.util.stream.Collectors;
 public class BDBEnvironment {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
     private static final int RETRY_TIME = 3;
-    private static final int MEMORY_CACHE_PERCENT = 20;
     private static final List<String> BDBJE_LOG_LEVEL = ImmutableList.of("OFF", "SEVERE", "WARNING",
             "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
@@ -131,17 +130,19 @@ public class BDBEnvironment {
             replicationConfig.setNodeType(NodeType.SECONDARY);
             replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
         }
+        replicationConfig.setConfigParam(ReplicationConfig.MAX_MESSAGE_SIZE,
+                                         String.valueOf(Config.bdbje_max_message_size_bytes));
 
         // set environment config
         environmentConfig = new EnvironmentConfig();
         environmentConfig.setTransactional(true);
         environmentConfig.setAllowCreate(true);
-        environmentConfig.setCachePercent(MEMORY_CACHE_PERCENT);
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         environmentConfig.setConfigParam(EnvironmentConfig.RESERVED_DISK,
                 String.valueOf(Config.bdbje_reserved_disk_bytes));
         environmentConfig.setConfigParam(EnvironmentConfig.FREE_DISK,
                 String.valueOf(Config.bdbje_free_disk_bytes));
+        environmentConfig.setCacheSize(Config.bdbje_cache_size_bytes);
 
         if (Config.ignore_bdbje_log_checksum_read) {
             environmentConfig.setConfigParam(EnvironmentConfig.LOG_CHECKSUM_READ, "false");

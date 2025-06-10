@@ -42,14 +42,6 @@ public:
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
-    std::shared_ptr<vectorized::Arena> arena() { return _shared_state->arena; }
-
-    void add_hash_buckets_info(const std::string& info) const {
-        _profile->add_info_string("HashTableBuckets", info);
-    }
-    void add_hash_buckets_filled_info(const std::string& info) const {
-        _profile->add_info_string("HashTableFilledBuckets", info);
-    }
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 

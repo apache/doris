@@ -104,6 +104,7 @@ public:
     [[nodiscard]] virtual Status prepare(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status terminate(RuntimeState* state) = 0;
     [[nodiscard]] virtual Status close(RuntimeState* state);
+    [[nodiscard]] virtual int node_id() const = 0;
 
     [[nodiscard]] virtual Status set_child(OperatorPtr child) {
         if (_child && child != nullptr) {
@@ -273,6 +274,10 @@ public:
         return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
     }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+
+    virtual bool must_set_shared_state() const {
+        return !std::is_same_v<SharedStateArg, FakeSharedState>;
+    }
 
 protected:
     Dependency* _dependency = nullptr;
@@ -486,7 +491,6 @@ protected:
     // close().
     bool _closed = false;
     bool _terminated = false;
-    std::atomic<bool> _eos = false;
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
     //and shared hash table, some counter/timer about build hash table is useless,
@@ -528,6 +532,10 @@ public:
     }
     Dependency* spill_dependency() const override { return _spill_dependency.get(); }
 
+    virtual bool must_set_shared_state() const {
+        return !std::is_same_v<SharedStateArg, FakeSharedState>;
+    }
+
 protected:
     Dependency* _dependency = nullptr;
     std::shared_ptr<Dependency> _spill_dependency;
@@ -544,8 +552,8 @@ public:
               _node_id(tnode.node_id),
               _dests_id({dest_id}) {}
 
-    DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& sources)
-            : _operator_id(operator_id), _node_id(node_id), _dests_id(sources) {}
+    DataSinkOperatorXBase(const int operator_id, const int node_id, std::vector<int>& dests)
+            : _operator_id(operator_id), _node_id(node_id), _dests_id(dests) {}
 
 #ifdef BE_TEST
     DataSinkOperatorXBase() : _operator_id(-1), _node_id(0), _dests_id({-1}) {};
@@ -626,7 +634,7 @@ public:
 
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
@@ -652,13 +660,13 @@ protected:
 template <typename LocalStateType>
 class DataSinkOperatorX : public DataSinkOperatorXBase {
 public:
-    DataSinkOperatorX(const int id, const int node_id, const int source_id)
-            : DataSinkOperatorXBase(id, node_id, source_id) {}
-    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int source_id)
-            : DataSinkOperatorXBase(id, tnode, source_id) {}
+    DataSinkOperatorX(const int id, const int node_id, const int dest_id)
+            : DataSinkOperatorXBase(id, node_id, dest_id) {}
+    DataSinkOperatorX(const int id, const TPlanNode& tnode, const int dest_id)
+            : DataSinkOperatorXBase(id, tnode, dest_id) {}
 
-    DataSinkOperatorX(const int id, const int node_id, std::vector<int> sources)
-            : DataSinkOperatorXBase(id, node_id, sources) {}
+    DataSinkOperatorX(const int id, const int node_id, std::vector<int> dest_ids)
+            : DataSinkOperatorXBase(id, node_id, dest_ids) {}
 #ifdef BE_TEST
     DataSinkOperatorX() = default;
 #endif
@@ -888,7 +896,7 @@ public:
     [[nodiscard]] virtual RowDescriptor& row_descriptor() { return _row_descriptor; }
 
     [[nodiscard]] int operator_id() const { return _operator_id; }
-    [[nodiscard]] int node_id() const { return _node_id; }
+    [[nodiscard]] int node_id() const override { return _node_id; }
     [[nodiscard]] int nereids_id() const { return _nereids_id; }
 
     [[nodiscard]] int64_t limit() const { return _limit; }
@@ -1094,8 +1102,27 @@ public:
     ENABLE_FACTORY_CREATOR(DummyOperatorLocalState);
 
     DummyOperatorLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<FakeSharedState>(state, parent) {}
+            : PipelineXLocalState<FakeSharedState>(state, parent) {
+        _tmp_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                    "DummyOperatorDependency", true);
+        _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                       "DummyOperatorDependency", true);
+        _filter_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                       "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
+    }
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
     ~DummyOperatorLocalState() = default;
+
+    std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
+    std::vector<Dependency*> filter_dependencies() override { return {_filter_dependency.get()}; }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+
+private:
+    std::shared_ptr<Dependency> _tmp_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<Dependency> _filter_dependency;
 };
 
 class DummyOperator final : public OperatorX<DummyOperatorLocalState> {
@@ -1108,17 +1135,49 @@ public:
         *eos = _eos;
         return Status::OK();
     }
+    void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
+        return Status::OK();
+    }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : OperatorX<DummyOperatorLocalState>::get_reserve_mem_size(state);
+    }
 
 private:
     friend class AssertNumRowsLocalState;
     bool _eos = false;
+    bool _low_memory_mode = false;
+    bool _terminated = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
 };
 
 class DummySinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
 public:
     using Base = PipelineXSinkLocalState<BasicSharedState>;
     ENABLE_FACTORY_CREATOR(DummySinkLocalState);
-    DummySinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+    DummySinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {
+        _tmp_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                    "DummyOperatorDependency", true);
+        _finish_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                       "DummyOperatorDependency", true);
+        _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                      "DummyOperatorDependency", true);
+    }
+
+    std::vector<Dependency*> dependencies() const override { return {_tmp_dependency.get()}; }
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+    Dependency* spill_dependency() const override { return _spill_dependency.get(); }
+    bool is_finished() const override { return _is_finished; }
+
+private:
+    std::shared_ptr<Dependency> _tmp_dependency;
+    std::shared_ptr<Dependency> _finish_dependency;
+    std::atomic_bool _is_finished = false;
 };
 
 class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
@@ -1126,8 +1185,27 @@ public:
     DummySinkOperatorX(int op_id, int node_id, int dest_id)
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
+        return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
+                           : Status::OK();
+    }
+    void set_low_memory_mode(RuntimeState* state) override { _low_memory_mode = true; }
+    Status terminate(RuntimeState* state) override {
+        _terminated = true;
         return Status::OK();
     }
+    size_t revocable_mem_size(RuntimeState* state) const override { return _revocable_mem_size; }
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override {
+        return _disable_reserve_mem
+                       ? 0
+                       : DataSinkOperatorX<DummySinkLocalState>::get_reserve_mem_size(state, eos);
+    }
+
+private:
+    bool _low_memory_mode = false;
+    bool _terminated = false;
+    std::atomic_bool _return_eof = false;
+    size_t _revocable_mem_size = 0;
+    bool _disable_reserve_mem = false;
 };
 #endif
 

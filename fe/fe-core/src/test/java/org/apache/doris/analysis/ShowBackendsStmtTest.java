@@ -55,7 +55,7 @@ public class ShowBackendsStmtTest {
         AtomicBoolean privilege = new AtomicBoolean(false);
         new MockUp<AccessControllerManager>() {
             @Mock
-            public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
+            public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
                 return privilege.get();
             }
         };

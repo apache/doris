@@ -29,11 +29,14 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
 #include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
+#include "util/brpc_closure.h"
 #include "util/stack_util.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -82,9 +85,10 @@ struct BasicSharedState {
 
     virtual ~BasicSharedState() = default;
 
-    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
     void create_source_dependencies(int num_sources, int operator_id, int node_id,
                                     const std::string& name);
+    Dependency* create_source_dependency(int operator_id, int node_id, const std::string& name);
+
     Dependency* create_sink_dependency(int dest_id, int node_id, const std::string& name);
     std::vector<DependencySPtr> get_dep_by_channel_id(int channel_id) {
         DCHECK_LT(channel_id, source_deps.size());
@@ -113,7 +117,7 @@ public:
     // Which dependency current pipeline task is blocked by. `nullptr` if this dependency is ready.
     [[nodiscard]] Dependency* is_blocked_by(std::shared_ptr<PipelineTask> task = nullptr);
     // Notify downstream pipeline tasks this dependency is ready.
-    virtual void set_ready();
+    void set_ready();
     void set_ready_to_read(int channel_id = 0) {
         DCHECK_LT(channel_id, _shared_state->source_deps.size()) << debug_string();
         _shared_state->source_deps[channel_id]->set_ready();
@@ -176,12 +180,12 @@ public:
     CountedFinishDependency(int id, int node_id, std::string name)
             : Dependency(id, node_id, std::move(name), true) {}
 
-    void add() {
+    void add(uint32_t count = 1) {
         std::unique_lock<std::mutex> l(_mtx);
         if (!_counter) {
             block();
         }
-        _counter++;
+        _counter += count;
     }
 
     void sub() {
@@ -199,15 +203,15 @@ private:
     uint32_t _counter = 0;
 };
 
-class RuntimeFilterDependency;
 struct RuntimeFilterTimerQueue;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<RuntimeFilterDependency> parent)
+                       std::shared_ptr<Dependency> parent, bool force_wait_timeout = false)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
-              _wait_time_ms(wait_time_ms) {}
+              _wait_time_ms(wait_time_ms),
+              _force_wait_timeout(force_wait_timeout) {}
 
     // Called by runtime filter producer.
     void call_ready();
@@ -219,19 +223,23 @@ public:
     int32_t wait_time_ms() const { return _wait_time_ms; }
 
     void set_local_runtime_filter_dependencies(
-            const std::vector<std::shared_ptr<RuntimeFilterDependency>>& deps) {
+            const std::vector<std::shared_ptr<Dependency>>& deps) {
         _local_runtime_filter_dependencies = deps;
     }
 
     bool should_be_check_timeout();
 
+    bool force_wait_timeout() { return _force_wait_timeout; }
+
 private:
     friend struct RuntimeFilterTimerQueue;
-    std::shared_ptr<RuntimeFilterDependency> _parent = nullptr;
-    std::vector<std::shared_ptr<RuntimeFilterDependency>> _local_runtime_filter_dependencies;
+    std::shared_ptr<Dependency> _parent = nullptr;
+    std::vector<std::shared_ptr<Dependency>> _local_runtime_filter_dependencies;
     std::mutex _lock;
     int64_t _registration_time;
     const int32_t _wait_time_ms;
+    // true only for group_commit_scan_operator
+    bool _force_wait_timeout;
 };
 
 struct RuntimeFilterTimerQueue {
@@ -266,17 +274,6 @@ struct RuntimeFilterTimerQueue {
     std::atomic_bool _stop = false;
     std::atomic_bool _shutdown = false;
     std::list<std::shared_ptr<pipeline::RuntimeFilterTimer>> _que;
-};
-
-class RuntimeFilterDependency final : public Dependency {
-public:
-    RuntimeFilterDependency(int id, int node_id, std::string name,
-                            RuntimeFilterConsumer* runtime_filter)
-            : Dependency(id, node_id, std::move(name)), _runtime_filter(runtime_filter) {}
-    std::string debug_string(int indentation_level = 0) override;
-
-private:
-    const RuntimeFilterConsumer* _runtime_filter = nullptr;
 };
 
 struct AggSharedState : public BasicSharedState {
@@ -555,8 +552,8 @@ public:
     const int _child_count;
 };
 
-struct CacheSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(CacheSharedState)
+struct DataQueueSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(DataQueueSharedState)
 public:
     DataQueue data_queue;
 };
@@ -688,6 +685,7 @@ public:
     // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
     Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
+    size_t get_hash_table_size() const;
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
@@ -813,5 +811,38 @@ public:
     }
 };
 
+struct FetchRpcStruct {
+    std::shared_ptr<PBackendService_Stub> stub;
+    PMultiGetRequestV2 request;
+    std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
+    MonotonicStopWatch rpc_timer;
+};
+
+struct MaterializationSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(MaterializationSharedState)
+public:
+    MaterializationSharedState() = default;
+
+    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
+    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
+    Status merge_multi_response(vectorized::Block* block);
+
+    void create_counter_dependency(int operator_id, int node_id, const std::string& name);
+
+    bool rpc_struct_inited = false;
+    AtomicStatus rpc_status;
+
+    bool last_block = false;
+    // empty materialization sink block not need to merge block
+    bool need_merge_block = true;
+    vectorized::Block origin_block;
+    // The rowid column of the origin block. should be replaced by the column of the result block.
+    std::vector<int> rowid_locs;
+    std::vector<vectorized::MutableBlock> response_blocks;
+    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
+    // Register each line in which block to ensure the order of the result.
+    // Zero means NULL value.
+    std::vector<std::vector<int64_t>> block_order_results;
+};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

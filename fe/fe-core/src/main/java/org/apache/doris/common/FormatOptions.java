@@ -27,12 +27,24 @@ public class FormatOptions {
 
     private String nestedStringWrapper;
     private String mapKeyDelim;
+    // the string format of null value in complex type
     private String nullFormat;
+    private String collectionDelim;
+    // isBoolValue = true means the boolean column in collection type(array, map, ...) will print as 0 or 1.
+    // false means to print as true/false
+    // This is only for boolean column within the collection type.
+    // For top level boolean column, it is always 0/1
+    private boolean isBoolValueNum;
+    // Indicate the nested level of column. It is used to control some behavior of serde
+    public int level = 0;
 
-    public FormatOptions(String nestedStringWrapper, String mapKeyDelim, String nullFormat) {
+    private FormatOptions(String nestedStringWrapper, String mapKeyDelim, String nullFormat, String collectionDelim,
+            boolean isBoolValueNum) {
         this.nestedStringWrapper = nestedStringWrapper;
         this.mapKeyDelim = mapKeyDelim;
         this.nullFormat = nullFormat;
+        this.collectionDelim = collectionDelim;
+        this.isBoolValueNum = isBoolValueNum;
     }
 
     public String getNestedStringWrapper() {
@@ -47,11 +59,23 @@ public class FormatOptions {
         return this.nullFormat;
     }
 
+    public String getCollectionDelim() {
+        return collectionDelim;
+    }
+
+    public boolean isBoolValueNum() {
+        return isBoolValueNum;
+    }
+
     public static FormatOptions getDefault() {
-        return new FormatOptions("\"", ":", "null");
+        return new FormatOptions("\"", ":", "null", ", ", true);
     }
 
     public static FormatOptions getForPresto() {
-        return new FormatOptions("", "=", "NULL");
+        return new FormatOptions("", "=", "NULL", ", ", true);
+    }
+
+    public static FormatOptions getForHive() {
+        return new FormatOptions("\"", ":", "null", ",", false);
     }
 }

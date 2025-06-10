@@ -77,7 +77,7 @@ public:
      * @param src_type colum type from file meta data
      * @param dst_type column type from FE planner(the changed column type)
      */
-    static std::unique_ptr<ColumnTypeConverter> get_converter(const TypeDescriptor& src_type,
+    static std::unique_ptr<ColumnTypeConverter> get_converter(const DataTypePtr& src_type,
                                                               const DataTypePtr& dst_type,
                                                               FileFormat file_format);
 
@@ -104,7 +104,7 @@ public:
      * According to the hive standard, if certain values fail to be converted(eg. string `row1` to int value),
      * these values are replaced by nulls.
      */
-    ColumnPtr get_column(const TypeDescriptor& src_type, ColumnPtr& dst_column,
+    ColumnPtr get_column(const DataTypePtr& src_type, ColumnPtr& dst_column,
                          const DataTypePtr& dst_type);
 
     /**
@@ -131,11 +131,9 @@ class ConsistentConverter : public ColumnTypeConverter {
  */
 class UnsupportedConverter : public ColumnTypeConverter {
 public:
-    UnsupportedConverter(const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
-        std::string src_type_str = std::string(getTypeName(
-                DataTypeFactory::instance().create_data_type(src_type, false)->get_type_id()));
-        std::string dst_type_str =
-                std::string(getTypeName(remove_nullable(dst_type)->get_type_id()));
+    UnsupportedConverter(const DataTypePtr& src_type, const DataTypePtr& dst_type) {
+        std::string src_type_str = src_type->get_name();
+        std::string dst_type_str = dst_type->get_name();
         _error_msg = src_type_str + " => " + dst_type_str;
     }
 
@@ -554,7 +552,8 @@ public:
         MutableColumnPtr to_col = remove_nullable(dst_col->get_ptr())->assume_mutable();
 
         size_t rows = from_col->size();
-        auto& string_col = static_cast<ColumnString&>(*from_col->assume_mutable().get());
+        auto& string_col =
+                *assert_cast<const ColumnString*>(from_col.get())->assume_mutable().get();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType*>(to_col.get())->get_data();
@@ -655,8 +654,8 @@ public:
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
 
-        auto max_result = DataTypeDecimal<DstDorisType>::get_max_digits_number(_precision);
-        auto multiplier = DataTypeDecimal<DstDorisType>::get_scale_multiplier(_scale).value;
+        auto max_result = DataTypeDecimal<DstPrimitiveType>::get_max_digits_number(_precision);
+        auto multiplier = DataTypeDecimal<DstPrimitiveType>::get_scale_multiplier(_scale).value;
 
         for (int i = 0; i < rows; ++i) {
             const SrcCppType& src_value = src_data[i];
@@ -805,9 +804,12 @@ public:
                 DstDecimalPrimitiveType>::ColumnType::value_type::NativeType;
         using MaxNativeType = std::conditional_t<(sizeof(SrcNativeType) > sizeof(DstNativeType)),
                                                  SrcNativeType, DstNativeType>;
+        constexpr PrimitiveType MaxPrimitiveType = sizeof(SrcNativeType) > sizeof(DstNativeType)
+                                                           ? SrcDecimalPrimitiveType
+                                                           : DstDecimalPrimitiveType;
 
         auto max_result =
-                DataTypeDecimal<Decimal<DstNativeType>>::get_max_digits_number(_to_precision);
+                DataTypeDecimal<DstDecimalPrimitiveType>::get_max_digits_number(_to_precision);
         bool narrow_integral = (_to_precision - _to_scale) < (_from_precision - _from_scale);
 
         ColumnPtr from_col = remove_nullable(src_col);
@@ -825,8 +827,8 @@ public:
 
             if (_to_scale > _from_scale) {
                 const MaxNativeType multiplier =
-                        DataTypeDecimal<Decimal<MaxNativeType>>::get_scale_multiplier(_to_scale -
-                                                                                      _from_scale);
+                        DataTypeDecimal<MaxPrimitiveType>::get_scale_multiplier(_to_scale -
+                                                                                _from_scale);
                 MaxNativeType res;
                 if (common::mul_overflow<MaxNativeType>(src_value, multiplier, res)) {
                     return Status::InternalError("Failed to cast value '{}' to {} column",
@@ -850,10 +852,9 @@ public:
                                                  dst_col->get_name());
                 }
             } else {
-                MaxNativeType multiplier =
-                        DataTypeDecimal<Decimal<MaxNativeType>>::get_scale_multiplier(_from_scale -
-                                                                                      _to_scale)
-                                .value;
+                MaxNativeType multiplier = DataTypeDecimal<MaxPrimitiveType>::get_scale_multiplier(
+                                                   _from_scale - _to_scale)
+                                                   .value;
                 MaxNativeType res = src_value / multiplier;
                 if (src_value % multiplier != 0 || res > max_result.value ||
                     res < -max_result.value) {

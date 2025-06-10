@@ -20,7 +20,7 @@ import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
-suite("test_routine_load_eof","p0") {
+suite("test_routine_load_eof","nonConcurrent") {
     def kafkaCsvTpoics = [
                   "test_eof",
                 ]
@@ -52,7 +52,7 @@ suite("test_routine_load_eof","p0") {
                         producer.send(record)
                     }
                 }
-                if (count >= 120) {
+                if (count >= 180) {
                     break
                 }
                 count++
@@ -166,12 +166,37 @@ suite("test_routine_load_eof","p0") {
                 }
                 break;
             }
+            def committedTaskNum1 = 0
+            def committedTaskNum2 = 0
             sleep(60 * 1000)
             def res = sql "show routine load for ${jobName}"
             def statistic = res[0][14].toString()
             def json = parseJson(res[0][14])
             log.info("routine load statistic: ${res[0][14].toString()}".toString())
             if (json.committedTaskNum > 20) {
+                assertEquals(1, 2)
+            }
+            committedTaskNum1 = json.committedTaskNum
+            try {
+                GetDebugPoint().enableDebugPointForAllFEs("RoutineLoadTaskInfo.judgeEof")
+                sleep(30 * 1000)
+                res = sql "show routine load for ${jobName}"
+                statistic = res[0][14].toString()
+                json = parseJson(res[0][14])
+                log.info("routine load statistic: ${res[0][14].toString()}".toString())
+                if (json.committedTaskNum - committedTaskNum1 < 20) {
+                    assertEquals(1, 2)
+                }
+                committedTaskNum2 = json.committedTaskNum
+            } finally {
+                GetDebugPoint().disableDebugPointForAllFEs("RoutineLoadTaskInfo.judgeEof")
+            }
+            sleep(60 * 1000)
+            res = sql "show routine load for ${jobName}"
+            statistic = res[0][14].toString()
+            json = parseJson(res[0][14])
+            log.info("routine load statistic: ${res[0][14].toString()}".toString())
+            if (json.committedTaskNum - committedTaskNum2 > 20) {
                 assertEquals(1, 2)
             }
         } finally {

@@ -259,6 +259,8 @@ Status IndexBuilder::update_inverted_index_info() {
         rowset_meta->set_rowset_state(input_rowset_meta->rowset_state());
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(input_rowset->get_segments_key_bounds(&key_bounds));
+        rowset_meta->set_segments_key_bounds_truncated(
+                input_rowset_meta->is_segments_key_bounds_truncated());
         rowset_meta->set_segments_key_bounds(key_bounds);
         auto output_rowset = output_rs_writer->manual_build(rowset_meta);
         if (input_rowset_meta->has_delete_predicate()) {
@@ -400,7 +402,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 auto column_name = inverted_index.columns[0];
                 auto column_idx = output_rowset_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    if (!inverted_index.column_unique_ids.empty()) {
+                    if (inverted_index.__isset.column_unique_ids &&
+                        !inverted_index.column_unique_ids.empty()) {
                         column_idx = output_rowset_schema->field_index(
                                 inverted_index.column_unique_ids[0]);
                     }

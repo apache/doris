@@ -148,7 +148,7 @@ private:
     bool _is_asc;
     std::map<int32_t, TargetContext> _contexts;
 
-    Field _orderby_extrem {Field::Types::Null};
+    Field _orderby_extrem {PrimitiveType::TYPE_NULL};
     Arena _predicate_arena;
     std::function<std::string(const Field&)> _get_value_fn;
     std::function<ColumnPredicate*(const TabletColumn&, int, const std::string&, bool,

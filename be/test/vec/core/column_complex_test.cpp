@@ -21,8 +21,8 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -30,11 +30,9 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "gtest/gtest_pred_impl.h"
 #include "util/bitmap_value.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
-#include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -42,26 +40,6 @@
 #include "vec/data_types/data_type_quantilestate.h"
 
 namespace doris::vectorized {
-TEST(ColumnComplexTest, BasicTest) {
-    using ColumnSTLString = ColumnComplexType<std::string>;
-    auto column = ColumnSTLString::create();
-    EXPECT_EQ(column->size(), 0);
-    std::string val0 = "";
-    std::string val1 = "str-1";
-
-    column->insert_data(reinterpret_cast<const char*>(&val0), sizeof(val0));
-    column->insert_data(reinterpret_cast<const char*>(&val1), sizeof(val1));
-
-    StringRef ref = column->get_data_at(0);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), "");
-    ref = column->get_data_at(1);
-    EXPECT_EQ((*reinterpret_cast<const std::string*>(ref.data)), val1);
-}
-
-// Test the compile failed
-TEST(ColumnComplexTest, DataTypeBitmapTest) {
-    std::make_shared<DataTypeBitMap>();
-}
 
 TEST(ColumnComplexTest, GetDataAtTest) {
     auto column_bitmap = ColumnBitmap::create();
@@ -572,7 +550,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), Field::Types::Bitmap);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
             dst_column->insert(field);
         }
 
@@ -620,7 +598,7 @@ public:
         const auto rows = column.size();
         for (size_t i = 0; i != rows; ++i) {
             auto field = column[i];
-            ASSERT_EQ(field.get_type(), Field::Types::QuantileState);
+            ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_QUANTILE_STATE);
             dst_column->insert(field);
         }
 
@@ -682,7 +660,7 @@ TEST_F(ColumnBitmapTest, OperatorValidate) {
     auto& bitmap_column = assert_cast<ColumnBitmap&>(*column.get());
     for (size_t i = 0; i != row_size; ++i) {
         auto field = bitmap_column[i];
-        ASSERT_EQ(field.get_type(), Field::Types::Bitmap);
+        ASSERT_EQ(field.get_type(), PrimitiveType::TYPE_BITMAP);
         const auto& bitmap = vectorized::get<BitmapValue&>(field);
 
         ASSERT_EQ(bitmap.cardinality(), i + 1);

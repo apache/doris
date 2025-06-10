@@ -17,6 +17,16 @@
 
 suite ("test_follower_consistent_auth","p0,auth") {
 
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
     def get_follower_ip = {
         def result = sql """show frontends;"""
         logger.info("result:" + result)
@@ -50,8 +60,8 @@ suite ("test_follower_consistent_auth","p0,auth") {
         String catalog_name = 'test_follower_consistent_catalog'
         try_sql("DROP role ${role}")
         sql """CREATE ROLE ${role}"""
-        sql """drop WORKLOAD GROUP if exists '${wg}'"""
-        sql """CREATE WORKLOAD GROUP "${wg}"
+        sql """drop WORKLOAD GROUP if exists '${wg}' $forComputeGroupStr """
+        sql """CREATE WORKLOAD GROUP "${wg} $forComputeGroupStr "
         PROPERTIES (
             "cpu_share"="10"
         );"""
@@ -376,7 +386,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         }
 
         try_sql("DROP USER ${user}")
-        try_sql("drop workload group if exists ${wg};")
+        try_sql("drop workload group if exists ${wg} $forComputeGroupStr;")
 
     }
 

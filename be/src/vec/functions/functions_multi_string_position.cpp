@@ -39,7 +39,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_searcher.h"
@@ -120,8 +119,7 @@ public:
                     name);
         }
 
-        using ResultType = typename Impl::ResultType;
-        auto col_res = ColumnVector<ResultType>::create();
+        auto col_res = ColumnVector<Impl::ResultType>::create();
         auto col_offsets = ColumnArray::ColumnOffsets::create();
 
         auto& vec_res = col_res->get_data();
@@ -177,7 +175,7 @@ public:
 
 struct FunctionMultiSearchAllPositionsImpl {
 public:
-    using ResultType = Int32;
+    static constexpr PrimitiveType ResultType = TYPE_INT;
     using SingleSearcher = ASCIICaseSensitiveStringSearcher;
     static constexpr auto name = "multi_search_all_positions";
 
@@ -196,7 +194,7 @@ public:
         std::vector<SingleSearcher> searchers;
         searchers.reserve(needles_size);
         for (const auto& needle : needles_arr) {
-            if (needle.get_type() != Field::Types::String) {
+            if (!is_string_type(needle.get_type())) {
                 return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
             }
             searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);

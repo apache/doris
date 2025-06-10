@@ -20,9 +20,11 @@ require 'java'
 class DelayEvent
    include java.util.concurrent.Delayed
 
+   attr_accessor :start_time, :event
+
    def initialize(delay, event)
       @start_time = Time.now.to_i + delay
-      @event = event # event style: [documents, http_headers, event_num, req_count]
+      @event = event # Hash[table, TableEvents]
    end
 
    def get_delay(unit)
@@ -36,19 +38,7 @@ class DelayEvent
       d < 0 ? -1 : 1
    end
 
-   def start_time
-      @start_time
-   end
-
-   def event
-      @event
-   end
-
-   def documents
-      @event[0]
-   end
-
    def first_retry
-      @event[3] == 2
+      @event.values[0].req_count == 2
    end
 end

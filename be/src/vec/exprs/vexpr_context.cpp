@@ -61,7 +61,8 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
     RETURN_IF_CATCH_EXCEPTION({
         st = _root->execute(this, block, result_column_id);
         _last_result_column_id = *result_column_id;
-        if (_last_result_column_id != -1) {
+        // We should first check the status, as some expressions might incorrectly set result_column_id, even if the st is not ok.
+        if (st.ok() && _last_result_column_id != -1) {
             if (const auto* column_str = check_and_get_column<ColumnString>(
                         block->get_by_position(*result_column_id).column.get())) {
                 column_str->sanity_check();
@@ -126,8 +127,8 @@ void VExprContext::clone_fn_contexts(VExprContext* other) {
     }
 }
 
-int VExprContext::register_function_context(RuntimeState* state, const TypeDescriptor& return_type,
-                                            const std::vector<TypeDescriptor>& arg_types) {
+int VExprContext::register_function_context(RuntimeState* state, const DataTypePtr& return_type,
+                                            const std::vector<DataTypePtr>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
     return static_cast<int>(_fn_contexts.size()) - 1;

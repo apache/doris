@@ -52,6 +52,11 @@ public class RandomDistributionInfo extends DistributionInfo {
     }
 
     @Override
+    public String getColumnsName() {
+        return "";
+    }
+
+    @Override
     public String toSql(boolean forSync) {
         StringBuilder builder = new StringBuilder();
         if (autoBucket && !forSync) {

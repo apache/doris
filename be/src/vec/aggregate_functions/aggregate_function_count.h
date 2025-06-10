@@ -32,7 +32,6 @@
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -40,16 +39,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/var_int.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 struct AggregateFunctionCountData {
     UInt64 count = 0;

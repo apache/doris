@@ -131,8 +131,6 @@ private:
     DataTypes _argument_types_with_sort;
     DataTypes _real_argument_types;
 
-    const TypeDescriptor _return_type;
-
     const SlotDescriptor* _intermediate_slot_desc = nullptr;
     const SlotDescriptor* _output_slot_desc = nullptr;
 

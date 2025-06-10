@@ -34,6 +34,7 @@ public:
 
     Status prepare_compact() override;
     Status execute_compact() override;
+    Status request_global_lock();
 
     void do_lease();
 
@@ -50,8 +51,6 @@ private:
     Status garbage_collection() override;
 
     void update_cumulative_point();
-
-    Status process_old_version_delete_bitmap();
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 

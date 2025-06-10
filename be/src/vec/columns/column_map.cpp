@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/common/arena.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/common/unaligned.h"
@@ -118,7 +119,8 @@ Field ColumnMap::operator[](size_t n) const {
         v[i] = get_values()[start_offset + i];
     }
 
-    return Map {k, v};
+    return Field::create_field<TYPE_MAP>(
+            Map {Field::create_field<TYPE_ARRAY>(k), Field::create_field<TYPE_ARRAY>(v)});
 }
 
 // here to compare to below
@@ -126,18 +128,8 @@ void ColumnMap::get(size_t n, Field& res) const {
     res = operator[](n);
 }
 
-StringRef ColumnMap::get_data_at(size_t n) const {
-    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                           "Method get_data_at is not supported for {}", get_name());
-}
-
-void ColumnMap::insert_data(const char*, size_t) {
-    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                           "Method insert_data is not supported for {}", get_name());
-}
-
 void ColumnMap::insert(const Field& x) {
-    DCHECK_EQ(x.get_type(), Field::Types::Map);
+    DCHECK_EQ(x.get_type(), PrimitiveType::TYPE_MAP);
     const auto& map = doris::vectorized::get<const Map&>(x);
     CHECK_EQ(map.size(), 2);
     const auto& k_f = doris::vectorized::get<const Array&>(map[0]);
@@ -543,6 +535,26 @@ ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
     return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
                              values_column->convert_to_full_column_if_const(),
                              offsets_column->convert_to_full_column_if_const());
+}
+
+void ColumnMap::erase(size_t start, size_t length) {
+    if (start >= size() || length == 0) {
+        return;
+    }
+    length = std::min(length, size() - start);
+
+    const auto& offsets_data = get_offsets();
+    auto entry_start = offsets_data[start - 1];
+    auto entry_end = offsets_data[start + length - 1];
+    auto entry_length = entry_end - entry_start;
+
+    keys_column->erase(entry_start, entry_length);
+    values_column->erase(entry_start, entry_length);
+    offsets_column->erase(start, length);
+
+    for (auto i = start; i < size(); ++i) {
+        get_offsets()[i] -= entry_length;
+    }
 }
 
 } // namespace doris::vectorized

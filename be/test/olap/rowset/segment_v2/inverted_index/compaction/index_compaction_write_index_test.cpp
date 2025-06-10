@@ -29,7 +29,6 @@
 #pragma GCC diagnostic ignored "-Wshadow-field"
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/index/IndexReader.h>
-#include <CLucene/search/query/TermPositionIterator.h>
 #include <CLucene/util/stringUtil.h>
 
 #include "CLucene/analysis/Analyzers.h"

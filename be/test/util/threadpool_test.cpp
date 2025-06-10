@@ -23,33 +23,30 @@
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest-test-part.h>
 #include <sched.h>
-#include <stdlib.h>
-#include <time.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
+#include <ctime>
 #include <functional>
 #include <iostream>
 #include <iterator>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gtest/gtest.h"
-#include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/substitute.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
 #include "util/random.h"
 #include "util/scoped_cleanup.h"
-#include "util/spinlock.h"
 #include "util/time.h"
 
 using std::atomic;
@@ -58,8 +55,6 @@ using std::string;
 using std::thread;
 
 using std::vector;
-
-using strings::Substitute;
 
 DECLARE_int32(thread_inject_start_latency_ms);
 
@@ -653,11 +648,11 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
     Random rng(seed);
 
     // Protects 'tokens' and 'rng'.
-    SpinLock lock;
+    std::mutex lock;
 
     // Fetch a token from 'tokens' at random.
     auto GetRandomToken = [&]() -> shared_ptr<ThreadPoolToken> {
-        std::lock_guard<SpinLock> l(lock);
+        std::lock_guard<std::mutex> l(lock);
         int idx = rng.Uniform(kNumTokens);
         return tokens[idx];
     };
@@ -666,7 +661,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
     for (int i = 0; i < kNumTokens; i++) {
         ThreadPool::ExecutionMode mode;
         {
-            std::lock_guard<SpinLock> l(lock);
+            std::lock_guard<std::mutex> l(lock);
             mode = rng.Next() % 2 ? ThreadPool::ExecutionMode::SERIAL
                                   : ThreadPool::ExecutionMode::CONCURRENT;
         }
@@ -690,7 +685,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
             int num_tokens_cycled = 0;
             while (latch.count()) {
                 {
-                    std::lock_guard<SpinLock> l(lock);
+                    std::lock_guard<std::mutex> l(lock);
                     int idx = rng.Uniform(kNumTokens);
                     ThreadPool::ExecutionMode mode =
                             rng.Next() % 2 ? ThreadPool::ExecutionMode::SERIAL
@@ -758,14 +753,14 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
         t.join();
     }
 
-    LOG(INFO) << strings::Substitute("Tokens cycled ($0 threads): $1", kCycleThreads,
-                                     total_num_tokens_cycled.load());
-    LOG(INFO) << strings::Substitute("Tokens shutdown ($0 threads): $1", kShutdownThreads,
-                                     total_num_tokens_shutdown.load());
-    LOG(INFO) << strings::Substitute("Tokens waited ($0 threads): $1", kWaitThreads,
-                                     total_num_tokens_waited.load());
-    LOG(INFO) << strings::Substitute("Tokens submitted ($0 threads): $1", kSubmitThreads,
-                                     total_num_tokens_submitted.load());
+    LOG(INFO) << absl::Substitute("Tokens cycled ($0 threads): $1", kCycleThreads,
+                                  total_num_tokens_cycled.load());
+    LOG(INFO) << absl::Substitute("Tokens shutdown ($0 threads): $1", kShutdownThreads,
+                                  total_num_tokens_shutdown.load());
+    LOG(INFO) << absl::Substitute("Tokens waited ($0 threads): $1", kWaitThreads,
+                                  total_num_tokens_waited.load());
+    LOG(INFO) << absl::Substitute("Tokens submitted ($0 threads): $1", kSubmitThreads,
+                                  total_num_tokens_submitted.load());
 }
 
 static void MyFunc(int idx, int n) {

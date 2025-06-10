@@ -353,8 +353,8 @@ suite("test_array_functions") {
                 `k3` int(11) NULL COMMENT "",
                 `k4` datetimev2(0) NULL COMMENT "",
                 `k5` datetimev2(3) NULL COMMENT "",
-                `k6` datetimev2(6) NULL COMMENT "",              
-                `step` int(11) NULL COMMENT ""              
+                `k6` datetimev2(6) NULL COMMENT "",
+                `step` int(11) NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`test_id`)
             DISTRIBUTED BY HASH(`test_id`) BUCKETS 1
@@ -421,26 +421,5 @@ suite("test_array_functions") {
     qt_const_select "select sequence(cast('2022-35-38 12:00:10' as datetimev2(0)), cast('2022-05-18 22:00:30' as datetimev2(0))); "
     qt_const_select "select sequence(1, 10, 0); "
     qt_const_select "select sequence(cast('2022-05-15 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 0 day); "
-    // test large size of array
-    test {
-        sql """ select sequence(cast('2022-05-01 12:00:00' as datetimev2(0)), cast('2022-05-17 12:00:00' as datetimev2(0)), interval 10000000000 week); """
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }        
-    }
-    test {
-        sql """ select sequence(1, 10000000000); """
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
-    test {
-        sql """ select sequence(1, 10000000000, 2); """
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
+    qt_const_select """select sequence("2022-05-18T12:00:00.123", "2022-05-18T12:16:00.123", interval 5 minute); """
 }

@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -35,7 +37,11 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +50,8 @@ import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private RoutineLoadManager routineLoadManager = Env.getCurrentEnv().getRoutineLoadManager();
+
+    private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
 
     // <partitionId, offset to be consumed>
     private Map<Integer, Long> partitionIdToOffset;
@@ -130,29 +138,47 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(routineLoadJob.getDbId());
-        StreamLoadPlanner planner = new StreamLoadPlanner(db,
+        NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db,
                 (OlapTable) db.getTableOrMetaException(routineLoadJob.getTableId(),
-                Table.TableType.OLAP), routineLoadJob);
+                Table.TableType.OLAP), routineLoadJob.toNereidsRoutineLoadTaskInfo());
         TPipelineFragmentParams tExecPlanFragmentParams = routineLoadJob.plan(planner, loadId, txnId);
         TPlanFragment tPlanFragment = tExecPlanFragmentParams.getFragment();
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
 
         if (Config.enable_workload_group) {
-            long wgId = routineLoadJob.getWorkloadId();
-            List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
-            if (wgId > 0) {
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getTWorkloadGroupById(wgId);
-                if (tWgList.size() == 0) {
-                    throw new UserException("can not find workload group, id=" + wgId);
+            try {
+                List<TPipelineWorkloadGroup> tWgList = new ArrayList<>();
+
+                ConnectContext tmpContext = new ConnectContext();
+                if (Config.isCloudMode()) {
+                    String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getClusterNameByClusterId(routineLoadJob.getCloudClusterId());
+                    if (Strings.isNullOrEmpty(clusterName)) {
+                        LOG.warn("cluster name is empty, cluster id is {}, job id is {}",
+                                routineLoadJob.getCloudClusterId(), routineLoadJob.getTxnId());
+                        throw new UserException(String.format("cluster name is empty, cluster id is %s",
+                                routineLoadJob.getCloudClusterId()));
+                    }
+                    tmpContext.setCloudCluster(clusterName);
                 }
-            } else {
-                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr()
-                        .getWorkloadGroupByUser(routineLoadJob.getUserIdentity(), false);
+                tmpContext.setCurrentUserIdentity(routineLoadJob.getUserIdentity());
+                tmpContext.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
+
+                String wgName = routineLoadJob.getWorkloadGroup();
+                if (!StringUtils.isEmpty(wgName)) {
+                    tmpContext.getSessionVariable().setWorkloadGroup(wgName);
+                }
+
+                tWgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(tmpContext);
+
+                if (tWgList.size() != 0) {
+                    tExecPlanFragmentParams.setWorkloadGroups(tWgList);
+                }
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when replan kafka, job id:{} , ", routineLoadJob.getTxnId(), t);
+                throw t;
             }
-            if (tWgList.size() != 0) {
-                tExecPlanFragmentParams.setWorkloadGroups(tWgList);
-            }
+
         }
 
         return tExecPlanFragmentParams;

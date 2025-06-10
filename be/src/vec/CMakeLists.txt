@@ -21,10 +21,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 file(GLOB_RECURSE VEC_FILES CONFIGURE_DEPENDS *.cpp)
 
-if (NOT WITH_MYSQL)
-    list(REMOVE_ITEM VEC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/exec/vmysql_scan_node.cpp ${CMAKE_CURRENT_SOURCE_DIR}/exec/scan/mysql_scanner.cpp)
-endif ()
-
 add_library(Vec STATIC
         ${VEC_FILES}
 )

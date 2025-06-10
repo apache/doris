@@ -68,7 +68,7 @@ suite("push_down_top_n_distinct_through_union") {
     """
 
     qt_push_down_topn_union_with_limit """
-        explain shape plan select * from (select * from table2 t1 limit 5 union select * from table2 t2 limit 5) sub order by id limit 10;
+        explain shape plan select * from ((select * from table2 t1 limit 5) union (select * from table2 t2 limit 5)) sub order by id limit 10;
     """
 
     qt_push_down_topn_union_complex_conditions """

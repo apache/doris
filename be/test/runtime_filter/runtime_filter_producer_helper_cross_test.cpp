@@ -26,7 +26,6 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vslot_ref.h"
 
@@ -56,7 +55,7 @@ class RuntimeFilterProducerHelperCrossTest : public RuntimeFilterTest {
 };
 
 TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
-    auto helper = RuntimeFilterProducerHelperCross(&_profile);
+    auto helper = RuntimeFilterProducerHelperCross();
 
     vectorized::VExprContextSPtr ctx;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
@@ -72,8 +71,8 @@ TEST_F(RuntimeFilterProducerHelperCrossTest, basic) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     vectorized::Blocks blocks = {block};

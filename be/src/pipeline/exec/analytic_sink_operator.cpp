@@ -160,8 +160,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     }
 
     // only support one order by column, so need two columns upper and lower bound
+    _range_between_expr_ctxs.resize(p._range_between_expr_ctxs.size());
     _range_result_columns.resize(_range_between_expr_ctxs.size());
-    _range_between_expr_ctxs = p._range_between_expr_ctxs;
     for (size_t i = 0; i < _range_between_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._range_between_expr_ctxs[i]->clone(state, _range_between_expr_ctxs[i]));
         _range_result_columns[i] =
@@ -381,7 +381,8 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
             } else {
                 auto* dst =
                         assert_cast<vectorized::ColumnNullable*>(_result_window_columns[i].get());
-                dst->get_null_map_data().add_num_element(0, static_cast<uint32_t>(end - start));
+                dst->get_null_map_data().resize_fill(
+                        dst->get_null_map_data().size() + static_cast<uint32_t>(end - start), 0);
                 _agg_functions[i]->function()->insert_result_into_range(
                         _fn_place_ptr + _offsets_of_aggregate_states[i], dst->get_nested_column(),
                         start, end);
@@ -803,7 +804,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state,
 void AnalyticSinkLocalState::_remove_unused_rows() {
     // test column overflow 4G
     DBUG_EXECUTE_IF("AnalyticSinkLocalState._remove_unused_rows", { return; });
+#ifdef BE_TEST
+    const size_t block_num = 1;
+#else
     const size_t block_num = 256;
+#endif
+
     if (_removed_block_index + block_num + 1 >= _input_block_first_row_positions.size()) {
         return;
     }
@@ -822,22 +828,18 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     }
 
     const int64_t remove_rows = unused_rows_pos - _have_removed_rows;
-    auto left_rows = _input_total_rows - _have_removed_rows - remove_rows;
     {
         SCOPED_TIMER(_remove_rows_timer);
         for (size_t i = 0; i < _agg_functions_size; i++) {
             for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
-                _agg_input_columns[i][j] =
-                        _agg_input_columns[i][j]->cut(remove_rows, left_rows)->assume_mutable();
+                _agg_input_columns[i][j]->erase(0, remove_rows);
             }
         }
         for (size_t i = 0; i < _partition_exprs_size; i++) {
-            _partition_by_columns[i] =
-                    _partition_by_columns[i]->cut(remove_rows, left_rows)->assume_mutable();
+            _partition_by_columns[i]->erase(0, remove_rows);
         }
         for (size_t i = 0; i < _order_by_exprs_size; i++) {
-            _order_by_columns[i] =
-                    _order_by_columns[i]->cut(remove_rows, left_rows)->assume_mutable();
+            _order_by_columns[i]->erase(0, remove_rows);
         }
     }
     COUNTER_UPDATE(_remove_count, 1);

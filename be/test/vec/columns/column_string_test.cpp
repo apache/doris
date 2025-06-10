@@ -138,6 +138,10 @@ protected:
             callback(ColumnString64(), column_str64->get_ptr());
             callback(ColumnString64(), column_str64_json->get_ptr());
         }
+   #define column_string_common_test(callback, only_str32)                   \
+    callback<TYPE_STRING>(ColumnString(), column_str32->get_ptr());       \
+    if (!only_str32) {                                                    \
+        callback<TYPE_STRING>(ColumnString64(), column_str64->get_ptr()); \
     }
     void hash_common_test(
             const std::string& function_name,
@@ -284,7 +288,7 @@ TEST_F(ColumnStringTest, allocated_bytes) {
     }
 }
 TEST_F(ColumnStringTest, clone_resized) {
-    column_string_common_test(assert_column_vector_clone_resized_callback);
+    column_string_common_test(assert_column_vector_clone_resized_callback, false);
 }
 TEST_F(ColumnStringTest, field_test) {
     auto test_func = [](const auto& source_column) {
@@ -306,13 +310,13 @@ TEST_F(ColumnStringTest, field_test) {
             auto assert_col = source_column->clone_empty();
             for (size_t i = 0; i != src_size; ++i) {
                 JsonbField jsonbf;
-                Field f(std::move(jsonbf));
+                Field f = Field::create_field<TYPE_JSONB>(std::move(jsonbf));
                 source_column->get(i, f);
                 assert_col->insert(f);
             }
             for (size_t i = 0; i != src_size; ++i) {
                 JsonbField jsonbf;
-                Field f(std::move(jsonbf));
+                Field f = Field::create_field<TYPE_JSONB>((std::move(jsonbf)));
                 assert_col->get(i, f);
                 const auto& real_field = vectorized::get<const JsonbField&>(f);
                 ASSERT_EQ(StringRef(real_field.get_value(), real_field.get_size()),
@@ -326,7 +330,7 @@ TEST_F(ColumnStringTest, field_test) {
     test_func(column_str64_json);
 }
 TEST_F(ColumnStringTest, insert_many_from) {
-    column_string_common_test(assert_column_vector_insert_many_from_callback);
+    column_string_common_test(assert_column_vector_insert_many_from_callback, false);
 }
 TEST_F(ColumnStringTest, is_column_string64) {
     EXPECT_FALSE(column_str32->is_column_string64());
@@ -336,16 +340,20 @@ TEST_F(ColumnStringTest, is_column_string64) {
 }
 TEST_F(ColumnStringTest, insert_from) {
     {
-        assert_column_vector_insert_from_callback(ColumnString(), column_str32->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString(),
+                                                               column_str32->get_ptr());
 
         auto tmp_col_str32 = ColumnString::create();
-        assert_column_vector_insert_from_callback(ColumnString(), tmp_col_str32->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString(),
+                                                               tmp_col_str32->get_ptr());
     }
     {
-        assert_column_vector_insert_from_callback(ColumnString64(), column_str64->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString64(),
+                                                               column_str64->get_ptr());
 
         auto tmp_col_str = ColumnString64::create();
-        assert_column_vector_insert_from_callback(ColumnString64(), tmp_col_str->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_STRING>(ColumnString64(),
+                                                               tmp_col_str->get_ptr());
     }
     {
         assert_column_vector_insert_from_callback(ColumnString(), column_str32_json->get_ptr());
@@ -361,7 +369,7 @@ TEST_F(ColumnStringTest, insert_from) {
     }
 }
 TEST_F(ColumnStringTest, insert_data) {
-    column_string_common_test(assert_column_vector_insert_data_callback);
+    column_string_common_test(assert_column_vector_insert_data_callback, false);
 }
 TEST_F(ColumnStringTest, insert_data_without_reserve) {
     auto test_func = [](auto& col) {
@@ -692,7 +700,7 @@ TEST_F(ColumnStringTest, insert_many_dict_data) {
     test_func(10, ColumnString64(), column_str64_json);
 }
 TEST_F(ColumnStringTest, pop_back_test) {
-    column_string_common_test(assert_column_vector_pop_back_callback);
+    column_string_common_test(assert_column_vector_pop_back_callback, false);
 }
 TEST_F(ColumnStringTest, ser_deser_test) {
     {
@@ -718,7 +726,7 @@ TEST_F(ColumnStringTest, ser_deser_test) {
     }
 }
 TEST_F(ColumnStringTest, ser_deser_vec_test) {
-    column_string_common_test(assert_column_vector_serialize_vec_callback);
+    column_string_common_test(assert_column_vector_serialize_vec_callback, false);
 }
 TEST_F(ColumnStringTest, get_max_row_byte_size) {
     {
@@ -811,10 +819,11 @@ TEST_F(ColumnStringTest, update_crcs_with_value_test) {
     }
 }
 TEST_F(ColumnStringTest, insert_range_from) {
-    column_string_common_test(assert_column_vector_insert_range_from_callback);
+    column_string_common_test(assert_column_vector_insert_range_from_callback, false);
 }
 TEST_F(ColumnStringTest, insert_range_from_ignore_overflow) {
-    column_string_common_test(assert_column_vector_insert_range_from_ignore_overflow_callback);
+    column_string_common_test(assert_column_vector_insert_range_from_ignore_overflow_callback,
+                              false);
 }
 TEST_F(ColumnStringTest, insert_indices_from) {
     auto test_func = [](auto& target_column, const auto& source_column) {
@@ -1012,11 +1021,11 @@ TEST_F(ColumnStringTest, permute) {
     assert_column_vector_permute(columns, UINT64_MAX);
 }
 TEST_F(ColumnStringTest, insert_default) {
-    column_string_common_test(assert_column_vector_insert_default_callback);
+    column_string_common_test(assert_column_vector_insert_default_callback, false);
 }
 
 TEST_F(ColumnStringTest, insert_many_default) {
-    column_string_common_test(assert_column_vector_insert_many_defaults_callback);
+    column_string_common_test(assert_column_vector_insert_many_defaults_callback, false);
 }
 TEST_F(ColumnStringTest, get_permutation) {
     assert_column_permutations2(*column_str32, dt_str);
@@ -1025,7 +1034,7 @@ TEST_F(ColumnStringTest, get_permutation) {
     assert_column_permutations2(*column_str64_json, dt_jsonb);
 }
 TEST_F(ColumnStringTest, replicate) {
-    column_string_common_test(assert_column_vector_replicate_callback);
+    column_string_common_test(assert_column_vector_replicate_callback, false);
 }
 TEST_F(ColumnStringTest, is_column_string) {
     EXPECT_TRUE(column_str32->is_column_string());
@@ -1043,8 +1052,7 @@ TEST_F(ColumnStringTest, structure_equals) {
     EXPECT_FALSE(column_str32_json->structure_equals(*column_str64_json));
     EXPECT_TRUE(column_str64_json->structure_equals(ColumnString64()));
     EXPECT_FALSE(column_str64_json->structure_equals(*column_str32_json));
-
-    EXPECT_FALSE(column_str32->structure_equals(ColumnVector<int>()));
+    EXPECT_FALSE(column_str32->structure_equals(ColumnInt32()));
 }
 TEST_F(ColumnStringTest, clear) {
     auto tmp_col = column_str32->clone();
@@ -1099,7 +1107,7 @@ TEST_F(ColumnStringTest, replace_column_data) {
     EXPECT_THROW(column_str64_json->replace_column_data(ColumnString(), 0, 0), Exception);
 }
 TEST_F(ColumnStringTest, compare_internal) {
-    column_string_common_test(assert_column_vector_compare_internal_callback);
+    column_string_common_test(assert_column_vector_compare_internal_callback, false);
 }
 TEST_F(ColumnStringTest, convert_column_if_overflow) {
     {
@@ -1225,7 +1233,7 @@ TEST_F(ColumnStringTest, TestConcat) {
     ColumnNumbers arguments = {0, 1};
 
     FunctionStringConcat func_concat;
-    auto fn_ctx = FunctionContext::create_context(nullptr, TypeDescriptor {}, {});
+    auto fn_ctx = FunctionContext::create_context(nullptr, nullptr, {});
     {
         auto status =
                 func_concat.open(fn_ctx.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
@@ -1301,6 +1309,94 @@ TEST_F(ColumnStringTest, shrink_padding_chars) {
     EXPECT_EQ(col->get_data_at(3), StringRef("xy"));
 }
 TEST_F(ColumnStringTest, sort_column) {
-    column_string_common_test(assert_sort_column_callback);
+    column_string_common_test(assert_sort_column_callback, false);
 }
+
+TEST_F(ColumnStringTest, ScalaTypeStringTesterase) {
+    auto column = ColumnString::create();
+    std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                   StringRef("4"), StringRef("5")};
+    for (auto d : data) {
+        column->insert_data(d.data, d.size);
+    }
+    column->erase(0, 2);
+    EXPECT_EQ(column->size(), 3);
+    for (int i = 0; i < column->size(); ++i) {
+        std::cout << column->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column->get_data_at(i).to_string(), data[i + 2].to_string());
+    }
+
+    auto column2 = ColumnString::create();
+    std::vector<StringRef> data2 = {StringRef(""), StringRef("1234567"), StringRef("asd"),
+                                    StringRef("4"), StringRef("5")};
+    for (auto d : data2) {
+        column2->insert_data(d.data, d.size);
+    }
+    column2->erase(0, 2);
+    EXPECT_EQ(column2->size(), 3);
+    for (int i = 0; i < column2->size(); ++i) {
+        std::cout << column2->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column2->get_data_at(i).to_string(), data2[i + 2].to_string());
+    }
+}
+
+TEST_F(ColumnStringTest, ScalaTypeStringTest2erase) {
+    auto column = ColumnString::create();
+    std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                   StringRef("4"), StringRef("5")};
+    std::vector<StringRef> res = {StringRef("asd"), StringRef("1234567"), StringRef("5")};
+    for (auto d : data) {
+        column->insert_data(d.data, d.size);
+    }
+    column->erase(2, 2);
+    EXPECT_EQ(column->size(), 3);
+    for (int i = 0; i < column->size(); ++i) {
+        std::cout << column->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column->get_data_at(i).to_string(), res[i].to_string());
+    }
+
+    auto column2 = ColumnString::create();
+    std::vector<StringRef> data2 = {StringRef(""), StringRef("1234567"), StringRef("asd"),
+                                    StringRef("4"), StringRef("5")};
+    std::vector<StringRef> res2 = {StringRef(""), StringRef("1234567"), StringRef("5")};
+    for (auto d : data2) {
+        column2->insert_data(d.data, d.size);
+    }
+    column2->erase(2, 2);
+    EXPECT_EQ(column2->size(), 3);
+    for (int i = 0; i < column2->size(); ++i) {
+        std::cout << column2->get_data_at(i).to_string() << std::endl;
+        EXPECT_EQ(column2->get_data_at(i).to_string(), res2[i].to_string());
+    }
+}
+
+TEST_F(ColumnStringTest, is_ascii) {
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"), StringRef("3"),
+                                       StringRef("4"), StringRef("5")};
+        for (auto d : data) {
+            column->insert_data(d.data, d.size);
+        }
+        EXPECT_TRUE(column->is_ascii());
+    }
+
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef("asd"), StringRef("1234567"),
+                                       StringRef("3"),   StringRef("4"),
+                                       StringRef("5"),   StringRef("你好世界")};
+        for (auto d : data) {
+            column->insert_data(d.data, d.size);
+        }
+        EXPECT_FALSE(column->is_ascii());
+    }
+    {
+        auto column = ColumnString::create();
+        std::vector<StringRef> data = {StringRef(""), StringRef(""), StringRef(""),
+                                       StringRef(""), StringRef(""), StringRef("")};
+        EXPECT_TRUE(column->is_ascii());
+    }
+}
+
 } // namespace doris::vectorized

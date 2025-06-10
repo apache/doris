@@ -192,8 +192,9 @@ private:
     template <typename Param>
     void _set_scan_concurrency(const Param& params, QueryContext* query_ctx);
 
-    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params, TUniqueId query_id,
-                                    bool pipeline, QuerySource query_type,
+    Status _get_or_create_query_ctx(const TPipelineFragmentParams& params,
+                                    const TPipelineFragmentParamsList& parent,
+                                    QuerySource query_type,
                                     std::shared_ptr<QueryContext>& query_ctx);
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,

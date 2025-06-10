@@ -35,7 +35,6 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_numbers.h"
@@ -158,8 +157,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     friend struct VectorAllpassSearchState;
     friend struct VectorEqualSearchState;

@@ -148,6 +148,21 @@ public class BinlogConfigCache {
         }
     }
 
+    public boolean isTemporaryTable(long dbId, long tableId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            LOG.warn("db not found. dbId: {}", dbId);
+            return false;
+        }
+
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
+            return false;
+        }
+        return table.isTemporary();
+    }
+
     public boolean isEnableTable(long dbId, long tableId) {
         BinlogConfig tableBinlogConfig = getTableBinlogConfig(dbId, tableId);
         if (tableBinlogConfig == null) {

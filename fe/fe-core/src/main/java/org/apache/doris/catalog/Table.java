@@ -134,6 +134,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @SerializedName(value = "isTemporary")
     private boolean isTemporary = false;
 
+    // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();

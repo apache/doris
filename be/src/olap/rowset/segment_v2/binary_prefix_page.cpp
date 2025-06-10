@@ -24,16 +24,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/port.h"
-#include "gutil/strings/substitute.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
-
-using strings::Substitute;
 
 Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
     DCHECK(!_finished);
@@ -159,7 +155,12 @@ Status BinaryPrefixPageDecoder::init() {
 Status BinaryPrefixPageDecoder::seek_to_position_in_page(size_t pos) {
     DCHECK(_parsed);
     DCHECK_LE(pos, _num_values);
-
+    if (PREDICT_FALSE(_num_values == 0)) {
+        if (pos != 0) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                    "seek pos {} is larger than total elements  {}", pos, _num_values);
+        }
+    }
     // seek past the last value is valid
     if (pos == _num_values) {
         _cur_pos = _num_values;

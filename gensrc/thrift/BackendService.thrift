@@ -351,6 +351,16 @@ struct TGetRealtimeExecStatusResponse {
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
 }
 
+struct TDictionaryStatus {
+    1: optional i64 dictionary_id
+    2: optional i64 version_id
+    3: optional i64 dictionary_memory_size
+}
+
+struct TDictionaryStatusList {
+    1: optional list<TDictionaryStatus> dictionary_status_list
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -414,4 +424,7 @@ service BackendService {
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
+
+    // if empty, return all dictionary status.
+    TDictionaryStatusList get_dictionary_status(1:list<i64> dictionary_ids);
 }

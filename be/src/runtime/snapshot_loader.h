@@ -27,6 +27,7 @@
 
 #include "common/status.h"
 #include "olap/tablet_fwd.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 namespace io {
@@ -89,6 +90,8 @@ public:
 
     int64_t get_http_download_files_num() const { return _http_download_files_num; }
 
+    std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
+
 private:
     Status _get_tablet_id_and_schema_hash_from_file_path(const std::string& src_path,
                                                          int64_t* tablet_id, int32_t* schema_hash);
@@ -121,6 +124,7 @@ private:
     std::shared_ptr<io::RemoteFileSystem> _remote_fs;
     // for test remote_http_download
     size_t _http_download_files_num;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 } // end namespace doris

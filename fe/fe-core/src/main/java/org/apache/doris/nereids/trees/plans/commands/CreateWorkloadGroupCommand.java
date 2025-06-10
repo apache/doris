@@ -19,15 +19,20 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
@@ -42,15 +47,19 @@ public class CreateWorkloadGroupCommand extends Command implements ForwardWithSy
     private final boolean ifNotExists;
     private final String workloadGroupName;
     private final Map<String, String> properties;
+    private String computeGroup;
 
     /**
      * Constructor for CreateWorkloadGroupCommand
      */
-    public CreateWorkloadGroupCommand(String workloadGroupName, boolean ifNotExists, Map<String, String> properties) {
+    public CreateWorkloadGroupCommand(String computeGroup, String workloadGroupName, boolean ifNotExists,
+            Map<String, String> properties) {
         super(PlanType.CREATE_WORKLOAD_GROUP_COMMAND);
+
         this.workloadGroupName = workloadGroupName;
         this.ifNotExists = ifNotExists;
         this.properties = properties;
+        this.computeGroup = computeGroup;
     }
 
     private void validate(ConnectContext ctx) throws AnalysisException {
@@ -67,21 +76,46 @@ public class CreateWorkloadGroupCommand extends Command implements ForwardWithSy
         }
 
         String tagStr = properties.get(WorkloadGroup.TAG);
-        if (!StringUtils.isEmpty(tagStr)
-                && WorkloadGroupMgr.DEFAULT_GROUP_NAME.equals(workloadGroupName)) {
+        if (!StringUtils.isEmpty(tagStr)) {
             throw new AnalysisException(
-                    WorkloadGroupMgr.DEFAULT_GROUP_NAME
-                            + " group can not set tag");
+                    "tag is deprecated, you can use create workload group [for compute group] as a replacement.");
+        }
+
+        String cgStr = properties.get(WorkloadGroup.COMPUTE_GROUP);
+        if (!StringUtils.isEmpty(cgStr)) {
+            throw new AnalysisException(WorkloadGroup.COMPUTE_GROUP + " can not be set in property.");
         }
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
+
+        if (StringUtils.isEmpty(computeGroup)) {
+            computeGroup = Config.isCloudMode() ? Tag.VALUE_DEFAULT_COMPUTE_GROUP_NAME
+                    : Tag.DEFAULT_BACKEND_TAG.value;
+        } else if (Config.isNotCloudMode()) {
+            try {
+                FeNameFormat.checkCommonName("Workload group's compute group", computeGroup);
+            } catch (AnalysisException e) {
+                throw new DdlException("Compute group's format is illegal: " + computeGroup);
+            }
+        }
+
+        if (Config.isCloudMode()) {
+            String originStr = computeGroup;
+            computeGroup = ((CloudSystemInfoService) Env.getCurrentEnv().getClusterInfo()).getCloudClusterIdByName(
+                    computeGroup);
+            if (StringUtils.isEmpty(computeGroup)) {
+                throw new UserException("Can not find compute group " + originStr + ".");
+            }
+        }
+
         // Create workload group
+        properties.put(WorkloadGroup.COMPUTE_GROUP, computeGroup);
         WorkloadGroup workloadGroup = WorkloadGroup.create(workloadGroupName, properties);
         WorkloadGroupMgr workloadGroupMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
-        workloadGroupMgr.createWorkloadGroup(workloadGroup, ifNotExists);
+        workloadGroupMgr.createWorkloadGroup(computeGroup, workloadGroup, ifNotExists);
     }
 
     @Override

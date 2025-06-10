@@ -21,7 +21,6 @@
 #include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <map>
@@ -30,7 +29,6 @@
 #include <optional>
 #include <roaring/roaring.hh>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -44,7 +42,6 @@
 #include "olap/rowset/segment_creator.h"
 #include "segment_v2/inverted_index_file_writer.h"
 #include "segment_v2/segment.h"
-#include "util/spinlock.h"
 
 namespace doris {
 namespace vectorized {
@@ -80,7 +77,7 @@ public:
     }
 
 private:
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     std::unordered_map<int /* seg_id */, io::FileWriterPtr> _file_writers;
     bool _closed {false};
 };
@@ -109,7 +106,7 @@ public:
     int64_t get_total_index_size() const { return _total_size; }
 
 private:
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     std::unordered_map<int /* seg_id */, InvertedIndexFileWriterPtr> _inverted_index_file_writers;
     int64_t _total_size = 0;
 };
@@ -237,8 +234,10 @@ protected:
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
+
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
+    std::optional<bool> _segments_key_bounds_truncated;
 
     // counters and statistics maintained during add_rowset
     std::atomic<int64_t> _num_rows_written;

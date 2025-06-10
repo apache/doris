@@ -19,9 +19,11 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -39,34 +41,48 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
+import java.nio.ByteBuffer;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * FEOpExecutor is used to send request to specific FE
+ */
 public class FEOpExecutor {
     private static final Logger LOG = LogManager.getLogger(FEOpExecutor.class);
 
-    private static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
+    protected static final float RPC_TIMEOUT_COEFFICIENT = 1.2f;
 
-    private final OriginStatement originStmt;
-    private final ConnectContext ctx;
-    private TMasterOpResult result;
-    private TNetworkAddress feAddr;
+    protected final OriginStatement originStmt;
+    protected final ConnectContext ctx;
+    protected TMasterOpResult result;
+    protected TNetworkAddress feAddr;
 
     // the total time of thrift connectTime, readTime and writeTime
-    private int thriftTimeoutMs;
+    protected int thriftTimeoutMs;
 
-    private boolean shouldNotRetry;
+    protected boolean shouldNotRetry;
 
     public FEOpExecutor(TNetworkAddress feAddress, OriginStatement originStmt, ConnectContext ctx, boolean isQuery) {
         this.feAddr = feAddress;
         this.originStmt = originStmt;
         this.ctx = ctx;
-        this.thriftTimeoutMs = (int) (ctx.getExecTimeout() * 1000 * RPC_TIMEOUT_COEFFICIENT);
+        this.thriftTimeoutMs = (int) (ctx.getExecTimeoutS() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
     }
 
     public void execute() throws Exception {
-        result = forward(feAddr, buildStmtForwardParams());
+        result = forward(buildStmtForwardParams());
+        if (ctx.isTxnModel()) {
+            if (result.isSetTxnLoadInfo()) {
+                ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
+            } else {
+                ctx.setTxnEntry(null);
+                LOG.info("set txn entry to null");
+            }
+        }
     }
 
     public void cancel() throws Exception {
@@ -84,22 +100,24 @@ public class FEOpExecutor {
         request.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         // just make the protocol happy
         request.setSql("");
-        result = forward(feAddr, request);
+        result = forward(request);
     }
 
     // Send request to specific fe
-    private TMasterOpResult forward(TNetworkAddress thriftAddress, TMasterOpRequest params) throws Exception {
+    protected TMasterOpResult forward(TMasterOpRequest params) throws Exception {
         ctx.getEnv().checkReadyOrThrow();
 
         FrontendService.Client client;
         try {
-            client = ClientPool.frontendPool.borrowObject(thriftAddress, thriftTimeoutMs);
+            client = ClientPool.frontendPool.borrowObject(feAddr, thriftTimeoutMs);
         } catch (Exception e) {
             // may throw NullPointerException. add err msg
-            throw new Exception("Failed to get fe client: " + thriftAddress.toString(), e);
+            throw new Exception("Failed to get master client.", e);
         }
-        final StringBuilder forwardMsg = new StringBuilder("forward to FE " + thriftAddress.toString());
-        forwardMsg.append(", statement id: ").append(ctx.getStmtId());
+        final StringBuilder forwardMsg = new StringBuilder("forward to master FE " + feAddr.toString());
+        if (!params.isSyncJournalOnly()) {
+            forwardMsg.append(", statement id: ").append(ctx.getStmtId());
+        }
         LOG.info(forwardMsg.toString());
 
         boolean isReturnToPool = false;
@@ -110,7 +128,7 @@ public class FEOpExecutor {
         } catch (TTransportException e) {
             // wrap the raw exception.
             forwardMsg.append(" : failed");
-            Exception exception = new ForwardToFEException(forwardMsg.toString(), e);
+            Exception exception = new ForwardToMasterException(forwardMsg.toString(), e);
 
             boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
             if (!ok) {
@@ -130,14 +148,14 @@ public class FEOpExecutor {
             }
         } finally {
             if (isReturnToPool) {
-                ClientPool.frontendPool.returnObject(thriftAddress, client);
+                ClientPool.frontendPool.returnObject(feAddr, client);
             } else {
-                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+                ClientPool.frontendPool.invalidateObject(feAddr, client);
             }
         }
     }
 
-    private TMasterOpRequest buildStmtForwardParams() {
+    protected TMasterOpRequest buildStmtForwardParams() throws AnalysisException {
         TMasterOpRequest params = new TMasterOpRequest();
         // node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
@@ -151,22 +169,38 @@ public class FEOpExecutor {
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        params.setSessionId(ctx.getSessionId());
 
-        String cluster = "";
-        try {
-            ctx.getCloudCluster(false);
-        } catch (ComputeGroupException e) {
-            LOG.warn("failed to get cloud cluster", e);
+        if (Config.isCloudMode()) {
+            String cluster = "";
+            try {
+                cluster = ctx.getCloudCluster(false);
+            } catch (Exception e) {
+                LOG.warn("failed to get cloud compute group", e);
+            }
+            if (!Strings.isNullOrEmpty(cluster)) {
+                params.setCloudCluster(cluster);
+            }
         }
-        if (!Strings.isNullOrEmpty(cluster)) {
-            params.setCloudCluster(cluster);
-        }
+
         // session variables
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
+
+        // set transaction load info
+        if (ctx.isTxnModel()) {
+            params.setTxnLoadInfo(ctx.getTxnEntry().getTxnLoadInfoInObserver());
+        }
+
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
+            if (null != ctx.getPrepareExecuteBuffer()) {
+                params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
+            }
+        }
+
         return params;
     }
 
@@ -187,6 +221,48 @@ public class FEOpExecutor {
         return result.getErrMessage();
     }
 
+
+    public ByteBuffer getOutputPacket() {
+        if (result == null) {
+            return null;
+        }
+        return result.packet;
+    }
+
+    public TUniqueId getQueryId() {
+        if (result != null && result.isSetQueryId()) {
+            return result.getQueryId();
+        } else {
+            return null;
+        }
+    }
+
+    public String getProxyStatus() {
+        if (result == null) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        }
+        if (!result.isSetStatus()) {
+            return QueryState.MysqlStateType.UNKNOWN.name();
+        } else {
+            return result.getStatus();
+        }
+    }
+
+    public ShowResultSet getProxyResultSet() {
+        if (result == null) {
+            return null;
+        }
+        if (result.isSetResultSet()) {
+            return new ShowResultSet(result.resultSet);
+        } else {
+            return null;
+        }
+    }
+
+    public List<ByteBuffer> getQueryResultBufList() {
+        return result.isSetQueryResultBufList() ? result.getQueryResultBufList() : Collections.emptyList();
+    }
+
     private Map<String, TExprNode> getForwardUserVariables(Map<String, LiteralExpr> userVariables) {
         Map<String, TExprNode> forwardVariables = Maps.newHashMap();
         for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
@@ -198,21 +274,22 @@ public class FEOpExecutor {
         return forwardVariables;
     }
 
-    public static class ForwardToFEException extends RuntimeException {
-
+    protected static class ForwardToMasterException extends RuntimeException {
         private static final Map<Integer, String> TYPE_MSG_MAP =
                 ImmutableMap.<Integer, String>builder()
                         .put(TTransportException.UNKNOWN, "Unknown exception")
                         .put(TTransportException.NOT_OPEN, "Connection is not open")
                         .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
-                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.TIMED_OUT,
+                                "Connection timeout, please check network state or enlarge session variable:"
+                                        + "`query_timeout`/`insert_timeout`")
                         .put(TTransportException.END_OF_FILE, "EOF")
                         .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
                         .build();
 
         private final String msg;
 
-        public ForwardToFEException(String msg, TTransportException exception) {
+        public ForwardToMasterException(String msg, TTransportException exception) {
             this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType()) + ", " + exception.getMessage();
         }
 

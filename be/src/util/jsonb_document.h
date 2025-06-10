@@ -1490,10 +1490,27 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
 }
 
 inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
+    // $[0]
     if (stream->peek() == BEGIN_ARRAY) {
         return parse_array(stream, path);
-    } else if (stream->peek() == BEGIN_MEMBER) {
-        return parse_member(stream, path);
+    }
+    // $.a or $.[0]
+    else if (stream->peek() == BEGIN_MEMBER) {
+        // advance past the .
+        stream->skip(1);
+
+        if (stream->exhausted()) {
+            return false;
+        }
+
+        // $.[0]
+        if (stream->peek() == BEGIN_ARRAY) {
+            return parse_array(stream, path);
+        }
+        // $.a
+        else {
+            return parse_member(stream, path);
+        }
     } else {
         return false; //invalid json path
     }
@@ -1510,6 +1527,10 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
         stream->skip(1);
+        if (stream->exhausted()) {
+            return false;
+        }
+
         if (stream->peek() == END_ARRAY) {
             std::unique_ptr<leg_info> leg(
                     new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
@@ -1575,9 +1596,6 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
 }
 
 inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
-    // advance past the .
-    assert(stream->peek() == BEGIN_MEMBER);
-    stream->skip(1);
     if (stream->exhausted()) {
         return false;
     }

@@ -33,6 +33,7 @@ import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
@@ -125,12 +126,30 @@ public class BinlogManager {
         return false;
     }
 
+    private boolean isTemporaryTable(TBinlog binlog) {
+        if (!binlog.isSetTableIds()) {
+            return false;
+        }
+
+        // Filter the binlogs belong to temporary table
+        for (long tableId : binlog.getTableIds()) {
+            if (binlogConfigCache.isTemporaryTable(binlog.getDbId(), tableId)) {
+                LOG.debug("filter the temporary table binlog, db {}, table {}, commit seq {}, ts {}, type {}, data {}",
+                        binlog.getDbId(), binlog.getTableIds(), binlog.getCommitSeq(), binlog.getTimestamp(),
+                        binlog.getType(), binlog.getData());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void addBinlog(TBinlog binlog, Object raw) {
         if (!Config.enable_feature_binlog) {
             return;
         }
 
-        if (isAsyncMvBinlog(binlog)) {
+        if (isAsyncMvBinlog(binlog) || isTemporaryTable(binlog)) {
             return;
         }
 
@@ -430,6 +449,33 @@ public class BinlogManager {
         tableIds.add(info.getOrigTblId());
         long timestamp = System.currentTimeMillis();
         TBinlogType type = TBinlogType.REPLACE_TABLE;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyDistributionNum(ModifyTableDefaultDistributionBucketNumOperationLog info, long commitSeq) {
+        if (info.getBucketNum() <= 0 || info.getType() == null) {
+            LOG.warn("skip modify distribution num binlog, because bucket num is invalid. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = System.currentTimeMillis();
+        TBinlogType type = TBinlogType.MODIFY_DISTRIBUTION_BUCKET_NUM;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addModifyDistributionType(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = System.currentTimeMillis();
+        TBinlogType type = TBinlogType.MODIFY_DISTRIBUTION_TYPE;
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);

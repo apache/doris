@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -183,7 +184,8 @@ public class MTMV extends OlapTable {
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            return this.status.updateNotNull(newStatus);
+            // only can update state, refresh state will be change by add task
+            return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
         }
@@ -294,14 +296,18 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<String> getExcludedTriggerTables() {
+    public Set<TableName> getExcludedTriggerTables() {
+        Set<TableName> res = Sets.newHashSet();
         readMvLock();
         try {
             if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-                return Sets.newHashSet();
+                return res;
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-            return Sets.newHashSet(split);
+            for (String alias : split) {
+                res.add(new TableName(alias));
+            }
+            return res;
         } finally {
             readMvUnlock();
         }
@@ -310,7 +316,8 @@ public class MTMV extends OlapTable {
     /**
      * Called when in query, Should use one connection context in query
      */
-    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
+            org.apache.doris.nereids.exceptions.AnalysisException {
         readMvLock();
         try {
             if (cache != null) {

@@ -120,7 +120,7 @@ suite("test_show_storage_policy_using") {
         );
     """
 
-    show_result = sql """
+    def show_result = sql """
         show storage policy using for ${policy_name}
     """
     assertEquals(show_result.size(), 2)

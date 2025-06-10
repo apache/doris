@@ -74,9 +74,12 @@ public class StringArithmetic {
      * Executable arithmetic functions concat
      */
     @ExecFunction(name = "concat")
-    public static Expression concatVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
-        String result = first.getValue() + second.getValue();
-        return castStringLikeLiteral(first, result);
+    public static Expression concatVarchar(StringLikeLiteral... values) {
+        final StringBuilder sb = new StringBuilder();
+        for (StringLikeLiteral value : values) {
+            sb.append(value.getValue());
+        }
+        return castStringLikeLiteral(values[0], sb.toString());
     }
 
     private static String substringImpl(String first, int second, int third) {
@@ -346,7 +349,7 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
-        return new IntegerLiteral(second.getValue().indexOf(first.getValue()) + 1);
+        return locate(first, second, new IntegerLiteral(1));
     }
 
     /**
@@ -354,12 +357,23 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second, IntegerLiteral third) {
-        int result = second.getValue().indexOf(first.getValue()) + 1;
-        if (third.getValue() <= 0 || !substringImpl(second.getValue(), third.getValue(),
-                second.getValue().codePointCount(0, second.getValue().length())).contains(first.getValue())) {
-            result = 0;
+        String searchStr = first.getValue();
+        String targetStr = second.getValue();
+        int startPos = third.getValue();
+        if (searchStr.isEmpty()) {
+            int byteLength = targetStr.getBytes(StandardCharsets.UTF_8).length;
+            return (startPos >= 1 && startPos <= byteLength)
+                    ? new IntegerLiteral(startPos)
+                    : new IntegerLiteral(startPos == 1 ? 1 : 0);
         }
-        return new IntegerLiteral(result);
+
+        int strLength = targetStr.codePointCount(0, targetStr.length());
+        if (startPos < 1 || startPos > strLength) {
+            return new IntegerLiteral(0);
+        }
+        int offset = targetStr.offsetByCodePoints(0, startPos - 1);
+        int loc = targetStr.indexOf(searchStr, offset);
+        return loc == -1 ? new IntegerLiteral(0) : new IntegerLiteral(targetStr.codePointCount(0, loc) + 1);
     }
 
     /**
@@ -430,11 +444,6 @@ public class StringArithmetic {
         return new IntegerLiteral(first.getValue().codePointCount(0, first.getValue().length()));
     }
 
-    private static boolean isAlphabetic(char c) {
-        Pattern pattern = Pattern.compile("\\p{Alnum}");
-        return pattern.matcher(String.valueOf(c)).find();
-    }
-
     /**
      * Executable arithmetic functions initCap
      */
@@ -444,7 +453,7 @@ public class StringArithmetic {
         boolean capitalizeNext = true;
 
         for (char c : first.getValue().toCharArray()) {
-            if (Character.isWhitespace(c) || !isAlphabetic(c)) {
+            if (!Character.isLetterOrDigit(c)) {
                 result.append(c);
                 capitalizeNext = true;  // Next character should be capitalized
             } else if (capitalizeNext) {

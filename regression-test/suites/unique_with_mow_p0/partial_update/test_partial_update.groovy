@@ -322,7 +322,7 @@ suite("test_primary_key_partial_update", "p0") {
                     assertTrue(exception == null)
                     def json = parseJson(result)
                     assertEquals("Fail", json.Status)
-                    assertTrue(json.Message.contains("unknown reference column in DELETE ON clause:c3"))
+                    assertTrue(json.Message.contains("Unknown column 'c3'"))
                 }
             }
 

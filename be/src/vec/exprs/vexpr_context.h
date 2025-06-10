@@ -173,8 +173,8 @@ public:
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
-    int register_function_context(RuntimeState* state, const doris::TypeDescriptor& return_type,
-                                  const std::vector<doris::TypeDescriptor>& arg_types);
+    int register_function_context(RuntimeState* state, const DataTypePtr& return_type,
+                                  const std::vector<DataTypePtr>& arg_types);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
     /// register_function_context(). This should only be called by VExprs.

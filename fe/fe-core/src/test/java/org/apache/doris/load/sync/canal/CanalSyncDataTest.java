@@ -23,7 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -90,7 +90,7 @@ public class CanalSyncDataTest {
     @Mocked
     StreamLoadTask streamLoadTask;
     @Mocked
-    StreamLoadPlanner streamLoadPlanner;
+    NereidsStreamLoadPlanner streamLoadPlanner;
     @Mocked
     SystemInfoService systemInfoService;
 

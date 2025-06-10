@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -117,6 +118,16 @@ public class LoadManager implements Writable {
      * This method will be invoked by the broker load(v2) now.
      */
     public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException, UserException {
+        List<TPipelineWorkloadGroup> twgList = null;
+        if (Config.enable_workload_group) {
+            try {
+                twgList = Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get());
+            } catch (Throwable t) {
+                LOG.info("Get workload group failed when create load job,", t);
+                throw t;
+            }
+        }
+
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob;
@@ -141,14 +152,14 @@ public class LoadManager implements Writable {
             }
 
             loadJob = BulkLoadJob.fromLoadStmt(stmt);
+
+            if (twgList != null) {
+                loadJob.settWorkloadGroups(twgList);
+            }
+
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
-        }
-
-        if (Config.enable_workload_group) {
-            loadJob.settWorkloadGroups(
-                    Env.getCurrentEnv().getWorkloadGroupMgr().getWorkloadGroup(ConnectContext.get()));
         }
 
         Env.getCurrentEnv().getEditLog().logCreateLoadJob(loadJob);

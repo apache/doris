@@ -338,6 +338,8 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    SCOPED_INIT_THREAD_CONTEXT();
+
     using doris::Status;
     using std::string;
 
@@ -523,8 +525,6 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
-
     // init exec env
     auto* exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
@@ -633,7 +633,6 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
-    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";
     return 0;
 }

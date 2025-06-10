@@ -25,6 +25,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.service.ExecuteEnv;
@@ -171,11 +172,17 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     private void judgeEof(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        if (DebugPointUtil.isEnable("RoutineLoadTaskInfo.judgeEof")) {
+            this.isEof = false;
+            return;
+        }
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         if (rlTaskTxnCommitAttachment.getTotalRows() < routineLoadJob.getMaxBatchRows()
                 && rlTaskTxnCommitAttachment.getReceivedBytes() < routineLoadJob.getMaxBatchSizeBytes()
                 && rlTaskTxnCommitAttachment.getTaskExecutionTimeMs() < this.timeoutMs) {
             this.isEof = true;
+        } else {
+            this.isEof = false;
         }
     }
 

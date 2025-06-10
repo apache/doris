@@ -36,7 +36,7 @@ PhysicalResultSink
 --------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
 ----------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4))))))
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(j.i_current_price))))
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[item]
 ----------------------------------hashAgg[GLOBAL]

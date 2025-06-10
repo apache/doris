@@ -40,6 +40,11 @@ public class MTMVMaxTimestampSnapshot implements MTMVSnapshotIf {
     }
 
     @Override
+    public long getSnapshotVersion() {
+        return timestamp;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

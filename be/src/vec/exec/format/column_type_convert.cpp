@@ -101,7 +101,7 @@ static bool _is_decimal_type(doris::PrimitiveType type) {
     }
 }
 
-ColumnPtr ColumnTypeConverter::get_column(const TypeDescriptor& src_type, ColumnPtr& dst_column,
+ColumnPtr ColumnTypeConverter::get_column(const DataTypePtr& src_type, ColumnPtr& dst_column,
                                           const DataTypePtr& dst_type) {
     if (is_consistent()) {
         if (_cached_src_type == nullptr) {
@@ -111,10 +111,10 @@ ColumnPtr ColumnTypeConverter::get_column(const TypeDescriptor& src_type, Column
     }
 
     if (!_cached_src_column) {
-        _cached_src_type =
-                DataTypeFactory::instance().create_data_type(src_type, dst_type->is_nullable());
-        _cached_src_column =
-                DataTypeFactory::instance().create_data_type(src_type, false)->create_column();
+        _cached_src_type = dst_type->is_nullable()
+                                   ? get_data_type_with_default_argument(make_nullable(src_type))
+                                   : get_data_type_with_default_argument(remove_nullable(src_type));
+        _cached_src_column = remove_nullable(_cached_src_type)->create_column();
     }
     // remove the old cached data
     _cached_src_column->assume_mutable()->clear();
@@ -132,11 +132,10 @@ ColumnPtr ColumnTypeConverter::get_column(const TypeDescriptor& src_type, Column
     return _cached_src_column;
 }
 
-static std::unique_ptr<ColumnTypeConverter> _numeric_converter(const TypeDescriptor& src_type,
+static std::unique_ptr<ColumnTypeConverter> _numeric_converter(const DataTypePtr& src_type,
                                                                const DataTypePtr& dst_type) {
-    PrimitiveType src_primitive_type = src_type.type;
-    PrimitiveType dst_primitive_type =
-            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
+    PrimitiveType src_primitive_type = src_type->get_primitive_type();
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
 
     switch (dst_primitive_type) {
 #define DISPATCH(DST_PTYPE)                                                                 \
@@ -190,9 +189,9 @@ static std::unique_ptr<ColumnTypeConverter> _numeric_converter(const TypeDescrip
 }
 
 template <FileFormat fileFormat = COMMON>
-static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const TypeDescriptor& src_type,
+static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const DataTypePtr& src_type,
                                                                  const DataTypePtr& dst_type) {
-    PrimitiveType src_primitive_type = src_type.type;
+    PrimitiveType src_primitive_type = src_type->get_primitive_type();
     // numeric type to string, using native std::to_string
     if (src_primitive_type == TYPE_BOOLEAN) {
         return std::make_unique<BooleanToStringConverter>();
@@ -210,7 +209,7 @@ static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const TypeDescr
         switch (src_primitive_type) {
 #define DISPATCH(SRC_PTYPE) \
     case SRC_PTYPE:         \
-        return std::make_unique<DecimalToStringConverter<SRC_PTYPE>>(src_type.scale);
+        return std::make_unique<DecimalToStringConverter<SRC_PTYPE>>(src_type->get_scale());
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
         default:
@@ -231,10 +230,9 @@ static std::unique_ptr<ColumnTypeConverter> _to_string_converter(const TypeDescr
 }
 
 template <FileFormat fileFormat = COMMON>
-static std::unique_ptr<ColumnTypeConverter> _from_string_converter(const TypeDescriptor& src_type,
+static std::unique_ptr<ColumnTypeConverter> _from_string_converter(const DataTypePtr& src_type,
                                                                    const DataTypePtr& dst_type) {
-    PrimitiveType dst_primitive_type =
-            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
     switch (dst_primitive_type) {
 #define DISPATCH(DST_PTYPE)                                                  \
     case DST_PTYPE:                                                          \
@@ -248,12 +246,11 @@ static std::unique_ptr<ColumnTypeConverter> _from_string_converter(const TypeDes
 }
 
 static std::unique_ptr<ColumnTypeConverter> _numeric_to_decimal_converter(
-        const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
-    PrimitiveType src_primitive_type = src_type.type;
-    PrimitiveType dst_primitive_type =
-            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
-    int scale = remove_nullable(dst_type)->get_scale();
-    int precision = remove_nullable(dst_type)->get_precision();
+        const DataTypePtr& src_type, const DataTypePtr& dst_type) {
+    PrimitiveType src_primitive_type = src_type->get_primitive_type();
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
+    int scale = dst_type->get_scale();
+    int precision = dst_type->get_precision();
     switch (src_primitive_type) {
 #define DISPATCH(SRC_PTYPE)                                                                  \
     case SRC_PTYPE: {                                                                        \
@@ -282,11 +279,10 @@ static std::unique_ptr<ColumnTypeConverter> _numeric_to_decimal_converter(
 }
 
 static std::unique_ptr<ColumnTypeConverter> _decimal_to_numeric_converter(
-        const TypeDescriptor& src_type, const DataTypePtr& dst_type) {
-    PrimitiveType src_primitive_type = src_type.type;
-    PrimitiveType dst_primitive_type =
-            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
-    int scale = src_type.scale;
+        const DataTypePtr& src_type, const DataTypePtr& dst_type) {
+    PrimitiveType src_primitive_type = src_type->get_primitive_type();
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
+    int scale = src_type->get_scale();
     switch (dst_primitive_type) {
 #define DISPATCH(DST_PTYPE)                                                                        \
     case DST_PTYPE: {                                                                              \
@@ -311,20 +307,19 @@ static std::unique_ptr<ColumnTypeConverter> _decimal_to_numeric_converter(
     }
 }
 
-static std::unique_ptr<ColumnTypeConverter> _decimal_converter(const TypeDescriptor& src_type,
+static std::unique_ptr<ColumnTypeConverter> _decimal_converter(const DataTypePtr& src_type,
                                                                const DataTypePtr& dst_type) {
-    int from_precision = src_type.precision;
-    int from_scale = src_type.scale;
-    int to_precision = remove_nullable(dst_type)->get_precision();
-    int to_scale = remove_nullable(dst_type)->get_scale();
+    int from_precision = src_type->get_precision();
+    int from_scale = src_type->get_scale();
+    int to_precision = dst_type->get_precision();
+    int to_scale = dst_type->get_scale();
 
     if (from_scale == to_scale && from_precision == to_precision) {
         return std::make_unique<ConsistentConverter>();
     }
 
-    PrimitiveType src_primitive_type = src_type.type;
-    PrimitiveType dst_primitive_type =
-            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
+    PrimitiveType src_primitive_type = src_type->get_primitive_type();
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
     switch (dst_primitive_type) {
 #define DISPATCH(DST_PTYPE)                                                                  \
     case DST_PTYPE: {                                                                        \
@@ -352,11 +347,11 @@ static std::unique_ptr<ColumnTypeConverter> _decimal_converter(const TypeDescrip
     }
 }
 
-std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
-        const TypeDescriptor& src_type, const DataTypePtr& dst_type, FileFormat file_format) {
-    PrimitiveType src_primitive_type = src_type.type;
-    PrimitiveType dst_primitive_type =
-            remove_nullable(dst_type)->get_type_as_type_descriptor().type;
+std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const DataTypePtr& src_type,
+                                                                        const DataTypePtr& dst_type,
+                                                                        FileFormat file_format) {
+    PrimitiveType src_primitive_type = src_type->get_primitive_type();
+    PrimitiveType dst_primitive_type = dst_type->get_primitive_type();
     //todo:  type to varchar/char.
     if (is_string_type(src_primitive_type) && is_string_type(dst_primitive_type)) {
         return std::make_unique<ConsistentConverter>();
@@ -376,13 +371,17 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
         return _numeric_converter(src_type, dst_type);
     }
 
+    auto str_type = is_string_type(src_primitive_type)
+                            ? DataTypeFactory::instance().create_data_type(
+                                      PrimitiveType::TYPE_STRING, src_type->is_nullable())
+                            : src_type;
     // change to string type
     // example: decimal -> string
     if (is_string_type(dst_primitive_type)) {
         if (file_format == ORC) {
-            return _to_string_converter<ORC>(src_type, dst_type);
+            return _to_string_converter<ORC>(str_type, dst_type);
         } else {
-            return _to_string_converter<COMMON>(src_type, dst_type);
+            return _to_string_converter<COMMON>(str_type, dst_type);
         }
     }
 
@@ -390,9 +389,9 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(
     // example: string -> date
     if (is_string_type(src_primitive_type)) {
         if (file_format == ORC) {
-            return _from_string_converter<ORC>(src_type, dst_type);
+            return _from_string_converter<ORC>(str_type, dst_type);
         } else {
-            return _from_string_converter<COMMON>(src_type, dst_type);
+            return _from_string_converter<COMMON>(str_type, dst_type);
         }
     }
 

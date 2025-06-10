@@ -24,6 +24,7 @@
 #include "arrow/result.h"
 #include "arrow_pip_input_stream.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -97,10 +98,10 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
             std::string column_name = batch.schema()->field(c)->name();
 
             try {
-                vectorized::ColumnWithTypeAndName& column_with_name =
+                const vectorized::ColumnWithTypeAndName& column_with_name =
                         block->get_by_name(column_name);
-                column_with_name.type->get_serde()->read_column_from_arrow(
-                        column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz);
+                RETURN_IF_ERROR(column_with_name.type->get_serde()->read_column_from_arrow(
+                        column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz));
             } catch (Exception& e) {
                 return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }
@@ -112,7 +113,7 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
     return Status::OK();
 }
 
-Status ArrowStreamReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status ArrowStreamReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                       std::unordered_set<std::string>* missing_cols) {
     for (const auto& slot : _file_slot_descs) {
         name_to_type->emplace(slot->col_name(), slot->type());

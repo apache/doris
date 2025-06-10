@@ -27,34 +27,26 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
-import org.apache.doris.persist.AlterMTMV;
+
+import java.util.Optional;
 
 /**
  * Contains all operations that affect the mtmv
  */
 public interface MTMVHookService {
     /**
-     * triggered when create mtmv, only once
+     * triggered after create mtmv, only once
      *
      * @param mtmv
-     * @throws DdlException
      */
-    void createMTMV(MTMV mtmv) throws DdlException;
-
-    /**
-     * triggered when drop mtmv, only once
-     *
-     * @param mtmv
-     * @throws DdlException
-     */
-    void dropMTMV(MTMV mtmv) throws DdlException;
+    void postCreateMTMV(MTMV mtmv);
 
     /**
      * triggered when playing `create mtmv` logs
      * When triggered, db has not completed playback yet, so use dbId as param
      *
      * @param mtmv
-     * @param dbId
+     * @param dbId when load from image, table.getDatabase() will be null, so need dbId as param
      */
     void registerMTMV(MTMV mtmv, Long dbId);
 
@@ -63,16 +55,7 @@ public interface MTMVHookService {
      *
      * @param mtmv
      */
-    void deregisterMTMV(MTMV mtmv);
-
-    /**
-     * triggered when alter mtmv, only once
-     *
-     * @param mtmv
-     * @param alterMTMV
-     * @throws DdlException
-     */
-    void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException;
+    void unregisterMTMV(MTMV mtmv);
 
     /**
      * triggered when refresh mtmv
@@ -102,9 +85,11 @@ public interface MTMVHookService {
     /**
      * Triggered when baseTable is altered
      *
-     * @param table
+     * @param oldTableInfo info before alter
+     * @param newTableInfo info after alter
+     * @param isReplace
      */
-    void alterTable(Table table, String oldTableName);
+    void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace);
 
     /**
      * Triggered when pause mtmv

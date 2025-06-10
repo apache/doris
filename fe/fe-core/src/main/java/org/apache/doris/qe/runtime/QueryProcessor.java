@@ -84,7 +84,11 @@ public class QueryProcessor extends AbstractJobProcessor {
             distinctWorkerJobs.putIfAbsent(topInstance.getAssignedWorker().id(), topInstance);
         }
 
+        boolean regenerateInstanceId = coordinatorContext.connectContext.consumeNeedRegenerateQueryId();
         for (AssignedJob topInstance : distinctWorkerJobs.values()) {
+            if (regenerateInstanceId) {
+                topInstance.resetInstanceId(coordinatorContext.connectContext.nextInstanceId());
+            }
             DistributedPlanWorker topWorker = topInstance.getAssignedWorker();
             TNetworkAddress execBeAddr = new TNetworkAddress(topWorker.host(), topWorker.brpcPort());
             receivers.add(

@@ -20,18 +20,11 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include <string>
-#include <typeinfo>
-#include <unordered_map>
-#include <vector>
-
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/olap_common.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/tablet_fwd.h"
-#include "util/spinlock.h"
 #include "vec/core/block.h"
 
 namespace doris {
