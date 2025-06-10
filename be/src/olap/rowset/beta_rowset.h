@@ -32,6 +32,8 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_schema.h"
+#include "olap/wrapper_field.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris {
 
@@ -91,6 +93,14 @@ public:
     Status show_nested_index_file(rapidjson::Value* rowset_value,
                                   rapidjson::Document::AllocatorType& allocator);
 
+    Status load_segment_rows_and_zone_maps();
+
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows);
+
+    const std::map<uint32_t, std::unique_ptr<Segment::ParsedZoneMap>>& get_zone_maps() const {
+        return _parsed_zone_maps;
+    }
+
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,
                std::string tablet_path);
@@ -109,6 +119,11 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
+
+    DorisCallOnce<Status> _load_segment_rows_and_zone_maps_once;
+    std::vector<uint32_t> _segments_rows;
+
+    std::map<uint32_t, std::unique_ptr<Segment::ParsedZoneMap>> _parsed_zone_maps;
 };
 
 } // namespace doris
