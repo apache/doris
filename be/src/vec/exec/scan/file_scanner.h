@@ -147,14 +147,12 @@ protected:
     std::unordered_map<std::string, size_t> _src_block_name_to_idx;
 
     // Get from GenericReader, save the existing columns in file to their type.
-    std::unordered_map<std::string, DataTypePtr> _name_to_col_type;
+    std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;
     // Get from GenericReader, save columns that required by scan but not exist in file.
     // These columns will be filled by default value or null.
     std::unordered_set<std::string> _missing_cols;
 
-    //  The col names and types of source file, such as parquet, orc files.
-    std::vector<std::string> _source_file_col_names;
-    std::vector<DataTypePtr> _source_file_col_types;
+    // The col lowercase name of source file to type of source file.
     std::map<std::string, DataTypePtr> _source_file_col_name_types;
 
     // For load task

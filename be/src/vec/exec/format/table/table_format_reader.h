@@ -334,7 +334,7 @@ public:
     struct BuildTableInfoUtil {
         // todo : Maybe I can use templates to implement this functionality.
 
-        // for hive parquet
+        // for hive parquet : Use lowercase file column names to match table column names.
         static Status by_parquet_name(const TupleDescriptor* table_tuple_descriptor,
                                       const FieldDescriptor& parquet_field_desc,
                                       std::shared_ptr<TableSchemaChangeHelper::Node>& node);
@@ -344,7 +344,7 @@ public:
                                       const FieldSchema& file_field,
                                       std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
-        // for hive orc
+        // for hive orc: Use lowercase file column names to match table column names.
         static Status by_orc_name(const TupleDescriptor* table_tuple_descriptor,
                                   const orc::Type* orc_type_ptr,
                                   std::shared_ptr<TableSchemaChangeHelper::Node>& node);
@@ -352,7 +352,7 @@ public:
         static Status by_orc_name(const DataTypePtr& table_data_type, const orc::Type* orc_root,
                                   std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
-        // for paimon hudi
+        // for paimon hudi: Use the field id in the `table schema` and `history table schema` to match columns.
         static Status by_table_field_id(const schema::external::TField table_schema,
                                         const schema::external::TField file_schema,
                                         std::shared_ptr<TableSchemaChangeHelper::Node>& node);
@@ -362,7 +362,7 @@ public:
                                         const schema::external::TStructField& file_schema,
                                         std::shared_ptr<TableSchemaChangeHelper::Node>& node);
 
-        //for iceberg parquet
+        //for iceberg parquet: Use the field id in the `table schema` and the parquet file to match columns.
         static Status by_parquet_field_id(const schema::external::TStructField& table_schema,
                                           const FieldDescriptor& parquet_field_desc,
                                           std::shared_ptr<TableSchemaChangeHelper::Node>& node,
@@ -374,7 +374,7 @@ public:
                                           std::shared_ptr<TableSchemaChangeHelper::Node>& node,
                                           bool& exist_field_id);
 
-        // for iceberg orc
+        // for iceberg orc : Use the field id in the `table schema` and the orc file to match columns.
         static Status by_orc_field_id(const schema::external::TStructField& table_schema,
                                       const orc::Type* orc_root,
                                       const std::string& field_id_attribute_key,
