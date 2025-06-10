@@ -81,7 +81,7 @@ TEST_F(PartitionTransformersTest, test_decimal32_truncate_transform) {
 
     Block block({test_decimal32});
     auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
-    DecimalTruncatePartitionColumnTransform<Decimal32> transform(source_type, 50);
+    DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL32> transform(source_type, 50);
 
     auto result = transform.apply(block, 0);
 
@@ -167,7 +167,7 @@ TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
 
     Block block({test_decimal32});
     auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
-    DecimalBucketPartitionColumnTransform<Decimal32> transform(source_type, 16);
+    DecimalBucketPartitionColumnTransform<TYPE_DECIMAL32> transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
 

@@ -614,9 +614,9 @@ DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
 DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
-DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_max, "512");
-DEFINE_Int32(fragment_mgr_asynic_work_pool_queue_size, "4096");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DEFINE_Int32(num_disks, "0");
@@ -714,6 +714,9 @@ DEFINE_mInt32(max_consumer_num_per_group, "3");
 // the max size of thread pool for routine load task.
 // this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 DEFINE_Int32(max_routine_load_thread_pool_size, "1024");
+
+// the timeout of condition variable wait in blocking_get and blocking_put
+DEFINE_mInt32(blocking_queue_cv_wait_timeout_ms, "1000");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
 // default is 20, batch_size's default value is 1024 means 20 * 1024 rows will be cached
@@ -1472,7 +1475,6 @@ DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
 
-DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
 DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
@@ -1499,6 +1501,12 @@ DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
 DEFINE_mBool(enable_calc_delete_bitmap_between_segments_concurrently, "false");
 
 DEFINE_mBool(enable_update_delete_bitmap_kv_check_core, "false");
+
+// the max length of segments key bounds, in bytes
+// ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
+DEFINE_mInt32(segments_key_bounds_truncation_threshold, "-1");
+// ATTENTION: for test only, use random segments key bounds truncation threshold every time
+DEFINE_mBool(random_segments_key_bounds_truncation, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1947,6 +1955,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+
+    std::uniform_int_distribution<int64_t> distribution2(-2, 10);
+    fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
+            std::to_string(distribution2(*generator));
 
     fmt::memory_buffer buf;
     for (auto& it : fuzzy_field_and_value) {

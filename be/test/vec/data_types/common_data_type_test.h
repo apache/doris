@@ -191,12 +191,11 @@ public:
                     << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
                     << " field: " << assert_field.get_type() << std::endl;
         } else {
-            //TODO(gabriel):
-            //            Field field = data_type->get_field(node);
-            //            ASSERT_EQ(field, assert_field)
-            //                    << "get_field_assert: "
-            //                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
-            //                    << " field: " << assert_field.get_type() << std::endl;
+            Field field = data_type->get_field(node);
+            ASSERT_EQ(field, assert_field)
+                    << "get_field_assert: "
+                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
+                    << " field: " << assert_field.get_type() << std::endl;
         }
     }
 
