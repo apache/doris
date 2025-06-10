@@ -488,7 +488,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             // use PrimaryKeyIndexMetaPB in primary key index?
             if (schema->cluster_key_idxes().empty()) {
                 if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
-                                        rs->rowset_meta()->is_segments_key_bounds_truncated())) {
+                                          rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                     continue;
                 }
             }
