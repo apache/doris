@@ -228,6 +228,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTypeCastCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
@@ -686,6 +687,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTriggersCommand(ShowTriggersCommand showTriggersCommand, C context) {
         return visitCommand(showTriggersCommand, context);
+    }
+
+    default R visitShowTypeCastCommand(ShowTypeCastCommand showTypeCastCommand, C context) {
+        return visitCommand(showTypeCastCommand, context);
     }
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
