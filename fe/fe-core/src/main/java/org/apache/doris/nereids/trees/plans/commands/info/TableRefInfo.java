@@ -94,9 +94,11 @@ public class TableRefInfo {
     public TableRef translateToLegacyTableRef() {
         TableName tableName = new TableName(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
         String alias = tableAlias;
-        PartitionNames partitionNames = partitionNamesInfo.translateToLegacyPartitionNames();
+        PartitionNames partitionNames =
+                partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null;
         ArrayList<Long> sampleTabletIds = new ArrayList<>(tabletIdList);
-        org.apache.doris.analysis.TableSample legacyTableSample = tableSample.translateToLegacyTableSample();
+        org.apache.doris.analysis.TableSample legacyTableSample =
+                tableSample != null ? tableSample.translateToLegacyTableSample() : null;
         ArrayList<String> commonHints = new ArrayList<>(relationHints);
         TableSnapshot tableSnapshot = tableSnapShot;
         TableScanParams tableScanParams = scanParams;
