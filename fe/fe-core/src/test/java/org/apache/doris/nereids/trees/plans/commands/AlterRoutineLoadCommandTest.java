@@ -75,15 +75,6 @@ public class AlterRoutineLoadCommandTest {
     @Test
     public void testValidateNormal() throws MetaNotFoundException {
         runBefore();
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(anyString, anyString);
-                minTimes = 0;
-                result = new KafkaRoutineLoadJob();
-            }
-        };
-
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "100");
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, "200000");
