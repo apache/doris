@@ -225,4 +225,20 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     return Status::OK();
 }
 
+Status DataTypeIPv6SerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                const size_t num_rows,
+                                                const uint32_t* indexes) const {
+    const auto& column_ipv6 = assert_cast<const ColumnIPv6&>(column);
+
+    for (size_t i = 0; i != num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+        IPv6Value ipv6_value(column_ipv6.get_element(row_idx));
+        std::string ipv6_str = ipv6_value.to_string();
+        results[i]->writeStartString();
+        results[i]->writeString(ipv6_str);
+        results[i]->writeEndString();
+    }
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

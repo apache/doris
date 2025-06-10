@@ -92,5 +92,28 @@ suite("test_query_json_array", "query") {
     sql """insert into ${tableName} values(4, array(1,2), map(1,2), named_struct('name', 2, 'age',1), '{\"a\":\"b\"}');"""
     sql """insert into ${tableName} values(5, array(1,2,3,3), map(1,2,3,4), named_struct('name',\"a\",'age',1), '{\"a\":\"b\"}');"""
     qt_sql3 "select json_array(k0,k1,k2,k3,k4) from ${tableName} order by k0;"
-    sql "DROP TABLE ${tableName};"
+
+    sql "set enable_decimal256 = true;"
+    sql "DROP TABLE IF EXISTS test_query_json_array_large_numeric;"
+    sql """
+      create table test_query_json_array_large_numeric (
+        k0 int,
+        v1 decimalv3(76, 10),
+        v2 largeint,
+        v3 date,
+        v4 datetime
+      ) distributed by hash(k0) buckets 1 properties("replication_num" = "1");
+    """
+
+    sql """
+      insert into test_query_json_array_large_numeric values
+      (1, 499999999999999999999999999999999999999999999999999999999999999999.9999999999, 18446744073709551616, '2025-06-10 16:47:44', '2025-06-10 16:47:44'),
+      (2, -999999999999999999999999999999999999999999999999999999999999999999.9999999999, -9223372036854775809, null, '2025-06-10 16:47:44'),
+      (3, 12345.0123456789, 18446744073709551615, '2025-06-10 16:47:44', null),
+      (4, 1234567890.0123456789, -9223372036854775808, null, null);
+    """
+
+    qt_select_large_numeric """ 
+      select k0, json_array(k0, v1, v2, v3, v4) from test_query_json_array_large_numeric order by k0;
+    """
 }

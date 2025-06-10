@@ -148,4 +148,21 @@ Status DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::A
     col_data.insert(raw_data, raw_data + row_count);
     return Status::OK();
 }
+
+Status DataTypeIPv4SerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                const size_t num_rows,
+                                                const uint32_t* indexes) const {
+    const auto& column_ipv4 = assert_cast<const ColumnIPv4&>(column);
+
+    for (size_t i = 0; i != num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+        IPv4Value ipv4_value(column_ipv4.get_element(row_idx));
+        std::string ipv4_str = ipv4_value.to_string();
+        results[i]->writeStartString();
+        results[i]->writeString(ipv4_str);
+        results[i]->writeEndString();
+    }
+    return Status::OK();
+}
+
 } // namespace doris::vectorized

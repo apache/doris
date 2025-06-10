@@ -212,5 +212,23 @@ void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& colum
     col.insert_many_vals(val, times);
 }
 
+Status DataTypeDateV2SerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                  const size_t num_rows,
+                                                  const uint32_t* indexes) const {
+    const auto& column_datetime = assert_cast<const ColumnDateV2&>(column);
+    for (uint32_t i = 0; i != num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+        auto value = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+                column_datetime.get_element(row_idx));
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        results[row_idx]->writeStartString();
+        results[row_idx]->writeString(buf, pos - buf - 1);
+        results[row_idx]->writeEndString();
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

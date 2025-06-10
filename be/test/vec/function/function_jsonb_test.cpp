@@ -18,13 +18,17 @@
 #include <stdint.h>
 
 #include <iomanip>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "function_test_util.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/type_limit.h"
 #include "testutil/any_type.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -2120,5 +2124,52 @@ TEST(FunctionJsonbTEST, GetJsonDoubleTest) {
     };
 
     static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+}
+
+TEST(FunctionJsonbTEST, JsonbArrayTest) {
+    std::string func_name = "json_array";
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,  PrimitiveType::TYPE_BOOLEAN,
+                                PrimitiveType::TYPE_LARGEINT, PrimitiveType::TYPE_DECIMAL256,
+                                PrimitiveType::TYPE_IPV4,     PrimitiveType::TYPE_IPV6,
+                                PrimitiveType::TYPE_DATEV2,   PrimitiveType::TYPE_DATETIMEV2,
+                                PrimitiveType::TYPE_TIMEV2};
+
+    DataSet data_set_valid = {
+            {{Null(), Null(), Null(), Null(), Null(), Null(), Null(), Null(), Null()},
+             STRING(R"([null,null,null,null,null,null,null,null,null])")} // complex array
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set_valid));
+
+    //     data_set_valid = {
+    //             {{STRING("abc"), true, LARGEINT(9223372036854775808LU),
+    //               Decimal256(type_limit<vectorized::Decimal256>::max()), STRING("127.0.0.1"),
+    //               STRING("::1"), Null(), Null(), Null()},
+    //              STRING(R"(["abc",true,9223372036854775808,null,null,null,null,null,null])")}};
+
+    //     static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set_valid));
+
+    IPv4 ipv4;
+    std::array<uint8_t, 4> ipv4_bytes = {1, 0, 0, 127};
+    memcpy(&ipv4, ipv4_bytes.data(), sizeof(IPV4));
+    IPV6 ipv6;
+    std::array<uint8_t, 16> ipv6_bytes = {
+            0x02, 0,    0x02, 0xb1, 0,    0,    0,    0,
+            0x10, 0x06, 0xa1, 0,    0x70, 0x1b, 0x01, 0x20}; // 2001:1b70:a1:610::b102:2
+    memcpy(&ipv6, ipv6_bytes.data(), sizeof(IPV6));
+
+    input_types = {PrimitiveType::TYPE_VARCHAR,    PrimitiveType::TYPE_BOOLEAN,
+                   PrimitiveType::TYPE_DECIMAL256, PrimitiveType::TYPE_DECIMAL256,
+                   PrimitiveType::TYPE_IPV4,       PrimitiveType::TYPE_IPV6};
+    data_set_valid = {
+            {{STRING("abc"), uint8(1), Decimal256(type_limit<vectorized::Decimal256>::max()),
+              Decimal256(type_limit<vectorized::Decimal256>::min()), ipv4, ipv6},
+             STRING(R"(["abc",true,1.0E36,-1.0E36,"127.0.0.1","2001:1b70:a1:610::b102:2"])")},
+            {{STRING("abc"), uint8(0), Decimal256(type_limit<vectorized::Decimal256>::max()),
+              Decimal256(type_limit<vectorized::Decimal256>::min()), ipv4, ipv6},
+             STRING(R"(["abc",false,1.0E36,-1.0E36,"127.0.0.1","2001:1b70:a1:610::b102:2"])")},
+    };
+
+    static_cast<void>(check_function<DataTypeJsonb>(func_name, input_types, data_set_valid));
 }
 } // namespace doris::vectorized

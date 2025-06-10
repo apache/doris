@@ -24,6 +24,8 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <cstddef>
+
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "util/jsonb_writer.h"
@@ -433,6 +435,20 @@ public:
             return Status::OK();
         }
         col.insert_data(result.GetString(), result.GetStringLength());
+        return Status::OK();
+    }
+
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override {
+        for (size_t i = 0; i < num_rows; ++i) {
+            auto row_idx = indexes ? indexes[i] : i;
+            const auto& data_ref = assert_cast<const ColumnType&>(column).get_data_at(row_idx);
+            results[row_idx]->writeStartString();
+            results[row_idx]->writeString(reinterpret_cast<const char*>(data_ref.data),
+                                          data_ref.size);
+            results[row_idx]->writeEndString();
+        }
         return Status::OK();
     }
 

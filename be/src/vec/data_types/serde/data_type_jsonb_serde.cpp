@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
+#include "util/jsonb_document.h"
 #include "util/jsonb_parser_simd.h"
 namespace doris {
 namespace vectorized {
@@ -294,5 +295,18 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     }
     return Status::OK();
 }
+
+Status DataTypeJsonbSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                 const size_t num_rows,
+                                                 const uint32_t* indexes) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+        const auto& data_ref = assert_cast<const ColumnString&>(column).get_data_at(row_idx);
+        auto* json_doc = (JsonbDocument*)(data_ref.data);
+        results[row_idx]->writeValue(json_doc->getValue());
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

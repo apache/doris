@@ -31,6 +31,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/runtime/vcsv_transformer.h"
 
@@ -392,6 +393,31 @@ Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
         col.get_null_map_column().get_data().push_back(0);
     }
     return Status::OK();
+}
+
+Status DataTypeNullableSerDe::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                    const size_t num_rows,
+                                                    const uint32_t* indexes) const {
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
+    if (nullable_col.has_null()) {
+        DorisVector<uint32_t> non_null_indexes;
+        non_null_indexes.reserve(num_rows);
+        for (uint32_t i = 0; i != num_rows; ++i) {
+            uint32_t row_idx = indexes ? indexes[i] : i;
+            if (nullable_col.is_null_at(row_idx)) {
+                results[row_idx]->writeNull();
+            } else {
+                non_null_indexes.emplace_back(row_idx);
+            }
+        }
+
+        const auto& nested_column = nullable_col.get_nested_column();
+        return nested_serde->write_column_to_jsonb(nested_column, results, non_null_indexes.size(),
+                                                   non_null_indexes.data());
+    } else {
+        const auto& nested_column = nullable_col.get_nested_column();
+        return nested_serde->write_column_to_jsonb(nested_column, results, num_rows);
+    }
 }
 
 } // namespace vectorized

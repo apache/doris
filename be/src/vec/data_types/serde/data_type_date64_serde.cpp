@@ -360,6 +360,25 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
+template <PrimitiveType T>
+Status DataTypeDate64SerDe<T>::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                     const size_t num_rows,
+                                                     const uint32_t* indexes) const {
+    const auto& column_datetime = assert_cast<const ColumnDateTime&>(column);
+    for (uint32_t i = 0; i != num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+        doris::VecDateTimeValue value =
+                binary_cast<Int64, doris::VecDateTimeValue>(column_datetime.get_element(row_idx));
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        results[row_idx]->writeStartString();
+        results[row_idx]->writeString(buf, pos - buf - 1);
+        results[row_idx]->writeEndString();
+    }
+    return Status::OK();
+}
+
 template class DataTypeDate64SerDe<TYPE_DATE>;
 template class DataTypeDate64SerDe<TYPE_DATETIME>;
 

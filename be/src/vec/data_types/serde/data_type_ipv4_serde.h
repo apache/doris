@@ -61,6 +61,10 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

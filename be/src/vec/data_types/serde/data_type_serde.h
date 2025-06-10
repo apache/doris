@@ -339,6 +339,10 @@ public:
                                          Arena* mem_pool, int32_t col_id,
                                          int64_t row_num) const = 0;
 
+    virtual Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                         const size_t num_rows,
+                                         const uint32_t* indexes = nullptr) const = 0;
+
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer

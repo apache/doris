@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.ArrayList;
@@ -50,10 +49,10 @@ public class JsonArray extends ScalarFunction implements CustomSignature, Always
                 // keep origin type for BE Serialization
                 arguments.add(JsonType.INSTANCE);
             } else {
-                arguments.add(VarcharType.SYSTEM_DEFAULT);
+                arguments.add(getArgumentType(i));
             }
         }
-        return FunctionSignature.of(VarcharType.SYSTEM_DEFAULT, arguments);
+        return FunctionSignature.of(JsonType.INSTANCE, arguments);
     }
 
     /**

@@ -19,11 +19,13 @@
 
 #include <arrow/builder.h>
 
+#include <limits>
 #include <type_traits>
 
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/strings/numbers.h"
+#include "runtime/type_limit.h"
 #include "util/mysql_global.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
@@ -392,6 +394,53 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::DoubleVectorBatch)
     } else if constexpr (T == TYPE_IPV4) { // ipv4
         WRITE_INTEGRAL_COLUMN_TO_ORC(orc::IntVectorBatch)
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                     const size_t num_rows,
+                                                     const uint32_t* indexes) const {
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+        const auto& data_ref = assert_cast<const ColumnType&>(column).get_data_at(row_idx);
+        auto& result = *results[row_idx];
+
+        if constexpr (T == TYPE_TINYINT) {
+            int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
+            result.writeInt8(val);
+        } else if (T == TYPE_BOOLEAN) {
+            int8_t val = *reinterpret_cast<const int8_t*>(data_ref.data);
+            result.writeBool(val != 0);
+        } else if constexpr (T == TYPE_SMALLINT) {
+            int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
+            result.writeInt16(val);
+        } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+            int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+            result.writeInt32(val);
+        } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
+                             T == TYPE_DATETIMEV2) {
+            int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
+            result.writeInt64(val);
+        } else if constexpr (T == TYPE_LARGEINT) {
+            __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
+            if (val > __int128_t(std::numeric_limits<uint64_t>::max()) ||
+                val < __int128_t(std::numeric_limits<int64_t>::min())) {
+                result.writeDouble(static_cast<double>(val));
+            } else {
+                result.writeInt128(val);
+            }
+        } else if constexpr (T == TYPE_FLOAT) {
+            float val = *reinterpret_cast<const float*>(data_ref.data);
+            result.writeFloat(val);
+        } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+            double val = *reinterpret_cast<const double*>(data_ref.data);
+            result.writeDouble(val);
+        } else {
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "write_column_to_jsonb with type " + column.get_name());
+        }
     }
     return Status::OK();
 }

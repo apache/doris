@@ -48,7 +48,6 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
@@ -681,7 +680,7 @@ public class TypeCoercionUtils {
         // TODO: if we have other functions need to add argument after bind and before coercion,
         //  we need to use a new framework to do this.
         // this moved from translate phase to here, because we need to add the type info before cast all args to string
-        if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
+        if (boundFunction instanceof JsonObject) {
             boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
         }
         if (boundFunction instanceof JsonInsert

@@ -27,6 +27,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
@@ -43,6 +44,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -570,6 +572,58 @@ private:
             }
             dst_arr.get_offsets().push_back(dst_nested_column.size());
         } //for
+        return Status::OK();
+    }
+};
+
+class FunctionJsonbArray : public IFunction {
+public:
+    static constexpr auto name = "json_array";
+    static constexpr auto alias = "jsonb_array";
+
+    static FunctionPtr create() { return std::make_shared<FunctionJsonbArray>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeJsonb>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto return_data_type = std::make_shared<DataTypeJsonb>();
+        DorisVector<JsonbWriter*> writers(input_rows_count);
+        DorisVector<JsonbWriter> writers_holder(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            writers[i] = &writers_holder[i];
+            writers[i]->writeStartArray();
+        }
+
+        for (auto argument : arguments) {
+            auto&& [arg_column, _] = unpack_if_const(block.get_by_position(argument).column);
+
+            auto& data_type = block.get_by_position(argument).type;
+            auto serde = data_type->get_serde();
+
+            RETURN_IF_ERROR(
+                    serde->write_column_to_jsonb(*arg_column, writers.data(), input_rows_count));
+        }
+
+        auto column = return_data_type->create_column();
+        column->reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            writers[i]->writeEndArray();
+            column->insert_data(writers[i]->getOutput()->getBuffer(),
+                                writers[i]->getOutput()->getSize());
+        }
+
+        block.get_by_position(result).column = std::move(column);
         return Status::OK();
     }
 };
@@ -1985,6 +2039,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbLength<JsonbLengthAndPathImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsImpl>>();
     factory.register_function<FunctionJsonbContains<JsonbContainsAndPathImpl>>();
+
+    factory.register_function<FunctionJsonbArray>();
 
     factory.register_function<FunctionJsonSearch>();
 }
