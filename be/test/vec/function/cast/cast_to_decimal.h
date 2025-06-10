@@ -20,7 +20,6 @@
 
 #include "cast_test.h"
 #include "common/exception.h"
-#include "olap/olap_common.h"
 #include "testutil/test_util.h"
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
@@ -144,12 +143,29 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     }
 
     template <typename T, int Precision, int Scale>
-    void from_string_test_func(std::ofstream* ofs_const_case,
-                               std::ofstream* ofs_const_expected_result, std::ofstream* ofs_case,
-                               std::ofstream* ofs_expected_result,
-                               const std::string& regression_case_name, int table_index,
-                               int& test_data_index, int ScientificExpShift = 0,
+    void from_string_test_func(int table_index, int& test_data_index, int ScientificExpShift = 0,
                                bool ForceZeroExp = false) {
+        std::unique_ptr<std::ofstream> ofs_const_case_uptr, ofs_const_expected_result_uptr;
+        std::unique_ptr<std::ofstream> ofs_case_uptr, ofs_expected_result_uptr;
+        std::string regression_case_name =
+                fmt::format("test_cast_str_to_{}_{}", to_lower(TypeName<T>::get()), table_index);
+        if (FLAGS_gen_regression_case) {
+            setup_regression_case_output(regression_case_name, ofs_const_case_uptr,
+                                         ofs_const_expected_result_uptr, ofs_case_uptr,
+                                         ofs_expected_result_uptr);
+        }
+        auto* ofs_const_case = ofs_const_case_uptr.get();
+        auto* ofs_const_expected_result = ofs_const_expected_result_uptr.get();
+        auto* ofs_case = ofs_case_uptr.get();
+        auto* ofs_expected_result = ofs_expected_result_uptr.get();
+        if (FLAGS_gen_regression_case) {
+            if constexpr (IsDecimal256<T>) {
+                (*ofs_const_case) << "    sql \"set enable_decimal256 = true;\"\n";
+                (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
+                (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
+            }
+        }
+
         auto table_name =
                 fmt::format("{}_{}_{}_{}", regression_case_name, table_index, Precision, Scale);
         auto dbg_str0 = fmt::format(
@@ -205,7 +221,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             fractional_part.emplace(large_fractional2);
             fractional_part.emplace(large_fractional3);
         }
-        DataTypeDecimal<T> dt(Precision, Scale);
+        DataTypeDecimal<T::PType> dt(Precision, Scale);
         std::vector<std::string> const_test_strs;
         std::vector<std::string> const_test_expected_results;
 
@@ -271,11 +287,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 };
                 table_test_with_strict_arg(true);
                 table_test_with_strict_arg(false);
+                (*ofs_const_case) << "}";
+                (*ofs_case) << "}";
             }
         }};
         auto add_regression_cases = [&](const std::string& v_str,
                                         const std::string& expected_result, bool is_negative) {
-            const_test_strs.emplace_back(is_negative ? "-" : "" + v_str);
+            const_test_strs.emplace_back((is_negative ? "-" : "") + v_str);
             const_test_expected_results.emplace_back(expected_result);
 
             table_test_insert_values.emplace_back(
@@ -292,10 +310,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             std::string v_str = fmt::format("0.{:0{}}e{}", 0, 100, std::numeric_limits<int>::max());
             format_decimal_number_func(dt, data_set, dbg_str, v_str, v, false, false, false, false);
             format_decimal_number_func(dt, data_set, dbg_str, v_str, v, true, false, false, false);
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
-                                                                                data_set);
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
-                                                                                 data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(input_types,
+                                                                                       data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, false>(input_types,
+                                                                                        data_set);
             if (FLAGS_gen_regression_case) {
                 auto expected_result = dt.to_string(v);
                 add_regression_cases(v_str, expected_result, false);
@@ -343,10 +361,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 }
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
-                                                                                data_set);
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
-                                                                                 data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(input_types,
+                                                                                       data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, false>(input_types,
+                                                                                        data_set);
         };
         auto only_int_part_round_test_func = [&](bool is_negative, bool test_rounding) {
             std::string dbg_str = fmt::format("{}, only int part, round: ", dbg_str0);
@@ -369,10 +387,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 }
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
-                                                                                data_set);
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
-                                                                                 data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(input_types,
+                                                                                       data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, false>(input_types,
+                                                                                        data_set);
         };
 
         auto only_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
@@ -431,10 +449,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 }
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
-                                                                                data_set);
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
-                                                                                 data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(input_types,
+                                                                                       data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, false>(input_types,
+                                                                                        data_set);
         };
 
         if constexpr (Scale == 0) {
@@ -566,10 +584,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     }
                 }
                 std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(input_types,
-                                                                                    data_set);
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
-                                                                                     data_set);
+                check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(
+                        input_types, data_set);
+                check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, false>(
+                        input_types, data_set);
             }
         };
         both_int_and_fraction_part_test_func(false, false);
@@ -751,12 +769,12 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                         [&](auto enable_strict_cast) {
                             if constexpr (enable_strict_cast) {
                                 data_set.push_back({{v_str}, T {}});
-                                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
+                                check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision,
                                                         enable_strict_cast>(input_types, data_set,
                                                                             true, true);
                             } else {
                                 data_set.push_back({{v_str}, Null()});
-                                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
+                                check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision,
                                                         enable_strict_cast>(input_types, data_set);
                             }
                         },
@@ -793,7 +811,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     [&](auto enable_strict_cast) {
                         if constexpr (enable_strict_cast) {
                             data_set.push_back({{v_str}, T {}});
-                            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
+                            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision,
                                                     enable_strict_cast>(input_types, data_set, true,
                                                                         true);
                         } else {
@@ -801,7 +819,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                 overflow_strs.emplace(v_str);
                             }
                             data_set.push_back({{v_str}, Null()});
-                            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
+                            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision,
                                                     enable_strict_cast>(input_types, data_set);
                         }
                     },
@@ -1101,15 +1119,15 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             for (const auto& input : invalid_inputs) {
                 data_set.push_back({{input}, Null()});
             }
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, false>(input_types,
-                                                                                 data_set);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, false>(input_types,
+                                                                                        data_set);
         }
 
         // strict mode
         for (const auto& input : invalid_inputs) {
             DataSet data_set;
             data_set.push_back({{input}, Null()});
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(
                     input_types, data_set, true, true);
         }
     }
@@ -1122,13 +1140,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 {{UInt8 {0}}, decimal_ctor(0, 0, Scale)},
                 {{UInt8 {1}}, decimal_ctor(1, 0, Scale)},
         };
-        check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
+        check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision>(input_types, data_set);
     }
 
     template <typename T>
     void from_bool_overflow_test_func() {
         InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
-        constexpr auto max_decimal_p = max_decimal_precision<T>();
+        constexpr auto max_decimal_p = max_decimal_precision<T::PType>();
         auto decimal_ctor = get_decimal_ctor<T>();
         // non strict mode
         {
@@ -1136,7 +1154,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     {{UInt8 {0}}, decimal_ctor(0, 0, max_decimal_p)},
                     {{UInt8 {1}}, Null()},
             };
-            check_function_for_cast<DataTypeDecimal<T>, max_decimal_p, max_decimal_p, false>(
+            check_function_for_cast<DataTypeDecimal<T::PType>, max_decimal_p, max_decimal_p, false>(
                     input_types, data_set);
         }
         // strict mode
@@ -1144,15 +1162,16 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             DataSet data_set = {
                     {{UInt8 {0}}, decimal_ctor(0, 0, max_decimal_p)},
             };
-            check_function_for_cast<DataTypeDecimal<T>, max_decimal_p, max_decimal_p, true>(
+            check_function_for_cast<DataTypeDecimal<T::PType>, max_decimal_p, max_decimal_p, true>(
                     input_types, data_set);
         }
         {
             DataSet data_set = {
                     {{UInt8 {1}}, Null {}},
             };
-            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, max_decimal_p, max_decimal_p,
-                                                  true>(input_types, data_set, true, true)),
+            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T::PType>, max_decimal_p,
+                                                  max_decimal_p, true>(input_types, data_set, true,
+                                                                       true)),
                          Exception);
         }
     }
@@ -1213,22 +1232,22 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                     decimal_ctor(decimal_large_integral3, 0, Scale)});
             }
         }
-        check_function_for_cast<DataTypeDecimal<ToT>, Scale, Precision, false>(input_types,
-                                                                               data_set);
-        check_function_for_cast<DataTypeDecimal<ToT>, Scale, Precision, true>(input_types,
-                                                                              data_set);
+        check_function_for_cast<DataTypeDecimal<ToT::PType>, Scale, Precision, false>(input_types,
+                                                                                      data_set);
+        check_function_for_cast<DataTypeDecimal<ToT::PType>, Scale, Precision, true>(input_types,
+                                                                                     data_set);
     }
     template <typename DecimalType>
     void from_int_test_func() {
         from_int_test_func_<TYPE_TINYINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_test_func_<TYPE_TINYINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_TINYINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_TINYINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_test_func_<TYPE_TINYINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_TINYINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_TINYINT, DecimalType, p, p - 1>();
@@ -1236,13 +1255,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_test_func_<TYPE_SMALLINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_test_func_<TYPE_SMALLINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_test_func_<TYPE_SMALLINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_SMALLINT, DecimalType, p, p - 1>();
@@ -1250,13 +1269,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_test_func_<TYPE_INT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_test_func_<TYPE_INT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_INT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_INT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_test_func_<TYPE_INT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_INT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_INT, DecimalType, p, p - 1>();
@@ -1264,13 +1283,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_test_func_<TYPE_BIGINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_test_func_<TYPE_BIGINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_BIGINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_BIGINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_test_func_<TYPE_BIGINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_BIGINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_BIGINT, DecimalType, p, p - 1>();
@@ -1278,13 +1297,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_test_func_<TYPE_LARGEINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_test_func_<TYPE_LARGEINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_test_func_<TYPE_LARGEINT, DecimalType, p, 0>();
             from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p / 2>();
             from_int_test_func_<TYPE_LARGEINT, DecimalType, p, p - 1>();
@@ -1319,18 +1338,17 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 for (auto i : test_input_vals) {
                     data_set.push_back({{i}, Null()});
                 }
-                check_function_for_cast<DataTypeDecimal<ToT>, Scale, Precision, false>(input_types,
-                                                                                       data_set);
+                check_function_for_cast<DataTypeDecimal<ToT::PType>, Scale, Precision, false>(
+                        input_types, data_set);
             }
             // strict mode
             {
                 for (auto i : test_input_vals) {
                     DataSet data_set;
                     data_set.push_back({{i}, Null()});
-                    EXPECT_THROW(
-                            (check_function_for_cast<DataTypeDecimal<ToT>, Scale, Precision, true>(
-                                    input_types, data_set)),
-                            Exception);
+                    EXPECT_THROW((check_function_for_cast<DataTypeDecimal<ToT::PType>, Scale,
+                                                          Precision, true>(input_types, data_set)),
+                                 Exception);
                 }
             }
         }
@@ -1339,13 +1357,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     void from_int_overflow_test_func() {
         from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_TINYINT, DecimalType, p, p - 1>();
@@ -1353,13 +1371,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_SMALLINT, DecimalType, p, p - 1>();
@@ -1367,13 +1385,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_overflow_test_func_<TYPE_INT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_overflow_test_func_<TYPE_INT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_INT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_INT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_overflow_test_func_<TYPE_INT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_INT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_INT, DecimalType, p, p - 1>();
@@ -1381,13 +1399,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_BIGINT, DecimalType, p, p - 1>();
@@ -1395,13 +1413,13 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, 1, 0>();
         {
-            constexpr int p = max_decimal_precision<DecimalType>() / 2;
+            constexpr int p = max_decimal_precision<DecimalType::PType>() / 2;
             from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, p, p - 1>();
         }
         {
-            constexpr int p = max_decimal_precision<DecimalType>();
+            constexpr int p = max_decimal_precision<DecimalType::PType>();
             from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, p, 0>();
             from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, p, p / 2>();
             from_int_overflow_test_func_<TYPE_LARGEINT, DecimalType, p, p - 1>();
@@ -1462,7 +1480,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             fractional_part.emplace(large_fractional2);
             fractional_part.emplace(large_fractional3);
         }
-        DataTypeDecimal<T> dt_to(Precision, Scale);
+        DataTypeDecimal<T::PType> dt_to(Precision, Scale);
         auto max_result = dt_to.get_max_digits_number(Precision);
         auto min_result = -max_result;
 
@@ -1509,7 +1527,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     float_value = is_negative ? -float_value : float_value;
                     FromT expect_value = float_value * multiplier.value;
                     if (expect_value <= FromT(min_result) || expect_value >= FromT(max_result)) {
-                        std::cerr << fmt::format("{:f} overflow", expect_value);
+                        std::cerr << fmt::format("{:f} overflow\n", expect_value);
                     } else {
                         T v {};
                         v.value = typename T::NativeType(FromT(float_value * multiplier.value +
@@ -1519,8 +1537,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     }
                 }
                 std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                              data_set);
+                check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision>(input_types,
+                                                                                     data_set);
             }
         };
         both_int_and_fraction_part_test_func(false, false);
@@ -1548,7 +1566,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         std::cout << "max_fractional:\t" << fmt::format("{}", max_fractional) << std::endl;
         std::set<typename T::NativeType> integral_part = {max_integral, max_integral + 1};
         std::set<typename T::NativeType> fractional_part = {max_fractional};
-        DataTypeDecimal<T> dt_to(Precision, Scale);
+        DataTypeDecimal<T::PType> dt_to(Precision, Scale);
 
         auto both_int_and_fraction_part_test_func = [&]() {
             std::string dbg_str0 =
@@ -1581,17 +1599,17 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     {
                         DataSet data_set_tmp;
                         data_set_tmp.push_back({{float_value}, Null()});
-                        EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
-                                                              true>(input_types, data_set_tmp, true,
-                                                                    true)),
+                        EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T::PType>, Scale,
+                                                              Precision, true>(
+                                             input_types, data_set_tmp, true, true)),
                                      Exception);
                     }
                     {
                         DataSet data_set_tmp;
                         data_set_tmp.push_back({{-float_value}, Null()});
-                        EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision,
-                                                              true>(input_types, data_set_tmp, true,
-                                                                    true)),
+                        EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T::PType>, Scale,
+                                                              Precision, true>(
+                                             input_types, data_set_tmp, true, true)),
                                      Exception);
                     }
                     data_set.push_back({{float_value}, Null()});
@@ -1599,8 +1617,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     dbg_str += fmt::format("{:f}|", float_value);
                 }
                 std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                              data_set);
+                check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision>(input_types,
+                                                                                     data_set);
             }
         };
         both_int_and_fraction_part_test_func();
@@ -1610,42 +1628,46 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             DataSet data_set_tmp;
             data_set_tmp.push_back({{std::numeric_limits<FromT>::infinity()}, Null()});
             data_set_tmp.push_back({{-std::numeric_limits<FromT>::infinity()}, Null()});
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                          data_set_tmp);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision>(input_types,
+                                                                                 data_set_tmp);
         }
         {
             DataSet data_set_tmp;
             data_set_tmp.push_back({{std::numeric_limits<FromT>::infinity()}, Null()});
-            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(
-                                 input_types, data_set_tmp, true, true)),
-                         Exception);
+            EXPECT_THROW(
+                    (check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(
+                            input_types, data_set_tmp, true, true)),
+                    Exception);
 
             data_set_tmp.clear();
             data_set_tmp.push_back({{-std::numeric_limits<FromT>::infinity()}, Null()});
-            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(
-                                 input_types, data_set_tmp, true, true)),
-                         Exception);
+            EXPECT_THROW(
+                    (check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(
+                            input_types, data_set_tmp, true, true)),
+                    Exception);
         }
         // test +-nan
         {
             DataSet data_set_tmp;
             data_set_tmp.push_back({{std::numeric_limits<FromT>::quiet_NaN()}, Null()});
             data_set_tmp.push_back({{-std::numeric_limits<FromT>::quiet_NaN()}, Null()});
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                          data_set_tmp);
+            check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision>(input_types,
+                                                                                 data_set_tmp);
         }
         {
             DataSet data_set_tmp;
             data_set_tmp.push_back({{std::numeric_limits<FromT>::quiet_NaN()}, Null()});
-            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(
-                                 input_types, data_set_tmp, true, true)),
-                         Exception);
+            EXPECT_THROW(
+                    (check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(
+                            input_types, data_set_tmp, true, true)),
+                    Exception);
 
             data_set_tmp.clear();
             data_set_tmp.push_back({{-std::numeric_limits<FromT>::quiet_NaN()}, Null()});
-            EXPECT_THROW((check_function_for_cast<DataTypeDecimal<T>, Scale, Precision, true>(
-                                 input_types, data_set_tmp, true, true)),
-                         Exception);
+            EXPECT_THROW(
+                    (check_function_for_cast<DataTypeDecimal<T::PType>, Scale, Precision, true>(
+                            input_types, data_set_tmp, true, true)),
+                    Exception);
         }
     }
 
@@ -1658,15 +1680,16 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 "===============test cast {}({}, {}) to {}({}, {}): ", TypeName<FromT>::get(),
                 FromPrecision, FromScale, TypeName<ToT>::get(), ToPrecision, ToScale);
         std::cout << dbg_str0 << std::endl;
-        static_assert(FromPrecision <= max_decimal_precision<FromT>() && FromScale <= FromPrecision,
+        static_assert(FromPrecision <= max_decimal_precision<FromT::PType>() &&
+                              FromScale <= FromPrecision,
                       "Wrong from precision or scale");
-        static_assert(ToPrecision <= max_decimal_precision<ToT>() && ToScale <= ToPrecision,
+        static_assert(ToPrecision <= max_decimal_precision<ToT::PType>() && ToScale <= ToPrecision,
                       "Wrong to precision or scale");
         constexpr auto max_from_int_digit_count = FromPrecision - FromScale;
         constexpr auto max_to_int_digit_count = ToPrecision - ToScale;
 
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
-        DataTypeDecimal<ToT> dt_to(ToPrecision, ToScale);
+        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<ToT::PType> dt_to(ToPrecision, ToScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto from_decimal_ctor = get_decimal_ctor<FromT>();
         auto to_decimal_ctor = get_decimal_ctor<ToT>();
@@ -1874,14 +1897,14 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 }
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<ToT>, ToScale, ToPrecision>(input_types,
-                                                                                data_set);
+            check_function_for_cast<DataTypeDecimal<ToT::PType>, ToScale, ToPrecision>(input_types,
+                                                                                       data_set);
         }
     }
     // test all case with a target Decimal type with fixed precision and scale
     template <typename FromT, typename ToT, int ToPrecision, int ToScale>
     void between_decimals_with_to_p_and_s_test_func() {
-        constexpr auto from_max_decimal_p = max_decimal_precision<FromT>();
+        constexpr auto from_max_decimal_p = max_decimal_precision<FromT::PType>();
         constexpr auto from_min_decimal_p =
                 std::is_same_v<FromT, Decimal32>
                         ? 1
@@ -1918,7 +1941,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     // test all cases casting to a fixed target Decimal, with all possible target precisions and scales
     template <typename FromT, typename ToT>
     void between_decimal_test_func() {
-        constexpr auto to_max_decimal_p = max_decimal_precision<ToT>();
+        constexpr auto to_max_decimal_p = max_decimal_precision<ToT::PType>();
         constexpr auto to_min_decimal_p =
                 std::is_same_v<ToT, Decimal32>
                         ? 1
@@ -1958,15 +1981,16 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                             TypeName<FromT>::get(), FromPrecision, FromScale, TypeName<ToT>::get(),
                             ToPrecision, ToScale);
         std::cout << dbg_str0 << std::endl;
-        static_assert(FromPrecision <= max_decimal_precision<FromT>() && FromScale <= FromPrecision,
+        static_assert(FromPrecision <= max_decimal_precision<FromT::PType>() &&
+                              FromScale <= FromPrecision,
                       "Wrong from precision or scale");
-        static_assert(ToPrecision <= max_decimal_precision<ToT>() && ToScale <= ToPrecision,
+        static_assert(ToPrecision <= max_decimal_precision<ToT::PType>() && ToScale <= ToPrecision,
                       "Wrong to precision or scale");
         constexpr auto max_from_int_digit_count = FromPrecision - FromScale;
         constexpr auto max_to_int_digit_count = ToPrecision - ToScale;
 
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
-        DataTypeDecimal<ToT> dt_to(ToPrecision, ToScale);
+        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<ToT::PType> dt_to(ToPrecision, ToScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto from_decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -2040,10 +2064,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     // strict mode
                     DataSet data_set_tmp;
                     data_set_tmp.push_back({{from_decimal_num}, Null()});
-                    EXPECT_THROW(
-                            (check_function_for_cast<DataTypeDecimal<ToT>, ToScale, ToPrecision,
-                                                     true>(input_types, data_set, true, true)),
-                            Exception);
+                    EXPECT_THROW((check_function_for_cast<DataTypeDecimal<ToT::PType>, ToScale,
+                                                          ToPrecision, true>(input_types, data_set,
+                                                                             true, true)),
+                                 Exception);
                 }
                 if (FromScale > ToScale) {
                     auto scale_multiplier = decimal_scale_multiplier<typename FromT::NativeType>(
@@ -2058,23 +2082,23 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                         // strict mode
                         DataSet data_set_tmp;
                         data_set_tmp.push_back({{from_decimal_num}, Null()});
-                        EXPECT_THROW(
-                                (check_function_for_cast<DataTypeDecimal<ToT>, ToScale, ToPrecision,
-                                                         true>(input_types, data_set, true, true)),
-                                Exception);
+                        EXPECT_THROW((check_function_for_cast<DataTypeDecimal<ToT::PType>, ToScale,
+                                                              ToPrecision, true>(
+                                             input_types, data_set, true, true)),
+                                     Exception);
                     }
                 }
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<ToT>, ToScale, ToPrecision>(input_types,
-                                                                                data_set);
+            check_function_for_cast<DataTypeDecimal<ToT::PType>, ToScale, ToPrecision>(input_types,
+                                                                                       data_set);
         }
     }
 
     // test all case with a target Decimal type with fixed precision and scale
     template <typename FromT, typename ToT, int ToPrecision, int ToScale>
     void between_decimals_with_to_p_and_s_overflow_test_func() {
-        constexpr auto from_max_decimal_p = max_decimal_precision<FromT>();
+        constexpr auto from_max_decimal_p = max_decimal_precision<FromT::PType>();
         constexpr auto from_min_decimal_p =
                 std::is_same_v<FromT, Decimal32>
                         ? 1
@@ -2110,7 +2134,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     }
     template <typename FromT, typename ToT>
     void between_decimal_overflow_test_func() {
-        constexpr auto to_max_decimal_p = max_decimal_precision<ToT>();
+        constexpr auto to_max_decimal_p = max_decimal_precision<ToT::PType>();
         constexpr auto to_min_decimal_p =
                 std::is_same_v<ToT, Decimal32>
                         ? 1

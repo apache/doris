@@ -305,13 +305,10 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
     } else if constexpr (T == TYPE_LARGEINT) {
         buf_ret = result.push_largeint(data[col_index]);
     } else if constexpr (T == TYPE_FLOAT) {
-        if (std::isnan(data[col_index])) {
-            // Handle NaN for float, we should push null value
-            buf_ret = result.push_null();
-        } else {
-            buf_ret = result.push_float(data[col_index]);
-        }
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
+        buf_ret = result.push_float(data[col_index]);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        buf_ret = result.push_double(data[col_index]);
+    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
         if (std::isnan(data[col_index])) {
             // Handle NaN for double, we should push null value
             buf_ret = result.push_null();

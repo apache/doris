@@ -21,8 +21,10 @@
 #include <vector>
 
 #include "cast_test.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "testutil/column_helper.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -55,7 +57,7 @@ struct ColumnArrayBuilder {
     ColumnWithTypeAndName build() {
         auto nested_column =
                 ColumnHelper::create_nullable_column<DataType>(nested_values, nested_null_map);
-        auto offsets_column = ColumnHelper::create_column_offsets<uint64_t>(offsets);
+        auto offsets_column = ColumnHelper::create_column_offsets<TYPE_UINT64>(offsets);
         auto col_array = ColumnArray::create(std::move(nested_column), offsets_column);
         auto col_null_map = ColumnHelper::create_column<DataTypeUInt8>(null_map);
         auto col_nullable = ColumnNullable::create(std::move(col_array), std::move(col_null_map));

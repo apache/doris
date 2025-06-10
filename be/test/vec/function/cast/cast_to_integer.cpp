@@ -1380,7 +1380,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
         //                       FromPrecision - FromScale < NumberTraits::max_ascii_len<ToT>(),
         //               "Decimal integral part must be less than integer max ascii len");
 
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -1460,7 +1460,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                                    from_large_fractional1,
                                                                    from_large_fractional2,
                                                                    from_large_fractional3};
-        DataTypeDecimal<FromT> dt(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
         DataSet data_set;
         std::string dbg_str = fmt::format("test cast {}({}, {}) to {}: ", TypeName<FromT>::get(),
                                           FromPrecision, FromScale, dt_to.get_family_name());
@@ -1532,7 +1532,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
 
     template <typename FromT, PrimitiveType ToT>
     void from_decimal_to_int_test_func() {
-        constexpr auto max_decimal_pre = max_decimal_precision<FromT>();
+        constexpr auto max_decimal_pre = max_decimal_precision<FromT::PType>();
         constexpr auto min_decimal_pre =
                 std::is_same_v<FromT, Decimal32>
                         ? 1
@@ -1571,7 +1571,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
             return;
         }
 
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -1628,7 +1628,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
                                                                    from_large_fractional1,
                                                                    from_large_fractional2,
                                                                    from_large_fractional3};
-        DataTypeDecimal<FromT> dt(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
         std::string dbg_str = fmt::format("test cast {}({}, {}) to {}: ", TypeName<FromT>::get(),
                                           FromPrecision, FromScale, dt_to.get_family_name());
 
@@ -1700,7 +1700,7 @@ struct FunctionCastToIntTest : public FunctionCastTest {
 
     template <typename FromT, PrimitiveType ToT>
     void from_decimal_to_int_overflow_test_func() {
-        constexpr auto max_decimal_pre = max_decimal_precision<FromT>();
+        constexpr auto max_decimal_pre = max_decimal_precision<FromT::PType>();
         constexpr auto min_decimal_pre =
                 std::is_same_v<FromT, Decimal32>
                         ? 1

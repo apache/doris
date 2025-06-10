@@ -406,14 +406,15 @@ int FloatToBuffer(float value, int width, char* buffer) {
     return snprintf_result;
 }
 
+// refer to: https://en.cppreference.com/w/cpp/types/numeric_limits/max_digits10.html
 int FastDoubleToBuffer(double value, char* buffer) {
-    auto end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
+    auto end = fmt::format_to(buffer, FMT_COMPILE("{:.17g}"), value);
     *end = '\0';
     return end - buffer;
 }
 
 int FastFloatToBuffer(float value, char* buffer) {
-    auto* end = fmt::format_to(buffer, FMT_COMPILE("{}"), value);
+    auto* end = fmt::format_to(buffer, FMT_COMPILE("{:.9g}"), value);
     *end = '\0';
     return end - buffer;
 }

@@ -19,6 +19,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <string>
 #include <type_traits>
 
 #include "cast_test.h"
@@ -368,7 +369,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
         test_strs.emplace_back(fmt::format("{}", std::numeric_limits<FloatType>::min()));
         test_strs.emplace_back(fmt::format("{}", std::numeric_limits<FloatType>::denorm_min()));
 
-        std::vector<std::pair<std::string, FloatType>> data_pairs;
+        std::vector<std::pair<std::string, std::string>> data_pairs;
         std::string table_test_expected_results;
         int data_index = 0;
         auto test_func = [&](bool is_negative) {
@@ -384,12 +385,13 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                     v = -v;
                 }
                 if (FLAGS_gen_regression_case) {
+                    std::string out_str = fmt::format("{}", v);
+                    table_test_expected_results += fmt::format("{}\t{}\n", data_index++, out_str);
                     if (is_negative) {
-                        data_pairs.emplace_back("-" + v_str, v);
+                        data_pairs.emplace_back("-" + v_str, out_str);
                     } else {
-                        data_pairs.emplace_back(v_str, v);
+                        data_pairs.emplace_back(v_str, out_str);
                     }
-                    table_test_expected_results += fmt::format("{}\t{}\n", data_index++, v);
                 }
                 format_decimal_number_func(data_set, v_str, v, is_negative, true, true, true);
                 // test leading and trailing spaces and sign
@@ -435,6 +437,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
                     "    sql \"create table {}(f1 int, f2 string) "
                     "properties('replication_num'='1');\"\n",
                     table_name);
+            (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
 
             auto value_count = data_pairs.size();
             auto const_test_with_strict_arg = [&](bool enable_strict_cast) {
@@ -528,6 +531,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             auto* ofs_expected_result = ofs_expected_result_uptr.get();
 
             auto table_name = fmt::format("{}_{}", regression_case_name, table_index);
+            (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
             (*ofs_case) << fmt::format("    sql \"drop table if exists {};\"\n", table_name);
             (*ofs_case) << fmt::format(
                     "    sql \"create table {}(f1 int, f2 string) "
@@ -781,6 +785,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             auto value_count = regression_invalid_inputs.size();
             int i = 0;
             auto groovy_var_name = fmt::format("{}_strs", regression_case_name);
+            (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
             (*ofs_const_case) << fmt::format("    def {} = [", groovy_var_name);
             for (const auto& str : regression_invalid_inputs) {
                 (*ofs_const_case) << fmt::format(R"("""{}""")", str);
@@ -968,7 +973,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
     void from_decimalv3_no_overflow_test_func() {
         static_assert(IsDecimalNumber<FromT>, "FromT must be a decimal type");
         using FloatType = typename PrimitiveTypeTraits<FloatPType>::CppType;
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt_from(FromPrecision, FromScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto decimal_ctor = get_decimal_ctor<FromT>();
 
@@ -1024,7 +1029,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
             fractional_part.emplace(large_fractional2);
             fractional_part.emplace(large_fractional3);
         }
-        DataTypeDecimal<FromT> dt(FromPrecision, FromScale);
+        DataTypeDecimal<FromT::PType> dt(FromPrecision, FromScale);
         DataSet data_set;
         std::string dbg_str =
                 fmt::format("test cast {}({}, {}) to {}: ", TypeName<FromT>::get(), FromPrecision,
@@ -1121,7 +1126,7 @@ struct FunctionCastToFloatTest : public FunctionCastTest {
 
     template <typename FromT, PrimitiveType ToPT, bool enable_strict_cast>
     void from_decimal_test_func() {
-        constexpr auto max_decimal_pre = max_decimal_precision<FromT>();
+        constexpr auto max_decimal_pre = max_decimal_precision<FromT::PType>();
         constexpr auto min_decimal_pre =
                 std::is_same_v<FromT, Decimal32>
                         ? 1

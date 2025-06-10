@@ -21,6 +21,7 @@ suite("test_cast_str_to_float_overflow_const") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.test_from_string --gen_regression_case
+    sql "set debug_skip_fold_constant = true;"
     sql "set enable_strict_cast=true;"
     qt_sql_0_strict """select "1.89769e+308", cast("1.89769e+308" as float);"""
     qt_sql_1_strict """select "-1.89769e+308", cast("-1.89769e+308" as float);"""

@@ -47,8 +47,8 @@ void FunctionCastToDecimalTest::from_string_to_decimal256_overflow_test_func() {
     auto* ofs_expected_result = ofs_expected_result_uptr.get();
 
     if (FLAGS_gen_regression_case) {
-        (*ofs_const_case) << "sql \"set enable_decimal256 = true;\"";
-        (*ofs_case) << "sql \"set enable_decimal256 = true;\"";
+        (*ofs_const_case) << "    sql \"set enable_decimal256 = true;\"\n";
+        (*ofs_case) << "    sql \"set enable_decimal256 = true;\"\n";
     }
 
     from_string_overflow_test_func<Decimal256, 76, 0>(

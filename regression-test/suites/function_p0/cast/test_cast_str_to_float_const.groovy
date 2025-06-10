@@ -21,6 +21,7 @@ suite("test_cast_str_to_float_const") {
     // This test case is generated from the correspoinding be UT test case,
     // update this case if the correspoinding be UT test case is updated,
     // e.g.: ../run-be-ut.sh --run --filter=FunctionCastToDecimalTest.test_from_string --gen_regression_case
+    sql "set debug_skip_fold_constant = true;"
     sql "set enable_strict_cast=true;"
     qt_sql_0_strict """select "0", cast("0" as float);"""
     qt_sql_1_strict """select "1", cast("1" as float);"""
@@ -76,6 +77,7 @@ suite("test_cast_str_to_float_const") {
     qt_sql_51_strict """select "Infinity", cast("Infinity" as float);"""
     qt_sql_52_strict """select "INFINITY", cast("INFINITY" as float);"""
     qt_sql_53_strict """select "3.4028235e+38", cast("3.4028235e+38" as float);"""
+    // java print cause slight precision difference
     qt_sql_54_strict """select "1.1754944e-38", cast("1.1754944e-38" as float);"""
     qt_sql_55_strict """select "1e-45", cast("1e-45" as float);"""
     qt_sql_56_strict """select "-0", cast("-0" as float);"""
