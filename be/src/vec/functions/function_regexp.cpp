@@ -152,7 +152,6 @@ public:
         return Status::OK();
     }
 
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
