@@ -142,11 +142,13 @@ import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultComma
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
@@ -265,6 +267,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -562,6 +565,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showAuthorsCommand, context);
     }
 
+    default R visitShowAlterTableCommand(ShowAlterTableCommand showAlterTableCommand, C context) {
+        return visitCommand(showAlterTableCommand, context);
+    }
+
     default R visitShowDictionariesCommand(ShowDictionariesCommand showDictionariesCommand, C context) {
         return visitCommand(showDictionariesCommand, context);
     }
@@ -829,6 +836,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowBrokerCommand(ShowBrokerCommand showBrokerCommand, C context) {
         return visitCommand(showBrokerCommand, context);
+    }
+
+    default R visitShowBuildIndexCommand(ShowBuildIndexCommand showBuildIndexCommand, C context) {
+        return visitCommand(showBuildIndexCommand, context);
     }
 
     default R visitShowLoadCommand(ShowLoadCommand showLoadCommand, C context) {
@@ -1216,6 +1227,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitBackupCommand(BackupCommand backupCommand, C context) {
         return visitCommand(backupCommand, context);
+    }
+
+    default R visitRefreshLdapCommand(RefreshLdapCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitCreateStageCommand(CreateStageCommand createStageCommand, C context) {

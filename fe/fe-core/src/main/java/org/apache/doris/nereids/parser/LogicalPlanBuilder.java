@@ -321,11 +321,13 @@ import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowAllPropertiesContext;
+import org.apache.doris.nereids.DorisParser.ShowAlterTableContext;
 import org.apache.doris.nereids.DorisParser.ShowAnalyzeContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackupContext;
 import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
+import org.apache.doris.nereids.DorisParser.ShowBuildIndexContext;
 import org.apache.doris.nereids.DorisParser.ShowCatalogRecycleBinContext;
 import org.apache.doris.nereids.DorisParser.ShowCharsetContext;
 import org.apache.doris.nereids.DorisParser.ShowClustersContext;
@@ -688,11 +690,13 @@ import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultComma
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCharsetCommand;
@@ -922,6 +926,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.SyncJobName;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -6045,6 +6050,39 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowBuildIndex(ShowBuildIndexContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        return new ShowBuildIndexCommand(dbName, wildWhere, orderKeys, limit, offset);
+    }
+
+    @Override
     public LogicalPlan visitDropRole(DropRoleContext ctx) {
         String roleName = stripQuotes(ctx.name.getText());
         return new DropRoleCommand(roleName, ctx.EXISTS() != null);
@@ -6550,6 +6588,59 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String stateKey = ctx.stateKey == null ? null : stripQuotes(ctx.stateKey.getText());
         String stateValue = ctx.stateValue == null ? null : stripQuotes(ctx.stateValue.getText());
         return new ShowAnalyzeCommand(tableName, jobId, stateKey, stateValue, isAuto);
+    }
+
+    @Override
+    public LogicalPlan visitShowAlterTable(ShowAlterTableContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        List<OrderKey> orderKeys = null;
+        long limit = -1L;
+        long offset = 0L;
+
+        ShowAlterTableCommand.AlterType alterType;
+        if (ctx.ROLLUP() != null) {
+            alterType = ShowAlterTableCommand.AlterType.ROLLUP;
+        } else if (ctx.MATERIALIZED() != null && ctx.VIEW() != null) {
+            alterType = ShowAlterTableCommand.AlterType.MV;
+        } else if (ctx.COLUMN() != null) {
+            alterType = ShowAlterTableCommand.AlterType.COLUMN;
+        } else {
+            throw new AnalysisException("invalid ShowOpType, it must be one of 'ROLLUP',"
+                + "'MATERIALIZED VIEW' or 'COLUMN'");
+        }
+
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+        if (ctx.sortClause() != null) {
+            orderKeys = visit(ctx.sortClause().sortItem(), OrderKey.class);
+        }
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        return new ShowAlterTableCommand(dbName, wildWhere, orderKeys, limit, offset, alterType);
     }
 
     @Override
@@ -7971,6 +8062,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             wildWhere = getWildWhere(ctx.wildWhere());
         }
         return new ShowTransactionCommand(dbName, wildWhere);
+    }
+
+    public LogicalPlan visitRefreshLdap(DorisParser.RefreshLdapContext ctx) {
+        String user = "";
+        if (ctx.user != null) {
+            user = visitIdentifierOrText(ctx.user);
+        }
+        return new RefreshLdapCommand(ctx.ALL() != null, user);
     }
 
     @Override
