@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogRenameCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterDatabasePropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -1206,6 +1207,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropAnalyzeJobCommand(DropAnalyzeJobCommand dropAnalyzeJobCommand, C context) {
         return visitCommand(dropAnalyzeJobCommand, context);
+    }
+
+    default R visitColocateGroupCommand(AlterColocateGroupCommand alterColocateGroupCommand, C context) {
+        return visitCommand(alterColocateGroupCommand, context);
     }
 
     default R visitCancelBackupCommand(CancelBackupCommand cancelBackupCommand, C context) {
