@@ -2122,6 +2122,10 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                 Status st = RowIdStorageReader::read_by_rowids(*request, response);
                 st.to_protobuf(response->mutable_status());
                 LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+                LOG(INFO) << "query_id: " << print_id(request->query_id())
+                          << " backend id: " << BackendOptions::get_backend_id()
+                          << " response status:" << st.to_string()
+                          << " return block size:" << response->blocks_size();
             },
             nullptr));
 
