@@ -157,9 +157,9 @@ private:
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
-                            string* encoded_keys);
+                            std::string* encoded_keys);
     // used for unique-key with merge on write tables with cluster keys
-    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
+    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);

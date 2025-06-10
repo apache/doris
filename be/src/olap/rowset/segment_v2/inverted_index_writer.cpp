@@ -471,7 +471,7 @@ public:
                                 })
                         if (st != Status::OK()) {
                             LOG(ERROR) << "create field "
-                                       << string(_field_name.begin(), _field_name.end())
+                                       << std::string(_field_name.begin(), _field_name.end())
                                        << " error:" << st;
                             return st;
                         }
@@ -530,7 +530,7 @@ public:
                             })
                     if (st != Status::OK()) {
                         LOG(ERROR)
-                                << "create field " << string(_field_name.begin(), _field_name.end())
+                                << "create field " << std::string(_field_name.begin(), _field_name.end())
                                 << " error:" << st;
                         return st;
                     }

@@ -414,7 +414,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         if (request.fetch_row_store()) {
             CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
             RowLocation loc(rowset_id, segment->id(), row_loc.ordinal_id());
-            string* value = response->add_binary_row_data();
+            std::string* value = response->add_binary_row_data();
             RETURN_IF_ERROR(scope_timer_run(
                     [&]() { return tablet->lookup_row_data({}, loc, rowset, stats, *value); },
                     &lookup_row_data_ms));

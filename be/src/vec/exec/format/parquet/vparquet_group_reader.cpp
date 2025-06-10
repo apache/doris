@@ -144,10 +144,10 @@ Status RowGroupReader::init(
 
     // Check if single slot can be filtered by dict.
     if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
-        const std::vector<string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
+        const std::vector<std::string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
         const std::vector<int>& predicate_col_slot_ids = _lazy_read_ctx.predicate_columns.second;
         for (size_t i = 0; i < predicate_col_names.size(); ++i) {
-            const string& predicate_col_name = predicate_col_names[i];
+            const std::string& predicate_col_name = predicate_col_names[i];
             int slot_id = predicate_col_slot_ids[i];
             auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
             if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
