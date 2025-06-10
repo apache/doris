@@ -63,6 +63,7 @@ public:
 
     template <class Up, class... Args>
     void construct(Up* p, Args&&... args) {
+        // cause the implicit conversion loses(size_t -> uint)
         ::new ((void*)p) Up(std::forward<Args>(args)...);
     }
 

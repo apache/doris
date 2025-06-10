@@ -25,6 +25,7 @@
 
 #include <cstddef>
 namespace doris {
+#include "common/compile_check_begin.h"
 class DefaultMemoryAllocator;
 class NoTrackingDefaultMemoryAllocator;
 
@@ -34,4 +35,5 @@ class Allocator;
 
 template <typename Base, size_t N = 64, size_t Alignment = 1>
 class AllocatorWithStackMemory;
+#include "common/compile_check_end.h"
 } // namespace doris
