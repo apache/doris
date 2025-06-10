@@ -1582,6 +1582,9 @@ DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
 
+// If a single be(not cloud mode) exceeds the be_tablet_num_upper_limit limit, create tablet will report an error
+DECLARE_mInt64(be_tablet_num_upper_limit);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
