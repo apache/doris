@@ -58,7 +58,6 @@ import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
-import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
@@ -312,8 +311,6 @@ public class ShowExecutor {
             handleShowProc();
         } else if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowDbStmt) {
-            handleShowDb();
         } else if (stmt instanceof ShowDbIdStmt) {
             handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
@@ -917,44 +914,6 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show databases statement
-    private void handleShowDb() throws AnalysisException {
-        ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // cluster feature is deprecated.
-        CatalogIf catalogIf = ctx.getCatalog(showDbStmt.getCatalogName());
-        if (catalogIf == null) {
-            throw new AnalysisException("No catalog found with name " + showDbStmt.getCatalogName());
-        }
-        List<String> dbNames = catalogIf.getDbNames();
-        PatternMatcher matcher = null;
-        if (showDbStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showDbStmt.getPattern(),
-                    CaseSensibility.DATABASE.getCaseSensibility());
-        }
-        Set<String> dbNameSet = Sets.newTreeSet();
-        for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
-            // Filter dbname
-            if (matcher != null && !matcher.match(db)) {
-                continue;
-            }
-
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
-                    fullName, PrivPredicate.SHOW)) {
-                continue;
-            }
-
-            dbNameSet.add(db);
-        }
-
-        for (String dbName : dbNameSet) {
-            rows.add(Lists.newArrayList(dbName));
-        }
-
-        resultSet = new ShowResultSet(showDbStmt.getMetaData(), rows);
     }
 
     // Show table statement.

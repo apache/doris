@@ -27,7 +27,6 @@ import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
@@ -57,6 +56,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
@@ -267,16 +267,13 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDb() throws AnalysisException {
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        ShowDbStmt stmt = new ShowDbStmt(null);
+        ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
+        ShowResultSet resultSet = null;
         try {
-            stmt.analyze(analyzer);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testDb", resultSet.getString(0));
@@ -284,36 +281,37 @@ public class ShowExecutorTest {
 
     @Test
     public void testShowDbPattern() throws AnalysisException {
-        ShowDbStmt stmt = new ShowDbStmt("empty%");
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        ShowDatabasesCommand command = new ShowDatabasesCommand(null, "empty%", null);
+        ShowResultSet resultSet = null;
+        try {
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
 
         Assert.assertFalse(resultSet.next());
     }
 
     @Test
     public void testShowDbFromCatalog() throws AnalysisException {
-        ShowDbStmt stmt = new ShowDbStmt(null, null, InternalCatalog.INTERNAL_CATALOG_NAME);
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        ShowDatabasesCommand command = new ShowDatabasesCommand(InternalCatalog.INTERNAL_CATALOG_NAME, null, null);
+        ShowResultSet resultSet = null;
+        try {
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
 
         Assert.assertTrue(resultSet.next());
         Assert.assertEquals("testDb", resultSet.getString(0));
     }
 
     @Test
-    public void testShowDbPriv() throws AnalysisException {
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        ShowDbStmt stmt = new ShowDbStmt(null);
-        try {
-            stmt.analyze(analyzer);
-        } catch (UserException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+    public void testShowDbPriv() throws Exception {
+        AccessTestUtil.fetchAdminAnalyzer(false);
         ctx.setEnv(AccessTestUtil.fetchBlockCatalog());
-        executor.execute();
+        ShowDatabasesCommand command = new ShowDatabasesCommand(null, null, null);
+        command.doRun(ctx, new StmtExecutor(ctx, ""));
     }
 
     @Test
