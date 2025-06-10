@@ -6709,15 +6709,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowIndex(DorisParser.ShowIndexContext ctx) {
-        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
-        String databaseName = ctx.database == null ? null : ctx.database.getText();
-        if (databaseName != null && tableName.getDb() != null && !tableName.getDb().equals(databaseName)) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+
+        String ctlName = null;
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        if (dbName != null && tableNameInfo.getDb() != null && !tableNameInfo.getDb().equals(dbName)) {
             throw new ParseException("The name of two databases should be the same");
         }
-        if (tableName.getDb() == null) {
-            tableName.setDb(databaseName);
+        if (tableNameInfo.getDb() == null) {
+            tableNameInfo.setDb(dbName);
         }
-        return new ShowIndexCommand(tableName);
+        if (tableNameInfo.getCtl() == null) {
+            tableNameInfo.setCtl(ctlName);
+        }
+        return new ShowIndexCommand(tableNameInfo);
     }
 
     @Override

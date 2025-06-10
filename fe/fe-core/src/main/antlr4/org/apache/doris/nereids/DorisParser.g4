@@ -416,7 +416,7 @@ supportedShowStatement
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
-        ((FROM | IN) database=identifier)?                                          #showIndex
+        ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 

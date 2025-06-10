@@ -65,36 +65,43 @@ public class ShowIndexCommand extends ShowCommand {
                     .addColumn(new Column("Comment", ScalarType.createVarchar(160)))
                     .addColumn(new Column("Properties", ScalarType.createVarchar(400)))
                     .build();
-    private TableNameInfo tableName;
+    private TableNameInfo tableNameInfo;
 
     /**
      * constructor for show index
      */
-    public ShowIndexCommand(TableNameInfo tableName) {
+    public ShowIndexCommand(TableNameInfo tableNameInfo) {
         super(PlanType.SHOW_INDEX_COMMAND);
-        this.tableName = tableName;
+        this.tableNameInfo = tableNameInfo;
     }
 
     @VisibleForTesting
     protected void analyze(ConnectContext ctx) throws AnalysisException {
-        if (Strings.isNullOrEmpty(tableName.getDb())) {
+        if (Strings.isNullOrEmpty(tableNameInfo.getCtl())) {
+            String ctl = ctx.getDefaultCatalog();
+            if (Strings.isNullOrEmpty(ctl)) {
+                ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
+            }
+            tableNameInfo.setCtl(ctl);
+        }
+        if (Strings.isNullOrEmpty(tableNameInfo.getDb())) {
             String dbName = ctx.getDatabase();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            tableName.setDb(dbName);
+            tableNameInfo.setDb(dbName);
         }
 
-        if (Strings.isNullOrEmpty(tableName.getTbl())) {
+        if (Strings.isNullOrEmpty(tableNameInfo.getTbl())) {
             throw new AnalysisException("Table name is null");
         }
 
         // in show index, only support internal catalog
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                 ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
-                tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
+                tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW INDEX",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(), tableName.toSql());
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(), tableNameInfo.toSql());
         }
     }
 
@@ -105,16 +112,16 @@ public class ShowIndexCommand extends ShowCommand {
         // in show index, only support internal catalog
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
-                .getDbOrAnalysisException(tableName.getDb());
+                .getDbOrAnalysisException(tableNameInfo.getDb());
         if (db instanceof Database) {
-            TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
+            TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
             if (table instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) table;
                 olapTable.readLock();
                 try {
                     List<Index> indexes = olapTable.getIndexes();
                     for (Index index : indexes) {
-                        rows.add(Lists.newArrayList(tableName.getTbl(), "", index.getIndexName(),
+                        rows.add(Lists.newArrayList(tableNameInfo.getTbl(), "", index.getIndexName(),
                                 "", String.join(",", index.getColumns()), "", "", "", "",
                                 "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
                     }
