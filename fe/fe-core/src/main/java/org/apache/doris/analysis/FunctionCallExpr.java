@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
@@ -42,6 +43,13 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonSerializationContext;
+import com.google.gson.JsonSerializer;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -54,7 +62,7 @@ import java.util.Map;
 import java.util.Optional;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
-public class FunctionCallExpr extends Expr {
+public class FunctionCallExpr extends Expr implements GsonPostProcessable {
     public static final ImmutableSet<String> STDDEV_FUNCTION_SET = new ImmutableSortedSet.Builder(
             String.CASE_INSENSITIVE_ORDER)
             .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop").add("variance").add("variance_pop")
@@ -236,6 +244,7 @@ public class FunctionCallExpr extends Expr {
 
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
 
+    // SerializedName is not used, because typeAdapter is defined in the FunctionCallExprSerializer.
     @SerializedName("fnn")
     private FunctionName fnName;
     @SerializedName("fnp")
@@ -917,6 +926,44 @@ public class FunctionCallExpr extends Expr {
             }
         }
         return true;
+    }
+
+    public static class FunctionCallExprSerializer
+            implements JsonSerializer<FunctionCallExpr>, JsonDeserializer<FunctionCallExpr> {
+        @Override
+        public JsonElement serialize(FunctionCallExpr value, java.lang.reflect.Type reflectType,
+                                     JsonSerializationContext context) {
+            JsonObject jsonObject = new JsonObject();
+            jsonObject.add("clazz", context.serialize(value.getClass().getSimpleName()));
+            jsonObject.add("iafc", context.serialize(value.isAnalyticFnCall));
+            jsonObject.add("itfc", context.serialize(value.isTableFnCall));
+            jsonObject.add("fnn", context.serialize(value.fnName));
+            jsonObject.add("fnp", context.serialize(value.fnParams));
+            return jsonObject;
+        }
+
+        @Override
+        public FunctionCallExpr deserialize(JsonElement json, java.lang.reflect.Type typeOfT,
+                                            JsonDeserializationContext context) throws JsonParseException {
+            JsonObject jsonObject = json.getAsJsonObject();
+            FunctionName fnName = context.deserialize(jsonObject.get("fnn"), FunctionName.class);
+            FunctionParams fnParams = context.deserialize(jsonObject.get("fnp"), FunctionParams.class);
+            boolean isAnalyticFnCall = jsonObject.get("iafc").getAsBoolean();
+            boolean isTableFnCall = jsonObject.get("itfc").getAsBoolean();
+            FunctionCallExpr expr = new FunctionCallExpr(fnName, fnParams);
+            expr.setIsAnalyticFnCall(isAnalyticFnCall);
+            expr.setTableFnCall(isTableFnCall);
+            return expr;
+        }
+    }
+
+    // Add a method for Gson post-processing after deserialization
+    public void gsonPostProcess() {
+        // If fnParams is not null and has exprs, add them as children
+        if (fnParams != null && fnParams.exprs() != null) {
+            children.clear();
+            children.addAll(fnParams.exprs());
+        }
     }
 
     @Override
