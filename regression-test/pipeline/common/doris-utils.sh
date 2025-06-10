@@ -155,7 +155,7 @@ function start_doris_be() {
     export ASAN_SYMBOLIZER_PATH
     # export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0:check_malloc_usable_size=0"
     export TCMALLOC_SAMPLE_PARAMETER=524288
-    sed -i 's/export ASAN_OPTIONS=/export ASAN_OPTIONS=detect_leaks=1:/g' "${DORIS_HOME}"/be/bin/start_be.sh
+    sed -i 's/export ASAN_OPTIONS=/export ASAN_OPTIONS=detect_leaks=1:log_path=\/tmp\/lsan.log:/g' "${DORIS_HOME}"/be/bin/start_be.sh
     sysctl -w vm.max_map_count=2000000 &&
         ulimit -n 200000 &&
         ulimit -c unlimited &&
