@@ -81,14 +81,14 @@ public class BackupCommandTest {
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, "label0");
         String repoName = "testRepo";
 
-        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "test_db", "test_tbl");
+        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, null, "test_tbl");
         List<String> partitionNames = new ArrayList<>();
         partitionNames.add("p1");
         partitionNames.add("p2");
         PartitionNamesInfo partitionNamesInfo = new PartitionNamesInfo(false, partitionNames);
         TableRefInfo tableRefInfo1 = new TableRefInfo(tableNameInfo, null, null, partitionNamesInfo, null, null, null, null);
 
-        TableNameInfo tableNameInfo2 = new TableNameInfo(internalCtl, "test_db", "test_tbl2");
+        TableNameInfo tableNameInfo2 = new TableNameInfo(internalCtl, null, "test_tbl2");
         TableRefInfo tableRefInfo2 = new TableRefInfo(tableNameInfo2, null, null, partitionNamesInfo, null, null, null, null);
 
         List<TableRefInfo> tableRefInfos = new ArrayList<>();
@@ -109,7 +109,7 @@ public class BackupCommandTest {
         BackupCommand command2 = new BackupCommand(labelNameInfo, repoName, tableRefInfos2, properties, isExclude);
         Assertions.assertDoesNotThrow(() -> command2.validate(connectContext));
 
-        TableNameInfo tableNameInfo3 = new TableNameInfo(internalCtl, "test_db", "test_tbl");
+        TableNameInfo tableNameInfo3 = new TableNameInfo(internalCtl, null, "test_tbl");
         TableRefInfo tableRefInfo3 = new TableRefInfo(tableNameInfo3, null, null, partitionNamesInfo, null, null, null, null);
         List<TableRefInfo> tableRefInfos3 = new ArrayList<>();
         tableRefInfos3.add(tableRefInfo1);
