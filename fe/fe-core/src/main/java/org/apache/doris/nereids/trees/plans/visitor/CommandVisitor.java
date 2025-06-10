@@ -269,6 +269,7 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCo
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.UseCloudClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 
 /** CommandVisitor. */
@@ -1263,6 +1264,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitGrantRoleCommand(GrantRoleCommand grantRoleCommand, C context) {
         return visitCommand(grantRoleCommand, context);
+    }
+
+    default R visitUseCloudClusterCommand(UseCloudClusterCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitGrantTablePrivilegeCommand(GrantTablePrivilegeCommand grantTablePrivilegeCommand, C context) {
