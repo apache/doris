@@ -1606,6 +1606,10 @@ DEFINE_Validator(aws_credentials_provider_version, [](const std::string& config)
     return config == "v1" || config == "v2";
 });
 
+// If a single be(not cloud mode) exceeds the be_tablet_num_upper_limit limit, create tablet will report an error
+// default 100w tablets limit
+DEFINE_mInt64(be_tablet_num_upper_limit, "1000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

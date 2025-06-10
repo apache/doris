@@ -1756,6 +1756,59 @@ void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest&
     }
 }
 
+TTabletInfo create_tablet_info(const TabletSharedPtr& tablet, int64_t version) {
+    TTabletInfo tablet_info;
+    tablet_info.tablet_id = tablet->table_id();
+    tablet_info.schema_hash = tablet->schema_hash();
+    tablet_info.version = version;
+    tablet_info.version_hash = 0; // Required field but unused
+    tablet_info.row_count = 0;
+    tablet_info.data_size = 0;
+    tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+    tablet_info.__set_replica_id(tablet->replica_id());
+    return tablet_info;
+}
+
+Status check_tablet_limit() {
+    size_t tablet_num_in_bvar = doris::g_total_tablet_num.get_value();
+    if (tablet_num_in_bvar >= config::be_tablet_num_upper_limit) {
+        return Status::InternalError<false>(
+                "Tablet number {} exceeds limit {}, trash may be not cleaned", tablet_num_in_bvar,
+                config::be_tablet_num_upper_limit);
+    }
+    return Status::OK();
+}
+
+TFinishTaskRequest build_finish_task_request(const TAgentTaskRequest& req,
+                                             const std::vector<TTabletInfo>& tablet_infos,
+                                             const Status& status) {
+    TFinishTaskRequest finish_task_request;
+    finish_task_request.__set_finish_tablet_infos(tablet_infos);
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_report_version(s_report_version);
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_task_status(status.to_thrift());
+    return finish_task_request;
+}
+
+Status create_tablet_and_get_info(StorageEngine& engine, const TCreateTabletReq& create_tablet_req,
+                                  RuntimeProfile* profile, std::vector<TTabletInfo>& tablet_infos) {
+    Status status = engine.create_tablet(create_tablet_req, profile);
+    if (!status.ok()) {
+        return status;
+    }
+    increase_report_version();
+    TabletSharedPtr tablet;
+    {
+        SCOPED_TIMER(ADD_TIMER(profile, "GetTablet"));
+        tablet = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id);
+    }
+    DCHECK(tablet != nullptr);
+    tablet_infos.push_back(create_tablet_info(tablet, create_tablet_req.version));
+    return Status::OK();
+}
+
 void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& create_tablet_req = req.create_tablet_req;
     RuntimeProfile runtime_profile("CreateTablet");
@@ -1772,14 +1825,17 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         }
     };
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-    VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
-
     std::vector<TTabletInfo> finish_tablet_infos;
-    VLOG_NOTICE << "create tablet: " << create_tablet_req;
-    Status status = engine.create_tablet(create_tablet_req, profile);
+    Status status = check_tablet_limit();
+    if (status.ok()) {
+        VLOG_NOTICE << "start to create tablet " << create_tablet_req;
+        status =
+                create_tablet_and_get_info(engine, create_tablet_req, profile, finish_tablet_infos);
+    }
+
     if (!status.ok()) {
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
-        LOG_WARNING("failed to create tablet, reason={}", status.to_string())
+        LOG_WARNING("failed to create tablet: {}", status.to_string())
                 .tag("signature", req.signature)
                 .tag("tablet_id", create_tablet_req.tablet_id)
                 .error(status);
@@ -1803,17 +1859,12 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
         tablet_info.__set_replica_id(tablet->replica_id());
         finish_tablet_infos.push_back(tablet_info);
-        LOG_INFO("successfully create tablet")
+        LOG_INFO("successfully created tablet")
                 .tag("signature", req.signature)
                 .tag("tablet_id", create_tablet_req.tablet_id);
     }
-    TFinishTaskRequest finish_task_request;
-    finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
-    finish_task_request.__set_backend(BackendOptions::get_local_backend());
-    finish_task_request.__set_report_version(s_report_version);
-    finish_task_request.__set_task_type(req.task_type);
-    finish_task_request.__set_signature(req.signature);
-    finish_task_request.__set_task_status(status.to_thrift());
+
+    auto finish_task_request = build_finish_task_request(req, finish_tablet_infos, status);
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
 }
