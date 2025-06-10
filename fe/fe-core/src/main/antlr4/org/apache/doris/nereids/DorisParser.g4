@@ -425,6 +425,7 @@ supportedShowStatement
 
 supportedLoadStatement
     : SYNC                                                                          #sync
+    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad    
     | createRoutineLoad                                                             #createRoutineLoadAlias
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | PAUSE ROUTINE LOAD FOR label=multipartIdentifier                              #pauseRoutineLoad
@@ -501,7 +502,6 @@ unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                              #mysqlLoad
-    | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
 loadProperty
