@@ -80,8 +80,8 @@ public:
 
 #ifdef __AVX2__
 
-    static __attribute__((always_inline, __target__("avx2"))) __m256i
-    make_mark(const uint32_t hash) {
+    static __attribute__((always_inline, __target__("avx2"))) __m256i make_mark(
+            const uint32_t hash) {
         const __m256i ones = _mm256_set1_epi32(1);
         const __m256i rehash = _mm256_setr_epi32(BLOOM_HASH_CONSTANTS);
         // Load hash into a YMM register, repeated eight times
