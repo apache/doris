@@ -80,12 +80,13 @@ protected:
 };
 
 TEST_F(DataTypeJsonbTest, MetaInfoTest) {
-    TypeDescriptor type_descriptor = {PrimitiveType::TYPE_JSONB};
+    auto jsonb_type_descriptor =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     auto col_meta = std::make_shared<PColumnMeta>();
     col_meta->set_type(PGenericType_TypeId_JSONB);
     CommonDataTypeTest::DataTypeMetaInfo meta_info_to_assert = {
-            .type_id = TypeIndex::JSONB,
-            .type_as_type_descriptor = &type_descriptor,
+            .type_id = PrimitiveType::TYPE_JSONB,
+            .type_as_type_descriptor = jsonb_type_descriptor,
             .family_name = dt_jsonb.get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_JSONB,
@@ -99,9 +100,8 @@ TEST_F(DataTypeJsonbTest, MetaInfoTest) {
             .is_value_represented_by_number = false,
             .pColumnMeta = col_meta.get(),
             .is_value_unambiguously_represented_in_contiguous_memory_region = true,
-            .default_field = JsonbField(),
-    };
-    auto tmp_dt = DataTypeFactory::instance().create_data_type(TypeIndex::JSONB);
+            .default_field = Field::create_field<TYPE_JSONB>(JsonbField())};
+    auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
     helper->meta_info_assert(tmp_dt, meta_info_to_assert);
 }
 
@@ -274,10 +274,14 @@ TEST_F(DataTypeJsonbTest, simple_func_test) {
 
         EXPECT_EQ(std::string(dt.get_family_name()), std::string("JSONB"));
 
-        EXPECT_EQ(dt.get_default(), JsonbField());
+        JsonBinaryValue jsonb_value;
+        THROW_IF_ERROR(jsonb_value.from_json_string("null"));
+        EXPECT_EQ(dt.get_default(),
+                  Field::create_field<TYPE_JSONB>(
+                          JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size()))));
     };
     test_func(dt_jsonb);
-    EXPECT_EQ(dt_jsonb.get_type_id(), TypeIndex::JSONB);
+    EXPECT_EQ(dt_jsonb.get_primitive_type(), TYPE_JSONB);
 }
 
 TEST_F(DataTypeJsonbTest, to_string) {
@@ -294,7 +298,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
                 buffer.commit();
             }
             ColumnType col_from_str;
-            for (size_t i = 0; i != row_count-1; ++i) {
+            for (size_t i = 0; i != row_count - 1; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
                 ReadBuffer rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
@@ -323,7 +327,7 @@ TEST_F(DataTypeJsonbTest, to_string) {
             EXPECT_EQ(col_str_to_str.size(), row_count);
 
             ColumnType col_from_str;
-            for (size_t i = 0; i != row_count-1; ++i) {
+            for (size_t i = 0; i != row_count - 1; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
                 ReadBuffer rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
@@ -341,8 +345,11 @@ TEST_F(DataTypeJsonbTest, get_field) {
     expr_node.__isset.json_literal = true;
     expr_node.json_literal.value = "{\"key\":\"value\"}";
 
-    auto jf = JsonbField(expr_node.json_literal.value.data(), expr_node.json_literal.value.size());
-    EXPECT_EQ(dt_jsonb.get_field(expr_node), jf);
+    JsonBinaryValue jsonb_value;
+    THROW_IF_ERROR(jsonb_value.from_json_string("{\"key\":\"value\"}"));
+    EXPECT_EQ(dt_jsonb.get_field(expr_node),
+              Field::create_field<TYPE_JSONB>(
+                      JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size()))));
 }
 
-} // namespace doris::vectorized 
+} // namespace doris::vectorized

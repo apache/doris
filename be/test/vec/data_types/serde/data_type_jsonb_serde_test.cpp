@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/data_types/serde/data_type_jsonb_serde.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
@@ -38,7 +40,6 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/serde/data_type_jsonb_serde.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -97,8 +98,15 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
                 std::string actual_str_value = ser_col->get_data_at(j).to_string();
                 Slice slice {actual_str_value.data(), actual_str_value.size()};
                 st = serde.deserialize_one_cell_from_json(*deser_column, slice, option);
-                EXPECT_TRUE(st.ok()) << "Failed to deserialize column at row " << j << ": " << st;
-                EXPECT_EQ(deser_col_with_type->get_data_at(j), source_column->get_data_at(j));
+                if (j == row_count - 1) {
+                    // last row will make simdjson parse error, because we use column_string insert_default with empty string, which is not invalid json string:
+                    // [INTERNAL_ERROR]simdjson parse exception: The JSON document has an improper structure: missing or superfluous commas, braces, missing keys, etc.
+                    EXPECT_TRUE(!st.ok());
+                } else {
+                    EXPECT_TRUE(st.ok())
+                            << "Failed to deserialize column at row " << j << ": " << st;
+                    EXPECT_EQ(deser_col_with_type->get_data_at(j), source_column->get_data_at(j));
+                }
             }
         }
 
@@ -108,7 +116,7 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             ser_col->reserve(row_count);
 
             VectorBufferWriter buffer_writer(*ser_col.get());
-            auto st = serde.serialize_column_to_json(*source_column, 0, source_column->size(),
+            auto st = serde.serialize_column_to_json(*source_column, 0, source_column->size() - 1,
                                                      buffer_writer, option);
             EXPECT_TRUE(st.ok()) << "Failed to serialize column to json: " << st;
             buffer_writer.commit();
@@ -128,8 +136,8 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             st = serde.deserialize_column_from_json_vector(*deser_column, slices, &num_deserialized,
                                                            option);
             EXPECT_TRUE(st.ok()) << "Failed to deserialize column from json: " << st;
-            EXPECT_EQ(num_deserialized, row_count);
-            for (size_t j = 0; j != row_count; ++j) {
+            EXPECT_EQ(num_deserialized, row_count - 1);
+            for (size_t j = 0; j != row_count - 1; ++j) {
                 EXPECT_EQ(deser_col_with_type->get_data_at(j), source_column->get_data_at(j));
             }
         }
@@ -137,14 +145,14 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
         {
             // test write_column_to_pb/read_column_from_pb
             PValues pv = PValues();
-            Status st = serde.write_column_to_pb(*source_column, pv, 0, row_count);
+            Status st = serde.write_column_to_pb(*source_column, pv, 0, row_count - 1);
             EXPECT_TRUE(st.ok()) << "Failed to write column to pb: " << st;
 
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
             st = serde.read_column_from_pb(*deser_column, pv);
             EXPECT_TRUE(st.ok()) << "Failed to read column from pb: " << st;
-            for (size_t j = 0; j != row_count; ++j) {
+            for (size_t j = 0; j != row_count - 1; ++j) {
                 EXPECT_EQ(deser_col_with_type->get_data_at(j), source_column->get_data_at(j));
             }
         }
@@ -188,39 +196,49 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
             for (int row_idx = 0; row_idx < row_count; ++row_idx) {
                 auto st = serde.write_column_to_mysql(*source_column, mysql_rb, row_idx, false,
                                                       option);
-                EXPECT_TRUE(st.ok()) << "Failed to write column to mysql with binary format: " << st;
+                EXPECT_TRUE(st.ok())
+                        << "Failed to write column to mysql with binary format: " << st;
             }
         }
         {
             // test write_column_to_arrow
             auto arrow_builder = std::make_shared<arrow::StringBuilder>();
             cctz::time_zone ctz;
-            serde.write_column_to_arrow(*source_column, nullptr, arrow_builder.get(), 0, row_count,
-                                        ctz);
+            auto st = serde.write_column_to_arrow(*source_column, nullptr, arrow_builder.get(), 0,
+                                                  row_count - 1, ctz);
+            EXPECT_TRUE(st.ok()) << "Failed to write column to arrow: " << st;
             auto result = arrow_builder->Finish();
             EXPECT_TRUE(result.ok());
         }
         {
             // test write_column_to_orc
             std::vector<StringRef> buffer_list;
-            auto orc_batch = std::make_unique<orc::StringVectorBatch>(row_count, *orc::getDefaultPool());
-            Status st = serde.write_column_to_orc("UTC", *source_column, nullptr, orc_batch.get(), 0, row_count,
-                                      buffer_list);
+            Defer defer {[&]() {
+                for (auto& bufferRef : buffer_list) {
+                    if (bufferRef.data) {
+                        free(const_cast<char*>(bufferRef.data));
+                    }
+                }
+            }};
+            auto orc_batch =
+                    std::make_unique<orc::StringVectorBatch>(row_count, *orc::getDefaultPool());
+            Status st = serde.write_column_to_orc("UTC", *source_column, nullptr, orc_batch.get(),
+                                                  0, row_count - 1, buffer_list);
             EXPECT_EQ(st, Status::OK()) << "Failed to write column to orc: " << st;
-            EXPECT_EQ(orc_batch->numElements, row_count);
+            EXPECT_EQ(orc_batch->numElements, row_count - 1);
         }
         {
             // test write_one_cell_to_json/read_one_cell_from_json
             rapidjson::Document doc;
             doc.SetObject();
             Arena mem_pool;
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
+            for (int row_idx = 0; row_idx < row_count - 1; ++row_idx) {
                 auto st = serde.write_one_cell_to_json(*source_column, doc, doc.GetAllocator(),
                                                        mem_pool, row_idx);
                 EXPECT_TRUE(st.ok()) << "Failed to write one cell to json: " << st;
             }
             MutableColumnPtr deser_column = source_column->clone_empty();
-            for (int row_idx = 0; row_idx < row_count; ++row_idx) {
+            for (int row_idx = 0; row_idx < row_count - 1; ++row_idx) {
                 auto st = serde.read_one_cell_from_json(*deser_column, doc);
                 EXPECT_TRUE(st.ok()) << "Failed to read one cell from json: " << st;
             }
@@ -229,4 +247,4 @@ TEST_F(DataTypeJsonbSerDeTest, serdes) {
     test_func(*serde_jsonb, column_jsonb);
 }
 
-} // namespace doris::vectorized 
+} // namespace doris::vectorized

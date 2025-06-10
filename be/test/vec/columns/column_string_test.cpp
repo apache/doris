@@ -130,15 +130,7 @@ protected:
         }
     }
 
-    template <typename T>
-    void column_string_common_test(T callback, bool only_str32 = false) {
-        callback(ColumnString(), column_str32->get_ptr());
-        callback(ColumnString(), column_str32_json->get_ptr());
-        if (!only_str32) {
-            callback(ColumnString64(), column_str64->get_ptr());
-            callback(ColumnString64(), column_str64_json->get_ptr());
-        }
-   #define column_string_common_test(callback, only_str32)                   \
+#define column_string_common_test(callback, only_str32)                   \
     callback<TYPE_STRING>(ColumnString(), column_str32->get_ptr());       \
     if (!only_str32) {                                                    \
         callback<TYPE_STRING>(ColumnString64(), column_str64->get_ptr()); \
@@ -356,16 +348,20 @@ TEST_F(ColumnStringTest, insert_from) {
                                                                tmp_col_str->get_ptr());
     }
     {
-        assert_column_vector_insert_from_callback(ColumnString(), column_str32_json->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString(),
+                                                              column_str32_json->get_ptr());
 
         auto tmp_col_str32 = ColumnString::create();
-        assert_column_vector_insert_from_callback(ColumnString(), tmp_col_str32->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString(),
+                                                              tmp_col_str32->get_ptr());
     }
     {
-        assert_column_vector_insert_from_callback(ColumnString64(), column_str64_json->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString64(),
+                                                              column_str64_json->get_ptr());
 
         auto tmp_col_str = ColumnString64::create();
-        assert_column_vector_insert_from_callback(ColumnString64(), tmp_col_str->get_ptr());
+        assert_column_vector_insert_from_callback<TYPE_JSONB>(ColumnString64(),
+                                                              tmp_col_str->get_ptr());
     }
 }
 TEST_F(ColumnStringTest, insert_data) {
