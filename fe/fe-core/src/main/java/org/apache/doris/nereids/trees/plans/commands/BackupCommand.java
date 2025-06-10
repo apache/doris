@@ -61,6 +61,9 @@ public class BackupCommand extends Command {
         INCREMENTAL, FULL
     }
 
+    /**
+     * BackupContent
+     */
     public enum BackupContent {
         METADATA_ONLY, ALL
     }
