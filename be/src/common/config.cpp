@@ -1598,6 +1598,10 @@ DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
 
+// If a single be(not cloud mode) exceeds the be_tablet_num_upper_limit limit, create tablet will report an error
+// default 100w tablets limit
+DEFINE_mInt64(be_tablet_num_upper_limit, "1000000");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
