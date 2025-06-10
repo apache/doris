@@ -78,7 +78,7 @@ public class ShowIndexCommand extends ShowCommand {
     @VisibleForTesting
     protected void analyze(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableNameInfo.getCtl())) {
-            String ctl = ctx.getDefaultCatalog();
+            String ctl = ctx.getCurrentCatalog().getName();
             if (Strings.isNullOrEmpty(ctl)) {
                 ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
             }
@@ -111,7 +111,7 @@ public class ShowIndexCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         // in show index, only support internal catalog
         DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(InternalCatalog.INTERNAL_CATALOG_NAME)
+                .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                 .getDbOrAnalysisException(tableNameInfo.getDb());
         if (db instanceof Database) {
             TableIf table = db.getTableOrAnalysisException(tableNameInfo.getTbl());
