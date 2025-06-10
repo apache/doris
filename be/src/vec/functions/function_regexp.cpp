@@ -60,11 +60,6 @@ struct RegexpCountImpl {
         const auto* str = check_and_get_column<ColumnString>(argument_columns[0].get());
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                result_data[i] = 0;
-                continue;
-            }
-
             result_data[i] = _execute_inner_loop(context, str, pattern, null_map, i);
         }
     }
@@ -99,7 +94,6 @@ private:
 
         int64_t count = 0;
         size_t pos = 0;
-        re2::StringPiece str_sp(str_data.data, str_data.size);
 
         while (pos < str_data.size) {
             re2::StringPiece current(str_data.data + pos, str_data.size - pos);
@@ -113,6 +107,7 @@ private:
                 pos++;
             } else {
                 count++;
+                // Calculate the end position of the matched substring in the original string and update the search start position
                 pos += match.data() - current.data() + match.size();
             }
         }
@@ -139,7 +134,7 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope == FunctionContext::THREAD_LOCAL && context->is_col_constant(1)) {
             const auto pattern_col = context->get_constant_col(1)->column_ptr;
-            const auto& pattern = pattern->get_data_at(0);
+            const auto& pattern = pattern_col->get_data_at(0);
             if (pattern.size == 0) {
                 return Status::OK();
             }
@@ -157,37 +152,21 @@ public:
         return Status::OK();
     }
 
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            auto ptr = context->get_function_state(scope);
-            if (ptr) {
-                delete reinterpret_cast<re2::RE2*>(ptr);
-                context->set_function_state(scope, nullptr);
-            }
-        }
-        return Status::OK();
-    }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto result_data_column = ColumnInt64::create();
+        auto result_null_map = ColumnUInt8::create(input_rows_count,0);
+        auto result_data_column = ColumnInt64::create(input_rows_count);
         auto& result_data = result_data_column->get_data();
         result_data.resize(input_rows_count);
-        bool col_const[2];
+        // bool col_const[2];
         ColumnPtr argument_columns[2];
-        for (int i = 0; i < 2; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        // for (int i = 0; i < 2; ++i) {
+        //     col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        // }
+        for (int i = 0; i < 2; ++i){
+            argument_columns[1] = block.get_by_position(arguments[1]).column;
         }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-
-        argument_columns[1] = col_const[1] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[1]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[1]).column;
 
         RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
                                       result_null_map->get_data());
