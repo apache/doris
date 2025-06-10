@@ -96,9 +96,8 @@ public class ShowIndexCommand extends ShowCommand {
             throw new AnalysisException("Table name is null");
         }
 
-        // in show index, only support internal catalog
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
-                ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                ConnectContext.get(), tableNameInfo.getCtl(),
                 tableNameInfo.getDb(), tableNameInfo.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW INDEX",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(), tableNameInfo.toSql());
