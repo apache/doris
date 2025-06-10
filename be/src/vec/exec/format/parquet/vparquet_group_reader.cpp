@@ -779,8 +779,9 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
             break;
         }
         if (read_range_rows + (range.last_row - range.first_row) > _total_read_rows) {
-            int64_t fi = std::max(_total_read_rows , read_range_rows) - read_range_rows + range.first_row;
-            size_t len = std::min(read_rows,  (size_t)(std::max(range.last_row, fi) -fi));
+            int64_t fi =
+                    std::max(_total_read_rows, read_range_rows) - read_range_rows + range.first_row;
+            size_t len = std::min(read_rows, (size_t)(std::max(range.last_row, fi) - fi));
 
             read_rows -= len;
 
