@@ -155,7 +155,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto result_null_map = ColumnUInt8::create(input_rows_count,0);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto result_data_column = ColumnInt64::create(input_rows_count);
         auto& result_data = result_data_column->get_data();
         result_data.resize(input_rows_count);
@@ -164,7 +164,7 @@ public:
         // for (int i = 0; i < 2; ++i) {
         //     col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
         // }
-        for (int i = 0; i < 2; ++i){
+        for (int i = 0; i < 2; ++i) {
             argument_columns[1] = block.get_by_position(arguments[1]).column;
         }
 
