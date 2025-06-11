@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fs.remote.dfs;
 
 import org.apache.hadoop.fs.FileSystem;
 
 import java.lang.ref.PhantomReference;
 import java.lang.ref.ReferenceQueue;
 
-public class RemoteFileSystemPhantomReference extends PhantomReference<RemoteFileSystem> {
+public class DFSFileSystemPhantomReference extends PhantomReference<DFSFileSystem> {
 
     private FileSystem fs;
 
@@ -37,7 +37,7 @@ public class RemoteFileSystemPhantomReference extends PhantomReference<RemoteFil
      * @param q        the queue with which the reference is to be registered,
      *                 or {@code null} if registration is not required
      */
-    public RemoteFileSystemPhantomReference(RemoteFileSystem referent, ReferenceQueue<? super RemoteFileSystem> q) {
+    public DFSFileSystemPhantomReference(DFSFileSystem referent, ReferenceQueue<? super DFSFileSystem> q) {
         super(referent, q);
         this.fs = referent.dfsFileSystem;
     }

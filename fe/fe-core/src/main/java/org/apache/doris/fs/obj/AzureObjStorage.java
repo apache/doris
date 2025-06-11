@@ -423,4 +423,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
         return st;
     }
+
+    @Override
+    public void close() throws Exception {
+        // Create a BlobServiceClient instance (thread-safe and reusable).
+       // Note: BlobServiceClient does NOT implement Closeable and does not require explicit closing.
+    }
 }
