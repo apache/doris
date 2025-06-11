@@ -1048,10 +1048,14 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _col_id_suffix_to_index.clear();
     _field_name_to_index.clear();
     _field_uniqueid_to_index.clear();
+    _cluster_key_uids.clear();
     _index_by_unique_id_with_pattern.clear();
     _col_id_suffix_to_index.clear();
     clear_column_cache_handlers();
     clear_index_cache_handlers();
+    for (const auto& i : schema.cluster_key_uids()) {
+        _cluster_key_uids.push_back(i);
+    }
     for (auto& column_pb : schema.column()) {
         TabletColumnPtr column;
         if (reuse_cache_column) {
