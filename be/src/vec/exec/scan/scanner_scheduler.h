@@ -178,9 +178,9 @@ public:
         thread_config.min_thread_num = min_thread_num;
         thread_config.max_queue_size = queue_size;
         thread_config.cgroup_cpu_ctl = _cgroup_cpu_ctl;
-        _task_executor = TimeSharingTaskExecutor::create_shared(
-                thread_config, config::doris_scanner_thread_pool_thread_num * 2, 3,
-                std::numeric_limits<int>::max(), std::make_shared<SystemTicker>());
+        _task_executor = TimeSharingTaskExecutor::create_shared(thread_config, max_thread_num * 2,
+                                                                3, std::numeric_limits<int>::max(),
+                                                                std::make_shared<SystemTicker>());
         RETURN_IF_ERROR(_task_executor->init());
         RETURN_IF_ERROR(_task_executor->start());
         return Status::OK();

@@ -57,8 +57,8 @@ public:
 
     ListenableFuture& operator=(ListenableFuture&& other) noexcept {
         if (this != &other) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::lock_guard<std::mutex> other_lock(other.mutex_);
+            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> other_lock(other._mutex);
             _ready = other._ready;
             _value = std::move(other._value);
             _status = std::move(other._status);
@@ -75,7 +75,7 @@ public:
     void set_error(const doris::Status& status) { _execute({}, status); }
 
     void add_callback(Callback cb) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(_mutex);
         if (_ready) {
             cb(_value, _status);
         } else {
@@ -98,29 +98,29 @@ public:
     }
 
     bool is_ready() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(_mutex);
         return _ready;
     }
 
     bool is_done() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(_mutex);
         return _ready && _status.ok();
     }
 
     bool is_error() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(_mutex);
         return _ready && !_status.ok();
     }
 
     const doris::Status& get_status() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(_mutex);
         return _status;
     }
 
     Result<T> get() {
-        std::unique_lock<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(_mutex);
         while (!_ready) {
-            cv_.wait(lock);
+            _cv.wait(lock);
         }
         if (!_status.ok()) {
             return unexpected(_status);
@@ -136,7 +136,7 @@ private:
     void _execute(const T& value, const doris::Status& status) {
         std::vector<Callback> tmp_callbacks;
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(_mutex);
             if (_ready) {
                 return;
             }
@@ -150,11 +150,11 @@ private:
         for (auto& cb : tmp_callbacks) {
             cb(_value, _status);
         }
-        cv_.notify_all();
+        _cv.notify_all();
     }
 
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
+    mutable std::mutex _mutex;
+    std::condition_variable _cv;
     bool _ready;
     T _value;
     doris::Status _status = doris::Status::OK();
@@ -173,32 +173,32 @@ public:
     SharedListenableFuture& operator=(SharedListenableFuture&&) = default;
 
     explicit SharedListenableFuture(ListenableFuture<T>&& future)
-            : impl_(std::make_shared<ListenableFuture<T>>(std::move(future))) {}
+            : _impl(std::make_shared<ListenableFuture<T>>(std::move(future))) {}
 
     explicit SharedListenableFuture(std::shared_ptr<ListenableFuture<T>> future_ptr)
-            : impl_(std::move(future_ptr)) {}
+            : _impl(std::move(future_ptr)) {}
 
-    void add_callback(Callback cb) { return impl_->add_callback(std::move(cb)); }
+    void add_callback(Callback cb) { return _impl->add_callback(std::move(cb)); }
 
-    bool is_ready() const { return impl_->is_ready(); }
+    bool is_ready() const { return _impl->is_ready(); }
 
-    bool is_done() const { return impl_->is_done(); }
+    bool is_done() const { return _impl->is_done(); }
 
-    bool is_error() const { return impl_->is_error(); }
+    bool is_error() const { return _impl->is_error(); }
 
-    const doris::Status& get_status() const { return impl_->get_status(); }
+    const doris::Status& get_status() const { return _impl->get_status(); }
 
-    Result<T> get() { return impl_->get(); }
+    Result<T> get() { return _impl->get(); }
 
     static SharedListenableFuture<T> create_ready(T value) {
         return SharedListenableFuture<T>(ListenableFuture<T>::create_ready(std::move(value)));
     }
 
-    SharedListenableFuture() : impl_(std::make_shared<ListenableFuture<T>>()) {}
+    SharedListenableFuture() : _impl(std::make_shared<ListenableFuture<T>>()) {}
 
-    void set_value(const T& value) { impl_->set_value(value); }
+    void set_value(const T& value) { _impl->set_value(value); }
 
-    void set_error(const doris::Status& status) { impl_->set_error(status); }
+    void set_error(const doris::Status& status) { _impl->set_error(status); }
 
     template <typename U = T>
     static typename std::enable_if<std::is_same<U, Void>::value, SharedListenableFuture<U>>::type
@@ -207,7 +207,7 @@ public:
     }
 
 private:
-    std::shared_ptr<ListenableFuture<T>> impl_;
+    std::shared_ptr<ListenableFuture<T>> _impl;
 };
 
 namespace listenable_future {
