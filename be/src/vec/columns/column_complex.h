@@ -37,7 +37,7 @@
 
 namespace doris::vectorized {
 
-template <typename T>
+template <PrimitiveType T>
 class ColumnComplexType final : public COWHelper<IColumn, ColumnComplexType<T>> {
 private:
     ColumnComplexType() = default;
@@ -46,7 +46,7 @@ private:
 
 public:
     using Self = ColumnComplexType;
-    using value_type = T;
+    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using Container = std::vector<value_type>;
 
     size_t size() const override { return data.size(); }
@@ -60,26 +60,25 @@ public:
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
-        data.push_back(*reinterpret_cast<const T*>(pos));
+        data.push_back(*reinterpret_cast<const value_type*>(pos));
     }
 
     void insert_binary_data(const char* pos, size_t length) {
         insert_default();
-        T* pvalue = &get_element(size() - 1);
+        value_type* pvalue = &get_element(size() - 1);
         if (!length) {
-            *pvalue = *reinterpret_cast<const T*>(pos);
+            *pvalue = *reinterpret_cast<const value_type*>(pos);
             return;
         }
 
-        if constexpr (std::is_same_v<T, BitmapValue>) {
+        if constexpr (T == TYPE_BITMAP) {
             pvalue->deserialize(pos);
-        } else if constexpr (std::is_same_v<T, HyperLogLog>) {
+        } else if constexpr (T == TYPE_HLL) {
             pvalue->deserialize(Slice(pos, length));
-        } else if constexpr (std::is_same_v<T, QuantileState>) {
+        } else if constexpr (T == TYPE_QUANTILE_STATE) {
             pvalue->deserialize(Slice(pos, length));
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unexpected type in column complex");
-            __builtin_unreachable();
         }
     }
 
@@ -100,7 +99,7 @@ public:
         }
     }
 
-    void insert_default() override { data.push_back(T()); }
+    void insert_default() override { data.push_back(value_type()); }
 
     void insert_many_defaults(size_t length) override {
         size_t old_size = data.size();
@@ -120,45 +119,29 @@ public:
         return data.capacity() - data.size() > src_vec.size();
     }
 
-    void insert_value(T value) { data.emplace_back(std::move(value)); }
+    void insert_value(value_type value) { data.emplace_back(std::move(value)); }
 
     void reserve(size_t n) override { data.reserve(n); }
 
     void resize(size_t n) override { data.resize(n); }
 
-    std::string get_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return type_to_string(T); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
     void insert(const Field& x) override {
-        const T& s = doris::vectorized::get<const T&>(x);
+        const value_type& s = doris::vectorized::get<const value_type&>(x);
         data.push_back(s);
     }
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        if constexpr (std::is_same_v<BitmapValue, T>) {
-            return Field::create_field<TYPE_BITMAP>(data[n]);
-        } else if constexpr (std::is_same_v<HyperLogLog, T>) {
-            return Field::create_field<TYPE_HLL>(data[n]);
-        } else if constexpr (std::is_same_v<QuantileState, T>) {
-            return Field::create_field<TYPE_QUANTILE_STATE>(data[n]);
-        } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "INVALID TYPE");
-        }
+        return Field::create_field<T>(data[n]);
     }
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
-        if constexpr (std::is_same_v<BitmapValue, T>) {
-            res = Field::create_field<TYPE_BITMAP>(data[n]);
-        } else if constexpr (std::is_same_v<HyperLogLog, T>) {
-            res = Field::create_field<TYPE_HLL>(data[n]);
-        } else if constexpr (std::is_same_v<QuantileState, T>) {
-            res = Field::create_field<TYPE_QUANTILE_STATE>(data[n]);
-        } else {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "INVALID TYPE");
-        }
+        res = Field::create_field<T>(data[n]);
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
@@ -239,9 +222,9 @@ public:
 
     const Container& get_data() const { return data; }
 
-    const T& get_element(size_t n) const { return data[n]; }
+    const value_type& get_element(size_t n) const { return data[n]; }
 
-    T& get_element(size_t n) { return data[n]; }
+    value_type& get_element(size_t n) { return data[n]; }
 
 #ifdef BE_TEST
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override {
@@ -272,7 +255,7 @@ private:
     Container data;
 };
 
-template <typename T>
+template <PrimitiveType T>
 MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
     auto res = this->create();
 
@@ -284,7 +267,7 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
     return res;
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
                                        ssize_t result_size_hint) const {
     size_t size = data.size();
@@ -302,7 +285,7 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
-    const T* data_pos = data.data();
+    const value_type* data_pos = data.data();
 
     while (filt_pos < filt_end) {
         if (*filt_pos) {
@@ -316,7 +299,7 @@ ColumnPtr ColumnComplexType<T>::filter(const IColumn::Filter& filt,
     return res;
 }
 
-template <typename T>
+template <PrimitiveType T>
 size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
     size_t size = data.size();
     column_match_filter_size(size, filter.size());
@@ -325,11 +308,11 @@ size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
         return 0;
     }
 
-    T* res_data = data.data();
+    value_type* res_data = data.data();
 
     const UInt8* filter_pos = filter.data();
     const UInt8* filter_end = filter_pos + size;
-    const T* data_pos = data.data();
+    const value_type* data_pos = data.data();
 
     while (filter_pos < filter_end) {
         if (*filter_pos) {
@@ -346,7 +329,7 @@ size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
     return res_data - data.data();
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = data.size();
 
@@ -367,7 +350,7 @@ ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t
     return res;
 }
 
-template <typename T>
+template <PrimitiveType T>
 ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const {
     size_t size = data.size();
     column_match_offsets_size(size, offsets.size());
@@ -393,26 +376,26 @@ ColumnPtr ColumnComplexType<T>::replicate(const IColumn::Offsets& offsets) const
     return res;
 }
 
-using ColumnBitmap = ColumnComplexType<BitmapValue>;
-using ColumnHLL = ColumnComplexType<HyperLogLog>;
-using ColumnQuantileState = ColumnComplexType<QuantileState>;
+using ColumnBitmap = ColumnComplexType<TYPE_BITMAP>;
+using ColumnHLL = ColumnComplexType<TYPE_HLL>;
+using ColumnQuantileState = ColumnComplexType<TYPE_QUANTILE_STATE>;
 
-template <typename T>
+template <PrimitiveType T>
 struct is_complex : std::false_type {};
 
 template <>
-struct is_complex<BitmapValue> : std::true_type {};
+struct is_complex<TYPE_BITMAP> : std::true_type {};
 //DataTypeBitMap::FieldType = BitmapValue
 
 template <>
-struct is_complex<HyperLogLog> : std::true_type {};
+struct is_complex<TYPE_HLL> : std::true_type {};
 //DataTypeHLL::FieldType = HyperLogLog
 
 template <>
-struct is_complex<QuantileState> : std::true_type {};
+struct is_complex<TYPE_QUANTILE_STATE> : std::true_type {};
 //DataTypeQuantileState::FieldType = QuantileState
 
-template <class T>
+template <PrimitiveType T>
 constexpr bool is_complex_v = is_complex<T>::value;
 
 } // namespace doris::vectorized

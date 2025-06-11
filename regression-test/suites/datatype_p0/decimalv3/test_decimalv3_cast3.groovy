@@ -505,4 +505,11 @@ suite("test_decimalv3_cast3") {
         exception "Arithmetic overflow"
     }
     sql "set enable_decimal256=false;"
+
+
+    sql """ set debug_skip_fold_constant = true;"""
+    qt_sql """ select -15687.000000000000000000 * 0.01100000000000000;  """
+    qt_sql """ select -15687.000000000000000000 * 0.011000000000000000;  """
+    qt_sql """ select -15687.000000000000000000 * 0.0110000000000000000;  """
+    sql """ set debug_skip_fold_constant = false;"""
 }

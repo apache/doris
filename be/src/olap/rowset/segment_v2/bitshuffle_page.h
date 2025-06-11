@@ -325,11 +325,19 @@ public:
         return Status::OK();
     }
 
+    // If the page only contains null, then _num_elements == 0, and the nullmap has
+    // some value. But in _seek_columns --> seek_to_ordinal --> _seek_to_pos_in_page
+    // in this call stack it will pass pos == 0 to this method. Although we can add some
+    // code such as check if the count == 0, then skip seek, but there are other method such
+    // as init will also call seek with pos == 0. And the seek is useless when _num_elements
+    // == 0, because next batch will return empty in this method.
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
         if (PREDICT_FALSE(_num_elements == 0)) {
-            DCHECK_EQ(0, pos);
-            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("invalid pos");
+            if (pos != 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        "seek pos {} is larger than total elements  {}", pos, _num_elements);
+            }
         }
 
         DCHECK_LE(pos, _num_elements);

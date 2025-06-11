@@ -65,7 +65,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_AGG_STATE,       /* 34 */
     TYPE_DECIMAL256,      /* 35 */
     TYPE_IPV4,            /* 36 */
-    TYPE_IPV6             /* 37 */
+    TYPE_IPV6,            /* 37 */
+    TYPE_UINT32,          /* 38, used as offset */
+    TYPE_UINT64           /* 39, used as offset */
 };
 
 } // namespace doris

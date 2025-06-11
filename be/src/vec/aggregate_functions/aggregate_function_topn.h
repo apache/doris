@@ -39,7 +39,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_ref.h"
@@ -55,7 +54,7 @@ namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris
@@ -287,8 +286,7 @@ struct AggregateFunctionTopNImplWeight {
                     assert_cast<const ColumnInt32*>(columns[2])->get_element(row_num));
         }
         if constexpr (is_string_type(T)) {
-            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(
-                                  *columns[1])
+            auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                   .get_data()[row_num];
             place.add(assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
                               .get_data_at(row_num),
@@ -298,8 +296,7 @@ struct AggregateFunctionTopNImplWeight {
                     assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                 TypeCheckOnRelease::DISABLE>(*columns[0])
                             .get_data()[row_num];
-            auto weight = assert_cast<const ColumnVector<Int64>&, TypeCheckOnRelease::DISABLE>(
-                                  *columns[1])
+            auto weight = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
                                   .get_data()[row_num];
             place.add(val, weight);
         }
