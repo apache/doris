@@ -310,7 +310,12 @@ Status IndexChannel::close_wait(
     while (true) {
         status = check_each_node_channel_close(&unfinished_node_channel_ids,
                                                node_add_batch_counter_map, writer_stats, status);
-        if (!status.ok() || unfinished_node_channel_ids.empty() || _quorum_success()) {
+        bool quorum_success = _quorum_success();
+        if (!status.ok() || unfinished_node_channel_ids.empty() || quorum_success) {
+            LOG(INFO) << "quorum success, quorum_success: " << quorum_success
+                      << ", is all unfinished: " << unfinished_node_channel_ids.empty()
+                      << ", status: " << status << ", txn_id: " << _parent->_txn_id
+                      << ", load_id: " << print_id(_parent->_load_id);
             break;
         }
         bthread_usleep(1000 * 10);
@@ -338,11 +343,11 @@ Status IndexChannel::close_wait(
                     unfinished_node_channel_host_str << _node_channels[it]->host() << ",";
                     _node_channels[it]->cancel("timeout");
                 }
-                LOG(INFO) << "reach max wait time, cancel unfinished node channel and "
-                             "finish close"
-                          << ", load id: " << print_id(_parent->_load_id)
-                          << "_txn_id: " << _parent->_txn_id << ", unfinished node channel: "
-                          << unfinished_node_channel_host_str.str();
+                LOG(WARNING) << "reach max wait time, cancel unfinished node channel and "
+                                "finish close"
+                             << ", load id: " << print_id(_parent->_load_id)
+                             << "_txn_id: " << _parent->_txn_id << ", unfinished node channel: "
+                             << unfinished_node_channel_host_str.str();
                 break;
             }
             bthread_usleep(1000 * 10);

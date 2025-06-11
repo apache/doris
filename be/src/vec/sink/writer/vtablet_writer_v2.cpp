@@ -823,17 +823,22 @@ Status VTabletWriterV2::_close_wait_all_streams() {
     }
 
     Status status;
-    // First wait for quorum success
+    // first wait for quorum success
     while (true) {
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        if (_quorum_success(unfinished_streams) || !status.ok() || unfinished_streams.empty()) {
+        bool quorum_success = _quorum_success(unfinished_streams);
+        if (quorum_success || !status.ok() || unfinished_streams.empty()) {
+            LOG(INFO) << "quorum success, quorum_success: " << quorum_success
+                      << ", is all unfinished: " << unfinished_streams.empty()
+                      << ", status: " << status << ", txn_id: " << _txn_id
+                      << ", load_id: " << print_id(_load_id);
             break;
         }
         bthread_usleep(1000 * 10);
     }
 
-    // Then wait for remaining streams as much as possible
+    // then wait for remaining streams as much as possible
     if (status.ok() && !unfinished_streams.empty()) {
         double max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
         while (true) {
@@ -844,7 +849,7 @@ Status VTabletWriterV2::_close_wait_all_streams() {
                 break;
             }
 
-            // Check if we should stop waiting
+            // check if we should stop waiting
             if (static_cast<double>(UnixMillis() - _timeout_watch.elapsed_time()) >
                         max_wait_time_ms ||
                 _state->execution_timeout() * 1000 - _timeout_watch.elapsed_time() <
@@ -853,9 +858,9 @@ Status VTabletWriterV2::_close_wait_all_streams() {
                 for (const auto& stream : unfinished_streams) {
                     unfinished_streams_str << stream->stream_id() << ",";
                 }
-                LOG(INFO) << "reach max wait time"
-                          << ", load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
-                          << ", unfinished streams: " << unfinished_streams_str.str();
+                LOG(WARNING) << "reach max wait time"
+                             << ", load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+                             << ", unfinished streams: " << unfinished_streams_str.str();
                 break;
             }
             bthread_usleep(1000 * 10);
