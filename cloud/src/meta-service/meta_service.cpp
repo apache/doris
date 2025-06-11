@@ -1026,10 +1026,17 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
         }
     }
 
+    if (job_pb.has_schema_change()) {
+        if (job_pb.schema_change().id() == job_id) {
+            match = true;
+        }
+    }
+
     if (!match) {
         std::stringstream ss;
         ss << " stale perpare rowset request,"
            << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+           << " job id=" << job_id
            << " rowset_id=" << rowset_id;
         msg = ss.str();
         code = MetaServiceCode::STALE_PREPARE_ROWSET;
