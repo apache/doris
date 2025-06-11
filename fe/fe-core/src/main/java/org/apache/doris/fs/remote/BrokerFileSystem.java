@@ -709,4 +709,9 @@ public class BrokerFileSystem extends RemoteFileSystem {
     public StorageProperties getStorageProperties() {
         return brokerProperties;
     }
+
+    @Override
+    public void close() throws IOException {
+        //  do nothing
+    }
 }
