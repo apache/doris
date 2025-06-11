@@ -114,9 +114,7 @@ void LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
         LOG(WARNING) << "stub is not exist when on_closed, " << *this;
         return;
     }
-    std::lock_guard<bthread::Mutex> lock(stub->_close_mutex);
     stub->_is_closed.store(true);
-    stub->_close_cv.notify_all();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler) {
@@ -146,7 +144,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                            int64_t idle_timeout_ms, bool enable_profile) {
+                            int64_t idle_timeout_ms, bool enable_profile,
+                            bool auto_partition_one_step_close) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
         return _status;
@@ -170,13 +169,16 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
-    if (_is_incremental) {
+    if (_is_incremental && !auto_partition_one_step_close) {
         request.set_total_streams(0);
     } else if (total_streams > 0) {
         request.set_total_streams(total_streams);
     } else {
         _status = Status::InternalError("total_streams should be greator than 0");
         return _status;
+    }
+    if (auto_partition_one_step_close) {
+        request.set_auto_partition_one_step_close(auto_partition_one_step_close);
     }
     request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
@@ -330,37 +332,28 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     return Status::OK();
 }
 
-Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
+Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
+    *is_closed = true;
     if (!_is_open.load()) {
         // we don't need to close wait on non-open streams
         return Status::OK();
     }
     if (!_is_closing.load()) {
+        *is_closed = false;
         return _status;
     }
+    if (state->get_query_ctx()->is_cancelled()) {
+        return state->get_query_ctx()->exec_status();
+    }
     if (_is_closed.load()) {
-        return _check_cancel();
-    }
-    DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
-    std::unique_lock<bthread::Mutex> lock(_close_mutex);
-    auto timeout_sec = timeout_ms / 1000;
-    while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
-        //the query maybe cancel, so need check after wait 1s
-        timeout_sec = timeout_sec - 1;
-        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
-                  << ", is_closed=" << _is_closed.load()
-                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
-        int ret = _close_cv.wait_for(lock, 1000000);
-        if (ret != 0 && timeout_sec <= 0) {
-            return Status::InternalError("stream close_wait timeout, error={}, timeout_ms={}, {}",
-                                         ret, timeout_ms, to_string());
+        RETURN_IF_ERROR(_check_cancel());
+        if (!_is_eos.load()) {
+            return Status::InternalError("Stream closed without EOS, {}", to_string());
         }
+        return Status::OK();
     }
-    RETURN_IF_ERROR(_check_cancel());
-    if (!_is_eos.load()) {
-        return Status::InternalError("stream closed without eos, {}", to_string());
-    }
+    *is_closed = false;
     return Status::OK();
 }
 
@@ -374,15 +367,12 @@ void LoadStreamStub::cancel(Status reason) {
         _cancel_st = reason;
         _is_cancelled.store(true);
     }
-    {
-        std::lock_guard<bthread::Mutex> lock(_close_mutex);
-        _is_closed.store(true);
-        _close_cv.notify_all();
-    }
+    _is_closed.store(true);
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
     butil::IOBuf buf;
+    // append data to buffer
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
@@ -394,6 +384,9 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
     bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    // update bytes written
+    _bytes_written += buf.size();
+    // send buffer
     return _send_with_buffer(buf, eos || get_schema);
 }
 
@@ -506,17 +499,19 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
                              const NodeInfo& node_info, int64_t txn_id,
                              const OlapTableSchemaParam& schema,
                              const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                             int64_t idle_timeout_ms, bool enable_profile) {
+                             int64_t idle_timeout_ms, bool enable_profile,
+                             bool auto_partition_one_step_close) {
     bool get_schema = true;
     auto status = Status::OK();
     for (auto& stream : _streams) {
         Status st;
         if (get_schema) {
             st = stream->open(client_cache, node_info, txn_id, schema, tablets_for_schema,
-                              total_streams, idle_timeout_ms, enable_profile);
+                              total_streams, idle_timeout_ms, enable_profile,
+                              auto_partition_one_step_close);
         } else {
             st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
-                              idle_timeout_ms, enable_profile);
+                              idle_timeout_ms, enable_profile, auto_partition_one_step_close);
         }
         if (st.ok()) {
             get_schema = false;
@@ -554,15 +549,6 @@ Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_comm
         }
     }
     return status;
-}
-
-Status LoadStreamStubs::close_wait(RuntimeState* state, int64_t timeout_ms) {
-    MonotonicStopWatch watch;
-    watch.start();
-    for (auto& stream : _streams) {
-        RETURN_IF_ERROR(stream->close_wait(state, timeout_ms - watch.elapsed_time() / 1000 / 1000));
-    }
-    return Status::OK();
 }
 
 } // namespace doris
