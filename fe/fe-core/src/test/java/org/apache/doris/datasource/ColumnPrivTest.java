@@ -43,7 +43,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -228,6 +227,7 @@ public class ColumnPrivTest extends TestWithFeService {
                 "grant select_priv on test2.*.* to show_table_status;", root);
         auth.grant(grant);
 
+        // show table status from test2.db1 LIKE "%tbl%
         UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("show_table_status", "%");
         ConnectContext userCtx = createCtx(user, "127.0.0.1");
         ShowTableStatusCommand command = new ShowTableStatusCommand("db1", "test2", "%tbl%", null);
