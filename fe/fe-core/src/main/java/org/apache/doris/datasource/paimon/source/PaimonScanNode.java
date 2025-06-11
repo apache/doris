@@ -49,6 +49,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
@@ -379,7 +380,29 @@ public class PaimonScanNode extends FileQueryScanNode {
                     .collect(Collectors.toList())
                     .indexOf(slot.getColumn().getName()))
                     .toArray();
-        ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
+        Table paimonTable = source.getPaimonTable();
+        if (scanParams != null && scanParams.incrementalRead()) {
+            Map<String, String> paimonScanParams = new HashMap<>();
+            paimonScanParams.put("scan.snapshot-id", null);
+            paimonScanParams.put("scan.mode", null);
+
+            String startSnapshotId = scanParams.getMapParams().get("startSnapshotId");
+            String endSnapshotId = scanParams.getMapParams().get("endSnapshotId");
+            String incrementalBetweenScanMode = scanParams.getMapParams()
+                    .getOrDefault("incrementalBetweenScanMode", "AUTO");
+
+            String startTimestamp = scanParams.getMapParams().get("startTimestamp");
+            String endTimestamp = scanParams.getMapParams().get("endTimestamp");
+
+            if (startSnapshotId != null && endSnapshotId != null) {
+                paimonScanParams.put("incremental-between", startSnapshotId + "," + endSnapshotId);
+                paimonScanParams.put("incremental-between-scan-mode", incrementalBetweenScanMode);
+            } else if (startTimestamp != null && endTimestamp != null) {
+                paimonScanParams.put("incremental-between-timestamp", startTimestamp + "," + endTimestamp);
+            }
+            paimonTable = paimonTable.copy(paimonScanParams);
+        }
+        ReadBuilder readBuilder = paimonTable.newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
                 .newScan().plan().splits();
