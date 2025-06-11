@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
@@ -39,6 +40,7 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -134,6 +136,98 @@ public class PaimonScanNodeTest {
         Assert.assertNotNull(s22.getSplit());
         Assert.assertEquals(100, s21.getSplitWeight().getRawValue());
         Assert.assertEquals(50, s22.getSplitWeight().getRawValue());
+    }
+
+    @Test
+    public void testIncrReadException() throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv);
+        Map<String, String> mapParams = new HashMap<>();
+
+        // test startSnapshotId and endSnapshotId
+        mapParams.put("startSnapshotId", "1");
+        mapParams.put("endSnapshotId", "2");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        Map<String, String> incrReadParams = paimonScanNode.getIncrReadParams();
+        Assert.assertNull(incrReadParams.get("scan.snapshot-id"));
+        Assert.assertNull(incrReadParams.get("scan.mode"));
+        Assert.assertEquals(incrReadParams.get("incremental-between"), "1,2");
+
+        // test startTimestamp and endTimestamp
+        mapParams.clear();
+        mapParams.put("startTimestamp", "0");
+        mapParams.put("endTimestamp", "1749809148000");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        incrReadParams = paimonScanNode.getIncrReadParams();
+        Assert.assertNull(incrReadParams.get("scan.snapshot-id"));
+        Assert.assertNull(incrReadParams.get("scan.mode"));
+        Assert.assertEquals(incrReadParams.get("incremental-between-timestamp"), "0,1749809148000");
+
+        // test invalid startSnapshotId
+        mapParams.clear();
+        mapParams.put("endSnapshotId", "2");
+        // less than zero
+        mapParams.put("startSnapshotId", "-1");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "startSnapshotId must be greater than zero");
+        }
+        // invalid number format
+        mapParams.put("startSnapshotId", "xxx");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "Invalid snapshot id: For input string: \"xxx\"");
+        }
+
+        // greater than or equal endSnapshotId
+        mapParams.put("startSnapshotId", "2");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "startSnapshotId must be less than endSnapshotId");
+        }
+
+        // test invalid startTimestamp
+        mapParams.clear();
+        mapParams.put("endTimestamp", "1749809148000");
+        // less than zero
+        mapParams.put("startTimestamp", "-1");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "startTimestamp must be greater than zero");
+        }
+        // invalid number format
+        mapParams.put("startTimestamp", "xxx");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "Invalid timestamp: For input string: \"xxx\"");
+        }
+        // greater than or equal endTimestamp
+        mapParams.put("startTimestamp", "1749809148000");
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "startTimestamp must be less than endTimestamp");
+        }
+
+        // test invalid params
+        mapParams.clear();
+        paimonScanNode.setScanParams(new TableScanParams(TableScanParams.INCREMENTAL_READ, mapParams, new ArrayList<>()));
+        try {
+            paimonScanNode.getIncrReadParams();
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "Invalid paimon incr params: {}");
+        }
     }
 
     private void mockJniReader() {

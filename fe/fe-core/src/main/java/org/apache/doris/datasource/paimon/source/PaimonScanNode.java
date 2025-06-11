@@ -49,6 +49,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.RawFile;
@@ -119,6 +120,11 @@ public class PaimonScanNode extends FileQueryScanNode {
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
+    private static final String SCAN_SNAPSHOT_ID = "scan.snapshot-id";
+    private static final String SCAN_MODE = "scan.mode";
+    private static final String INCREMENTAL_BETWEEN = "incremental-between";
+    private static final String INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
+    private static final String INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
 
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
@@ -344,6 +350,56 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
+    public Map<String, String> getIncrReadParams() {
+        Map<String, String> paimonScanParams = new HashMap<>();
+        if (scanParams != null && scanParams.incrementalRead()) {
+            paimonScanParams.put(SCAN_SNAPSHOT_ID, null);
+            paimonScanParams.put(SCAN_MODE, null);
+
+            String startSnapshotId = scanParams.getMapParams().get("startSnapshotId");
+            String endSnapshotId = scanParams.getMapParams().get("endSnapshotId");
+            String incrementalBetweenScanMode = scanParams.getMapParams()
+                    .getOrDefault("incrementalBetweenScanMode", "AUTO");
+
+            String startTimestamp = scanParams.getMapParams().get("startTimestamp");
+            String endTimestamp = scanParams.getMapParams().get("endTimestamp");
+
+            if (startSnapshotId != null && endSnapshotId != null) {
+                try {
+                    long startSId = Long.parseLong(startSnapshotId);
+                    long endSId = Long.parseLong(endSnapshotId);
+                    if (startSId < 0) {
+                        throw new RuntimeException("startSnapshotId must be greater than zero");
+                    }
+                    if (startSId >= endSId) {
+                        throw new RuntimeException("startSnapshotId must be less than endSnapshotId");
+                    }
+                    paimonScanParams.put(INCREMENTAL_BETWEEN, startSId + "," + endSId);
+                    paimonScanParams.put(INCREMENTAL_BETWEEN_SCAN_MODE, incrementalBetweenScanMode);
+                } catch (NumberFormatException e) {
+                    throw new RuntimeException("Invalid snapshot id: " + e.getMessage());
+                }
+            } else if (startTimestamp != null && endTimestamp != null) {
+                try {
+                    long startTS = Long.parseLong(startTimestamp);
+                    long endSTS = Long.parseLong(endTimestamp);
+                    if (startTS < 0) {
+                        throw new RuntimeException("startTimestamp must be greater than zero");
+                    }
+                    if (startTS >= endSTS) {
+                        throw new RuntimeException("startTimestamp must be less than endTimestamp");
+                    }
+                    paimonScanParams.put(INCREMENTAL_BETWEEN_TIMESTAMP, startTS + "," + endSTS);
+                } catch (NumberFormatException e) {
+                    throw new RuntimeException("Invalid timestamp: " + e.getMessage());
+                }
+            } else {
+                throw new RuntimeException("Invalid paimon incr params: " + scanParams.getMapParams());
+            }
+        }
+        return paimonScanParams;
+    }
+
     @VisibleForTesting
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() {
         if (!source.getPaimonTable().options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
@@ -351,14 +407,17 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyList();
         }
         int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> source.getPaimonTable().rowType()
-                        .getFieldNames()
-                        .stream()
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toList())
-                        .indexOf(slot.getColumn().getName()))
-                .toArray();
-        ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
+            slot -> source.getPaimonTable().rowType()
+                    .getFieldNames()
+                    .stream()
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toList())
+                    .indexOf(slot.getColumn().getName()))
+                    .toArray();
+        Table paimonTable = source.getPaimonTable();
+        Map<String, String> incrReadParams = getIncrReadParams();
+        paimonTable = paimonTable.copy(incrReadParams);
+        ReadBuilder readBuilder = paimonTable.newReadBuilder();
         return readBuilder.withFilter(predicates)
                 .withProjection(projected)
                 .newScan().plan().splits();
