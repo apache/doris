@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.InternalCatalog;
@@ -47,7 +48,7 @@ import java.util.Objects;
 /**
  * BackupCommand
  */
-public class BackupCommand extends Command {
+public class BackupCommand extends Command implements ForwardWithSync {
     private static final Logger LOG = LogManager.getLogger(BackupCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
@@ -263,5 +264,11 @@ public class BackupCommand extends Command {
     @Override
     public StmtType stmtType() {
         return StmtType.BACKUP;
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        LOG.info("BackupCommand not supported in cloud mode");
+        throw new DdlException("denied");
     }
 }
