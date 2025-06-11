@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -37,6 +38,10 @@ import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -48,8 +53,10 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
 import java.util.HashMap;
@@ -275,4 +282,93 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         makeSureInitialized();
         return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
     }
+
+    @Override
+    public void createOrReplaceTag(CreateOrReplaceTagInfo tagInfo) throws UserException {
+        Table icebergTable = getIcebergTable();
+        TagOptions tagOptions = tagInfo.getTagOptions();
+        Long snapshotId = tagOptions.getSnapshotId()
+                .orElse(
+                        // use current snapshot
+                        Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
+
+        if (snapshotId == null) {
+            // Creating tag for empty tables is not allowed
+            throw new UserException(
+                    "Cannot complete replace branch operation on " + icebergTable.name() + " , main has no snapshot");
+        }
+
+        String tagName = tagInfo.getTagName();
+        boolean create = tagInfo.getCreate();
+        boolean replace = tagInfo.getReplace();
+        boolean ifNotExists = tagInfo.getIfNotExists();
+        boolean refExists = null != icebergTable.refs().get(tagName);
+
+        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        if (create && replace && !refExists) {
+            manageSnapshots.createTag(tagName, snapshotId);
+        } else if (replace) {
+            manageSnapshots.replaceTag(tagName, snapshotId);
+        } else {
+            if (refExists && ifNotExists) {
+                return;
+            }
+            manageSnapshots.createTag(tagName, snapshotId);
+        }
+
+        tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
+
+        manageSnapshots.commit();
+    }
+
+    @Override
+    public void createOrReplaceBranch(CreateOrReplaceBranchInfo branchInfo) throws UserException {
+        Table icebergTable = getIcebergTable();
+        BranchOptions branchOptions = branchInfo.getBranchOptions();
+
+        Long snapshotId = branchOptions.getSnapshotId()
+                .orElse(
+                    // use current snapshot
+                    Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
+
+        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        String branchName = branchInfo.getBranchName();
+        boolean refExists = null != icebergTable.refs().get(branchName);
+        boolean create = branchInfo.getCreate();
+        boolean replace = branchInfo.getReplace();
+        boolean ifNotExists = branchInfo.getIfNotExists();
+
+        Runnable safeCreateBranch = () -> {
+            if (snapshotId == null) {
+                manageSnapshots.createBranch(branchName);
+            } else {
+                manageSnapshots.createBranch(branchName, snapshotId);
+            }
+        };
+
+        if (create && replace && !refExists) {
+            safeCreateBranch.run();
+        } else if (replace) {
+            if (snapshotId == null) {
+                // Cannot perform a replace operation on an empty table
+                throw new UserException(
+                    "Cannot complete replace branch operation on " + icebergTable.name() + " , main has no snapshot");
+            }
+            manageSnapshots.replaceBranch(branchName, snapshotId);
+        } else {
+            if (refExists && ifNotExists) {
+                return;
+            }
+            safeCreateBranch.run();
+        }
+
+        branchOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxSnapshotAgeMs(branchName, n));
+
+        branchOptions.getNumSnapshots().ifPresent(n -> manageSnapshots.setMinSnapshotsToKeep(branchName, n));
+
+        branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
+
+        manageSnapshots.commit();
+    }
+
 }
