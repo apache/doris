@@ -170,4 +170,5 @@ suite("test_array_map_function") {
         """
 
         qt_select_27 """ select QC_result_list, array_map(                 x -> concat(                     '|',                     x + "1"                 ),                 QC_result_list             ) FROM db; """
+        qt_select_28 """ select array_map((x,y)->x,[],[]); """
 }
