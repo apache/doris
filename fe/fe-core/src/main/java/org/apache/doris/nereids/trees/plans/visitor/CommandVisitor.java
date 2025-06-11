@@ -198,11 +198,6 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryProfileCommand;
-<<<<<<< HEAD
-import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
-=======
->>>>>>> 5b7742ca20 (format)
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueuedAnalyzeJobsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaDistributionCommand;
