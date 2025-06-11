@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "util/sse_util.hpp"
+#include "vec/common/Volnitsky.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_utils/string_utils.h"
 
@@ -134,13 +135,11 @@ public:
     ALWAYS_INLINE bool compare(const CharT* haystack, const CharT* haystack_end, CharT* pos) const {
         // cast to unsigned int8 to be consitent with needle type
         // ensure unsigned type compare
-        return _compare(reinterpret_cast<const uint8_t*>(haystack),
-                        reinterpret_cast<const uint8_t*>(haystack_end),
-                        reinterpret_cast<const uint8_t*>(pos));
+        return _compare(haystack, haystack_end, pos);
     }
 
 private:
-    ALWAYS_INLINE bool _compare(uint8_t* /*haystack*/, uint8_t* /*haystack_end*/,
+    ALWAYS_INLINE bool _compare(const uint8_t* /*haystack*/, const uint8_t* /*haystack_end*/,
                                 uint8_t* pos) const {
 #if defined(__SSE4_1__) || defined(__aarch64__)
         if (needle_end - needle > n && page_safe(pos)) {
@@ -355,65 +354,10 @@ public:
     }
 };
 
-using ASCIICaseSensitiveStringSearcher = StringSearcher<true, true>;
+using ASCIICaseSensitiveStringSearcher = VolnitskyBase<StringSearcher<true, true>>;
 // using ASCIICaseInsensitiveStringSearcher = StringSearcher<false, true>;
-using UTF8CaseSensitiveStringSearcher = StringSearcher<true, false>;
+using UTF8CaseSensitiveStringSearcher = VolnitskyBase<StringSearcher<true, false>>;
 // using UTF8CaseInsensitiveStringSearcher = StringSearcher<false, false>;
 using ASCIICaseSensitiveTokenSearcher = TokenSearcher<ASCIICaseSensitiveStringSearcher>;
 // using ASCIICaseInsensitiveTokenSearcher = TokenSearcher<ASCIICaseInsensitiveStringSearcher>;
-
-/** Uses functions from libc.
-  * It makes sense to use only with short haystacks when cheap initialization is required.
-  * There is no option for case-insensitive search for UTF-8 strings.
-  * It is required that strings are zero-terminated.
-  */
-
-struct LibCASCIICaseSensitiveStringSearcher : public StringSearcherBase {
-    const char* const needle;
-
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    LibCASCIICaseSensitiveStringSearcher(const CharT* const needle_, const size_t /* needle_size */)
-            : needle(reinterpret_cast<const char*>(needle_)) {}
-
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
-        const auto* res = strstr(reinterpret_cast<const char*>(haystack),
-                                 reinterpret_cast<const char*>(needle));
-        if (!res) return haystack_end;
-        return reinterpret_cast<const CharT*>(res);
-    }
-
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const size_t haystack_size) const {
-        return search(haystack, haystack + haystack_size);
-    }
-};
-
-struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
-    const char* const needle;
-
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    LibCASCIICaseInsensitiveStringSearcher(const CharT* const needle_,
-                                           const size_t /* needle_size */)
-            : needle(reinterpret_cast<const char*>(needle_)) {}
-
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const CharT* const haystack_end) const {
-        const auto* res = strcasestr(reinterpret_cast<const char*>(haystack),
-                                     reinterpret_cast<const char*>(needle));
-        if (!res) return haystack_end;
-        return reinterpret_cast<const CharT*>(res);
-    }
-
-    template <typename CharT>
-    // requires (sizeof(CharT) == 1)
-    const CharT* search(const CharT* haystack, const size_t haystack_size) const {
-        return search(haystack, haystack + haystack_size);
-    }
-};
 } // namespace doris

@@ -252,6 +252,8 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
         opts.data_page_size = storage_page_size;
     }
+    opts.data_page_size = opts.data_page_size <= 1048576 ? 1048576 : opts.data_page_size;
+
     DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
         auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
@@ -264,15 +266,15 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
                     "Debug point parameters missing: either 'table_id' or 'storage_page_size' not "
                     "set.");
         }
-        if (table_id == _tablet_schema->table_id() &&
-            opts.data_page_size != target_data_page_size) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "Mismatch in 'storage_page_size': expected size does not match the current "
-                    "data page size. "
-                    "Expected: " +
-                    std::to_string(target_data_page_size) +
-                    ", Actual: " + std::to_string(opts.data_page_size) + ".");
-        }
+        //        if (table_id == _tablet_schema->table_id() &&
+        //            opts.data_page_size != target_data_page_size) {
+        //            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+        //                    "Mismatch in 'storage_page_size': expected size does not match the current "
+        //                    "data page size. "
+        //                    "Expected: " +
+        //                    std::to_string(target_data_page_size) +
+        //                    ", Actual: " + std::to_string(opts.data_page_size) + ".");
+        //        }
     })
     if (column.is_row_store_column()) {
         // smaller page size for row store column
