@@ -31,11 +31,11 @@ public class GroupExpressionTest {
     @Test
     public void testMergeToNotOwnerRemoveWhenTargetWithLowerCost() {
         GroupExpression source = new GroupExpression(new FakePlan());
-        source.updateLowestCostTable(PhysicalProperties.GATHER, Lists.newArrayList(), Cost.infinite(new SessionVariable()));
+        source.updateLowestCostTable(PhysicalProperties.GATHER, Lists.newArrayList(), Cost.infinite());
         source.putOutputPropertiesMap(PhysicalProperties.GATHER, PhysicalProperties.ANY);
 
         GroupExpression target = new GroupExpression(new FakePlan());
-        target.updateLowestCostTable(PhysicalProperties.ANY, Lists.newArrayList(), Cost.zero(new SessionVariable()));
+        target.updateLowestCostTable(PhysicalProperties.ANY, Lists.newArrayList(), Cost.zero());
         target.putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
 
         source.mergeToNotOwnerRemove(target);
@@ -47,11 +47,11 @@ public class GroupExpressionTest {
     @Test
     public void testMergeToNotOwnerRemoveWhenSourceWithLowerCost() {
         GroupExpression source = new GroupExpression(new FakePlan());
-        source.updateLowestCostTable(PhysicalProperties.GATHER, Lists.newArrayList(), Cost.zero(new SessionVariable()));
+        source.updateLowestCostTable(PhysicalProperties.GATHER, Lists.newArrayList(), Cost.zero());
         source.putOutputPropertiesMap(PhysicalProperties.GATHER, PhysicalProperties.ANY);
 
         GroupExpression target = new GroupExpression(new FakePlan());
-        target.updateLowestCostTable(PhysicalProperties.ANY, Lists.newArrayList(), Cost.infinite(new SessionVariable()));
+        target.updateLowestCostTable(PhysicalProperties.ANY, Lists.newArrayList(), Cost.infinite());
         target.putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
 
         source.mergeToNotOwnerRemove(target);
