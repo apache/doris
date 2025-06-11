@@ -81,6 +81,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -529,10 +530,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         null,
                         null,
                         null,
+                        new ArrayList<>(),
                         null,
                         null,
-                        null,
-                        null);
+                        new ArrayList<>());
                 tblRefs.add(tableRefInfo.translateToLegacyTableRef());
             }
         }

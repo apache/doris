@@ -96,10 +96,10 @@ public class TableRefInfo {
         String alias = tableAlias;
         PartitionNames partitionNames =
                 partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null;
-        ArrayList<Long> sampleTabletIds = new ArrayList<>(tabletIdList);
+        ArrayList<Long> sampleTabletIds = tabletIdList != null ? new ArrayList<>(tabletIdList) : new ArrayList<>();
         org.apache.doris.analysis.TableSample legacyTableSample =
                 tableSample != null ? tableSample.translateToLegacyTableSample() : null;
-        ArrayList<String> commonHints = new ArrayList<>(relationHints);
+        ArrayList<String> commonHints = relationHints != null ? new ArrayList<>(relationHints) : new ArrayList<>();
         TableSnapshot tableSnapshot = tableSnapShot;
         TableScanParams tableScanParams = scanParams;
         return new TableRef(tableName,
