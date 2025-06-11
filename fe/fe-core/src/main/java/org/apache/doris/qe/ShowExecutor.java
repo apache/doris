@@ -101,7 +101,6 @@ import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
-import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.ShowTabletsBelongStmt;
@@ -314,8 +313,6 @@ public class ShowExecutor {
             handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
             handleShowTable();
-        } else if (stmt instanceof ShowTableStatusStmt) {
-            handleShowTableStatus();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
         } else if (stmt instanceof DescribeStmt) {
@@ -969,91 +966,6 @@ public class ShowExecutor {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
-    }
-
-    // Show table status statement.
-    private void handleShowTableStatus() throws AnalysisException {
-        ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(showStmt.getCatalog())
-                .getDbOrAnalysisException(showStmt.getDb());
-        if (db != null) {
-            PatternMatcher matcher = null;
-            if (showStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(), isShowTablesCaseSensitive());
-            }
-            for (TableIf table : db.getTables()) {
-                if (matcher != null && !matcher.match(table.getName())) {
-                    continue;
-                }
-
-                // check tbl privs
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), showStmt.getCatalog(),
-                                db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
-                    continue;
-                }
-                List<String> row = Lists.newArrayList();
-                // Name
-                if (table.isTemporary()) {
-                    if (!Util.isTempTableInCurrentSession(table.getName())) {
-                        continue;
-                    }
-                    row.add(Util.getTempTableDisplayName(table.getName()));
-                } else {
-                    row.add(table.getName());
-                }
-                // Engine
-                row.add(table.getEngine());
-                // version
-                row.add(null);
-                // Row_format
-                row.add(null);
-                // Rows
-                row.add(String.valueOf(table.getCachedRowCount()));
-                // Avg_row_length
-                row.add(String.valueOf(table.getAvgRowLength()));
-                // Data_length
-                row.add(String.valueOf(table.getDataLength()));
-                // Max_data_length
-                row.add(null);
-                // Index_length
-                row.add(null);
-                // Data_free
-                row.add(null);
-                // Auto_increment
-                row.add(null);
-                // Create_time
-                row.add(TimeUtils.longToTimeString(table.getCreateTime() * 1000));
-                // Update_time
-                if (table.getUpdateTime() > 0) {
-                    row.add(TimeUtils.longToTimeString(table.getUpdateTime()));
-                } else {
-                    row.add(null);
-                }
-                // Check_time
-                if (table.getLastCheckTime() > 0) {
-                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime()));
-                } else {
-                    row.add(null);
-                }
-                // Collation
-                row.add("utf-8");
-                // Checksum
-                row.add(null);
-                // Create_options
-                row.add(null);
-
-                row.add(table.getComment());
-                rows.add(row);
-            }
-        }
-        // sort by table name
-        rows.sort((x, y) -> {
-            return x.get(0).compareTo(y.get(0));
-        });
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Show variables like
