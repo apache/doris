@@ -191,11 +191,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
-<<<<<<< HEAD
-import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
-=======
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
->>>>>>> 118cab4631 ([Enhancement] (nereids)implement showLoadWaringsCommand in nereids)
+import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;

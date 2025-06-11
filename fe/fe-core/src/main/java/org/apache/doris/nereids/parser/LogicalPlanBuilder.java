@@ -362,11 +362,8 @@ import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadContext;
 import org.apache.doris.nereids.DorisParser.ShowLoadProfileContext;
-<<<<<<< HEAD
-import org.apache.doris.nereids.DorisParser.ShowOpenTablesContext;
-=======
 import org.apache.doris.nereids.DorisParser.ShowLoadWarningsContext;
->>>>>>> 118cab4631 ([Enhancement] (nereids)implement showLoadWaringsCommand in nereids)
+import org.apache.doris.nereids.DorisParser.ShowOpenTablesContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionIdContext;
 import org.apache.doris.nereids.DorisParser.ShowPartitionsContext;
 import org.apache.doris.nereids.DorisParser.ShowPluginsContext;
@@ -740,11 +737,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
-<<<<<<< HEAD
-import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
-=======
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
->>>>>>> 118cab4631 ([Enhancement] (nereids)implement showLoadWaringsCommand in nereids)
+import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
