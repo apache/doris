@@ -777,6 +777,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTabletsFromTableCommand
 import org.apache.doris.nereids.trees.plans.commands.ShowTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTypeCastCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowUserPropertyCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
@@ -5496,6 +5497,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowTriggers(ShowTriggersContext ctx) {
         return new ShowTriggersCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowTypeCast(DorisParser.ShowTypeCastContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        return new ShowTypeCastCommand(dbName);
     }
 
     @Override
