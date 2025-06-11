@@ -2248,6 +2248,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         Mod mod = new Mod(new XxHash32(TypeCoercionUtils.castIfNotSameType(
                 aggFunc.child(0), StringType.INSTANCE)), new SmallIntLiteral((short) bucket));
         Cast cast = new Cast(mod, type);
-        return new Alias(cast);
+        return new Alias(cast, SALT_EXPR);
     }
 }
