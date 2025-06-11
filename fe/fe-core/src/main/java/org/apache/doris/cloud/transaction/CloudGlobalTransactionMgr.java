@@ -256,13 +256,16 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         MTMVUtil.checkModifyMTMVData(db, tableIdList, ConnectContext.get());
 
+        long validTimeoutSecond = timeoutSecond;
+
         switch (sourceType) {
             case BACKEND_STREAMING:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
+                validTimeoutSecond = checkValidTimeoutSecond(timeoutSecond, Config.max_stream_load_timeout_second,
                         Config.min_load_timeout_second);
                 break;
             default:
-                checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second, Config.min_load_timeout_second);
+                validTimeoutSecond = checkValidTimeoutSecond(timeoutSecond, Config.max_load_timeout_second,
+                        Config.min_load_timeout_second);
         }
 
         BeginTxnResponse beginTxnResponse = null;
@@ -288,7 +291,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
             txnInfoBuilder.setCoordinator(TxnUtil.txnCoordinatorToPb(coordinator));
             txnInfoBuilder.setLoadJobSourceType(LoadJobSourceTypePB.forNumber(sourceType.value()));
-            txnInfoBuilder.setTimeoutMs(timeoutSecond * 1000);
+            txnInfoBuilder.setTimeoutMs(validTimeoutSecond * 1000);
             txnInfoBuilder.setPrecommitTimeoutMs(Config.stream_load_default_precommit_timeout_second * 1000);
 
             final BeginTxnRequest beginTxnRequest = BeginTxnRequest.newBuilder()
