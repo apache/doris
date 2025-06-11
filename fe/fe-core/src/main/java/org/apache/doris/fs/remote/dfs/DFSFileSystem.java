@@ -137,9 +137,6 @@ public class DFSFileSystem extends RemoteFileSystem {
                 }
                 if (dfsFileSystem == null) {
                     Configuration conf = hdfsProperties.getHadoopConfiguration();
-                    // TODO: Temporarily disable the HDFS file system cache to prevent instances from being closed by
-                    //  each other in V1. This line can be removed once V1 and V2 are unified.
-                    conf.set("fs.hdfs.impl.disable.cache", "true");
                     authenticator = HadoopAuthenticator.getHadoopAuthenticator(conf);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
@@ -161,8 +158,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                                                                FileSystem fileSystem, Path locatedPath)
-            throws IOException {
+                FileSystem fileSystem, Path locatedPath) throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -272,7 +268,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-            throws IOException {
+                throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {
