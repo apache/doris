@@ -1004,11 +1004,6 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showQueryProfileCommand, context);
     }
 
-    default R visitShowQueryStatsCommand(ShowQueryStatsCommand showQueryStatsCommand,
-            C context) {
-        return visitCommand(showQueryStatsCommand, context);
-    }
-
     default R visitShowConvertLscCommand(ShowConvertLSCCommand showConvertLSCCommand, C context) {
         return visitCommand(showConvertLSCCommand, context);
     }
