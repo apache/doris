@@ -735,7 +735,9 @@ Status FileScanner::_convert_to_output_block(Block* block) {
             LOG(INFO) << "column_ptr is nullable, slot_desc: " << slot_desc->col_name()
                       << ", i: " << i
                       << ", mutable_output_columns.size(): " << mutable_output_columns.size()
-                      << ", result_column_id: " << result_column_id;
+                      << ", result_column_id: " << result_column_id
+                      << ", _src_block_ptr->dump_one_line(i, _num_of_columns_from_file): "
+                      << _src_block_ptr->dump_one_line(i, _num_of_columns_from_file);
             const auto* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
