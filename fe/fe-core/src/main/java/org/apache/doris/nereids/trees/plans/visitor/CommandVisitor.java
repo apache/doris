@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
@@ -1240,6 +1241,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateStageCommand(CreateStageCommand createStageCommand, C context) {
         return visitCommand(createStageCommand, context);
+    }
+
+    default R visitAdminSetReplicaVersionCommand(AdminSetReplicaVersionCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {
