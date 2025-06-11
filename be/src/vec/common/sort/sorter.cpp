@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/common/sort/sorter.h"
+
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -30,7 +32,6 @@
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/sort/sorter.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/sort_block.h"

@@ -18,9 +18,10 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/base/base/StringRef.
 // And modified by Doris
 
+#include "string_ref.h"
+
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "string_ref.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
