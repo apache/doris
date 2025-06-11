@@ -31,6 +31,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/json/path_in_data.h"
 
@@ -262,8 +263,7 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         container =
                 ColumnVariant::create(max_subcolumns_count, _root_reader->type, std::move(column));
     } else {
-        auto root_type = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::INVALID_TYPE, false);
+        DataTypePtr root_type = std::make_shared<vectorized::DataTypeNothing>();
         auto column = vectorized::ColumnNothing::create(nrows);
         container = ColumnVariant::create(max_subcolumns_count, root_type, std::move(column));
     }

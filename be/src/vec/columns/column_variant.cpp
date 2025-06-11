@@ -83,8 +83,7 @@ namespace {
 DataTypePtr create_array_of_type(PrimitiveType type, size_t num_dimensions, bool is_nullable,
                                  int precision = -1, int scale = -1) {
     if (type == PrimitiveType::INVALID_TYPE) {
-        return is_nullable ? make_nullable(std::make_shared<DataTypeNothing>())
-                           : std::make_shared<DataTypeNothing>();
+        return std::make_shared<DataTypeNothing>();
     }
     if (type == ColumnVariant::MOST_COMMON_TYPE_ID) {
         // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
@@ -265,7 +264,7 @@ void ColumnVariant::Subcolumn::insert(Field field, FieldInfo info) {
 
 static DataTypePtr create_array(PrimitiveType type, size_t num_dimensions) {
     if (type == PrimitiveType::INVALID_TYPE) {
-        return make_nullable(std::make_shared<DataTypeNothing>());
+        return std::make_shared<DataTypeNothing>();
     }
     DataTypePtr result_type = DataTypeFactory::instance().create_data_type(type, true);
     for (size_t i = 0; i < num_dimensions; ++i) {
@@ -2125,12 +2124,15 @@ void ColumnVariant::insert_indices_from(const IColumn& src, const uint32_t* indi
         // add a new root column, and insert from src root column
         clear();
         add_sub_column({}, src_v->get_root()->clone_empty(), src_v->get_root_type());
-
+        get_subcolumns().get_mutable_root()->data.num_rows = indices_end - indices_begin;
         get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
         num_rows += indices_end - indices_begin;
     } else if (src_can_do_quick_insert && is_scalar_variant() &&
                src_v->get_root_type()->equals(*get_root_type())) {
         get_root()->insert_indices_from(*src_v->get_root(), indices_begin, indices_end);
+        serialized_sparse_column->insert_many_defaults(indices_end - indices_begin);
+        get_subcolumns().get_mutable_root()->data.num_rows += indices_end - indices_begin;
         num_rows += indices_end - indices_begin;
     } else {
         for (const auto* x = indices_begin; x != indices_end; ++x) {
