@@ -27,7 +27,9 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
+#include "common/bvars.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
@@ -42,6 +44,7 @@ class InstanceRecycler;
 class StorageVaultAccessor;
 class Checker;
 class SimpleThreadPool;
+class RecyclerMetricsContext;
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
@@ -165,15 +168,15 @@ public:
      * @param is_empty_tablet indicates whether the tablet has object files, can skip delete objects if tablet is empty
      * @return 0 for success otherwise error
      */
-    int recycle_tablets(int64_t table_id, int64_t index_id, int64_t partition_id = -1,
-                        bool is_empty_tablet = false);
+    int recycle_tablets(int64_t table_id, int64_t index_id, RecyclerMetricsContext& ctx,
+                        int64_t partition_id = -1, bool is_empty_tablet = false);
 
     /**
      * recycle all rowsets belonging to the tablet specified by `tablet_id`
      *
      * @return 0 for success otherwise error
      */
-    int recycle_tablet(int64_t tablet_id);
+    int recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
     // scan and recycle useless partition version kv
     int recycle_versions();
@@ -218,6 +221,13 @@ private:
                          std::function<int(std::string_view k, std::string_view v)> recycle_func,
                          std::function<int()> loop_done = nullptr);
 
+    int scan_for_recycle_and_statistics(
+            std::string begin, std::string_view end, std::string task_name,
+            RecyclerMetricsContext& metrics_context,
+            std::function<int(std::string_view k, std::string_view v)> statistics_func,
+            std::function<int(std::string_view k, std::string_view v)> recycle_func,
+            std::function<int()> loop_done = nullptr);
+
     // return 0 for success otherwise error
     int delete_rowset_data(const doris::RowsetMetaCloudPB& rs_meta_pb);
 
@@ -227,8 +237,8 @@ private:
                            const std::string& rowset_id);
 
     // return 0 for success otherwise error
-    int delete_rowset_data(const std::vector<doris::RowsetMetaCloudPB>& rowsets,
-                           RowsetRecyclingState type);
+    int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
+                           RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
     /**
      * Get stage storage info from instance and init StorageVaultAccessor
@@ -240,6 +250,14 @@ private:
     void register_recycle_task(const std::string& task_name, int64_t start_time);
 
     void unregister_recycle_task(const std::string& task_name);
+
+    // for scan all tablets and statistics metrics
+    int scan_tablets_and_statistics(int64_t tablet_id, int64_t index_id,
+                                    RecyclerMetricsContext& metrics_context,
+                                    int64_t partition_id = -1, bool is_empty_tablet = false);
+
+    // for scan all rs of tablet and statistics metrics
+    int scan_tablet_and_statistics(int64_t tablet_id, RecyclerMetricsContext& metrics_context);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -268,4 +286,87 @@ private:
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
+class RecyclerMetricsContext {
+public:
+    RecyclerMetricsContext() = default;
+
+    RecyclerMetricsContext(std::string instance_id, std::string operation_type)
+            : operation_type(std::move(operation_type)), instance_id(std::move(instance_id)) {
+        start();
+    }
+
+    ~RecyclerMetricsContext() { finish_report(); }
+
+    int64_t total_need_recycle_data_size = 0;
+    int64_t total_need_recycle_num = 0;
+
+    std::atomic_long total_recycle_data_size {0};
+    std::atomic_long total_recycled_num {0};
+
+    std::string operation_type;
+    std::string instance_id {-1};
+
+    double start_time = 0;
+
+    void start() {
+        start_time = duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    }
+
+    double duration() const {
+        return duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count() -
+               start_time;
+    }
+
+    void finish_report() const {
+        if (!operation_type.empty()) {
+            double cost = duration();
+            g_bvar_recycler_instance_recycle_cost.put({instance_id, operation_type}, cost);
+            g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
+            if (total_recycled_num.load() > 0) {
+                g_bvar_recycler_instance_recycle.put({instance_id, operation_type},
+                                                     total_recycled_num.load() / cost);
+            }
+        }
+    }
+
+    // `is_begin` is used to initialize total num of items need to be recycled
+    void report(bool is_begin = false) const {
+        if (!operation_type.empty()) {
+            if (total_need_recycle_data_size > 0) {
+                // is init
+                if (is_begin) {
+                    g_bvar_recycler_instance_recycle_bytes.put(
+                            {instance_id, operation_type},
+                            std::make_pair(0, total_need_recycle_data_size));
+                } else {
+                    g_bvar_recycler_instance_recycle_bytes.put(
+                            {instance_id, operation_type},
+                            std::make_pair(total_recycle_data_size.load(),
+                                           total_need_recycle_data_size));
+                    g_bvar_recycler_instance_recycle_total_bytes.put(
+                            {instance_id, operation_type}, total_recycle_data_size.load());
+                }
+            }
+
+            if (total_need_recycle_num > 0) {
+                // if init
+                if (is_begin) {
+                    g_bvar_recycler_instance_recycle_num.put(
+                            {instance_id, operation_type},
+                            std::make_pair(0, total_need_recycle_num));
+                } else {
+                    g_bvar_recycler_instance_recycle_num.put(
+                            {instance_id, operation_type},
+                            std::make_pair(total_recycled_num.load(), total_need_recycle_num));
+                    g_bvar_recycler_instance_recycle_total_num.put({instance_id, operation_type},
+                                                                   total_recycled_num.load());
+                }
+            }
+        }
+    }
+};
 } // namespace doris::cloud
