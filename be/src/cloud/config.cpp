@@ -43,9 +43,10 @@ DEFINE_mInt32(init_scanner_sync_rowsets_parallelism, "10");
 DEFINE_mInt32(sync_rowsets_slow_threshold_ms, "1000");
 
 DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");
-DEFINE_mInt64(base_compaction_freeze_interval_s, "7200");
-DEFINE_mInt64(cu_compaction_freeze_interval_s, "1200");
-DEFINE_mInt64(cumu_compaction_interval_s, "1800");
+DEFINE_mInt64(base_compaction_load_max_freeze_interval_s, "4800");
+DEFINE_mInt64(base_compaction_success_min_freeze_interval_s, "7200");
+DEFINE_mInt64(cumu_compaction_load_max_freeze_interval_s, "1200");
+DEFINE_mInt64(cumu_compaction_success_min_freeze_interval_s, "1800");
 
 DEFINE_mInt32(compaction_timeout_seconds, "86400");
 DEFINE_mInt32(lease_compaction_interval_seconds, "20");

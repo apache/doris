@@ -77,9 +77,10 @@ DECLARE_mInt32(sync_rowsets_slow_threshold_ms);
 DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
 // For cloud read/write separate mode
-DECLARE_mInt64(base_compaction_freeze_interval_s);
-DECLARE_mInt64(cu_compaction_freeze_interval_s);
-DECLARE_mInt64(cumu_compaction_interval_s);
+DECLARE_mInt64(base_compaction_load_max_freeze_interval_s);
+DECLARE_mInt64(base_compaction_success_min_freeze_interval_s);
+DECLARE_mInt64(cumu_compaction_load_max_freeze_interval_s);
+DECLARE_mInt64(cumu_compaction_success_min_freeze_interval_s);
 
 DECLARE_mInt32(compaction_timeout_seconds);
 DECLARE_mInt32(lease_compaction_interval_seconds);

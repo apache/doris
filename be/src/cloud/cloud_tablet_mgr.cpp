@@ -387,18 +387,19 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     auto skip = [now, compaction_type](CloudTablet* t) {
+        int32_t max_version_config = t->max_version_config();
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            return now - t->last_base_compaction_success_time_ms < config::base_compaction_freeze_interval_s * 1000 ||
-                now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms;
+            return now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms ||
+                   (now - t->last_load_time_ms > config::base_compaction_load_max_freeze_interval_s * 1000
+                   && now - t->last_base_compaction_success_time_ms < config::base_compaction_success_min_freeze_interval_s * 1000
+                   && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
         }
         // If tablet has too many rowsets but not be compacted for a long time, compaction should be performed
         // regardless of whether there is a load job recently.
-
-        int32_t max_version_config = t->max_version_config();
         return now - t->last_cumu_compaction_failure_time() < config::min_compaction_failure_interval_ms ||
                now - t->last_cumu_no_suitable_version_ms < config::min_compaction_failure_interval_ms ||
-               (now - t->last_load_time_ms > config::cu_compaction_freeze_interval_s * 1000
-               && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000
+               (now - t->last_load_time_ms > config::cumu_compaction_load_max_freeze_interval_s * 1000
+               && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_success_min_freeze_interval_s * 1000
                && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
     };
     // We don't schedule tablets that are disabled for compaction
