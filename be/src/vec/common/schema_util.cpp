@@ -250,11 +250,10 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
 
     PrimitiveType type = data_type->get_primitive_type();
     if (is_int_or_bool(type) || is_string_type(type) || is_float_or_double(type) || is_ip(type) ||
-        is_date_or_datetime(type)) {
+        is_date_or_datetime(type) || type == PrimitiveType::TYPE_DATEV2) {
         column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
-    // none json type
     if (is_decimal(type)) {
         column.set_precision_frac(data_type->get_precision(), data_type->get_scale());
         column.set_is_decimal(true);
@@ -266,7 +265,6 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         return;
     }
 
-    // TODO handle more types like struct/date/datetime/decimal...
     throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                            "unexcepted data column type: {}, column name is: {}",
                            data_type->get_name(), name);

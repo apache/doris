@@ -151,7 +151,7 @@ void FieldVisitorToJsonb::operator()(const Array& x, JsonbWriter* writer) const 
 namespace {
 template <typename From, PrimitiveType T>
 Field convert_numeric_type_impl(const Field& from) {
-    typename PrimitiveTypeTraits<T>::CppType result;
+    typename PrimitiveTypeTraits<T>::ColumnItemType result;
     if (!accurate::convertNumeric(from.get<From>(), result)) {
         return {};
     }
@@ -161,11 +161,11 @@ Field convert_numeric_type_impl(const Field& from) {
 template <PrimitiveType T>
 void convert_numric_type(const Field& from, const IDataType& type, Field* to) {
     if (from.get_type() == PrimitiveType::TYPE_BIGINT) {
-        *to = convert_numeric_type_impl<Int64, TYPE_BIGINT>(from);
+        *to = convert_numeric_type_impl<Int64, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_DOUBLE) {
-        *to = convert_numeric_type_impl<Float64, TYPE_DOUBLE>(from);
+        *to = convert_numeric_type_impl<Float64, T>(from);
     } else if (from.get_type() == PrimitiveType::TYPE_LARGEINT) {
-        *to = convert_numeric_type_impl<Int128, TYPE_LARGEINT>(from);
+        *to = convert_numeric_type_impl<Int128, T>(from);
     } else {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Type mismatch in IN or VALUES section. Expected: {}. Got: {}",

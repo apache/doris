@@ -419,9 +419,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<vectorized::DataTypeDate>();
         break;
     case TYPE_DATEV2:
+        nested = std::make_shared<vectorized::DataTypeDateV2>();
         break;
     case TYPE_DATETIME:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
+        break;
+    case TYPE_DATETIMEV2:
+        nested = vectorized::create_datetimev2(scale);
         break;
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(scale);
@@ -500,6 +504,14 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
     case TTypeNodeType::SCALAR: {
         DCHECK(node.__isset.scalar_type);
         const TScalarType& scalar_type = node.scalar_type;
+        if (scalar_type.type == TPrimitiveType::VARIANT) {
+            DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
+                    << "count is: " << scalar_type.variant_max_subcolumns_count;
+            return is_nullable ? make_nullable(std::make_shared<vectorized::DataTypeVariant>(
+                                         scalar_type.variant_max_subcolumns_count))
+                               : std::make_shared<vectorized::DataTypeVariant>(
+                                         scalar_type.variant_max_subcolumns_count);
+        }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
                                 scalar_type.__isset.precision ? scalar_type.precision : 0,
                                 scalar_type.__isset.scale ? scalar_type.scale : 0,

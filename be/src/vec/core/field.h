@@ -281,9 +281,17 @@ public:
     /** Despite the presence of a template constructor, this constructor is still needed,
       *  since, in its absence, the compiler will still generate the default constructor.
       */
-    Field(const Field& rhs) { create(rhs); }
+    Field(const Field& rhs) {
+        create(rhs);
+        this->precision = rhs.precision;
+        this->scale = rhs.scale;
+    }
 
-    Field(Field&& rhs) { create(std::move(rhs)); }
+    Field(Field&& rhs) {
+        create(std::move(rhs));
+        this->precision = rhs.precision;
+        this->scale = rhs.scale;
+    }
 
     Field(Field&& rhs, int8_t precision, int8_t scale) {
         create(rhs);
@@ -299,6 +307,8 @@ public:
             } else {
                 assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
             }
+            this->precision = rhs.precision;
+            this->scale = rhs.scale;
         }
         return *this;
     }
@@ -316,6 +326,8 @@ public:
             } else {
                 assign(std::move(rhs));
             }
+            this->precision = rhs.precision;
+            this->scale = rhs.scale;
         }
         return *this;
     }
