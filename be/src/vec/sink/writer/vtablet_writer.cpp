@@ -343,10 +343,10 @@ Status IndexChannel::close_wait(
                     unfinished_node_channel_host_str << _node_channels[it]->host() << ",";
                     _node_channels[it]->cancel("timeout");
                 }
-                LOG(WARNING) << "reach max wait time, cancel unfinished node channel and "
-                                "finish close"
+                LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
+                             << ", cancel unfinished node channel and finish close"
                              << ", load id: " << print_id(_parent->_load_id)
-                             << "_txn_id: " << _parent->_txn_id << ", unfinished node channel: "
+                             << ", txn_id: " << _parent->_txn_id << ", unfinished node channel: "
                              << unfinished_node_channel_host_str.str();
                 break;
             }

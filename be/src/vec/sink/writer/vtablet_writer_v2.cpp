@@ -858,7 +858,7 @@ Status VTabletWriterV2::_close_wait_all_streams() {
                 for (const auto& stream : unfinished_streams) {
                     unfinished_streams_str << stream->stream_id() << ",";
                 }
-                LOG(WARNING) << "reach max wait time"
+                LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
                              << ", load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
                              << ", unfinished streams: " << unfinished_streams_str.str();
                 break;
