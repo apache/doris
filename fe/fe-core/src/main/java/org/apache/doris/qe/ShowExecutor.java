@@ -34,7 +34,6 @@ import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowBuildIndexStmt;
-import org.apache.doris.analysis.ShowCatalogRecycleBinStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCharsetStmt;
 import org.apache.doris.analysis.ShowCloudWarmUpStmt;
@@ -59,7 +58,6 @@ import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
-import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
@@ -105,7 +103,6 @@ import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
-import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
@@ -114,7 +111,6 @@ import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
@@ -133,8 +129,6 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
@@ -149,7 +143,6 @@ import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
@@ -184,7 +177,6 @@ import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
-import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.proc.TrashProcDir;
 import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.common.util.DebugUtil;
@@ -232,7 +224,6 @@ import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -279,7 +270,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -293,7 +283,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -321,8 +310,6 @@ public class ShowExecutor {
             handleShowProc();
         } else if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowDbStmt) {
-            handleShowDb();
         } else if (stmt instanceof ShowDbIdStmt) {
             handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
@@ -389,8 +376,6 @@ public class ShowExecutor {
             handleShowPartitions();
         } else if (stmt instanceof ShowPartitionIdStmt) {
             handleShowPartitionId();
-        } else if (stmt instanceof ShowTabletStmt) {
-            handleShowTablet();
         } else if (stmt instanceof ShowBackupStmt) {
             handleShowBackup();
         } else if (stmt instanceof ShowRestoreStmt) {
@@ -438,8 +423,6 @@ public class ShowExecutor {
             handleShowDynamicPartition();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
-        } else if (stmt instanceof ShowViewStmt) {
-            handleShowView();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
@@ -486,8 +469,6 @@ public class ShowExecutor {
             handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
-        } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
-            handleShowCatalogRecycleBin();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
         } else if (stmt instanceof ShowBuildIndexStmt) {
@@ -932,44 +913,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Show databases statement
-    private void handleShowDb() throws AnalysisException {
-        ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // cluster feature is deprecated.
-        CatalogIf catalogIf = ctx.getCatalog(showDbStmt.getCatalogName());
-        if (catalogIf == null) {
-            throw new AnalysisException("No catalog found with name " + showDbStmt.getCatalogName());
-        }
-        List<String> dbNames = catalogIf.getDbNames();
-        PatternMatcher matcher = null;
-        if (showDbStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showDbStmt.getPattern(),
-                    CaseSensibility.DATABASE.getCaseSensibility());
-        }
-        Set<String> dbNameSet = Sets.newTreeSet();
-        for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
-            // Filter dbname
-            if (matcher != null && !matcher.match(db)) {
-                continue;
-            }
-
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
-                    fullName, PrivPredicate.SHOW)) {
-                continue;
-            }
-
-            dbNameSet.add(db);
-        }
-
-        for (String dbName : dbNameSet) {
-            rows.add(Lists.newArrayList(dbName));
-        }
-
-        resultSet = new ShowResultSet(showDbStmt.getMetaData(), rows);
-    }
-
     // Show table statement.
     private void handleShowTable() throws AnalysisException {
         ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
@@ -1300,26 +1243,6 @@ public class ShowExecutor {
                 } finally {
                     olapTable.readUnlock();
                 }
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show view statement.
-    private void handleShowView() {
-        ShowViewStmt showStmt = (ShowViewStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        List<View> matchViews = showStmt.getMatchViews();
-        for (View view : matchViews) {
-            view.readLock();
-            try {
-                List<String> createViewStmt = Lists.newArrayList();
-                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
-                if (!createViewStmt.isEmpty()) {
-                    rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
-                }
-            } finally {
-                view.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -2033,191 +1956,6 @@ public class ShowExecutor {
             }
             rows = rows.subList(beginIndex, endIndex);
         }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowTablet() throws AnalysisException {
-        ShowTabletStmt showStmt = (ShowTabletStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-
-        Env env = Env.getCurrentEnv();
-        if (showStmt.isShowSingleTablet()) {
-            long tabletId = showStmt.getTabletId();
-            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-            Long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String dbName = FeConstants.null_string;
-            Long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String tableName = FeConstants.null_string;
-            Long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String partitionName = FeConstants.null_string;
-            Long indexId = tabletMeta != null ? tabletMeta.getIndexId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-            String indexName = FeConstants.null_string;
-            Boolean isSync = true;
-            long queryHits = 0L;
-
-            int tabletIdx = -1;
-            // check real meta
-            do {
-                Database db = env.getInternalCatalog().getDbNullable(dbId);
-                if (db == null) {
-                    isSync = false;
-                    break;
-                }
-                dbName = db.getFullName();
-                Table table = db.getTableNullable(tableId);
-                if (!(table instanceof OlapTable)) {
-                    isSync = false;
-                    break;
-                }
-                if (Config.enable_query_hit_stats) {
-                    MaterializedIndex mi = ((OlapTable) table).getPartition(partitionId).getIndex(indexId);
-                    if (mi != null) {
-                        Tablet t = mi.getTablet(tabletId);
-                        for (Replica r : t.getReplicas()) {
-                            queryHits += QueryStatsUtil.getMergedReplicaStats(r.getId());
-                        }
-                    }
-                }
-
-                table.readLock();
-                try {
-                    tableName = table.getName();
-                    OlapTable olapTable = (OlapTable) table;
-                    Partition partition = olapTable.getPartition(partitionId);
-                    if (partition == null) {
-                        isSync = false;
-                        break;
-                    }
-                    partitionName = partition.getName();
-
-                    MaterializedIndex index = partition.getIndex(indexId);
-                    if (index == null) {
-                        isSync = false;
-                        break;
-                    }
-                    indexName = olapTable.getIndexNameById(indexId);
-
-                    Tablet tablet = index.getTablet(tabletId);
-                    if (tablet == null) {
-                        isSync = false;
-                        break;
-                    }
-
-                    tabletIdx = index.getTabletOrderIdx(tablet.getId());
-
-                    List<Replica> replicas = tablet.getReplicas();
-                    for (Replica replica : replicas) {
-                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendIdWithoutException());
-                        if (tmp == null) {
-                            isSync = false;
-                            break;
-                        }
-                        // use !=, not equals(), because this should be the same object.
-                        if (tmp != replica) {
-                            isSync = false;
-                            break;
-                        }
-                    }
-
-                } finally {
-                    table.readUnlock();
-                }
-            } while (false);
-
-            String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
-                    dbId, tableId, partitionId, indexId, tabletId);
-            rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
-                    dbId.toString(), tableId.toString(),
-                    partitionId.toString(), indexId.toString(),
-                    isSync.toString(), String.valueOf(tabletIdx), String.valueOf(queryHits), detailCmd));
-        } else {
-            Database db = env.getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
-            OlapTable olapTable = db.getOlapTableOrAnalysisException(showStmt.getTableName());
-
-            olapTable.readLock();
-            try {
-                long sizeLimit = -1;
-                if (showStmt.hasOffset() && showStmt.hasLimit()) {
-                    sizeLimit = showStmt.getOffset() + showStmt.getLimit();
-                } else if (showStmt.hasLimit()) {
-                    sizeLimit = showStmt.getLimit();
-                }
-                boolean stop = false;
-                Collection<Partition> partitions = new ArrayList<Partition>();
-                if (showStmt.hasPartition()) {
-                    PartitionNames partitionNames = showStmt.getPartitionNames();
-                    for (String partName : partitionNames.getPartitionNames()) {
-                        Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
-                        if (partition == null) {
-                            throw new AnalysisException("Unknown partition: " + partName);
-                        }
-                        partitions.add(partition);
-                    }
-                } else {
-                    partitions = olapTable.getPartitions();
-                }
-                List<List<Comparable>> tabletInfos = new ArrayList<>();
-                String indexName = showStmt.getIndexName();
-                long indexId = -1;
-                if (indexName != null) {
-                    Long id = olapTable.getIndexIdByName(indexName);
-                    if (id == null) {
-                        // invalid indexName
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, showStmt.getIndexName(),
-                                showStmt.getDbName());
-                    }
-                    indexId = id;
-                }
-                for (Partition partition : partitions) {
-                    if (stop) {
-                        break;
-                    }
-                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                        if (indexId > -1 && index.getId() != indexId) {
-                            continue;
-                        }
-                        TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
-                        tabletInfos.addAll(procDir.fetchComparableResult(
-                                showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
-                        if (sizeLimit > -1 && tabletInfos.size() >= sizeLimit) {
-                            stop = true;
-                            break;
-                        }
-                    }
-                }
-                if (showStmt.hasOffset() && showStmt.getOffset() >= tabletInfos.size()) {
-                    tabletInfos.clear();
-                } else {
-                    // order by
-                    List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-                    ListComparator<List<Comparable>> comparator = null;
-                    if (orderByPairs != null) {
-                        OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-                        comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
-                    } else {
-                        // order by tabletId, replicaId
-                        comparator = new ListComparator<>(0, 1);
-                    }
-                    Collections.sort(tabletInfos, comparator);
-                    if (sizeLimit > -1) {
-                        tabletInfos = tabletInfos.subList((int) showStmt.getOffset(),
-                                Math.min((int) sizeLimit, tabletInfos.size()));
-                    }
-
-                    for (List<Comparable> tabletInfo : tabletInfos) {
-                        List<String> oneTablet = new ArrayList<String>(tabletInfo.size());
-                        for (Comparable column : tabletInfo) {
-                            oneTablet.add(column.toString());
-                        }
-                        rows.add(oneTablet);
-                    }
-                }
-            } finally {
-                olapTable.readUnlock();
-            }
-        }
-
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -3337,17 +3075,6 @@ public class ShowExecutor {
         } finally {
             AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
         }
-    }
-
-    private void handleShowCatalogRecycleBin() throws AnalysisException {
-        ShowCatalogRecycleBinStmt showStmt = (ShowCatalogRecycleBinStmt) stmt;
-
-        Predicate<String> predicate = showStmt.getNamePredicate();
-        List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()
-                .filter(x -> predicate.test(x.get(1)))
-                .collect(Collectors.toList());
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
     private void handleShowTypeCastStmt() throws AnalysisException {

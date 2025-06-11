@@ -77,7 +77,6 @@ unsupportedStatement
     | unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
-    | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
     | unsupportedOtherStatement
@@ -282,6 +281,8 @@ supportedAlterStatement
     | ALTER REPOSITORY name=identifier properties=propertyClause?                           #alterRepository
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?                 #alterRoutineLoad
+    | ALTER COLOCATE GROUP name=multipartIdentifier
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
     ;
@@ -316,9 +317,14 @@ supportedDropStatement
 supportedShowStatement
     : SHOW statementScope? VARIABLES wildWhere?                                     #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
+    | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
+        ((FROM | IN) database=multipartIdentifier)? wildWhere?
+        sortClause? limitClause?                                                    #showAlterTable
     | SHOW CREATE (DATABASE | SCHEMA) name=multipartIdentifier                      #showCreateDatabase
     | SHOW BACKUP ((FROM | IN) database=identifier)? wildWhere?                     #showBackup
     | SHOW BROKER                                                                   #showBroker
+    | SHOW BUILD INDEX ((FROM | IN) database=identifier)?
+        wildWhere? sortClause? limitClause?                                         #showBuildIndex
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
@@ -389,6 +395,7 @@ supportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns    
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
+    | SHOW TYPECAST ((FROM | IN) database=identifier)?                              #showTypeCast
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
     | SHOW statementScope? STATUS                                                   #showStatus
     | SHOW WHITELIST                                                                #showWhitelist
@@ -435,6 +442,7 @@ supportedLoadStatement
           LEFT_PAREN channelDescriptions RIGHT_PAREN
           FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
           properties=propertyClause?                                                #createDataSyncJob
+    | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | (LIKE STRING_LITERAL)?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     ;
 
@@ -477,16 +485,10 @@ unsupportedShowStatement
     : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
-    | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
-        ((FROM | IN) database=multipartIdentifier)? wildWhere?
-        sortClause? limitClause?                                                    #showAlterTable
-    | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
-    | SHOW BUILD INDEX ((FROM | IN) database=multipartIdentifier)?
-        wildWhere? sortClause? limitClause?                                         #showBuildIndex
     ;
 
 createRoutineLoad
@@ -501,7 +503,6 @@ unsupportedLoadStatement
     : LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                              #mysqlLoad
-    | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | wildWhere?)         #showRoutineLoad
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
     ;
 
@@ -554,6 +555,7 @@ supportedRefreshStatement
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
     | REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     | REFRESH DICTIONARY name=multipartIdentifier                                   #refreshDictionary
+    | REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
 supportedCleanStatement
@@ -562,10 +564,6 @@ supportedCleanStatement
     | CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
-    ;
-
-unsupportedRefreshStatement
-    : REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
 supportedCancelStatement
@@ -662,9 +660,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER COLOCATE GROUP name=multipartIdentifier
-        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
-    | ALTER STORAGE POLICY name=identifierOrText
+    : ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                   #alterStoragePlicy
     ;
 
