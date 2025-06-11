@@ -323,7 +323,7 @@
     void SetUp() override {}
 
     // meta info assert is simple and can be used for all DataType
-    void meta_info_assert(DataTypePtr& data_type, DataTypeMetaInfo& meta_info) {
+    void meta_info_assert(DataTypePtr & data_type, DataTypeMetaInfo & meta_info) {
         ASSERT_NE(data_type->get_serde(1), nullptr);
         ASSERT_EQ(IDataType::get_pdata_type(data_type.get()), meta_info.pColumnMeta->type());
         ASSERT_TRUE(data_type->equals(*meta_info.type_as_type_descriptor))
@@ -365,7 +365,7 @@
     }
 
     // create column assert with default field is simple and can be used for all DataType
-    void create_column_assert(DataTypePtr& data_type, Field& default_field,
+    void create_column_assert(DataTypePtr & data_type, Field & default_field,
                               size_t uncompressed_serialized_bytes = -1) {
         std::cout << "create_column_assert: " << data_type->get_name() << std::endl;
         auto column = data_type->create_column();
@@ -384,7 +384,7 @@
     }
 
     // get_field assert is simple and can be used for all DataType
-    void get_field_assert(DataTypePtr& data_type, TExprNode& node, Field& assert_field,
+    void get_field_assert(DataTypePtr & data_type, TExprNode & node, Field & assert_field,
                           bool assert_false = false) {
         if (assert_false) {
             EXPECT_ANY_THROW(data_type->get_field(node))
@@ -402,7 +402,7 @@
 
     // to_string | to_string_batch | from_string assert is simple and can be used for all DataType
     void assert_to_string_from_string_assert(MutableColumnPtr mutableColumn,
-                                             DataTypePtr& data_type) {
+                                             DataTypePtr & data_type) {
         {
             // to_string_batch | from_string
             auto col_to = ColumnString::create();
@@ -446,7 +446,7 @@
 
     // datatype serialize | deserialize assert is only used Block::serialize | deserialize which for PBlock
     //  which happened in multiple BE shuffle data
-    void serialize_deserialize_assert(MutableColumns& columns, DataTypes data_types) {
+    void serialize_deserialize_assert(MutableColumns & columns, DataTypes data_types) {
         // first make columns has same rows
         size_t max_row = columns[0]->size();
         for (int i = 1; i < columns.size(); ++i) {
