@@ -48,6 +48,10 @@ public:
         int64_t merged_rows = 0;
         int64_t filtered_rows = 0;
         RowIdConversion* rowid_conversion = nullptr;
+        // these data for trans
+        int64_t cached_bytes_total = 0;
+        int64_t bytes_read_from_local = 0;
+        int64_t bytes_read_from_remote = 0;
     };
 
     // merge rows from `src_rowset_readers` and write into `dst_rowset_writer`.

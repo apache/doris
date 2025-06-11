@@ -176,6 +176,17 @@ public abstract class ExternalCatalog
         this.comment = Strings.nullToEmpty(comment);
     }
 
+    /**
+     * Initializes the PreExecutionAuthenticator instance.
+     * This method ensures that the authenticator is created only once in a thread-safe manner.
+     * If additional authentication logic is required, it should be extended and implemented in subclasses.
+     */
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator();
+        }
+    }
+
     public Configuration getConfiguration() {
         // build configuration is costly, so we cache it.
         if (cachedConf != null) {
@@ -211,6 +222,11 @@ public abstract class ExternalCatalog
         } else {
             return metadataOps.listDatabaseNames();
         }
+    }
+
+    public ExternalMetadataOps getMetadataOps() {
+        makeSureInitialized();
+        return metadataOps;
     }
 
     // Will be called when creating catalog(so when as replaying)
@@ -1137,6 +1153,9 @@ public abstract class ExternalCatalog
     }
 
     public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        if (null == preExecutionAuthenticator) {
+            throw new RuntimeException("PreExecutionAuthenticator is null, please confirm it is initialized.");
+        }
         return preExecutionAuthenticator;
     }
 

@@ -131,6 +131,7 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
+    bool has_char_type() const;
 
     void set_aggregation_method(FieldAggregationMethod agg) {
         _aggregation = agg;

@@ -52,7 +52,7 @@ suite("test_insert_overwrite_recover_no_partition") {
     sql """ recover partition ${table} as p2  from ${table}; """
 
     // create a table to copy the data only for partition p2.
-    table_bk = "test_insert_overwrite_recover_no_partition_backup"
+    def table_bk = "test_insert_overwrite_recover_no_partition_backup"
     sql """ drop table if exists ${table_bk} force"""
     sql """
     create table ${table_bk} (

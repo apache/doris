@@ -941,6 +941,11 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
     }
 
     if (!tablet_idx_pb.has_db_id()) {
+        // In the previous version, the db_id was not set in the index_pb.
+        // If updating to the version which enable txn lazy commit, the db_id will be set.
+        LOG(INFO) << "txn index has no db_id, tablet_id=" << tablet_id
+                  << " instance_id=" << instance_id
+                  << " tablet_idx_pb=" << tablet_idx_pb.ShortDebugString();
         return true;
     }
 
@@ -951,6 +956,12 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
     err = txn->get(ver_key, &ver_val);
 
     if (TxnErrorCode::TXN_KEY_NOT_FOUND == err) {
+        LOG(INFO) << ""
+                     "partition version not found, instance_id="
+                  << instance_id << " db_id=" << tablet_idx_pb.db_id()
+                  << " table_id=" << tablet_idx_pb.table_id()
+                  << " partition_id=" << tablet_idx_pb.partition_id() << " tablet_id=" << tablet_id
+                  << " key=" << hex(ver_key);
         return true;
     }
 
@@ -974,6 +985,7 @@ bool check_lazy_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string in
     }
 
     if (version_pb.pending_txn_ids_size() > 0) {
+        TEST_SYNC_POINT_CALLBACK("check_lazy_txn_finished::txn_not_finished");
         DCHECK(version_pb.pending_txn_ids_size() == 1);
         LOG(WARNING) << "lazy txn not finished, instance_id=" << instance_id
                      << " db_id=" << tablet_idx_pb.db_id()
@@ -1298,7 +1310,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
         if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
-            LOG(WARNING) << "lazy txn not finished tablet_id=" << tablet_meta_pb.tablet_id();
+            LOG(WARNING) << "lazy txn not finished tablet_meta_pb=" << tablet_meta_pb.tablet_id();
             return -1;
         }
 
@@ -1671,6 +1683,8 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
 
     int ret = 0;
     auto start_time = steady_clock::now();
+
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::begin", (int)0);
 
     // collect resource ids
     std::string rs_key0 = meta_rowset_key({instance_id_, tablet_id, 0});
@@ -2099,7 +2113,8 @@ int InstanceRecycler::recycle_rowsets() {
     return ret;
 }
 
-bool is_txn_aborted(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, int64_t txn_id) {
+bool is_txn_finished(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                     int64_t txn_id) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -2112,7 +2127,10 @@ bool is_txn_aborted(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_i
     err = txn->get(index_key, &index_val);
     if (err != TxnErrorCode::TXN_OK) {
         if (TxnErrorCode::TXN_KEY_NOT_FOUND == err) {
+            TEST_SYNC_POINT_CALLBACK("is_txn_finished::txn_has_been_recycled");
             // txn has been recycled;
+            LOG(INFO) << "txn index key has been recycled, txn_id=" << txn_id
+                      << " instance_id=" << instance_id;
             return true;
         }
         LOG(WARNING) << "failed to get txn index key, txn_id=" << txn_id
@@ -2129,13 +2147,29 @@ bool is_txn_aborted(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_i
     }
 
     DCHECK(index_pb.has_tablet_index() == true);
-    DCHECK(index_pb.tablet_index().has_db_id() == true);
+    if (!index_pb.tablet_index().has_db_id()) {
+        // In the previous version, the db_id was not set in the index_pb.
+        // If updating to the version which enable txn lazy commit, the db_id will be set.
+        LOG(INFO) << "txn index has no db_id, txn_id=" << txn_id << " instance_id=" << instance_id
+                  << " index=" << index_pb.ShortDebugString();
+        return true;
+    }
+
     int64_t db_id = index_pb.tablet_index().db_id();
+    DCHECK_GT(db_id, 0) << "db_id=" << db_id << " txn_id=" << txn_id
+                        << " instance_id=" << instance_id;
 
     std::string info_val;
     const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
     err = txn->get(info_key, &info_val);
     if (err != TxnErrorCode::TXN_OK) {
+        if (TxnErrorCode::TXN_KEY_NOT_FOUND == err) {
+            // txn info has been recycled;
+            LOG(INFO) << "txn info key has been recycled, db_id=" << db_id << " txn_id=" << txn_id
+                      << " instance_id=" << instance_id;
+            return true;
+        }
+
         DCHECK(err != TxnErrorCode::TXN_KEY_NOT_FOUND);
         LOG(WARNING) << "failed to get txn info key, txn_id=" << txn_id
                      << " instance_id=" << instance_id << " key=" << hex(info_key)
@@ -2149,10 +2183,17 @@ bool is_txn_aborted(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_i
                      << " instance_id=" << instance_id;
         return false;
     }
-    DCHECK(txn_info.txn_id() == txn_id);
-    if (TxnStatusPB::TXN_STATUS_ABORTED == txn_info.status()) {
+
+    DCHECK(txn_info.txn_id() == txn_id) << "txn_id=" << txn_id << " instance_id=" << instance_id
+                                        << " txn_info=" << txn_info.ShortDebugString();
+
+    if (TxnStatusPB::TXN_STATUS_ABORTED == txn_info.status() ||
+        TxnStatusPB::TXN_STATUS_VISIBLE == txn_info.status()) {
+        TEST_SYNC_POINT_CALLBACK("is_txn_finished::txn_has_been_aborted", &txn_info);
         return true;
     }
+
+    TEST_SYNC_POINT_CALLBACK("is_txn_finished::txn_not_finished", &txn_info);
     return false;
 }
 
@@ -2233,7 +2274,16 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             return 0;
         }
 
-        if (!is_txn_aborted(txn_kv_, instance_id_, rowset.txn_id())) {
+        DCHECK_GT(rowset.txn_id(), 0)
+                << "txn_id=" << rowset.txn_id() << " rowset=" << rowset.ShortDebugString();
+        if (!is_txn_finished(txn_kv_, instance_id_, rowset.txn_id())) {
+            LOG(INFO) << "txn is not finished, skip recycle tmp rowset, instance_id="
+                      << instance_id_ << " tablet_id=" << rowset.tablet_id()
+                      << " rowset_id=" << rowset.rowset_id_v2() << " version=["
+                      << rowset.start_version() << '-' << rowset.end_version()
+                      << "] txn_id=" << rowset.txn_id()
+                      << " creation_time=" << rowset.creation_time() << " expiration=" << expiration
+                      << " txn_expiration=" << rowset.txn_expiration();
             return 0;
         }
 

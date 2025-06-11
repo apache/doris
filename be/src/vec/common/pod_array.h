@@ -392,6 +392,8 @@ public:
         this->c_end = this->c_start + this->byte_size(n);
     }
 
+    /// reset the array capacity
+    /// fill the new additional elements using the value
     void resize_fill(size_t n, const T& value) {
         size_t old_size = this->size();
         if (n > old_size) {
@@ -617,6 +619,8 @@ public:
         }
     }
 
+    /// reset the array capacity
+    /// replace the all elements using the value
     void assign(size_t n, const T& x) {
         this->resize(n);
         std::fill(begin(), end(), x);
