@@ -54,10 +54,10 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -659,9 +659,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(command.getLabel(), command.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, true, command.getReplicaAlloc(),
-                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(),
+                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
                 command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
-                command.isCleanPartitions(), command.isAtomicRestore(), env, repository.getId());
+                command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
+                env, repository.getId());
 
         env.getEditLog().logRestoreJob(restoreJob);
 

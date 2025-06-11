@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -50,7 +52,7 @@ import java.util.Set;
 /**
  * RestoreCommand
  */
-public class RestoreCommand extends Command {
+public class RestoreCommand extends Command implements ForwardWithSync {
     private static final Logger LOG = LogManager.getLogger(RestoreCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
@@ -61,6 +63,7 @@ public class RestoreCommand extends Command {
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
     private static final String PROP_RESERVE_REPLICA = "reserve_replica";
+    private static final String PROP_RESERVE_COLOCATE = "reserve_colocate";
     private static final String PROP_RESERVE_DYNAMIC_PARTITION_ENABLE = "reserve_dynamic_partition_enable";
     private static final String PROP_CLEAN_TABLES = "clean_tables";
     private static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
@@ -70,12 +73,14 @@ public class RestoreCommand extends Command {
     private String backupTimestamp = null;
     private int metaVersion = -1;
     private boolean reserveReplica = false;
+    private boolean reserveColocate = false;
     private boolean reserveDynamicPartitionEnable = false;
     private boolean isLocal = false;
     private boolean isBeingSynced = false;
     private boolean isCleanTables = false;
     private boolean isCleanPartitions = false;
     private boolean isAtomicRestore = false;
+    private boolean isForceReplace = false;
 
     private final LabelNameInfo labelNameInfo;
     private final String repoName;
@@ -93,7 +98,7 @@ public class RestoreCommand extends Command {
                           List<TableRefInfo> tableRefInfos,
                           Map<String, String> properties,
                           boolean isExclude) {
-        super(PlanType.BACKUP_COMMAND);
+        super(PlanType.RESTORE_COMMAND);
         Objects.requireNonNull(labelNameInfo, "labelNameInfo is null");
         Objects.requireNonNull(repoName, "repoName is null");
         Objects.requireNonNull(tableRefInfos, "tableRefInfos is null");
@@ -114,7 +119,12 @@ public class RestoreCommand extends Command {
     /**
      * validate
      */
-    public void validate(ConnectContext ctx) throws AnalysisException {
+    public void validate(ConnectContext ctx) throws AnalysisException, DdlException {
+        if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                    "restore from the local repo via SQL call is not supported");
+        }
+
         labelNameInfo.validate(ctx);
 
         // user need database level privilege(not table level),
@@ -219,6 +229,9 @@ public class RestoreCommand extends Command {
             reserveReplica = false;
         }
 
+        // reserve colocate
+        reserveColocate = eatBooleanProperty(copiedProperties, PROP_RESERVE_COLOCATE, reserveColocate);
+
         // reserve dynamic partition enable
         reserveDynamicPartitionEnable = eatBooleanProperty(
             copiedProperties, PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, reserveDynamicPartitionEnable);
@@ -256,6 +269,9 @@ public class RestoreCommand extends Command {
 
         // is atomic restore
         isAtomicRestore = eatBooleanProperty(copiedProperties, PROP_ATOMIC_RESTORE, isAtomicRestore);
+
+        // is force replace
+        isForceReplace = eatBooleanProperty(copiedProperties, PROP_FORCE_REPLACE, isForceReplace);
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
@@ -321,6 +337,10 @@ public class RestoreCommand extends Command {
         return reserveReplica;
     }
 
+    public boolean reserveColocate() {
+        return reserveColocate;
+    }
+
     public boolean reserveDynamicPartitionEnable() {
         return reserveDynamicPartitionEnable;
     }
@@ -341,6 +361,10 @@ public class RestoreCommand extends Command {
         return isAtomicRestore;
     }
 
+    public boolean isForceReplace() {
+        return isForceReplace;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitRestoreCommand(this, context);
@@ -349,5 +373,11 @@ public class RestoreCommand extends Command {
     @Override
     public StmtType stmtType() {
         return StmtType.RESTORE;
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        LOG.info("RestoreCommand not supported in cloud mode");
+        throw new DdlException("denied");
     }
 }
