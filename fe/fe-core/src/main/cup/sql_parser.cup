@@ -4357,14 +4357,6 @@ show_param ::=
         RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
     :}
     /* Database */
-    | KW_DATABASES opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
-    :}
-    | KW_DATABASES KW_FROM ident:catalogName opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
-    :}
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
     {:
@@ -4374,14 +4366,6 @@ show_param ::=
     | KW_DATA KW_TYPES
     {:
         RESULT = new ShowDataTypesStmt();
-    :}
-    | KW_SCHEMAS opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, null);
-    :}
-    | KW_SCHEMAS KW_FROM ident:catalogName opt_wild_where
-    {:
-        RESULT = new ShowDbStmt(parser.wild, parser.where, catalogName);
     :}
     /* Catalog */
     | KW_CATALOGS opt_wild_where
@@ -4503,17 +4487,9 @@ show_param ::=
     {:
         RESULT = new ShowPartitionIdStmt(partitionId);
     :}
-    | KW_TABLET INTEGER_LITERAL:tabletId
-    {:
-        RESULT = new ShowTabletStmt(null, tabletId);
-    :}
     | KW_TABLETS KW_BELONG integer_list:tabletIds
     {:
         RESULT = new ShowTabletsBelongStmt(tabletIds);
-    :}
-    | KW_TABLETS KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowTabletStmt(dbTblName, -1L, partitionNames, parser.where, orderByClause, limitClause);
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
@@ -4614,10 +4590,6 @@ show_param ::=
     | keys_or_index from_or_in table_name:dbTblName opt_db:dbName
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
-    :}
-    | KW_VIEW from_or_in table_name:dbTblName opt_db:dbName
-    {:
-        RESULT = new ShowViewStmt(dbName, dbTblName);
     :}
     | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:
