@@ -1937,6 +1937,7 @@ public class SchemaChangeHandler extends AlterHandler {
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;
             boolean buildIndexChange = false;
+            boolean hasModifyColumn = false;
 
             // index id -> index schema
             Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
@@ -2096,6 +2097,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             olapTable, indexSchemaMap);
                     if (!clauseCanLightSchemaChange) {
                         lightSchemaChange = false;
+                        hasModifyColumn = true;
                     }
                 } else if (alterClause instanceof ReorderColumnsClause) {
                     // reorder column
@@ -2183,7 +2185,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 //for schema change add/drop value column optimize, direct modify table meta.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              null, isDropIndex, jobId, false, propertyMap);
-            } else if (Config.enable_light_index_change && lightIndexChange) {
+            } else if (Config.enable_light_index_change && lightIndexChange && !hasModifyColumn) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
