@@ -73,6 +73,7 @@ DEFINE_string(tablet_file, "", "file to save a set of tablets");
 DEFINE_string(file, "", "segment file path");
 
 std::string get_usage(const std::string& progname) {
+    std::cout << HEADER_PREFIX << "\n";
     std::stringstream ss;
     ss << progname << " is the Doris BE Meta tool.\n";
     ss << "Stop BE first before use this tool.\n";
