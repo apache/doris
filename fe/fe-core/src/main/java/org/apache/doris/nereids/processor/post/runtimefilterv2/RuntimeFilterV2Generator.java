@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -53,27 +54,34 @@ public class RuntimeFilterV2Generator extends PlanPostProcessor {
     }
 
     private void computeRuntimeFilterForIntersectAndExcept(PhysicalSetOperation setOp, CascadesContext context) {
-        for (int slotIdx : chooseSourceSlots(setOp)) {
-            for (int childId = 1; childId < setOp.children().size(); childId++) {
-                Plan child = setOp.children().get(childId);
-                Statistics stats = ((AbstractPlan) setOp.child(0)).getStats();
-                long buildNdvOrRowCount = -1;
-                if (stats != null) {
-                    buildNdvOrRowCount = (long) stats.getRowCount();
-                    ColumnStatistic colStats = stats.findColumnStatistics(
-                            setOp.child(0).getOutput().get(slotIdx));
-                    if (colStats != null && !colStats.isUnKnown) {
-                        buildNdvOrRowCount = Math.max(1, (long) colStats.ndv);
+        AbstractPlan child0 = (AbstractPlan) setOp.child(0);
+        if (child0.getStats() != null
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable() != null
+                && child0.getStats().getRowCount()
+                < ConnectContext.get().getSessionVariable().runtimeFilterMaxBuildRowCount) {
+            for (int slotIdx : chooseSourceSlots(setOp)) {
+                for (int childId = 1; childId < setOp.children().size(); childId++) {
+                    Plan child = setOp.children().get(childId);
+                    Statistics stats = child0.getStats();
+                    long buildNdvOrRowCount = -1;
+                    if (stats != null) {
+                        buildNdvOrRowCount = (long) stats.getRowCount();
+                        ColumnStatistic colStats = stats.findColumnStatistics(
+                                setOp.child(0).getOutput().get(slotIdx));
+                        if (colStats != null && !colStats.isUnKnown) {
+                            buildNdvOrRowCount = Math.max(1, (long) colStats.ndv);
+                        }
                     }
+                    PushDownContext pushDownContext = new PushDownContext(
+                            context.getRuntimeFilterV2Context(),
+                            setOp,
+                            setOp.child(0).getOutput().get(slotIdx),
+                            buildNdvOrRowCount,
+                            slotIdx,
+                            setOp.child(childId).getOutput().get(slotIdx));
+                    child.accept(PushDownVisitor.INSTANCE, pushDownContext);
                 }
-                PushDownContext pushDownContext = new PushDownContext(
-                        context.getRuntimeFilterV2Context(),
-                        setOp,
-                        setOp.child(0).getOutput().get(slotIdx),
-                        buildNdvOrRowCount,
-                        slotIdx,
-                        setOp.child(childId).getOutput().get(slotIdx));
-                child.accept(PushDownVisitor.INSTANCE, pushDownContext);
             }
         }
     }
@@ -86,7 +94,8 @@ public class RuntimeFilterV2Generator extends PlanPostProcessor {
     private List<Integer> chooseSourceSlots(PhysicalSetOperation setOp) {
         List<Slot> output = setOp.getOutput();
         for (int i = 0; i < output.size(); i++) {
-            if (!output.get(i).getDataType().isOnlyMetricType()) {
+            if (!output.get(i).getDataType().isOnlyMetricType()
+                    && !setOp.getLogicalProperties().getTrait().getUniformValue(output.get(i)).isPresent()) {
                 return ImmutableList.of(i);
             }
         }
