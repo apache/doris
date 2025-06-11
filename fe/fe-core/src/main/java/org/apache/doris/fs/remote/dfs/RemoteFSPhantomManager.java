@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.common.CustomThreadFactory;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.collect.Sets;
 import org.apache.hadoop.fs.FileSystem;
@@ -59,10 +60,10 @@ public class RemoteFSPhantomManager {
     private static ScheduledExecutorService cleanupExecutor;
 
     // Reference queue for monitoring RemoteFileSystem objects' phantom references
-    private static final ReferenceQueue<RemoteFileSystem> referenceQueue = new ReferenceQueue<>();
+    private static final ReferenceQueue<DFSFileSystem> referenceQueue = new ReferenceQueue<>();
 
     // Map storing the phantom references and their corresponding FileSystem objects
-    private static final ConcurrentHashMap<PhantomReference<RemoteFileSystem>, FileSystem> referenceMap
+    private static final ConcurrentHashMap<PhantomReference<DFSFileSystem>, FileSystem> referenceMap
             = new ConcurrentHashMap<>();
 
     private static final Set<FileSystem> fsSet = Sets.newConcurrentHashSet();
@@ -76,7 +77,7 @@ public class RemoteFSPhantomManager {
      *
      * @param remoteFileSystem the RemoteFileSystem object to be registered
      */
-    public static void registerPhantomReference(RemoteFileSystem remoteFileSystem) {
+    public static void registerPhantomReference(DFSFileSystem remoteFileSystem) {
         if (!isStarted.get()) {
             start();
             isStarted.set(true);
@@ -84,7 +85,7 @@ public class RemoteFSPhantomManager {
         if (fsSet.contains(remoteFileSystem.dfsFileSystem)) {
             throw new RuntimeException("FileSystem already exists: " + remoteFileSystem.dfsFileSystem.getUri());
         }
-        RemoteFileSystemPhantomReference phantomReference = new RemoteFileSystemPhantomReference(remoteFileSystem,
+        DFSFileSystemPhantomReference phantomReference = new DFSFileSystemPhantomReference(remoteFileSystem,
                 referenceQueue);
         referenceMap.put(phantomReference, remoteFileSystem.dfsFileSystem);
         fsSet.add(remoteFileSystem.dfsFileSystem);
@@ -104,7 +105,7 @@ public class RemoteFSPhantomManager {
                     cleanupExecutor.scheduleAtFixedRate(() -> {
                         Reference<? extends RemoteFileSystem> ref;
                         while ((ref = referenceQueue.poll()) != null) {
-                            RemoteFileSystemPhantomReference phantomRef = (RemoteFileSystemPhantomReference) ref;
+                            DFSFileSystemPhantomReference phantomRef = (DFSFileSystemPhantomReference) ref;
 
                             FileSystem fs = referenceMap.remove(phantomRef);
                             if (fs != null) {
