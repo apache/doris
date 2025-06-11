@@ -58,7 +58,6 @@ import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
-import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEncryptKeysStmt;
@@ -112,7 +111,6 @@ import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
@@ -312,8 +310,6 @@ public class ShowExecutor {
             handleShowProc();
         } else if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowDbStmt) {
-            handleShowDb();
         } else if (stmt instanceof ShowDbIdStmt) {
             handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
@@ -427,8 +423,6 @@ public class ShowExecutor {
             handleShowDynamicPartition();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
-        } else if (stmt instanceof ShowViewStmt) {
-            handleShowView();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
@@ -919,44 +913,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Show databases statement
-    private void handleShowDb() throws AnalysisException {
-        ShowDbStmt showDbStmt = (ShowDbStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // cluster feature is deprecated.
-        CatalogIf catalogIf = ctx.getCatalog(showDbStmt.getCatalogName());
-        if (catalogIf == null) {
-            throw new AnalysisException("No catalog found with name " + showDbStmt.getCatalogName());
-        }
-        List<String> dbNames = catalogIf.getDbNames();
-        PatternMatcher matcher = null;
-        if (showDbStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showDbStmt.getPattern(),
-                    CaseSensibility.DATABASE.getCaseSensibility());
-        }
-        Set<String> dbNameSet = Sets.newTreeSet();
-        for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
-            // Filter dbname
-            if (matcher != null && !matcher.match(db)) {
-                continue;
-            }
-
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), showDbStmt.getCatalogName(),
-                    fullName, PrivPredicate.SHOW)) {
-                continue;
-            }
-
-            dbNameSet.add(db);
-        }
-
-        for (String dbName : dbNameSet) {
-            rows.add(Lists.newArrayList(dbName));
-        }
-
-        resultSet = new ShowResultSet(showDbStmt.getMetaData(), rows);
-    }
-
     // Show table statement.
     private void handleShowTable() throws AnalysisException {
         ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
@@ -1287,26 +1243,6 @@ public class ShowExecutor {
                 } finally {
                     olapTable.readUnlock();
                 }
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show view statement.
-    private void handleShowView() {
-        ShowViewStmt showStmt = (ShowViewStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        List<View> matchViews = showStmt.getMatchViews();
-        for (View view : matchViews) {
-            view.readLock();
-            try {
-                List<String> createViewStmt = Lists.newArrayList();
-                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
-                if (!createViewStmt.isEmpty()) {
-                    rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
-                }
-            } finally {
-                view.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);

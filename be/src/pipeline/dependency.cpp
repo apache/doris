@@ -478,6 +478,16 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             vectorized::Block partial_block;
+            if (rpc_struct.callback->response_->blocks_size() <= i) {
+                LOG(WARNING) << "backend id:" << backend_id << " response block size is not match"
+                             << " rpc_struct.callback->response_->blocks_size()="
+                             << rpc_struct.callback->response_->blocks_size()
+                             << " blocks=" << block_order_results.size()
+                             << " query_id=" << print_id(rpc_struct.request.query_id())
+                             << " status=" << rpc_status.status().to_string();
+                return Status::InternalError("backend id:" + std::to_string(backend_id) +
+                                             " response block size is not match");
+            }
             RETURN_IF_ERROR(
                     partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
 
