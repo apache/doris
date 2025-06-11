@@ -101,6 +101,14 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkColumnCommentLength(String comment) throws AnalysisException {
+        if (!Strings.isNullOrEmpty(comment) && Config.column_comment_length_limit > 0
+                && comment.length() > Config.column_comment_length_limit) {
+            throw new AnalysisException("Column comment is too long " + comment.length() + ", max length is "
+                    + Config.column_comment_length_limit);
+        }
+    }
+
     public static void checkLabel(String label) throws AnalysisException {
         if (Strings.isNullOrEmpty(label) || !label.matches(getLabelRegex())) {
             throw new AnalysisException("Label format error. regex: " + getLabelRegex() + ", label: " + label);
