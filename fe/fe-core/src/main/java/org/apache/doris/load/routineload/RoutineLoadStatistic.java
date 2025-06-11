@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -30,6 +29,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class RoutineLoadStatistic implements Writable {
     /*
@@ -67,7 +67,7 @@ public class RoutineLoadStatistic implements Writable {
 
     // Save all transactions current running. Including PREPARE, COMMITTED.
     // No need to persist, only for tracing txn of routine load job.
-    public Set<Long> runningTxnIds = Sets.newHashSet();
+    public Set<Long> runningTxnIds = ConcurrentHashMap.newKeySet();
 
     @Override
     public void write(DataOutput out) throws IOException {
