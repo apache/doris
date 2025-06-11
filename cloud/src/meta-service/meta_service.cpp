@@ -1035,8 +1035,7 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
     if (!match) {
         std::stringstream ss;
         ss << " stale perpare rowset request,"
-           << " instance_id=" << instance_id << " tablet_id=" << tablet_id
-           << " job id=" << job_id
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id << " job id=" << job_id
            << " rowset_id=" << rowset_id;
         msg = ss.str();
         code = MetaServiceCode::STALE_PREPARE_ROWSET;
