@@ -30,8 +30,9 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <vector>
 
-#include "runtime/primitive_type.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/pod_array.h"
@@ -77,17 +78,17 @@ private:
 };
 
 /// A ColumnVector for Decimals
-template <PrimitiveType T>
+template <typename T>
 class ColumnDecimal final : public COWHelper<IColumn, ColumnDecimal<T>> {
-    static_assert(is_decimal(T));
+    static_assert(IsDecimalNumber<T>);
 
 private:
     using Self = ColumnDecimal;
     friend class COWHelper<IColumn, Self>;
 
 public:
-    using value_type = typename PrimitiveTypeTraits<T>::ColumnItemType;
-    using Container = DecimalPaddedPODArray<value_type>;
+    using value_type = T;
+    using Container = DecimalPaddedPODArray<T>;
 
 private:
     ColumnDecimal(const size_t n, UInt32 scale_) : data(n, scale_), scale(scale_) {}
@@ -95,7 +96,7 @@ private:
     ColumnDecimal(const ColumnDecimal& src) : data(src.data), scale(src.scale) {}
 
 public:
-    std::string get_name() const override { return type_to_string(T); }
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     size_t size() const override { return data.size(); }
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
@@ -117,15 +118,15 @@ public:
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
 
-        auto copy = [](const value_type* __restrict src, value_type* __restrict dest,
+        auto copy = [](const T* __restrict src, T* __restrict dest,
                        const uint32_t* __restrict begin, const uint32_t* __restrict end) {
             for (auto it = begin; it != end; ++it) {
                 *dest = src[*it];
                 ++dest;
             }
         };
-        copy(reinterpret_cast<const value_type*>(src.get_raw_data().data),
-             data.data() + origin_size, indices_begin, indices_end);
+        copy(reinterpret_cast<const T*>(src.get_raw_data().data), data.data() + origin_size,
+             indices_begin, indices_end);
     }
 
     void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
@@ -134,14 +135,13 @@ public:
         DCHECK(pos);
         size_t old_size = data.size();
         data.resize(old_size + num);
-        memcpy(data.data() + old_size, pos, num * sizeof(value_type));
+        memcpy(data.data() + old_size, pos, num * sizeof(T));
     }
 
     void insert_data(const char* pos, size_t /*length*/) override;
-    void insert_default() override { data.push_back(value_type()); }
+    void insert_default() override { data.push_back(T()); }
     void insert(const Field& x) override {
-        data.push_back(
-                doris::vectorized::get<typename PrimitiveTypeTraits<T>::NearestFieldType>(x));
+        data.push_back(doris::vectorized::get<NearestFieldType<T>>(x));
     }
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
@@ -218,11 +218,11 @@ public:
         return false;
     }
 
-    void insert_value(const value_type value) { data.push_back(value); }
+    void insert_value(const T value) { data.push_back(value); }
     Container& get_data() { return data; }
     const Container& get_data() const { return data; }
-    const value_type& get_element(size_t n) const { return data[n]; }
-    value_type& get_element(size_t n) { return data[n]; }
+    const T& get_element(size_t n) const { return data[n]; }
+    T& get_element(size_t n) { return data[n]; }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
@@ -240,9 +240,9 @@ public:
 
     UInt32 get_scale() const { return scale; }
 
-    value_type get_scale_multiplier() const;
-    value_type get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
-    value_type get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
+    T get_scale_multiplier() const;
+    T get_whole_part(size_t n) const { return data[n] / get_scale_multiplier(); }
+    T get_fractional_part(size_t n) const { return data[n] % get_scale_multiplier(); }
 
     void erase(size_t start, size_t length) override {
         if (start >= data.size() || length == 0) {
@@ -250,8 +250,7 @@ public:
         }
         length = std::min(length, data.size() - start);
         size_t elements_to_move = data.size() - start - length;
-        memmove(data.data() + start, data.data() + start + length,
-                elements_to_move * sizeof(value_type));
+        memmove(data.data() + start, data.data() + start + length, elements_to_move * sizeof(T));
         data.resize(data.size() - length);
     }
 
@@ -292,12 +291,6 @@ protected:
         hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
     };
 };
-
-using ColumnDecimal32 = ColumnDecimal<TYPE_DECIMAL32>;
-using ColumnDecimal64 = ColumnDecimal<TYPE_DECIMAL64>;
-using ColumnDecimal128V2 = ColumnDecimal<TYPE_DECIMALV2>;
-using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
-using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris::vectorized
 #include "common/compile_check_end.h"
