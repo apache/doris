@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -45,7 +47,8 @@ public class AlterRoutineLoadCommandTest {
     @Mocked
     private ConnectContext connectContext;
 
-    private void runBefore() {
+    public void setUp() throws MetaNotFoundException {
+        FeConstants.runningUnitTest = true;
         new Expectations() {
             {
                 Env.getCurrentEnv();
@@ -64,7 +67,15 @@ public class AlterRoutineLoadCommandTest {
                 minTimes = 0;
                 result = true;
 
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                accessControllerManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                accessControllerManager.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                accessControllerManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }
@@ -73,7 +84,16 @@ public class AlterRoutineLoadCommandTest {
 
     @Test
     public void testValidateNormal() throws MetaNotFoundException {
-        runBefore();
+        setUp();
+        new Expectations() {
+            {
+                Env.getCurrentEnv().getRoutineLoadManager()
+                    .getJob(anyString, anyString);
+                minTimes = 0;
+                result = new KafkaRoutineLoadJob();
+            }
+        };
+
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "100");
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, "200000");
@@ -83,7 +103,7 @@ public class AlterRoutineLoadCommandTest {
         dataSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "1,2,3");
         dataSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "10000, 20000, 30000");
 
-        LabelNameInfo labelNameInfo = new LabelNameInfo("db1", "job1");
+        LabelNameInfo labelNameInfo = new LabelNameInfo("db1", "label1");
 
         AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(labelNameInfo, jobProperties, dataSourceProperties);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));

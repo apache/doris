@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -208,7 +207,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                     String.valueOf(maxBatchSizeBytes));
         }
 
-        if (jobProperties.containsKey(LoadStmt.STRICT_MODE)) {
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.STRICT_MODE)) {
             boolean strictMode = Boolean.valueOf(jobProperties.get(CreateRoutineLoadInfo.STRICT_MODE));
             analyzedJobProperties.put(CreateRoutineLoadInfo.STRICT_MODE, String.valueOf(strictMode));
         }
@@ -223,6 +222,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             analyzedJobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS,
                     String.valueOf(isPartialUpdate));
         }
+
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP);
             if (!StringUtil.isEmpty(workloadGroup)) {
@@ -232,10 +232,12 @@ public class AlterRoutineLoadCommand extends AlterCommand {
                         jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP));
             }
         }
+
         if (jobProperties.containsKey(CreateRoutineLoadInfo.KEY_ENCLOSE)) {
             analyzedJobProperties.put(CreateRoutineLoadInfo.KEY_ENCLOSE,
                     jobProperties.get(CreateRoutineLoadInfo.KEY_ENCLOSE));
         }
+
         if (jobProperties.containsKey(CreateRoutineLoadInfo.KEY_ESCAPE)) {
             analyzedJobProperties.put(CreateRoutineLoadInfo.KEY_ESCAPE,
                     jobProperties.get(CreateRoutineLoadInfo.KEY_ESCAPE));
