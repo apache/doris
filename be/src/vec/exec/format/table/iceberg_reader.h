@@ -224,7 +224,7 @@ protected:
     }
 
 private:
-    const std::string ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
+    static const std::string ICEBERG_ORC_ATTRIBUTE;
 };
 
 } // namespace vectorized

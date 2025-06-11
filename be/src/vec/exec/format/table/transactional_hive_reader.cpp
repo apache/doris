@@ -108,7 +108,7 @@ Status TransactionalHiveReader::init_reader(
         }
     }
 
-    orc_reader->table_info_node_ptr = table_info_node_ptr;
+    orc_reader->set_table_info_node_ptr(table_info_node_ptr);
 
     Status status = orc_reader->init_reader(
             &_col_names, colname_to_value_range, conjuncts, true, tuple_descriptor, row_descriptor,
@@ -191,16 +191,17 @@ Status TransactionalHiveReader::init_row_filters() {
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
                                 _state->timezone(), _io_ctx, false);
 
-        auto root = std::make_shared<StructNode>();
+        auto acid_info_node = std::make_shared<StructNode>();
         for (auto idx = 0; idx < TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE.size();
              idx++) {
             auto const& table_column_name =
                     TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE[idx];
             auto const& file_column_name = TransactionalHive::DELETE_ROW_COLUMN_NAMES[idx];
-            root->add_children(table_column_name, file_column_name, std::make_shared<ScalarNode>());
+            acid_info_node->add_children(table_column_name, file_column_name,
+                                         std::make_shared<ScalarNode>());
         }
 
-        delete_reader.table_info_node_ptr = root;
+        delete_reader.set_table_info_node_ptr(acid_info_node);
 
         RETURN_IF_ERROR(
                 delete_reader.init_reader(&TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,

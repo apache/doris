@@ -72,6 +72,8 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
+const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
+
 IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader,
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
@@ -520,7 +522,7 @@ Status IcebergOrcReader::init_reader(
         }
     }
 
-    orc_reader->table_info_node_ptr = table_info_node_ptr;
+    orc_reader->set_table_info_node_ptr(table_info_node_ptr);
     RETURN_IF_ERROR(init_row_filters());
     return orc_reader->init_reader(&_all_required_col_names, colname_to_value_range, conjuncts,
                                    false, tuple_descriptor, row_descriptor,

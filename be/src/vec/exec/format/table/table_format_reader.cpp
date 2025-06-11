@@ -31,6 +31,10 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+const Status TableSchemaChangeHelper::BuildTableInfoUtil::SCHEMA_ERROR = Status::NotSupported(
+        "In the parquet/orc reader, it is not possible to read scenarios where the complex column "
+        "types"
+        "of the table and the file are inconsistent.");
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         const TupleDescriptor* table_tuple_descriptor, const FieldDescriptor& parquet_field_desc,
@@ -67,10 +71,11 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
     switch (table_data_type->get_primitive_type()) {
     case TYPE_MAP: {
-        if (file_field.data_type->get_primitive_type() != TYPE_MAP) {
+        if (file_field.data_type->get_primitive_type() != TYPE_MAP) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(file_field.children.size() == 1);
-        DCHECK(file_field.children[0].children.size() == 2);
+        MOCK_REMOVE(DCHECK(file_field.children.size() == 1));
+        MOCK_REMOVE(DCHECK(file_field.children[0].children.size() == 2));
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
 
         {
@@ -95,9 +100,10 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         break;
     }
     case TYPE_ARRAY: {
-        if (file_field.data_type->get_primitive_type() != TYPE_ARRAY) {
+        if (file_field.data_type->get_primitive_type() != TYPE_ARRAY) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(file_field.children.size() == 1);
+        MOCK_REMOVE(DCHECK(file_field.children.size() == 1));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         const auto& element_type = assert_cast<const DataTypePtr&>(
@@ -110,7 +116,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         break;
     }
     case TYPE_STRUCT: {
-        if (file_field.data_type->get_primitive_type() != TYPE_STRUCT) {
+        if (file_field.data_type->get_primitive_type() != TYPE_STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
 
         auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
@@ -183,9 +190,10 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
     switch (table_data_type->get_primitive_type()) {
     case TYPE_MAP: {
-        if (orc_root->getKind() != orc::TypeKind::MAP) {
+        if (orc_root->getKind() != orc::TypeKind::MAP) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(orc_root->getSubtypeCount() == 2);
+        MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 2));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
         const auto& key_type = assert_cast<const DataTypePtr&>(
@@ -203,9 +211,10 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         break;
     }
     case TYPE_ARRAY: {
-        if (orc_root->getKind() != orc::TypeKind::LIST) {
+        if (orc_root->getKind() != orc::TypeKind::LIST) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(orc_root->getSubtypeCount() == 1);
+        MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 1));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         const auto& element_type = assert_cast<const DataTypePtr&>(
@@ -217,7 +226,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         break;
     }
     case TYPE_STRUCT: {
-        if (orc_root->getKind() != orc::TypeKind::STRUCT) {
+        if (orc_root->getKind() != orc::TypeKind::STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
         auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
@@ -260,21 +270,21 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_table_field_id(
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
         if (file_schema.type.type != TPrimitiveType::MAP) [[unlikely]] {
-            //                return Status::NotSupported()
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.map_field);
-        DCHECK(table_schema.nestedField.map_field.__isset.key_field);
-        DCHECK(table_schema.nestedField.map_field.__isset.value_field);
-        DCHECK(table_schema.nestedField.map_field.key_field != nullptr);
-        DCHECK(table_schema.nestedField.map_field.value_field != nullptr);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.map_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.key_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.value_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.key_field != nullptr));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.value_field != nullptr));
 
-        DCHECK(file_schema.__isset.nestedField);
-        DCHECK(file_schema.nestedField.__isset.map_field);
-        DCHECK(file_schema.nestedField.map_field.__isset.key_field);
-        DCHECK(file_schema.nestedField.map_field.__isset.value_field);
-        DCHECK(file_schema.nestedField.map_field.key_field != nullptr);
-        DCHECK(file_schema.nestedField.map_field.value_field != nullptr);
+        MOCK_REMOVE(DCHECK(file_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.__isset.map_field));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.map_field.__isset.key_field));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.map_field.__isset.value_field));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.map_field.key_field != nullptr));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.map_field.value_field != nullptr));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
         RETURN_IF_ERROR(by_table_field_id(*table_schema.nestedField.map_field.key_field,
@@ -290,17 +300,18 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_table_field_id(
     }
     case TPrimitiveType::ARRAY: {
         if (file_schema.type.type != TPrimitiveType::ARRAY) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
 
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.array_field);
-        DCHECK(table_schema.nestedField.array_field.__isset.item_field);
-        DCHECK(table_schema.nestedField.array_field.item_field != nullptr);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.array_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.__isset.item_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.item_field != nullptr));
 
-        DCHECK(file_schema.__isset.nestedField);
-        DCHECK(file_schema.nestedField.__isset.array_field);
-        DCHECK(file_schema.nestedField.array_field.__isset.item_field);
-        DCHECK(file_schema.nestedField.array_field.item_field != nullptr);
+        MOCK_REMOVE(DCHECK(file_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.__isset.array_field));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.array_field.__isset.item_field));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.array_field.item_field != nullptr));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> item_node = nullptr;
         RETURN_IF_ERROR(by_table_field_id(*table_schema.nestedField.array_field.item_field,
@@ -312,12 +323,13 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_table_field_id(
     }
     case TPrimitiveType::STRUCT: {
         if (file_schema.type.type != TPrimitiveType::STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.struct_field);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
 
-        DCHECK(file_schema.__isset.nestedField);
-        DCHECK(file_schema.nestedField.__isset.struct_field);
+        MOCK_REMOVE(DCHECK(file_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(file_schema.nestedField.__isset.struct_field));
 
         RETURN_IF_ERROR(by_table_field_id(table_schema.nestedField.struct_field,
                                           file_schema.nestedField.struct_field, node));
@@ -400,17 +412,18 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool& exist_field_id) {
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
-        if (parquet_field.data_type->get_primitive_type() != TYPE_MAP) {
+        if (parquet_field.data_type->get_primitive_type() != TYPE_MAP) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.map_field);
-        DCHECK(table_schema.nestedField.map_field.__isset.key_field);
-        DCHECK(table_schema.nestedField.map_field.__isset.value_field);
-        DCHECK(table_schema.nestedField.map_field.key_field != nullptr);
-        DCHECK(table_schema.nestedField.map_field.value_field != nullptr);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.map_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.key_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.value_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.key_field != nullptr));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.value_field != nullptr));
 
-        DCHECK(parquet_field.children.size() == 1);
-        DCHECK(parquet_field.children[0].children.size() == 2);
+        MOCK_REMOVE(DCHECK(parquet_field.children.size() == 1));
+        MOCK_REMOVE(DCHECK(parquet_field.children[0].children.size() == 2));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
@@ -427,14 +440,15 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         break;
     }
     case TPrimitiveType::ARRAY: {
-        if (parquet_field.data_type->get_primitive_type() != TYPE_ARRAY) {
+        if (parquet_field.data_type->get_primitive_type() != TYPE_ARRAY) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.array_field);
-        DCHECK(table_schema.nestedField.array_field.__isset.item_field);
-        DCHECK(table_schema.nestedField.array_field.item_field != nullptr);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.array_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.__isset.item_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.item_field != nullptr));
 
-        DCHECK(parquet_field.children.size() == 1);
+        MOCK_REMOVE(DCHECK(parquet_field.children.size() == 1));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         RETURN_IF_ERROR(by_parquet_field_id(*table_schema.nestedField.array_field.item_field,
@@ -445,10 +459,11 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
         break;
     }
     case TPrimitiveType::STRUCT: {
-        if (parquet_field.data_type->get_primitive_type() != TYPE_STRUCT) {
+        if (parquet_field.data_type->get_primitive_type() != TYPE_STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.struct_field);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
 
         auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
@@ -528,16 +543,17 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         std::shared_ptr<TableSchemaChangeHelper::Node>& node, bool& exist_field_id) {
     switch (table_schema.type.type) {
     case TPrimitiveType::MAP: {
-        if (orc_root->getKind() != orc::TypeKind::MAP) {
+        if (orc_root->getKind() != orc::TypeKind::MAP) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.map_field);
-        DCHECK(table_schema.nestedField.map_field.__isset.key_field);
-        DCHECK(table_schema.nestedField.map_field.__isset.value_field);
-        DCHECK(table_schema.nestedField.map_field.key_field != nullptr);
-        DCHECK(table_schema.nestedField.map_field.value_field != nullptr);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.map_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.key_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.value_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.key_field != nullptr));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.value_field != nullptr));
 
-        DCHECK(orc_root->getSubtypeCount() == 2);
+        MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 2));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
         std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
@@ -554,14 +570,15 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         break;
     }
     case TPrimitiveType::ARRAY: {
-        if (orc_root->getKind() != orc::TypeKind::LIST) {
+        if (orc_root->getKind() != orc::TypeKind::LIST) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.array_field);
-        DCHECK(table_schema.nestedField.array_field.__isset.item_field);
-        DCHECK(table_schema.nestedField.array_field.item_field != nullptr);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.array_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.__isset.item_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.item_field != nullptr));
 
-        DCHECK(orc_root->getSubtypeCount() == 1);
+        MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 1));
 
         std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
         RETURN_IF_ERROR(by_orc_field_id(*table_schema.nestedField.array_field.item_field,
@@ -572,10 +589,11 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         break;
     }
     case TPrimitiveType::STRUCT: {
-        if (orc_root->getKind() != orc::TypeKind::STRUCT) {
+        if (orc_root->getKind() != orc::TypeKind::STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
         }
-        DCHECK(table_schema.__isset.nestedField);
-        DCHECK(table_schema.nestedField.__isset.struct_field);
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
         RETURN_IF_ERROR(by_orc_field_id(table_schema.nestedField.struct_field, orc_root,
                                         field_id_attribute_key, node, exist_field_id));
 
@@ -590,5 +608,47 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
     return Status::OK();
 }
 
+std::string TableSchemaChangeHelper::debug(const std::shared_ptr<Node>& root, size_t level) {
+    std::string ans;
+
+    auto indent = [](size_t level) { return std::string(level * 2, ' '); };
+
+    std::string prefix = indent(level);
+
+    if (std::dynamic_pointer_cast<ScalarNode>(root)) {
+        ans += prefix + "ScalarNode\n";
+    } else if (auto struct_node = std::dynamic_pointer_cast<StructNode>(root)) {
+        ans += prefix + "StructNode\n";
+        for (const auto& [table_col_name, value] : struct_node->get_childrens()) {
+            const auto& [child_node, file_col_name, exist] = value;
+            ans += indent(level + 1) + table_col_name;
+            if (exist) {
+                ans += " (file: " + file_col_name + ")";
+            } else {
+                ans += " (not exists)";
+            }
+            ans += "\n";
+            if (child_node) {
+                ans += debug(child_node, level + 2);
+            }
+        }
+    } else if (auto array_node = std::dynamic_pointer_cast<ArrayNode>(root)) {
+        ans += prefix + "ArrayNode\n";
+        ans += indent(level + 1) + "Element:\n";
+        ans += debug(array_node->get_element_node(), level + 2);
+    } else if (auto map_node = std::dynamic_pointer_cast<MapNode>(root)) {
+        ans += prefix + "MapNode\n";
+        ans += indent(level + 1) + "Key:\n";
+        ans += debug(map_node->get_key_node(), level + 2);
+        ans += indent(level + 1) + "Value:\n";
+        ans += debug(map_node->get_value_node(), level + 2);
+    } else if (std::dynamic_pointer_cast<ConstNode>(root)) {
+        ans += prefix + "ConstNode\n";
+    } else {
+        ans += prefix + "UnknownNodeType\n";
+    }
+
+    return ans;
+}
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

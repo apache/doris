@@ -134,8 +134,6 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         child_readers.reserve(field->children.size());
         for (int i = 0; i < field->children.size(); ++i) {
             std::unique_ptr<ParquetColumnReader> child_reader;
-            //   table name  ???
-            // field->children[i].name  => file name
             RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size));
             child_reader->set_nested_column();

@@ -149,9 +149,6 @@ public:
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     const FieldDescriptor get_file_metadata_schema();
-    void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
-        //        _table_col_to_file_col = map;
-    }
 
     void set_row_id_column_iterator(
             std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> iterator_pair) {
@@ -263,8 +260,6 @@ private:
     // read to the end of current reader
     bool _row_group_eof = true;
     size_t _total_groups; // num of groups(stripes) of a parquet(orc) file
-    // table column name to file column name map. For iceberg schema evolution.
-    //    std::unordered_map<std::string, std::string> _table_col_to_file_col;
 
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
@@ -275,7 +270,8 @@ private:
     // so the content in the object cannot be modified (there is a multi-threading problem).
     // _colname_to_value_range_index_read used when _hive_use_column_names = false.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range_index_read;
-    //sequence in file
+
+    //sequence in file, need to read
     std::vector<std::string> _read_table_columns;
     std::vector<std::string> _read_file_columns;
 

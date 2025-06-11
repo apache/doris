@@ -161,8 +161,6 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
-    Status _init_select_types(const orc::Type& type, int idx);
-
     Status _fill_partition_columns(
             Block* block, uint64_t rows,
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
@@ -187,13 +185,6 @@ public:
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
-
-    //    Status get_schema_col_name_attribute(TSchemaInfoNode& root, const std::string& attribute, bool* exist_attribute);
-
-    void set_table_col_to_file_col(
-            std::unordered_map<std::string, std::string> table_col_to_file_col) {
-        //        _table_col_to_file_col = table_col_to_file_col;
-    }
 
     void set_position_delete_rowids(vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
@@ -222,8 +213,10 @@ public:
                     iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
-    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
-            TableSchemaChangeHelper::ConstNode::get_instance();
+    void set_table_info_node_ptr(
+            std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr) {
+        _table_info_node_ptr = table_info_node_ptr;
+    }
 
     static bool inline is_hive1_col_name(const orc::Type* orc_type_ptr) {
         for (uint64_t idx = 0; idx < orc_type_ptr->getSubtypeCount(); idx++) {
@@ -639,7 +632,6 @@ private:
     const std::vector<std::string>* _table_column_names;
     // _missing_column_names_set: used in iceberg/hudi/paimon, the columns are dropped
     // but added back(drop column a then add column a). Shouldn't read this column data in this case.
-    //    std::set<std::string> _missing_column_names_set;
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
@@ -649,17 +641,7 @@ private:
     std::list<std::string> _read_cols_lower_case;
     std::list<std::string> _missing_cols;
     std::unordered_map<std::string, int> _colname_to_idx;
-    // Column name in Orc file after removed acid(remove row.) to column name to schema.
-    // This is used for Hive 1.x which use internal column name in Orc file.
-    // _col0, _col1...
-    std::unordered_map<std::string, std::string> _removed_acid_file_col_name_to_schema_col;
-    // Flag for hive engine.
-    // 1. True if the external table engine is Hive1.x with orc col name as _col1, col2, ...
-    // 2. If true, use indexes instead of column names when reading orc tables.
-    bool _is_hive1_orc_or_use_idx = false;
 
-    // map col name in metastore to col name in orc file
-    //    std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
     // map col name in orc file to orc type
     std::unordered_map<std::string, const orc::Type*> _type_map; // file column name to orc type
     std::vector<const orc::Type*> _col_orc_type;
@@ -705,12 +687,9 @@ private:
     bool _dict_cols_has_converted = false;
     bool _has_complex_type = false;
 
-    // resolve schema change
+    // resolve schema type change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;
-    //for iceberg table , when table column name != file column name
-    //TODO(CXY) : remove _table_col_to_file_col,because we hava _col_name_to_file_col_name，
-    // the two have the same effect.
-    //    std::unordered_map<std::string, std::string> _table_col_to_file_col;
+
     //support iceberg position delete .
     std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
@@ -724,6 +703,9 @@ private:
 
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
+
+    std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
+            TableSchemaChangeHelper::ConstNode::get_instance();
 };
 
 class StripeStreamInputStream : public orc::InputStream, public ProfileCollector {

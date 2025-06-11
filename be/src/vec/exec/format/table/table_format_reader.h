@@ -250,23 +250,7 @@ public:
         }
     };
 
-    //    static std::string debug(std::shared_ptr<Node> root, size_t pre = 0) {
-    //        std::string ans;
-    //        if (auto scalar_node = std::dynamic_pointer_cast<ScalarNode>(root)) {
-    //        } else if (auto struct_node = std::dynamic_pointer_cast<StructNode>(root)) {
-    //            for (const auto& [table_col_name, value] : struct_node->get_childrens()) {
-    //                const auto& [child_node, file_col_name, exist] = value;
-    //                if (exist) {
-    //                }
-    //            }
-    //
-    //        } else if (auto array_node = std::dynamic_pointer_cast<StructNode>(root)) {
-    //        } else if (auto map_node = std::dynamic_pointer_cast<MapNode>(root)) {
-    //        } else {
-    //            DCHECK(false);
-    //        }
-    //        return ans;
-    //    }
+    static std::string debug(const std::shared_ptr<Node>& root, size_t level = 0);
 
 protected:
     // Whenever external components invoke the Parquet/ORC reader (e.g., init_reader, get_next_block, set_fill_columns),
@@ -332,6 +316,8 @@ private:
 
 public:
     struct BuildTableInfoUtil {
+        static const Status SCHEMA_ERROR;
+
         // todo : Maybe I can use templates to implement this functionality.
 
         // for hive parquet : Use lowercase file column names to match table column names.

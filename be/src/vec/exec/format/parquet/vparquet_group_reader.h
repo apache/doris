@@ -220,7 +220,6 @@ private:
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
             _column_readers; // table_column_name
-                             //    const std::vector<std::string>& _read_columns;
     const std::vector<std::string>& _read_table_columns;
 
     const int32_t _row_group_id;

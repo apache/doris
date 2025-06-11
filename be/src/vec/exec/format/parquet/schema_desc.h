@@ -136,14 +136,7 @@ public:
 
     int32_t size() const { return cast_set<int32_t>(_fields.size()); }
 
-    //    bool has_parquet_field_id() const { return !_field_id_name_mapping.empty(); }
-    //
-
-    //    TSchemaInfoNode get_field_id_name_map() { return _schema_info_root_node; }
-
     const std::vector<FieldSchema>& get_fields_schema() const { return _fields; }
-
-    //    const doris::Slice get_column_name_from_field_id(int32_t id) const;
 };
 #include "common/compile_check_end.h"
 
