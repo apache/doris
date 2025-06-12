@@ -393,6 +393,7 @@ supportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?          #showColumns    
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
+    | SHOW TYPECAST ((FROM | IN) database=identifier)?                              #showTypeCast
     | SHOW (CLUSTERS | (COMPUTE GROUPS))                                            #showClusters    
     | SHOW statementScope? STATUS                                                   #showStatus
     | SHOW WHITELIST                                                                #showWhitelist
@@ -420,6 +421,9 @@ supportedShowStatement
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
+    | SHOW (KEY | KEYS | INDEX | INDEXES)
+        (FROM |IN) tableName=multipartIdentifier
+        ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
@@ -457,13 +461,13 @@ supportedOtherStatement
     | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
+    | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
+        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
+        properties=propertyClause?                                                  #backup
     ;
 
 unsupportedOtherStatement
-    : BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
-        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
-        properties=propertyClause?                                                  #backup
-    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
+    : RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
@@ -482,10 +486,6 @@ unsupportedShowStatement
     : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
-    | SHOW TYPECAST ((FROM | IN) database=multipartIdentifier)?                     #showTypeCast
-    | SHOW (KEY | KEYS | INDEX | INDEXES)
-        (FROM |IN) tableName=multipartIdentifier
-        ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
@@ -594,6 +594,7 @@ supportedAdminStatement
     | ADMIN CLEAN TRASH
         (ON LEFT_PAREN backends+=STRING_LITERAL
               (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
+    | ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
     | ADMIN SET TABLE name=multipartIdentifier STATUS properties=propertyClause?    #adminSetTableStatus
     | ADMIN SET REPLICA STATUS PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetReplicaStatus
     | ADMIN REPAIR TABLE baseTableRef                                               #adminRepairTable
@@ -610,8 +611,7 @@ supportedRecoverStatement
     ;
 
 unsupportedAdminStatement
-    : ADMIN SET REPLICA VERSION PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN  #adminSetReplicaVersion
-    | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
+    : ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
         (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion

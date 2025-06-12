@@ -55,7 +55,6 @@ import org.apache.doris.analysis.ShowCreateRepositoryStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
-import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDataTypesStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
@@ -101,7 +100,6 @@ import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
-import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.ShowTabletsBelongStmt;
@@ -111,7 +109,6 @@ import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
@@ -315,8 +312,6 @@ public class ShowExecutor {
             handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
             handleShowTable();
-        } else if (stmt instanceof ShowTableStatusStmt) {
-            handleShowTableStatus();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
         } else if (stmt instanceof DescribeStmt) {
@@ -367,8 +362,6 @@ public class ShowExecutor {
             handleShowAlter();
         } else if (stmt instanceof ShowUserPropertyStmt) {
             handleShowUserProperty();
-        } else if (stmt instanceof ShowDataStmt) {
-            handleShowData();
         } else if (stmt instanceof ShowCharsetStmt) {
             handleShowCharset();
         } else if (stmt instanceof ShowCollationStmt) {
@@ -424,8 +417,6 @@ public class ShowExecutor {
             handleShowDynamicPartition();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
-        } else if (stmt instanceof ShowViewStmt) {
-            handleShowView();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
@@ -974,91 +965,6 @@ public class ShowExecutor {
         return false;
     }
 
-    // Show table status statement.
-    private void handleShowTableStatus() throws AnalysisException {
-        ShowTableStatusStmt showStmt = (ShowTableStatusStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(showStmt.getCatalog())
-                .getDbOrAnalysisException(showStmt.getDb());
-        if (db != null) {
-            PatternMatcher matcher = null;
-            if (showStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(), isShowTablesCaseSensitive());
-            }
-            for (TableIf table : db.getTables()) {
-                if (matcher != null && !matcher.match(table.getName())) {
-                    continue;
-                }
-
-                // check tbl privs
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), showStmt.getCatalog(),
-                                db.getFullName(), table.getName(), PrivPredicate.SHOW)) {
-                    continue;
-                }
-                List<String> row = Lists.newArrayList();
-                // Name
-                if (table.isTemporary()) {
-                    if (!Util.isTempTableInCurrentSession(table.getName())) {
-                        continue;
-                    }
-                    row.add(Util.getTempTableDisplayName(table.getName()));
-                } else {
-                    row.add(table.getName());
-                }
-                // Engine
-                row.add(table.getEngine());
-                // version
-                row.add(null);
-                // Row_format
-                row.add(null);
-                // Rows
-                row.add(String.valueOf(table.getCachedRowCount()));
-                // Avg_row_length
-                row.add(String.valueOf(table.getAvgRowLength()));
-                // Data_length
-                row.add(String.valueOf(table.getDataLength()));
-                // Max_data_length
-                row.add(null);
-                // Index_length
-                row.add(null);
-                // Data_free
-                row.add(null);
-                // Auto_increment
-                row.add(null);
-                // Create_time
-                row.add(TimeUtils.longToTimeString(table.getCreateTime() * 1000));
-                // Update_time
-                if (table.getUpdateTime() > 0) {
-                    row.add(TimeUtils.longToTimeString(table.getUpdateTime()));
-                } else {
-                    row.add(null);
-                }
-                // Check_time
-                if (table.getLastCheckTime() > 0) {
-                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime()));
-                } else {
-                    row.add(null);
-                }
-                // Collation
-                row.add("utf-8");
-                // Checksum
-                row.add(null);
-                // Create_options
-                row.add(null);
-
-                row.add(table.getComment());
-                rows.add(row);
-            }
-        }
-        // sort by table name
-        rows.sort((x, y) -> {
-            return x.get(0).compareTo(y.get(0));
-        });
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
     // Show variables like
     private void handleShowVariables() throws AnalysisException {
         ShowVariablesStmt showStmt = (ShowVariablesStmt) stmt;
@@ -1246,26 +1152,6 @@ public class ShowExecutor {
                 } finally {
                     olapTable.readUnlock();
                 }
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show view statement.
-    private void handleShowView() {
-        ShowViewStmt showStmt = (ShowViewStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        List<View> matchViews = showStmt.getMatchViews();
-        for (View view : matchViews) {
-            view.readLock();
-            try {
-                List<String> createViewStmt = Lists.newArrayList();
-                Env.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */, -1L);
-                if (!createViewStmt.isEmpty()) {
-                    rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
-                }
-            } finally {
-                view.readUnlock();
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -1846,11 +1732,6 @@ public class ShowExecutor {
         utf8mb3GeneralCi.add("1");
         rows.add(utf8mb3GeneralCi);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowData() throws AnalysisException {
-        ShowDataStmt showStmt = (ShowDataStmt) stmt;
-        resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
     }
 
     private void handleShowPartitions() throws AnalysisException {
