@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.qe.ConnectContext;
@@ -77,6 +78,10 @@ public class WarmUpClusterCommandTest {
                 connectContext.isSkipAuth();
                 minTimes = 0;
                 result = true;
+
+                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.ADMIN);
+                minTimes = 0;
+                result = true;
             }
         };
     }
@@ -92,7 +97,7 @@ public class WarmUpClusterCommandTest {
             } else {
                 String srcClusterName = cloudClusterNames.get(0);
                 String dstClusterName = "test_clusterxxx";
-                TableNameInfo tableNameInfo = new TableNameInfo(CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
+                TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME);
                 String partitionName = "";
                 WarmUpItem warmUpItem = new WarmUpItem(tableNameInfo, partitionName);
                 List<WarmUpItem> warmUpItems = new ArrayList<>();
