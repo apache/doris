@@ -222,8 +222,8 @@ under the License.
         <module>be-java-extensions</module>
     </modules>
     <properties>
-        <doris.hive.catalog.shade.version>3.0.0</doris.hive.catalog.shade.version>
-        <avro.version>1.11.4</avro.version>
+        <doris.hive.catalog.shade.version>3.0.1-SNAPSHOT</doris.hive.catalog.shade.version>
+        <avro.version>1.12.0</avro.version>
         <parquet.version>1.15.2</parquet.version>
         <spark.version>3.4.3</spark.version>
         <hudi.version>0.15.0</hudi.version>
