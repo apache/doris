@@ -22,10 +22,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -44,7 +46,6 @@ import java.util.Set;
  */
 public class PushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
     public static PushDownVisitor INSTANCE = new PushDownVisitor();
-
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
         boolean pushed = false;
@@ -57,7 +58,10 @@ public class PushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
     }
 
     @Override
-    public Boolean visitPhysicalCatalogRelation(PhysicalCatalogRelation relation, PushDownContext ctx) {
+    public Boolean visitPhysicalRelation(PhysicalRelation relation, PushDownContext ctx) {
+        if (! (relation instanceof PhysicalCatalogRelation) && !(relation instanceof PhysicalCTEConsumer)) {
+            return false;
+        }
         if (ctx.getTargetExpression().getInputSlots().size() != 1) {
             return false;
         }
