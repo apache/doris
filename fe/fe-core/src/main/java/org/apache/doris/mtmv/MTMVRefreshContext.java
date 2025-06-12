@@ -20,6 +20,8 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 import java.util.Set;
 
@@ -27,6 +29,10 @@ public class MTMVRefreshContext {
     private MTMV mtmv;
     private Map<String, Set<String>> partitionMappings;
     private MTMVBaseVersions baseVersions;
+    // Within the same context, repeated fetches of the same table's snapshot must return consistent values.
+    // Hence, the results are cached at this stage.
+    // The value is loaded/cached on the first fetch
+    private Map<BaseTableInfo, MTMVSnapshotIf> baseTableSnapshotCache = Maps.newHashMap();
 
     public MTMVRefreshContext(MTMV mtmv) {
         this.mtmv = mtmv;
@@ -42,6 +48,10 @@ public class MTMVRefreshContext {
 
     public MTMVBaseVersions getBaseVersions() {
         return baseVersions;
+    }
+
+    public Map<BaseTableInfo, MTMVSnapshotIf> getBaseTableSnapshotCache() {
+        return baseTableSnapshotCache;
     }
 
     public static MTMVRefreshContext buildContext(MTMV mtmv) throws AnalysisException {
