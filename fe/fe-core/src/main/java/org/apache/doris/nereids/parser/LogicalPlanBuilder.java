@@ -592,6 +592,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -734,6 +735,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
@@ -6817,6 +6819,36 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowIndex(DorisParser.ShowIndexContext ctx) {
+        TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
+
+        String ctlName = null;
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            if (nameParts.size() == 1) {
+                dbName = nameParts.get(0);
+            } else if (nameParts.size() == 2) {
+                ctlName = nameParts.get(0);
+                dbName = nameParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
+
+        if (dbName != null && tableNameInfo.getDb() != null && !tableNameInfo.getDb().equals(dbName)) {
+            throw new ParseException("The name of two databases should be the same");
+        }
+        if (tableNameInfo.getDb() == null) {
+            tableNameInfo.setDb(dbName);
+        }
+        if (tableNameInfo.getCtl() == null) {
+            tableNameInfo.setCtl(ctlName);
+        }
+        return new ShowIndexCommand(tableNameInfo);
+    }
+
+    @Override
     public LogicalPlan visitShowTableStatus(DorisParser.ShowTableStatusContext ctx) {
         String ctlName = null;
         String dbName = null;
@@ -8145,6 +8177,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new RefreshDictionaryCommand(dbName, dictName);
+    }
+
+    @Override
+    public LogicalPlan visitBackup(DorisParser.BackupContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String snapshotName;
+        String dbName = null;
+        if (labelParts.size() == 1) {
+            snapshotName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            dbName = labelParts.get(0);
+            snapshotName = labelParts.get(1);
+        } else {
+            throw new ParseException("only support [<db_name>.]<snapshot_name>", ctx.label);
+        }
+        LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, snapshotName);
+        String repoName = ctx.repo.getText();
+        boolean isExclude = ctx.EXCLUDE() != null;
+        List<TableRefInfo> tableRefInfos = new ArrayList<>();
+        for (BaseTableRefContext baseTableRefContext : ctx.baseTableRef()) {
+            tableRefInfos.add(visitBaseTableRefContext(baseTableRefContext));
+        }
+        Map<String, String> properties = visitPropertyClause(ctx.properties);
+        return new BackupCommand(labelNameInfo, repoName, tableRefInfos, properties, isExclude);
     }
 
     @Override

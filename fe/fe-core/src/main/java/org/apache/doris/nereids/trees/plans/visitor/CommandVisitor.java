@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -186,6 +187,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
@@ -1115,6 +1117,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showIndexStatsCommand, context);
     }
 
+    default R visitShowIndexCommand(ShowIndexCommand showIndexCommand, C context) {
+        return visitCommand(showIndexCommand, context);
+    }
+
     default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
         return visitCommand(showTabletIdCommand, context);
     }
@@ -1238,6 +1244,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRestoreCommand(RestoreCommand restoreCommand, C context) {
         return visitCommand(restoreCommand, context);
+    }
+
+    default R visitBackupCommand(BackupCommand backupCommand, C context) {
+        return visitCommand(backupCommand, context);
     }
 
     default R visitRefreshLdapCommand(RefreshLdapCommand command, C context) {
