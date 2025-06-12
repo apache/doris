@@ -98,15 +98,13 @@ public class PushDownAliasThroughJoin extends OneRewriteRuleFactory {
                 List<Expression> newHash = replaceJoinConjuncts(join.getHashJoinConjuncts(), replaceMap);
                 List<Expression> newOther = replaceJoinConjuncts(join.getOtherJoinConjuncts(), replaceMap);
                 List<Expression> newMark = replaceJoinConjuncts(join.getMarkJoinConjuncts(), replaceMap);
-                DistributeHint distributeHint = join.getDistributeHint();
-                if (join.getDistributeHint().getSkewInfo() != null) {
-                    Expression skewExpr = replaceJoinConjuncts(ImmutableList.of(
-                            join.getDistributeHint().getSkewExpr()), replaceMap).get(0);
-                    distributeHint = join.getDistributeHint().withSkewInfo(
-                            join.getDistributeHint().getSkewInfo().withSkewExpr(skewExpr));
+                DistributeHint hint = join.getDistributeHint();
+                if (hint.getSkewInfo() != null) {
+                    Expression skewExpr = replaceJoinConjuncts(ImmutableList.of(hint.getSkewExpr()), replaceMap).get(0);
+                    hint.setSkewInfo(hint.getSkewInfo().withSkewExpr(skewExpr));
                 }
-                Plan newJoin = join.withConjunctsChildren(newHash, distributeHint, newOther, newMark, left, right,
-                            join.getJoinReorderContext());
+                Plan newJoin = join.withConjunctsChildren(newHash, newOther, newMark, left, right,
+                        join.getJoinReorderContext());
                 return project.withProjectsAndChild(newProjects, newJoin);
             }).toRule(RuleType.PUSH_DOWN_ALIAS_THROUGH_JOIN);
     }
