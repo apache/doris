@@ -18,11 +18,15 @@
 package org.apache.doris.datasource.iceberg.fileio;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.io.DorisPath;
 
 import com.google.common.collect.Iterables;
-import static java.util.stream.Collectors.joining;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.io.BulkDeletionFailureException;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
@@ -33,13 +37,15 @@ import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Stream;
 
 public class DelegateFileIO implements SupportsBulkOperations {
     private static final int DELETE_BATCH_SIZE = 1000;
-    private static final int BATCH_DELETE_PATHS_MESSAGE_LIMIT = 5;
+    private Map<String, String> properties;
+    private FileSystem fileSystem;
 
-    private final FileSystem fileSystem;
+    public DelegateFileIO() {
+
+    }
 
     public DelegateFileIO(FileSystem fileSystem) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");
@@ -107,22 +113,6 @@ public class DelegateFileIO implements SupportsBulkOperations {
         return SupportsBulkOperations.super.newInputFile(file);
     }
 
-    private void deleteBatch(List<String> filesToDelete) {
-        try {
-            fileSystem.deleteFiles(filesToDelete.stream().map(Location::of).toList());
-        } catch (IOException e) {
-            throw new UncheckedIOException(
-                    "Failed to delete some or all of files: " +
-                            Stream.concat(
-                                            filesToDelete.stream()
-                                                    .limit(BATCH_DELETE_PATHS_MESSAGE_LIMIT),
-                                            filesToDelete.size() > BATCH_DELETE_PATHS_MESSAGE_LIMIT ? Stream.of("...")
-                                                    : Stream.of())
-                                    .collect(joining(", ", "[", "]")),
-                    e);
-        }
-    }
-
     @Override
     public Map<String, String> properties() {
         return properties;
@@ -130,7 +120,9 @@ public class DelegateFileIO implements SupportsBulkOperations {
 
     @Override
     public void initialize(Map<String, String> properties) {
-        throw new UnsupportedOperationException("ForwardingFileIO does not support initialization by properties");
+        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        this.fileSystem = FileSystemFactory.get(storageProperties);
+        this.properties = properties;
     }
 
     @Override
