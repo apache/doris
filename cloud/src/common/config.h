@@ -222,6 +222,8 @@ CONF_mBool(enable_distinguish_hdfs_path, "true");
 // If enabled, the txn status will be checked when preapre/commit rowset
 CONF_mBool(enable_load_txn_status_check, "true");
 
+CONF_mBool(enable_tablet_job_check, "true");
+
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
 // this is a list in semicolon-delimited format, in CIDR notation,
