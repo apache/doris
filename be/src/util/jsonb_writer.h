@@ -40,6 +40,7 @@
 #include <stack>
 #include <string>
 
+#include "common/exception.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
 
@@ -479,8 +480,14 @@ public:
 
     OS_TYPE* getOutput() { return os_; }
     JsonbDocument* getDocument() {
-        return JsonbDocument::checkAndCreateDocument(getOutput()->getBuffer(),
-                                                     getOutput()->getSize());
+        JsonbDocument* doc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(getOutput()->getBuffer(),
+                                                        getOutput()->getSize(), &doc);
+        if (st.ok()) {
+            return doc;
+        } else {
+            throw doris::Exception(st);
+        }
     }
 
     JsonbValue* getValue() {
