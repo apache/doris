@@ -165,7 +165,7 @@ public class FloatLiteral extends NumericLiteralExpr {
             if (Double.isInfinite(getValue()) || Double.isNaN(getValue())) {
                 return Double.toString(getValue());
             }
-            return BigDecimal.valueOf(getValue()).toPlainString();
+            return BigDecimal.valueOf(getValue()).stripTrailingZeros().toPlainString();
         }
     }
 
