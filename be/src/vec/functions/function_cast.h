@@ -619,8 +619,9 @@ struct ConvertImplGenericFromJsonb {
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
                 const auto& val = col_from_string->get_data_at(i);
-                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
-                if (UNLIKELY(!doc || !doc->getValue())) {
+                JsonbDocument* doc = nullptr;
+                auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+                if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     (*vec_null_map_to)[i] = 1;
                     col_to->insert_default();
                     continue;
@@ -663,7 +664,7 @@ struct ConvertImplGenericFromJsonb {
                     continue;
                 }
                 ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
-                Status st = data_type_to->from_string(read_buffer, col_to.get());
+                st = data_type_to->from_string(read_buffer, col_to.get());
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {
@@ -782,8 +783,9 @@ struct ConvertImplFromJsonb {
                 }
 
                 // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-                JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(val.data, val.size);
-                if (UNLIKELY(!doc || !doc->getValue())) {
+                JsonbDocument* doc = nullptr;
+                auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+                if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
                     null_map[i] = 1;
                     res[i] = 0;
                     continue;

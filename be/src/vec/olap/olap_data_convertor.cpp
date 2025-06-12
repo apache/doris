@@ -678,10 +678,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                             "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
                 // Make sure that the json binary data written in is the correct jsonb value.
-                if (_is_jsonb &&
-                    !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
-                    return Status::InvalidArgument("invalid json binary value: {}",
-                                                   std::string_view(slice->data, slice->size));
+                if (_is_jsonb) {
+                    JsonbDocument* doc = nullptr;
+                    RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(
+                            slice->data, slice->size, &doc));
                 }
             } else {
                 // TODO: this may not be necessary, check and remove later
@@ -705,10 +705,10 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
                         " in vec engine.");
             }
             // Make sure that the json binary data written in is the correct jsonb value.
-            if (_is_jsonb &&
-                !doris::JsonbDocument::checkAndCreateDocument(slice->data, slice->size)) {
-                return Status::InvalidArgument("invalid json binary value: {}",
-                                               std::string_view(slice->data, slice->size));
+            if (_is_jsonb) {
+                JsonbDocument* doc = nullptr;
+                RETURN_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(slice->data,
+                                                                             slice->size, &doc));
             }
             string_offset = *offset_cur;
             ++slice;

@@ -66,10 +66,6 @@
 #ifndef JSONB_JSONBDOCUMENT_H
 #define JSONB_JSONBDOCUMENT_H
 
-#include <assert.h>
-#include <stdint.h>
-#include <stdlib.h>
-
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -78,6 +74,7 @@
 #include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 
 // #include "util/string_parser.hpp"
 
@@ -133,6 +130,10 @@ enum class JsonbType : char {
     T_Array = 0x0B,
     T_Int128 = 0x0C,
     T_Float = 0x0D,
+    T_Decimal = 0x0E,  // DecimalV3 only
+    T_Date = 0x0F,     // v2 only
+    T_DateTime = 0x10, // v2 only
+    T_Time = 0x11,     // v2 only
     NUM_TYPES,
 };
 
@@ -172,17 +173,14 @@ constexpr unsigned int ARRAY_CODE = 1;
  */
 class JsonbDocument {
 public:
-    // Prepare a document in the buffer
-    static JsonbDocument* makeDocument(char* pb, uint32_t size, JsonbType type);
-    static JsonbDocument* makeDocument(char* pb, uint32_t size, const JsonbValue* rval);
-
     // create an JsonbDocument object from JSONB packed bytes
-    static JsonbDocument* checkAndCreateDocument(const char* pb, size_t size);
+    [[nodiscard]] static Status checkAndCreateDocument(const char* pb, size_t size,
+                                                       JsonbDocument** doc);
 
     // create an JsonbValue from JSONB packed bytes
     static JsonbValue* createValue(const char* pb, size_t size);
 
-    uint8_t version() { return header_.ver_; }
+    uint8_t version() const { return header_.ver_; }
 
     JsonbValue* getValue() { return ((JsonbValue*)payload_); }
 
@@ -194,7 +192,6 @@ public:
 
     const ObjectVal* operator->() const { return ((const ObjectVal*)payload_); }
 
-public:
     bool operator==(const JsonbDocument& other) const {
         assert(false);
         return false;
@@ -409,11 +406,10 @@ private:
 template <class Iter_Type, class Cont_Type>
 class JsonbFwdIteratorT {
 public:
-    typedef Iter_Type iterator;
-    typedef typename std::iterator_traits<Iter_Type>::pointer pointer;
-    typedef typename std::iterator_traits<Iter_Type>::reference reference;
+    using iterator = Iter_Type;
+    using pointer = typename std::iterator_traits<Iter_Type>::pointer;
+    using reference = typename std::iterator_traits<Iter_Type>::reference;
 
-public:
     explicit JsonbFwdIteratorT() : current_(nullptr) {}
     explicit JsonbFwdIteratorT(const iterator& i) : current_(i) {}
 
@@ -452,10 +448,10 @@ private:
     iterator current_;
 };
 
-typedef int (*hDictInsert)(const char* key, unsigned len);
-typedef int (*hDictFind)(const char* key, unsigned len);
+using hDictInsert = int (*)(const char*, unsigned int);
+using hDictFind = int (*)(const char*, unsigned int);
 
-typedef std::underlying_type<JsonbType>::type JsonbTypeUnder;
+using JsonbTypeUnder = std::underlying_type_t<JsonbType>;
 
 /*
  * JsonbKeyValue class defines JSONB key type, as described below.
@@ -484,7 +480,9 @@ class JsonbKeyValue {
 public:
     // now we use sMaxKeyId to represent an empty key
     static const int sMaxKeyId = 65535;
-    typedef uint16_t keyid_type;
+    using keyid_type = uint16_t;
+
+    JsonbKeyValue() = delete;
 
     static const uint8_t sMaxKeyLen = 64;
 
@@ -512,8 +510,6 @@ private:
         keyid_type id_;
         char str_[1];
     } key_;
-
-    JsonbKeyValue();
 };
 
 /*
@@ -620,7 +616,7 @@ private:
     NumberValT();
 };
 
-typedef NumberValT<int8_t> JsonbInt8Val;
+using JsonbInt8Val = NumberValT<int8_t>;
 
 // override setVal for Int8Val
 template <>
@@ -633,7 +629,7 @@ inline bool JsonbInt8Val::setVal(int8_t value) {
     return true;
 }
 
-typedef NumberValT<int16_t> JsonbInt16Val;
+using JsonbInt16Val = NumberValT<int16_t>;
 
 // override setVal for Int16Val
 template <>
@@ -645,7 +641,7 @@ inline bool JsonbInt16Val::setVal(int16_t value) {
     num_ = value;
     return true;
 }
-typedef NumberValT<int32_t> JsonbInt32Val;
+using JsonbInt32Val = NumberValT<int32_t>;
 
 // override setVal for Int32Val
 template <>
@@ -658,7 +654,7 @@ inline bool JsonbInt32Val::setVal(int32_t value) {
     return true;
 }
 
-typedef NumberValT<int64_t> JsonbInt64Val;
+using JsonbInt64Val = NumberValT<int64_t>;
 
 // override setVal for Int64Val
 template <>
@@ -671,7 +667,7 @@ inline bool JsonbInt64Val::setVal(int64_t value) {
     return true;
 }
 
-typedef NumberValT<int128_t> JsonbInt128Val;
+using JsonbInt128Val = NumberValT<int128_t>;
 
 // override setVal for Int128Val
 template <>
@@ -684,7 +680,7 @@ inline bool JsonbInt128Val::setVal(int128_t value) {
     return true;
 }
 
-typedef NumberValT<double> JsonbDoubleVal;
+using JsonbDoubleVal = NumberValT<double>;
 
 // override setVal for DoubleVal
 template <>
@@ -697,7 +693,7 @@ inline bool JsonbDoubleVal::setVal(double value) {
     return true;
 }
 
-typedef NumberValT<float> JsonbFloatVal;
+using JsonbFloatVal = NumberValT<float>;
 
 // override setVal for DoubleVal
 template <>
@@ -733,18 +729,21 @@ public:
         switch (type_) {
         case JsonbType::T_Int8:
             if (val < std::numeric_limits<int8_t>::min() ||
-                val > std::numeric_limits<int8_t>::max())
+                val > std::numeric_limits<int8_t>::max()) {
                 return false;
+            }
             return ((JsonbInt8Val*)this)->setVal((int8_t)val);
         case JsonbType::T_Int16:
             if (val < std::numeric_limits<int16_t>::min() ||
-                val > std::numeric_limits<int16_t>::max())
+                val > std::numeric_limits<int16_t>::max()) {
                 return false;
+            }
             return ((JsonbInt16Val*)this)->setVal((int16_t)val);
         case JsonbType::T_Int32:
             if (val < std::numeric_limits<int32_t>::min() ||
-                val > std::numeric_limits<int32_t>::max())
+                val > std::numeric_limits<int32_t>::max()) {
                 return false;
+            }
             return ((JsonbInt32Val*)this)->setVal((int32_t)val);
         case JsonbType::T_Int64:
             return ((JsonbInt64Val*)this)->setVal((int64_t)val);
@@ -833,7 +832,9 @@ public:
   */
     size_t length() {
         // It's an empty string
-        if (0 == size_) return size_;
+        if (0 == size_) {
+            return size_;
+        }
         // The string stored takes all the spaces in payload_
         if (payload_[size_ - 1] != 0) {
             return size_;
@@ -847,14 +848,15 @@ public:
     // all other strings: -1
     int getBoolVal() {
         if (size_ == 4 && tolower(payload_[0]) == 't' && tolower(payload_[1]) == 'r' &&
-            tolower(payload_[2]) == 'u' && tolower(payload_[3]) == 'e')
+            tolower(payload_[2]) == 'u' && tolower(payload_[3]) == 'e') {
             return 1;
-        else if (size_ == 5 && tolower(payload_[0]) == 'f' && tolower(payload_[1]) == 'a' &&
-                 tolower(payload_[2]) == 'l' && tolower(payload_[3]) == 's' &&
-                 tolower(payload_[4]) == 'e')
+        } else if (size_ == 5 && tolower(payload_[0]) == 'f' && tolower(payload_[1]) == 'a' &&
+                   tolower(payload_[2]) == 'l' && tolower(payload_[3]) == 's' &&
+                   tolower(payload_[4]) == 'e') {
             return 0;
-        else
+        } else {
             return -1;
+        }
     }
 
 private:
@@ -889,13 +891,12 @@ protected:
  */
 class ObjectVal : public ContainerVal {
 public:
-    typedef JsonbKeyValue value_type;
-    typedef value_type* pointer;
-    typedef const value_type* const_pointer;
-    typedef JsonbFwdIteratorT<pointer, ObjectVal> iterator;
-    typedef JsonbFwdIteratorT<const_pointer, ObjectVal> const_iterator;
+    using value_type = JsonbKeyValue;
+    using pointer = value_type*;
+    using const_pointer = const value_type*;
+    using iterator = JsonbFwdIteratorT<pointer, ObjectVal>;
+    using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
 
-public:
     const_iterator search(const char* key, hDictFind handler = nullptr) const {
         return const_cast<ObjectVal*>(this)->search(key, handler);
     }
@@ -913,7 +914,9 @@ public:
     }
 
     iterator search(const char* key, unsigned int klen, hDictFind handler = nullptr) {
-        if (!key || !klen) return end();
+        if (!key || !klen) {
+            return end();
+        }
 
         int key_id = -1;
         if (handler && (key_id = handler(key, klen)) >= 0) {
@@ -923,13 +926,15 @@ public:
     }
 
     iterator search(int key_id) {
-        if (key_id < 0 || key_id > JsonbKeyValue::sMaxKeyId) return end();
+        if (key_id < 0 || key_id > JsonbKeyValue::sMaxKeyId) {
+            return end();
+        }
 
         const char* pch = payload_;
         const char* fence = payload_ + size_;
 
         while (pch < fence) {
-            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            auto* pkey = (JsonbKeyValue*)(pch);
             if (!pkey->klen() && key_id == pkey->getKeyId()) {
                 return iterator(pkey);
             }
@@ -947,7 +952,7 @@ public:
 
         unsigned int num = 0;
         while (pch < fence) {
-            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            auto* pkey = (JsonbKeyValue*)(pch);
             ++num;
             pch += pkey->numPackedBytes();
         }
@@ -963,8 +968,10 @@ public:
 
         unsigned int num = 0;
         while (pch < fence) {
-            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
-            if (num == i) return pkey;
+            auto* pkey = (JsonbKeyValue*)(pch);
+            if (num == i) {
+                return pkey;
+            }
             ++num;
             pch += pkey->numPackedBytes();
         }
@@ -985,21 +992,27 @@ public:
 
     // find the JSONB value by a key string (null terminated)
     JsonbValue* find(const char* key, hDictFind handler = nullptr) {
-        if (!key) return nullptr;
+        if (!key) {
+            return nullptr;
+        }
         return find(key, (unsigned int)strlen(key), handler);
     }
 
     // find the JSONB value by a key string (with length)
     JsonbValue* find(const char* key, unsigned int klen, hDictFind handler = nullptr) {
         iterator kv = search(key, klen, handler);
-        if (end() == kv) return nullptr;
+        if (end() == kv) {
+            return nullptr;
+        }
         return kv->value();
     }
 
     // find the JSONB value by a key dictionary ID
     JsonbValue* find(int key_id) {
         iterator kv = search(key_id);
-        if (end() == kv) return nullptr;
+        if (end() == kv) {
+            return nullptr;
+        }
         return kv->value();
     }
 
@@ -1017,7 +1030,7 @@ private:
         const char* fence = payload_ + size_;
 
         while (pch < fence) {
-            JsonbKeyValue* pkey = (JsonbKeyValue*)(pch);
+            auto* pkey = (JsonbKeyValue*)(pch);
             if (klen == pkey->klen() && strncmp(key, pkey->getKeyStr(), klen) == 0) {
                 return iterator(pkey);
             }
@@ -1038,15 +1051,27 @@ private:
  */
 class ArrayVal : public ContainerVal {
 public:
+    using value_type = JsonbValue;
+    using pointer = value_type*;
+    using const_pointer = const value_type*;
+    using iterator = JsonbFwdIteratorT<pointer, ArrayVal>;
+    using const_iterator = JsonbFwdIteratorT<const_pointer, ArrayVal>;
+
     // get the JSONB value at index
     JsonbValue* get(int idx) const {
-        if (idx < 0) return nullptr;
+        if (idx < 0) {
+            return nullptr;
+        }
 
         const char* pch = payload_;
         const char* fence = payload_ + size_;
 
-        while (pch < fence && idx-- > 0) pch += ((JsonbValue*)pch)->numPackedBytes();
-        if (idx > 0 || pch == fence) return nullptr;
+        while (pch < fence && idx-- > 0) {
+            pch += ((JsonbValue*)pch)->numPackedBytes();
+        }
+        if (idx > 0 || pch == fence) {
+            return nullptr;
+        }
 
         return (JsonbValue*)pch;
     }
@@ -1067,12 +1092,6 @@ public:
         return num;
     }
 
-    typedef JsonbValue value_type;
-    typedef value_type* pointer;
-    typedef const value_type* const_pointer;
-    typedef JsonbFwdIteratorT<pointer, ArrayVal> iterator;
-    typedef JsonbFwdIteratorT<const_pointer, ArrayVal> const_iterator;
-
     iterator begin() { return iterator((pointer)payload_); }
 
     const_iterator begin() const { return const_iterator((pointer)payload_); }
@@ -1085,76 +1104,29 @@ private:
     ArrayVal();
 };
 
-// Prepare an empty document
-// input: pb - buuffer/packed bytes for jsonb document
-//        size - size of the buffer
-//        type - value type in the document
-inline JsonbDocument* JsonbDocument::makeDocument(char* pb, uint32_t size, JsonbType type) {
+inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
+                                                    JsonbDocument** doc) {
+    *doc = nullptr;
     if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
-        return nullptr;
+        return Status::InvalidArgument("Invalid JSONB document: too small size({}) or null pointer",
+                                       size);
     }
 
-    if (type < JsonbType::T_Null || type >= JsonbType::NUM_TYPES) {
-        return nullptr;
-    }
-    JsonbDocument* doc = (JsonbDocument*)pb;
-    // Write header
-    doc->header_.ver_ = JSONB_VER;
-    JsonbValue* value = doc->getValue();
-    // Write type
-    value->type_ = type;
-
-    // Set empty JsonbValue
-    if (type == JsonbType::T_Object || type == JsonbType::T_Array)
-        ((ContainerVal*)value)->size_ = 0;
-    if (type == JsonbType::T_String || type == JsonbType::T_Binary)
-        ((JsonbBlobVal*)value)->size_ = 0;
-    return doc;
-}
-
-// Prepare a document from an JsonbValue
-// input: pb - buuffer/packed bytes for jsonb document
-//        size - size of the buffer
-//        rval - jsonb value to be copied into the document
-inline JsonbDocument* JsonbDocument::makeDocument(char* pb, uint32_t size, const JsonbValue* rval) {
-    // checking if the buffer is big enough to store the value
-    if (!pb || !rval || size < sizeof(JsonbHeader) + rval->numPackedBytes()) {
-        return nullptr;
+    auto* doc_ptr = (JsonbDocument*)pb;
+    if (doc_ptr->header_.ver_ != JSONB_VER) {
+        return Status::InvalidArgument("Invalid JSONB document: invalid version({})",
+                                       doc_ptr->header_.ver_);
     }
 
-    JsonbType type = rval->type();
-    if (type < JsonbType::T_Null || type >= JsonbType::NUM_TYPES) {
-        return nullptr;
-    }
-    JsonbDocument* doc = (JsonbDocument*)pb;
-    // Write header
-    doc->header_.ver_ = JSONB_VER;
-    // get the starting byte of the value
-    JsonbValue* value = doc->getValue();
-    // binary copy of the rval
-    if (value != rval) // copy not necessary if values are the same
-        memmove(value, rval, rval->numPackedBytes());
-
-    return doc;
-}
-
-inline JsonbDocument* JsonbDocument::checkAndCreateDocument(const char* pb, size_t size) {
-    if (!pb || size < sizeof(JsonbHeader) + sizeof(JsonbValue)) {
-        return nullptr;
-    }
-
-    JsonbDocument* doc = (JsonbDocument*)pb;
-    if (doc->header_.ver_ != JSONB_VER) {
-        return nullptr;
-    }
-
-    JsonbValue* val = (JsonbValue*)doc->payload_;
+    auto* val = (JsonbValue*)doc_ptr->payload_;
     if (val->type() < JsonbType::T_Null || val->type() >= JsonbType::NUM_TYPES ||
         size != sizeof(JsonbHeader) + val->numPackedBytes()) {
-        return nullptr;
+        return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
+                                       static_cast<JsonbTypeUnder>(val->type()), size);
     }
 
-    return doc;
+    *doc = doc_ptr;
+    return Status::OK();
 }
 inline void JsonbDocument::setValue(const JsonbValue* value) {
     memcpy(payload_, value, value->numPackedBytes());
@@ -1165,12 +1137,12 @@ inline JsonbValue* JsonbDocument::createValue(const char* pb, size_t size) {
         return nullptr;
     }
 
-    JsonbDocument* doc = (JsonbDocument*)pb;
+    auto* doc = (JsonbDocument*)pb;
     if (doc->header_.ver_ != JSONB_VER) {
         return nullptr;
     }
 
-    JsonbValue* val = (JsonbValue*)doc->payload_;
+    auto* val = (JsonbValue*)doc->payload_;
     if (size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return nullptr;
     }
@@ -1184,7 +1156,7 @@ inline unsigned int JsonbDocument::numPackedBytes() const {
 
 inline unsigned int JsonbKeyValue::numPackedBytes() const {
     unsigned int ks = keyPackedBytes();
-    JsonbValue* val = (JsonbValue*)(((char*)this) + ks);
+    auto* val = (JsonbValue*)(((char*)this) + ks);
     return ks + val->numPackedBytes();
 }
 
@@ -1323,8 +1295,8 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
         if (rhs->isString()) {
-            auto str_value1 = (JsonbStringVal*)this;
-            auto str_value2 = (JsonbStringVal*)rhs;
+            auto* str_value1 = (JsonbStringVal*)this;
+            auto* str_value2 = (JsonbStringVal*)rhs;
             return str_value1->length() == str_value2->length() &&
                    std::memcmp(str_value1->getBlob(), str_value2->getBlob(),
                                str_value1->length()) == 0;
@@ -1335,7 +1307,9 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
         int lhs_num = ((ArrayVal*)this)->numElem();
         if (rhs->isArray()) {
             int rhs_num = ((ArrayVal*)rhs)->numElem();
-            if (rhs_num > lhs_num) return false;
+            if (rhs_num > lhs_num) {
+                return false;
+            }
             int contains_num = 0;
             for (int i = 0; i < lhs_num; ++i) {
                 for (int j = 0; j < rhs_num; ++j) {
@@ -1356,13 +1330,14 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
-            auto str_value1 = (ObjectVal*)this;
-            auto str_value2 = (ObjectVal*)rhs;
+            auto* str_value1 = (ObjectVal*)this;
+            auto* str_value2 = (ObjectVal*)rhs;
             for (int i = 0; i < str_value2->numElem(); ++i) {
                 JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
                 JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
-                if (key != nullptr && value != nullptr && !value->contains(key->value()))
+                if (key != nullptr && value != nullptr && !value->contains(key->value())) {
                     return false;
+                }
             }
             return true;
         }
@@ -1411,7 +1386,9 @@ inline const char* JsonbValue::getValuePtr() const {
 
 inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
     //path invalid
-    if (!key_path || kp_len == 0) return false;
+    if (!key_path || kp_len == 0) {
+        return false;
+    }
     Stream stream(key_path, kp_len);
     stream.skip_whitespace();
     if (stream.exhausted() || stream.read() != SCOPE) {
@@ -1447,7 +1424,9 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
                                ->find(path.get_leg_from_leg_vector(i)->leg_ptr,
                                       path.get_leg_from_leg_vector(i)->leg_len, handler);
 
-                if (!pval) return nullptr;
+                if (!pval) {
+                    return nullptr;
+                }
                 continue;
             } else {
                 return nullptr;
@@ -1470,8 +1449,9 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
 
             if (pval->type_ != JsonbType::T_Array ||
                 path.get_leg_from_leg_vector(i)->leg_ptr != nullptr ||
-                path.get_leg_from_leg_vector(i)->leg_len != 0)
+                path.get_leg_from_leg_vector(i)->leg_len != 0) {
                 return nullptr;
+            }
 
             if (path.get_leg_from_leg_vector(i)->array_index >= 0) {
                 pval = ((ArrayVal*)pval)->get(path.get_leg_from_leg_vector(i)->array_index);
@@ -1481,7 +1461,9 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
                                      path.get_leg_from_leg_vector(i)->array_index);
             }
 
-            if (!pval) return nullptr;
+            if (!pval) {
+                return nullptr;
+            }
             continue;
         }
         }

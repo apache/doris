@@ -21,8 +21,6 @@
 #ifndef JSONB_JSONBUTIL_H
 #define JSONB_JSONBUTIL_H
 
-#include <sstream>
-
 #include "common/exception.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
@@ -40,16 +38,16 @@ public:
     JsonbToJson() : os_(buffer_, OUT_BUF_SIZE) {}
 
     // get json string
-    const std::string to_json_string(const char* data, size_t size) {
-        JsonbDocument* pdoc = doris::JsonbDocument::checkAndCreateDocument(data, size);
-        if (!pdoc) {
-            throw Exception(Status::FatalError("invalid json binary value: {}",
-                                               std::string_view(data, size)));
+    std::string to_json_string(const char* data, size_t size) {
+        JsonbDocument* pdoc;
+        auto st = doris::JsonbDocument::checkAndCreateDocument(data, size, &pdoc);
+        if (!st.ok()) {
+            throw Exception(st);
         }
         return to_json_string(pdoc->getValue());
     }
 
-    const std::string to_json_string(const JsonbValue* val) {
+    std::string to_json_string(const JsonbValue* val) {
         os_.clear();
         os_.seekp(0);
 
@@ -63,7 +61,7 @@ public:
         return json_string;
     }
 
-    static const std::string jsonb_to_json_string(const char* data, size_t size) {
+    static std::string jsonb_to_json_string(const char* data, size_t size) {
         JsonbToJson jsonb_to_json;
         return jsonb_to_json.to_json_string(data, size);
     }
@@ -143,9 +141,9 @@ private:
         }
         char char_buffer[16];
         for (const char* ptr = str; ptr != str + len && *ptr; ++ptr) {
-            if ((unsigned char)*ptr > 31 && *ptr != '\"' && *ptr != '\\')
+            if ((unsigned char)*ptr > 31 && *ptr != '\"' && *ptr != '\\') {
                 os_.put(*ptr);
-            else {
+            } else {
                 os_.put('\\');
                 unsigned char token;
                 switch (token = *ptr) {
@@ -237,7 +235,6 @@ private:
         os_.put(']');
     }
 
-private:
     JsonbOutStream os_;
     char buffer_[OUT_BUF_SIZE];
 };
@@ -296,7 +293,7 @@ private:
     }
     JsonbWriterT<OS_TYPE> writer_;
 };
-typedef JsonbValueCreaterT<JsonbOutStream> JsonbValueCreater;
+using JsonbValueCreater = JsonbValueCreaterT<JsonbOutStream>;
 } // namespace doris
 
 #endif // JSONB_JSONBUTIL_H
