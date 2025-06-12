@@ -57,9 +57,8 @@ public class BindSkewExpr extends BindExpression {
                 skewValue = TypeCoercionUtils.castIfNotSameType(skewValue, skewExpr.getDataType());
                 skewValues.add(skewValue);
             }
-            distributeHint = new DistributeHint(distributeHint.distributeType,
-                    new JoinSkewInfo(skewExpr, skewValues, false));
+            distributeHint.setSkewInfo(new JoinSkewInfo(skewExpr, skewValues, false));
         }
-        return join.withDistributeHint(distributeHint);
+        return join;
     }
 }
