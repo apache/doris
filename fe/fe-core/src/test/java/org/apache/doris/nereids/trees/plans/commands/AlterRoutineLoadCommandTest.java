@@ -47,7 +47,7 @@ public class AlterRoutineLoadCommandTest {
     @Mocked
     private ConnectContext connectContext;
 
-    public void setUp() throws MetaNotFoundException {
+    public void runBefore() throws MetaNotFoundException {
         FeConstants.runningUnitTest = true;
         new Expectations() {
             {
@@ -78,22 +78,17 @@ public class AlterRoutineLoadCommandTest {
                 accessControllerManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
+
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(anyString, anyString);
+                minTimes = 0;
+                result = new KafkaRoutineLoadJob();
             }
         };
     }
 
     @Test
     public void testValidateNormal() throws MetaNotFoundException {
-        setUp();
-        new Expectations() {
-            {
-                Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(anyString, anyString);
-                minTimes = 0;
-                result = new KafkaRoutineLoadJob();
-            }
-        };
-
+        runBefore();
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "100");
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, "200000");
