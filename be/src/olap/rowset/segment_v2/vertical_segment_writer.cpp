@@ -1381,7 +1381,8 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 }
 
 void VerticalSegmentWriter::_encode_seq_column(
-        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos, std::string* encoded_keys) {
+        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+        std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column
