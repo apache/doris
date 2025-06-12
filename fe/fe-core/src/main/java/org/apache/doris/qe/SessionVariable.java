@@ -2651,7 +2651,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkGlobalVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int globalVariantMaxSubcolumnsCount = 20000;
+    public int globalVariantMaxSubcolumnsCount = 2048;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3969,9 +3969,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void checkGlobalVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
-        if (value < 0 || value > 10000) {
+        if (value < 0 || value > 20000) {
             throw new UnsupportedOperationException(
-                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + "it must between 0 and 10000");
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + "it must between 0 and 20000");
         }
     }
 

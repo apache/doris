@@ -154,7 +154,8 @@ Status aggregate_path_to_stats(
         std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
 
 // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
-Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target);
+Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                      TabletSchemaSPtr& target);
 
 TabletSchemaSPtr calculate_variant_extended_schema(const std::vector<RowsetSharedPtr>& rowsets,
                                                    const TabletSchemaSPtr& base_schema);

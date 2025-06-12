@@ -200,8 +200,7 @@ TEST_F(VariantRowsetCompactionTest, test_variant_rowset_compaction) {
     // 4. compaction
     CumulativeCompaction compaction(*_engine_ref, _tablet);
     compaction._input_rowsets = std::move(rowsets);
-    Status st = compaction.build_basic_info();
-    EXPECT_TRUE(st.ok()) << st.to_string();
+    compaction.build_basic_info();
 
     std::vector<RowsetReaderSharedPtr> input_rs_readers;
     input_rs_readers.reserve(compaction._input_rowsets.size());

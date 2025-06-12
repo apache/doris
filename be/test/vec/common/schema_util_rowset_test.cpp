@@ -291,7 +291,7 @@ TEST_F(SchemaUtilRowsetTest, check_path_stats_agg_delete) {
     EXPECT_FALSE(st.ok());
 }
 
-TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
+TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_schema) {
     all_path_stats.clear();
     // 1.create tablet schema
     TabletSchemaPB schema_pb;
@@ -336,7 +336,7 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_compaction_schema) {
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
-    auto st = schema_util::get_compaction_schema(rowsets, compaction_schema);
+    auto st = schema_util::get_extended_compaction_schema(rowsets, compaction_schema);
 
     for (const auto& column : compaction_schema->columns()) {
         if (column->is_extracted_column()) {
@@ -465,7 +465,7 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
-    auto st = schema_util::get_compaction_schema(rowsets, compaction_schema);
+    auto st = schema_util::get_extended_compaction_schema(rowsets, compaction_schema);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // 5. check compaction schema

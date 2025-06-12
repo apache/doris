@@ -969,8 +969,8 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
 // 4. append the subpaths and sparse paths to the output schema
 // 5. set the path set info for each unique id
 // 6. return the output schema
-Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
-                             TabletSchemaSPtr& target) {
+Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
+                                      TabletSchemaSPtr& target) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
     // collect path stats from all rowsets and segments
     for (const auto& rs : rowsets) {

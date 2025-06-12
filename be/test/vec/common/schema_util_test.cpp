@@ -1518,7 +1518,7 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
     auto target_schema = std::make_shared<TabletSchema>();
     target_schema->init_from_pb(schema_pb);
 
-    auto status = schema_util::get_compaction_schema(rowsets, target_schema);
+    auto status = schema_util::get_extended_compaction_schema(rowsets, target_schema);
     EXPECT_TRUE(status.ok());
 
     // Check that paths were properly distributed between subcolumns and sparse columns

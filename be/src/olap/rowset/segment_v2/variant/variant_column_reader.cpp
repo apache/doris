@@ -269,7 +269,7 @@ Status VariantColumnReader::new_iterator(ColumnIterator** iterator, const Tablet
                                                 config::variant_max_sparse_column_statistics_size;
 
     // For compaction operations, read flat leaves, otherwise read hierarchical data
-    // Since the variant subcolumns are flattened in schema_util::get_compaction_schema
+    // Since the variant subcolumns are flattened in schema_util::get_extended_compaction_schema
     if (opt != nullptr && is_compaction_reader_type(opt->io_ctx.reader_type)) {
         // original path, compaction with wide schema
         return _new_iterator_with_flat_leaves(

@@ -171,8 +171,8 @@ TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
     return target_schema;
 }
 
-Status BaseTablet::get_compaction_schema(const std::vector<RowsetMetaSharedPtr>& rowset_metas,
-                                         TabletSchemaSPtr& target_schema) {
+Status BaseTablet::get_extended_compaction_schema(
+        const std::vector<RowsetMetaSharedPtr>& rowset_metas, TabletSchemaSPtr& target_schema) {
     RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
             rowset_metas.begin(), rowset_metas.end(),
             [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
@@ -189,7 +189,8 @@ Status BaseTablet::get_compaction_schema(const std::vector<RowsetMetaSharedPtr>&
         for (const RowsetMetaSharedPtr& rs_meta : rowset_metas) {
             rowset_ids.emplace(rs_meta->rowset_id());
         }
-        RETURN_IF_ERROR(vectorized::schema_util::get_compaction_schema(
+        // extended schema for variant columns
+        RETURN_IF_ERROR(vectorized::schema_util::get_extended_compaction_schema(
                 get_rowset_by_ids(&rowset_ids), target_schema));
     }
     return Status::OK();
