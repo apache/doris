@@ -163,6 +163,14 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * set a new ctl name
+     * @param ctl new database name
+     */
+    public void setCtl(String ctl) {
+        this.ctl = ctl;
+    }
+
+    /**
      * get table name
      * @return tableName
      */
