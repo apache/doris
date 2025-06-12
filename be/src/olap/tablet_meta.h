@@ -511,6 +511,10 @@ public:
 
     bool has_calculated_for_multi_segments(const RowsetId& rowset_id) const;
 
+    void traverse_rowset_id_prefix(
+            const std::function<void(const DeleteBitmap&, const RowsetId& rowsetId)>& func) const;
+    uint64_t count_key_with_rowset_id_unlocked(const RowsetId& rowset_id) const;
+
     class AggCachePolicy : public LRUCachePolicyTrackingManual {
     public:
         AggCachePolicy(size_t capacity)
