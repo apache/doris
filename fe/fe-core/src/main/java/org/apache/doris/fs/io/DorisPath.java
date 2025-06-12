@@ -28,7 +28,7 @@ public class DorisPath {
 
     @Override
     public String toString() {
-        return super.toString();
+        return this.path;
     }
 
     public Path toHadoopPath() {
