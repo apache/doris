@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -97,6 +98,16 @@ public class RestoreCommandTest {
 
         Map<String, String> properties = new HashedMap();
         properties.put("timeout", "86400");
+        properties.put("backup_timestamp", "2018-08-08-08-08-08");
+        properties.put("reserve_replica", "true");
+        properties.put("reserve_colocate", "true");
+        properties.put("reserve_dynamic_partition_enable", "true");
+        properties.put("is_being_synced", "true");
+        properties.put("clean_tables", "true");
+        properties.put("clean_partitions", "true");
+        properties.put("atomic_restore", "true");
+        properties.put("force_replace", "true");
+        properties.put("meta_version", "10001");
 
         boolean isExclude = false;
 
@@ -119,5 +130,9 @@ public class RestoreCommandTest {
         properties.put("key1", "value1");
         RestoreCommand command4 = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties2, isExclude);
         Assertions.assertThrows(AnalysisException.class, () -> command4.validate(connectContext));
+
+        String repoName2 = "__keep_on_local__";
+        RestoreCommand command5 = new RestoreCommand(labelNameInfo, repoName2, tableRefInfos, properties2, isExclude);
+        Assertions.assertThrows(DdlException.class, () -> command5.validate(connectContext));
     }
 }
