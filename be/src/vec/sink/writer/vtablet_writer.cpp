@@ -353,6 +353,7 @@ Status IndexChannel::check_each_node_channel_close(
         std::unordered_set<int64_t>* unfinished_node_channel_ids,
         std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
         WriterStats* writer_stats, Status status) {
+    Status final_status = Status::OK();
     for (auto& it : _node_channels) {
         std::shared_ptr<VNodeChannel> node_channel = it.second;
         // If the node channel is not in the unfinished_node_channel_ids,
@@ -361,18 +362,18 @@ Status IndexChannel::check_each_node_channel_close(
             continue;
         }
         bool node_channel_closed = false;
-        auto s = it.second->close_wait(_parent->_state, &node_channel_closed);
+        auto close_status = it.second->close_wait(_parent->_state, &node_channel_closed);
         if (node_channel_closed) {
-            s = it.second->after_close_handle(_parent->_state, writer_stats,
-                                              node_add_batch_counter_map);
+            close_status = it.second->after_close_handle(_parent->_state, writer_stats,
+                                                         node_add_batch_counter_map);
             unfinished_node_channel_ids->erase(it.first);
         }
-        if (!s.ok()) {
-            status = cancel_channel_and_check_intolerable_failure(std::move(s), s.to_string(),
-                                                                  *this, *it.second);
+        if (!close_status.ok()) {
+            final_status = cancel_channel_and_check_intolerable_failure(
+                    std::move(final_status), close_status.to_string(), *this, *it.second);
         }
     }
-    return status;
+    return final_status;
 }
 
 bool IndexChannel::_quorum_success() {
