@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogCommentCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterCatalogPropertiesCommand;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterWorkloadPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -184,6 +186,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFunctionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
@@ -1113,6 +1116,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showIndexStatsCommand, context);
     }
 
+    default R visitShowIndexCommand(ShowIndexCommand showIndexCommand, C context) {
+        return visitCommand(showIndexCommand, context);
+    }
+
     default R visitShowTabletIdCommand(ShowTabletIdCommand showTabletIdCommand, C context) {
         return visitCommand(showTabletIdCommand, context);
     }
@@ -1234,12 +1241,20 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createResourceCommand, context);
     }
 
+    default R visitBackupCommand(BackupCommand backupCommand, C context) {
+        return visitCommand(backupCommand, context);
+    }
+
     default R visitRefreshLdapCommand(RefreshLdapCommand command, C context) {
         return visitCommand(command, context);
     }
 
     default R visitCreateStageCommand(CreateStageCommand createStageCommand, C context) {
         return visitCommand(createStageCommand, context);
+    }
+
+    default R visitAdminSetReplicaVersionCommand(AdminSetReplicaVersionCommand command, C context) {
+        return visitCommand(command, context);
     }
 
     default R visitDropStageCommand(DropStageCommand dropStageCommand, C context) {

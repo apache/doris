@@ -4246,16 +4246,6 @@ show_param ::=
     {:
         RESULT = new ShowOpenTableStmt();
     :}
-    /* show table status */
-    | KW_TABLE KW_STATUS opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTableStatusStmt(null, db, parser.wild, parser.where);
-    :}
-    /* show table status */
-    | KW_TABLE KW_STATUS from_or_in ident:ctl DOT ident:db opt_wild_where
-    {:
-        RESULT = new ShowTableStatusStmt(ctl, db, parser.wild, parser.where);
-    :}
     /* show tables */
     | opt_full KW_TABLES opt_db:db opt_wild_where
     {:
@@ -4468,15 +4458,6 @@ show_param ::=
     | KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
     {:
         RESULT = new ShowDataSkewStmt(table_ref);
-    :}
-    /* Show data statement: used to show data size of specified range */
-     | KW_DATA opt_detailed:detailed order_by_clause:orderByClause opt_properties:prop
-    {:
-        RESULT = new ShowDataStmt(null, orderByClause, prop, detailed);
-    :}
-    | KW_DATA opt_detailed:detailed KW_FROM table_name:dbTblName order_by_clause:orderByClause
-    {:
-        RESULT = new ShowDataStmt(dbTblName, orderByClause, null, detailed);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
