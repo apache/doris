@@ -112,6 +112,12 @@ private:
             os_.write(((JsonbInt128Val*)val)->val());
             break;
         }
+        case JsonbType::T_Decimal: {
+            auto decimal = ((JsonbDecimalVal*)val)->val();
+            auto str = decimal.get_value().to_string(decimal.get_scale());
+            os_.write(str.c_str(), str.size());
+            break;
+        }
         case JsonbType::T_String: {
             string_to_json(((JsonbStringVal*)val)->getBlob(), ((JsonbStringVal*)val)->length());
             break;

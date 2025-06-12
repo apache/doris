@@ -78,6 +78,8 @@
 #include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 
 // #include "util/string_parser.hpp"
 
@@ -133,6 +135,7 @@ enum class JsonbType : char {
     T_Array = 0x0B,
     T_Int128 = 0x0C,
     T_Float = 0x0D,
+    T_Decimal = 0x0E,
     NUM_TYPES,
 };
 
@@ -535,6 +538,7 @@ public:
     bool isInt64() const { return (type_ == JsonbType::T_Int64); }
     bool isDouble() const { return (type_ == JsonbType::T_Double); }
     bool isFloat() const { return (type_ == JsonbType::T_Float); }
+    bool isDecimal() const { return (type_ == JsonbType::T_Decimal); }
     bool isString() const { return (type_ == JsonbType::T_String); }
     bool isBinary() const { return (type_ == JsonbType::T_Binary); }
     bool isObject() const { return (type_ == JsonbType::T_Object); }
@@ -706,6 +710,19 @@ inline bool JsonbFloatVal::setVal(float value) {
         return false;
     }
 
+    num_ = value;
+    return true;
+}
+
+using JsonbDecimal = PrimitiveTypeTraits<TYPE_DECIMAL128I>::NearestFieldType;
+
+using JsonbDecimalVal = NumberValT<JsonbDecimal>;
+
+template <>
+inline bool JsonbDecimalVal::setVal(JsonbDecimal value) {
+    if (!isDecimal()) {
+        return false;
+    }
     num_ = value;
     return true;
 }
@@ -1217,6 +1234,9 @@ inline unsigned int JsonbValue::numPackedBytes() const {
     }
     case JsonbType::T_Int128: {
         return sizeof(type_) + sizeof(int128_t);
+    }
+    case JsonbType::T_Decimal: {
+        return sizeof(type_) + sizeof(JsonbDecimal);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
