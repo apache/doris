@@ -88,7 +88,7 @@ public class ExternalMetaCacheMgr {
     // catalog id -> HiveMetaStoreCache
     private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
-    private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
+    private final Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
     // hudi partition manager
     private final HudiMetadataCacheMgr hudiMetadataCacheMgr;
     // all catalogs could share the same fsCache.
@@ -221,8 +221,10 @@ public class ExternalMetaCacheMgr {
         if (cacheMap.remove(catalogId) != null) {
             LOG.info("remove hive metastore cache for catalog {}", catalogId);
         }
-        if (schemaCacheMap.remove(catalogId) != null) {
-            LOG.info("remove schema cache for catalog {}", catalogId);
+        synchronized (schemaCacheMap) {
+            if (schemaCacheMap.remove(catalogId) != null) {
+                LOG.info("remove schema cache for catalog {}", catalogId);
+            }
         }
         hudiMetadataCacheMgr.removeCache(catalogId);
         icebergMetadataCacheMgr.removeCache(catalogId);
@@ -232,9 +234,11 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
         dbName = ClusterNamespace.getNameFromFullName(dbName);
-        ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
-        if (schemaCache != null) {
-            schemaCache.invalidateTableCache(dbName, tblName);
+        synchronized (schemaCacheMap) {
+            ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
+            if (schemaCache != null) {
+                schemaCache.invalidateTableCache(dbName, tblName);
+            }
         }
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
@@ -251,9 +255,11 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateDbCache(long catalogId, String dbName) {
         dbName = ClusterNamespace.getNameFromFullName(dbName);
-        ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
-        if (schemaCache != null) {
-            schemaCache.invalidateDbCache(dbName);
+        synchronized (schemaCacheMap) {
+            ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
+            if (schemaCache != null) {
+                schemaCache.invalidateDbCache(dbName);
+            }
         }
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
@@ -269,9 +275,8 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalogCache(long catalogId) {
-        ExternalSchemaCache schemaCache = schemaCacheMap.get(catalogId);
-        if (schemaCache != null) {
-            schemaCache.invalidateAll();
+        synchronized (schemaCacheMap) {
+            schemaCacheMap.remove(catalogId);
         }
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
@@ -283,6 +288,12 @@ public class ExternalMetaCacheMgr {
         paimonMetadataCacheMgr.invalidateCatalogCache(catalogId);
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid catalog cache for {}", catalogId);
+        }
+    }
+
+    public void invalidSchemaCache(long catalogId) {
+        synchronized (schemaCacheMap) {
+            schemaCacheMap.remove(catalogId);
         }
     }
 

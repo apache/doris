@@ -37,6 +37,7 @@ import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveUtil.ACIDFileFilter;
@@ -139,10 +140,10 @@ public class HiveMetaStoreCache {
     public void init() {
         long partitionCacheTtlSecond = NumberUtils.toLong(
                 (catalog.getProperties().get(HMSExternalCatalog.PARTITION_CACHE_TTL_SECOND)),
-                HMSExternalCatalog.CACHE_NO_TTL);
+                ExternalCatalog.CACHE_NO_TTL);
 
         CacheFactory partitionValuesCacheFactory = new CacheFactory(
-                OptionalLong.of(partitionCacheTtlSecond >= HMSExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                OptionalLong.of(partitionCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
                         ? partitionCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_hive_partition_table_cache_num,
@@ -181,10 +182,10 @@ public class HiveMetaStoreCache {
         // if the file.meta.cache.ttl-second is equal or greater than 0, the cache expired will be set to that value
         int fileMetaCacheTtlSecond = NumberUtils.toInt(
                 (catalog.getProperties().get(HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND)),
-                HMSExternalCatalog.CACHE_NO_TTL);
+                ExternalCatalog.CACHE_NO_TTL);
 
         CacheFactory fileCacheFactory = new CacheFactory(
-                OptionalLong.of(fileMetaCacheTtlSecond >= HMSExternalCatalog.CACHE_TTL_DISABLE_CACHE
+                OptionalLong.of(fileMetaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
                         ? fileMetaCacheTtlSecond : 28800L),
                 OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
                 Config.max_external_file_cache_num,
