@@ -129,6 +129,18 @@ doris::Status FaissVectorIndex::add(int n, const float* vec) {
 
 void FaissVectorIndex::set_build_params(const FaissBuildParameter& params) {
     _dimension = params.d;
+    switch (params.metric_type) {
+    case FaissBuildParameter::MetricType::L2:
+        _metric = Metric::L2;
+        break;
+    case FaissBuildParameter::MetricType::IP:
+        _metric = Metric::IP;
+        break;
+    default:
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported metric type: {}",
+                               static_cast<int>(params.metric_type));
+        break;
+    }
     if (params.index_type == FaissBuildParameter::IndexType::BruteForce) {
         if (params.metric_type == FaissBuildParameter::MetricType::L2) {
             _index = std::make_unique<faiss::IndexFlatL2>(params.d);
@@ -217,10 +229,25 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     size_t roaring_cardinality = result.roaring->cardinality();
     result.distances = std::make_unique<float[]>(roaring_cardinality);
     result.row_ids = std::make_unique<std::vector<uint64_t>>();
-    
-    for (size_t i = 0; i < roaring_cardinality; ++i) {
-        result.row_ids->push_back(labels[i]);
-        result.distances[i] = std::sqrt(distances[i]); // Convert squared distance to actual distance
+
+    if (_metric == Metric::L2) {
+        // For inner product, we need to convert the distance to the actual distance.
+        // The distance returned by Faiss is actually the squared distance.
+        // So we need to take the square root of the squared distance.
+        for (size_t i = 0; i < roaring_cardinality; ++i) {
+            result.row_ids->push_back(labels[i]);
+            result.distances[i] = distances[i]; // Convert squared distance to actual distance
+        }
+    } else if (_metric == Metric::IP) {
+        // For L2, we can use the distance directly.
+        for (size_t i = 0; i < roaring_cardinality; ++i) {
+            result.row_ids->push_back(labels[i]);
+            result.distances[i] =
+                    std::sqrt(distances[i]); // Convert squared distance to actual distance
+        }
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported metric type: {}",
+                               static_cast<int>(_metric));
     }
 
     DCHECK(result.row_ids->size() == result.roaring->cardinality())
@@ -263,11 +290,25 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(end - begin);
         float* distances = distances_ptr.get();
         auto roaring = std::make_shared<roaring::Roaring>();
-        for (size_t i = begin; i < end; ++i) {
-            (*row_ids)[i] = native_search_result.labels[i];
-            roaring->add(native_search_result.labels[i]);
-            // TODO: l2_distance and inner_product is different.
-            distances[i] = sqrt(native_search_result.distances[i]);
+        if (_metric == Metric::L2) {
+            // For inner product, we need to convert the distance to the actual distance.
+            // The distance returned by Faiss is actually the squared distance.
+            // So we need to take the square root of the squared distance.
+            for (size_t i = begin; i < end; ++i) {
+                (*row_ids)[i] = native_search_result.labels[i];
+                roaring->add(native_search_result.labels[i]);
+                distances[i - begin] = sqrt(native_search_result.distances[i]);
+            }
+        } else if (_metric == Metric::IP) {
+            // For L2, we can use the distance directly.
+            for (size_t i = begin; i < end; ++i) {
+                (*row_ids)[i] = native_search_result.labels[i];
+                roaring->add(native_search_result.labels[i]);
+                distances[i - begin] = native_search_result.distances[i];
+            }
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported metric type: {}", static_cast<int>(_metric));
         }
 
         result.distances = std::move(distances_ptr);

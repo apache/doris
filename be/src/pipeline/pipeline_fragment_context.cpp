@@ -107,7 +107,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
@@ -118,6 +117,7 @@
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/spill/spill_stream.h"
+#include "thrift/protocol/TDebugProtocol.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -300,6 +300,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             DCHECK(request.__isset.desc_tbl);
             RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), request.desc_tbl,
                                                   &_desc_tbl));
+            LOG_INFO("Input desc_tbl: {}", apache::thrift::ThriftDebugString(request.desc_tbl));
         }
         _runtime_state->set_desc_tbl(_desc_tbl);
         _runtime_state->set_num_per_fragment_instances(request.num_senders);

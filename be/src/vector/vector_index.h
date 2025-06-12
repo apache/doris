@@ -79,6 +79,7 @@ public:
 protected:
     // When adding vectors to the index, use this variable to check the dimension of the vectors.
     size_t _dimension = 0;
+    Metric _metric = Metric::L2; // Default metric is L2 distance
 };
 
 } // namespace doris::segment_v2

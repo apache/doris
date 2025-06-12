@@ -50,10 +50,10 @@ TEST_F(VectorSearchTest, ReadByRowIdsint32_tColumn) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
-    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
     std::unique_ptr<std::vector<uint64_t>> labels = std::make_unique<std::vector<uint64_t>>();
     for (int i = 0; i < 5; i++) {
-        int_column->insert(10 * (i + 1));
+        int_column->insert_value(10 * (i + 1));
         labels->push_back(i);
     }
     // Set the materialized column
@@ -61,7 +61,7 @@ TEST_F(VectorSearchTest, ReadByRowIdsint32_tColumn) {
     iterator.prepare_materialization(std::move(int_column), std::move(labels));
 
     // Create destination column
-    vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+    vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
 
     // Select rowids 0, 2, 4 (values 10, 30, 50)
     rowid_t rowids[] = {0, 2, 4};
@@ -84,11 +84,11 @@ TEST_F(VectorSearchTest, ReadByRowIdsStringColumn) {
 
     // Create a materialized String column
     auto string_column = vectorized::ColumnString::create();
-    string_column->insert("apple");
-    string_column->insert("banana");
-    string_column->insert("cherry");
-    string_column->insert("date");
-    string_column->insert("elderberry");
+    string_column->insert_value("apple");
+    string_column->insert_value("banana");
+    string_column->insert_value("cherry");
+    string_column->insert_value("date");
+    string_column->insert_value("elderberry");
     auto labels = std::make_unique<std::vector<uint64_t>>();
     for (int i = 0; i < 5; i++) {
         labels->push_back(i);
@@ -119,10 +119,10 @@ TEST_F(VectorSearchTest, ReadByRowIdsEmptyRowIds) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
-    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
     for (int i = 0; i < 5; i++) {
-        int_column->insert(10 * (i + 1));
+        int_column->insert_value(10 * (i + 1));
         labels->push_back(i);
     }
 
@@ -130,7 +130,7 @@ TEST_F(VectorSearchTest, ReadByRowIdsEmptyRowIds) {
     iterator.prepare_materialization(std::move(int_column), std::move(labels));
 
     // Create destination column
-    vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+    vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
 
     // Empty rowids array
     rowid_t rowids[1];
@@ -149,11 +149,11 @@ TEST_F(VectorSearchTest, TestLargeRowset) {
     VirtualColumnIterator iterator;
 
     // Create a large materialized int32_t column (1000 values)
-    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
 
     for (int i = 0; i < 1000; i++) {
-        int_column->insert(i);
+        int_column->insert_value(i);
         labels->push_back(i);
     }
 
@@ -161,7 +161,7 @@ TEST_F(VectorSearchTest, TestLargeRowset) {
     iterator.prepare_materialization(std::move(int_column), std::move(labels));
 
     // Create destination column
-    vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+    vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
 
     // Select every 100th row (0, 100, 200, ... 900)
     const int step = 100;
@@ -183,12 +183,12 @@ TEST_F(VectorSearchTest, TestLargeRowset) {
 
 TEST_F(VectorSearchTest, ReadByRowIdsNoContinueRowIds) {
     // Create a column with 1000 values (0-999)
-    auto column = ColumnVector<int32_t>::create();
+    auto column = ColumnVector<TYPE_INT>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
 
     // Generate non-consecutive row IDs by multiplying by 2 (0,2,4,...)
     for (size_t i = 0; i < 1000; i++) {
-        column->insert(i);
+        column->insert_value(i);
         labels->push_back(i * 2); // Non-consecutive row IDs
     }
 
@@ -202,7 +202,7 @@ TEST_F(VectorSearchTest, ReadByRowIdsNoContinueRowIds) {
     }
 
     // Create destination column for results
-    vectorized::MutableColumnPtr dest_col = ColumnVector<int32_t>::create();
+    vectorized::MutableColumnPtr dest_col = ColumnVector<TYPE_INT>::create();
 
     // Test with various non-consecutive row IDs
     {
@@ -281,17 +281,17 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
     VirtualColumnIterator iterator;
 
     // 构造一个有100行的int32列，值为0~99
-    auto int_column = vectorized::ColumnVector<int32_t>::create();
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
     auto labels = std::make_unique<std::vector<uint64_t>>();
     for (int i = 0; i < 100; ++i) {
-        int_column->insert(i);
+        int_column->insert_value(i);
         labels->push_back(i);
     }
     iterator.prepare_materialization(std::move(int_column), std::move(labels));
 
     // 1. seek到第10行，next_batch读取10行
     {
-        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(10);
         ASSERT_TRUE(st.ok());
         size_t rows_read = 10;
@@ -307,7 +307,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
 
     // 2. seek到第85行，next_batch读取10行（只剩5行可读）
     {
-        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(85);
         ASSERT_TRUE(st.ok());
         size_t rows_read = 10;
@@ -323,7 +323,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
 
     // 3. seek到第0行，next_batch读取全部100行
     {
-        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(0);
         ASSERT_TRUE(st.ok());
         size_t rows_read = 100;
@@ -339,7 +339,7 @@ TEST_F(VectorSearchTest, NextBatchTest1) {
 
     // 4. seek到越界位置（如100），应该报错
     {
-        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<int32_t>::create();
+        vectorized::MutableColumnPtr dst = vectorized::ColumnVector<TYPE_INT>::create();
         Status st = iterator.seek_to_ordinal(100);
         ASSERT_EQ(st.ok(), false);
     }
@@ -349,12 +349,12 @@ TEST_F(VectorSearchTest, TestPrepare1) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
-    auto int_column = vectorized::ColumnVector<int32_t>::create();
-    int_column->insert(10);
-    int_column->insert(20);
-    int_column->insert(30);
-    int_column->insert(40);
-    int_column->insert(50);
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
+    int_column->insert_value(10);
+    int_column->insert_value(20);
+    int_column->insert_value(30);
+    int_column->insert_value(40);
+    int_column->insert_value(50);
     auto labels = std::make_unique<std::vector<uint64_t>>();
     labels->push_back(100);
     labels->push_back(11);
@@ -375,7 +375,7 @@ TEST_F(VectorSearchTest, TestPrepare1) {
 
     auto materialization_col = iterator.get_materialized_column();
     auto int_col_m =
-            assert_cast<const vectorized::ColumnVector<int32_t>*>(materialization_col.get());
+            assert_cast<const vectorized::ColumnVector<TYPE_INT>*>(materialization_col.get());
     ASSERT_EQ(int_col_m->get_data()[0], 20);
     ASSERT_EQ(int_col_m->get_data()[1], 40);
     ASSERT_EQ(int_col_m->get_data()[2], 30);
@@ -387,12 +387,12 @@ TEST_F(VectorSearchTest, TestColumnNothing) {
     VirtualColumnIterator iterator;
 
     // Create a materialized int32_t column with values [10, 20, 30, 40, 50]
-    auto int_column = vectorized::ColumnVector<int32_t>::create();
-    int_column->insert(10);
-    int_column->insert(20);
-    int_column->insert(30);
-    int_column->insert(40);
-    int_column->insert(50);
+    auto int_column = vectorized::ColumnVector<TYPE_INT>::create();
+    int_column->insert_value(10);
+    int_column->insert_value(20);
+    int_column->insert_value(30);
+    int_column->insert_value(40);
+    int_column->insert_value(50);
     auto labels = std::make_unique<std::vector<uint64_t>>();
     labels->push_back(100);
     labels->push_back(11);
@@ -412,7 +412,7 @@ TEST_F(VectorSearchTest, TestColumnNothing) {
     ASSERT_TRUE(status.ok());
     auto tmp_nothing = vectorized::check_and_get_column<vectorized::ColumnNothing>(*dst);
     ASSERT_TRUE(tmp_nothing == nullptr);
-    auto tmp_col_i32 = vectorized::check_and_get_column<vectorized::ColumnVector<int32_t>>(
+    auto tmp_col_i32 = vectorized::check_and_get_column<vectorized::ColumnVector<TYPE_INT>>(
             *iterator.get_materialized_column());
     ASSERT_TRUE(tmp_col_i32 != nullptr);
     ASSERT_EQ(dst->size(), 3);

@@ -26,6 +26,7 @@
 
 #include "faiss_vector_index.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index_writer.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "vector_index.h"
@@ -136,8 +137,8 @@ TEST_F(AnnIndexTest, SmokeTest) {
         query_vec[i] = static_cast<float>(i);
     }
 
-    segment_v2::IndexSearchParameters params;
-    segment_v2::IndexSearchResult result;
+    vectorized::IndexSearchParameters params;
+    vectorized::IndexSearchResult result;
     ASSERT_TRUE(index2->ann_topn_search(query_vec.get(), 1, params, result));
     EXPECT_TRUE(result.roaring->cardinality() == 1);
     EXPECT_TRUE(result.roaring->contains(0));

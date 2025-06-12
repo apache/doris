@@ -642,7 +642,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     auto index_reader = ann_index_iterator->get_reader();
     auto ann_index_reader = dynamic_cast<AnnIndexReader*>(index_reader.get());
     DCHECK(ann_index_reader != nullptr);
-    if (ann_index_reader->get_metric_type() == Metric::INNER_PRODUCT) {
+    if (ann_index_reader->get_metric_type() == Metric::IP) {
         if (_ann_topn_runtime->is_asc()) {
             LOG_INFO("Asc topn for inner product can not be evaluated by ann index");
             return Status::OK();

@@ -27,7 +27,7 @@ std::string metric_to_string(Metric metric) {
     switch (metric) {
     case Metric::L2:
         return vectorized::L2Distance::name;
-    case Metric::INNER_PRODUCT:
+    case Metric::IP:
         return vectorized::InnerProduct::name;
     default:
         return "UNKNOWN";
@@ -38,7 +38,7 @@ Metric string_to_metric(const std::string& metric) {
     if (metric == vectorized::L2Distance::name) {
         return Metric::L2;
     } else if (metric == vectorized::InnerProduct::name) {
-        return Metric::INNER_PRODUCT;
+        return Metric::IP;
     } else {
         return Metric::UNKNOWN;
     }

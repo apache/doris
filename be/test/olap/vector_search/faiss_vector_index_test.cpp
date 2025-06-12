@@ -28,6 +28,8 @@
 #include <string>
 #include <vector>
 
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "util/metrics.h"
 #include "vector_index.h"
 #include "vector_search_utils.h"
 
@@ -170,7 +172,11 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
         std::vector<float> native_distances(top_k);
         std::vector<faiss::idx_t> native_indices(top_k);
         native_index->search(1, query_vec, top_k, native_distances.data(), native_indices.data());
-
+        size_t cnt = std::count_if(native_indices.begin(), native_indices.end(),
+                                   [](faiss::idx_t idx) { return idx != -1; });
+        for (size_t i = 0; i < cnt; ++i) {
+            native_distances[i] = std::sqrt(native_distances[i]);
+        }
         // Step 4: Compare results
         vector_search_utils::compare_search_results(doris_results, native_distances,
                                                     native_indices);
@@ -220,7 +226,11 @@ TEST_F(VectorSearchTest, CompareResultWithNativeFaiss2) {
         std::vector<float> native_distances(top_k, -1);
         std::vector<faiss::idx_t> native_indices(top_k, -1);
         native_index->search(1, query_vec, top_k, native_distances.data(), native_indices.data());
-
+        size_t cnt = std::count_if(native_indices.begin(), native_indices.end(),
+                                   [](faiss::idx_t idx) { return idx != -1; });
+        for (size_t i = 0; i < cnt; ++i) {
+            native_distances[i] = std::sqrt(native_distances[i]);
+        }
         // Step 4: Compare results
         doris::vector_search_utils::compare_search_results(doris_results, native_distances,
                                                            native_indices);
@@ -289,73 +299,104 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
 
 TEST_F(VectorSearchTest, CompRangeSearch) {
     size_t iterations = 25;
+    // 支持的metric类型集合
+    std::vector<faiss::MetricType> metrics = {
+            faiss::METRIC_L2, faiss::METRIC_INNER_PRODUCT
+            // 如有更多metric可继续添加
+    };
     for (size_t i = 0; i < iterations; ++i) {
-        // Random parameters for each test iteration
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        size_t random_d =
-                std::uniform_int_distribution<>(1, 1024)(gen); // Random dimension from 32 to 256
-        size_t random_m =
-                4 << std::uniform_int_distribution<>(1, 4)(gen); // Random M (4, 8, 16, 32, 64)
-        size_t random_n =
-                std::uniform_int_distribution<>(500, 2000)(gen); // Random number of vectors
-        // Step 1: Create and build index
-        auto doris_index = std::make_unique<FaissVectorIndex>();
+        for (auto metric : metrics) {
+            // Random parameters for each test iteration
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            size_t random_d = std::uniform_int_distribution<>(1, 1024)(gen);
+            size_t random_m = 4 << std::uniform_int_distribution<>(1, 4)(gen);
+            size_t random_n = std::uniform_int_distribution<>(500, 2000)(gen);
 
-        FaissBuildParameter params;
-        params.d = random_d;
-        params.m = random_m;
-        params.index_type = FaissBuildParameter::IndexType::HNSW;
-        doris_index->set_build_params(params);
+            // Step 1: Create and build index
+            auto doris_index = std::make_unique<FaissVectorIndex>();
+            FaissBuildParameter params;
+            params.d = random_d;
+            params.m = random_m;
+            params.index_type = FaissBuildParameter::IndexType::HNSW;
+            if (metric == faiss::METRIC_L2) {
+                params.metric_type = FaissBuildParameter::MetricType::L2;
+            } else if (metric == faiss::METRIC_INNER_PRODUCT) {
+                params.metric_type = FaissBuildParameter::MetricType::IP;
+            } else {
+                throw std::runtime_error(fmt::format("Unsupported metric type: {}", metric));
+            }
+            doris_index->set_build_params(params);
 
-        const int num_vectors = random_n;
-        std::vector<std::vector<float>> vectors;
-        for (int i = 0; i < num_vectors; i++) {
-            auto vec = vector_search_utils::generate_random_vector(params.d);
-            vectors.push_back(vec);
-        }
-        std::unique_ptr<faiss::Index> native_index =
-                std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m);
-        doris::vector_search_utils::add_vectors_to_indexes_serial_mode(doris_index.get(),
-                                                                       native_index.get(), vectors);
+            const int num_vectors = random_n;
+            std::vector<std::vector<float>> vectors;
+            for (int i = 0; i < num_vectors; i++) {
+                auto vec = vector_search_utils::generate_random_vector(params.d);
+                vectors.push_back(vec);
+            }
+            // 创建native index时指定metric
+            std::unique_ptr<faiss::Index> native_index = nullptr;
+            if (metric == faiss::METRIC_L2) {
+                native_index = std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m,
+                                                                      faiss::METRIC_L2);
+            } else if (metric == faiss::METRIC_INNER_PRODUCT) {
+                native_index = std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m,
+                                                                      faiss::METRIC_INNER_PRODUCT);
+            } else {
+                throw std::runtime_error(fmt::format("Unsupported metric type: {}", metric));
+            }
+            doris::vector_search_utils::add_vectors_to_indexes_serial_mode(
+                    doris_index.get(), native_index.get(), vectors);
 
-        std::vector<float> query_vec = vectors.front();
-        const float radius = doris::vector_search_utils::get_radius_from_matrix(
-                query_vec.data(), params.d, vectors, 0.4f);
+            std::vector<float> query_vec = vectors.front();
+            float radius = 0;    
+        
+            radius = doris::vector_search_utils::get_radius_from_matrix(
+                query_vec.data(), params.d, vectors, 0.4f, metric);
 
-        HNSWSearchParameters hnsw_params;
-        hnsw_params.ef_search = 16;    // Set efSearch for better accuracy
-        hnsw_params.roaring = nullptr; // No selector for this test
-        hnsw_params.is_le_or_lt = true;
-        IndexSearchResult doris_result;
-        std::ignore =
-                doris_index->range_search(query_vec.data(), radius, hnsw_params, doris_result);
+            HNSWSearchParameters hnsw_params;
+            hnsw_params.ef_search = 16;
+            hnsw_params.roaring = nullptr;
+            hnsw_params.is_le_or_lt = true;
+            IndexSearchResult doris_result;
+            std::ignore =
+                    doris_index->range_search(query_vec.data(), radius, hnsw_params, doris_result);
 
-        faiss::SearchParametersHNSW search_params_native;
-        search_params_native.efSearch = hnsw_params.ef_search;
-        faiss::RangeSearchResult search_result_native(1, true);
-        native_index->range_search(1, query_vec.data(), radius * radius, &search_result_native,
-                                   &search_params_native);
-        std::vector<std::pair<int, float>> native_results;
-        size_t begin = search_result_native.lims[0];
-        size_t end = search_result_native.lims[1];
-        for (size_t i = begin; i < end; i++) {
-            native_results.push_back(
-                    {search_result_native.labels[i], search_result_native.distances[i]});
-        }
+            faiss::SearchParametersHNSW search_params_native;
+            search_params_native.efSearch = hnsw_params.ef_search;
+            faiss::RangeSearchResult search_result_native(1, true);
+            // 对于L2，radius要平方；对于IP，直接用
+            float faiss_radius = (metric == faiss::METRIC_L2) ? radius * radius : radius;
+            native_index->range_search(1, query_vec.data(), faiss_radius, &search_result_native,
+                                       &search_params_native);
 
-        // Make sure result is same
-        ASSERT_NEAR(doris_result.roaring->cardinality(), native_results.size(), 1)
-                << fmt::format("\nd: {}, m: {}, n: {}", random_d, random_m, random_n);
-        ASSERT_EQ(doris_result.distances != nullptr, true);
-        if (doris_result.roaring->cardinality() == native_results.size()) {
-            for (size_t i = 0; i < native_results.size(); i++) {
-                const size_t rowid = native_results[i].first;
-                const float dis = native_results[i].second;
-                ASSERT_EQ(doris_result.roaring->contains(rowid), true)
-                        << "Row ID mismatch at rank " << i;
-                ASSERT_FLOAT_EQ(doris_result.distances[i], sqrt(dis))
-                        << "Distance mismatch at rank " << i;
+            std::vector<std::pair<int, float>> native_results;
+            size_t begin = search_result_native.lims[0];
+            size_t end = search_result_native.lims[1];
+            for (size_t i = begin; i < end; i++) {
+                native_results.push_back(
+                        {search_result_native.labels[i], search_result_native.distances[i]});
+            }
+
+            // Make sure result is same
+            ASSERT_NEAR(doris_result.roaring->cardinality(), native_results.size(), 1)
+                    << fmt::format("\nd: {}, m: {}, n: {}, metric: {}", random_d, random_m,
+                                   random_n, metric);
+            ASSERT_EQ(doris_result.distances != nullptr, true);
+            if (doris_result.roaring->cardinality() == native_results.size()) {
+                for (size_t i = 0; i < native_results.size(); i++) {
+                    const size_t rowid = native_results[i].first;
+                    const float dis = native_results[i].second;
+                    ASSERT_EQ(doris_result.roaring->contains(rowid), true)
+                            << "Row ID mismatch at rank " << i;
+                    if (metric == faiss::METRIC_L2) {
+                        ASSERT_FLOAT_EQ(doris_result.distances[i], sqrt(dis))
+                                << "Distance mismatch at rank " << i;
+                    } else {
+                        ASSERT_FLOAT_EQ(doris_result.distances[i], dis)
+                                << "Distance mismatch at rank " << i;
+                    }
+                }
             }
         }
     }
@@ -634,7 +675,7 @@ TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
         // L2 distance between [5,5,5,5,5,5,5,5,5,5] with any other vector is large than 5 and less than 250.
         // Find the min
         float radius = 5.0f;
-        doris::segment_v2::HNSWSearchParameters search_params;
+        doris::vectorized::HNSWSearchParameters search_params;
         search_params.ef_search = 1000; // Set efSearch for better accuracy
         auto doris_search_result = vector_search_utils::perform_doris_index_range_search(
                 index1.get(), query_vec.data(), radius, search_params);
@@ -645,7 +686,7 @@ TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
         ASSERT_EQ(native_search_result.size(), 0);
 
         // Search all rows.
-        doris::segment_v2::HNSWSearchParameters search_params_all_rows;
+        doris::vectorized::HNSWSearchParameters search_params_all_rows;
         search_params_all_rows.ef_search = 1000; // Set efSearch for better accuracy
         search_params_all_rows.is_le_or_lt = true;
         std::unique_ptr<roaring::Roaring> sel_rows = std::make_unique<roaring::Roaring>();

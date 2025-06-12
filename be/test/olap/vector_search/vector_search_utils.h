@@ -82,7 +82,7 @@ void add_vectors_to_indexes_batch_mode(segment_v2::VectorIndex* doris_index,
                                        faiss::Index* native_index, size_t num_vectors,
                                        const std::vector<float>& flatten_vectors);
 
-void print_search_results(const segment_v2::IndexSearchResult& doris_results,
+void print_search_results(const vectorized::IndexSearchResult& doris_results,
                           const std::vector<float>& native_distances,
                           const std::vector<faiss::idx_t>& native_indices, int query_idx);
 
@@ -92,7 +92,7 @@ float get_radius_from_matrix(const float* vector, int dim,
                              const std::vector<std::vector<float>>& matrix_vectors,
                              float percentile);
 // Helper function to compare search results between Doris and native Faiss
-void compare_search_results(const segment_v2::IndexSearchResult& doris_results,
+void compare_search_results(const vectorized::IndexSearchResult& doris_results,
                             const std::vector<float>& native_distances,
                             const std::vector<faiss::idx_t>& native_indices,
                             float abs_error = 1e-5);
@@ -103,9 +103,9 @@ std::vector<std::pair<int, float>> perform_native_index_range_search(faiss::Inde
                                                                      const float* query_vector,
                                                                      float radius);
 
-std::unique_ptr<doris::segment_v2::IndexSearchResult> perform_doris_index_range_search(
+std::unique_ptr<doris::vectorized::IndexSearchResult> perform_doris_index_range_search(
         segment_v2::VectorIndex* index, const float* query_vector, float radius,
-        const segment_v2::IndexSearchParameters& params);
+        const vectorized::IndexSearchParameters& params);
 
 class MockIndexFileReader : public ::doris::segment_v2::IndexFileReader {
 public:
@@ -150,9 +150,9 @@ public:
 
     MOCK_METHOD(Status, read_from_index, (const doris::segment_v2::IndexParam& param), (override));
     MOCK_METHOD(Status, range_search,
-                (const segment_v2::RangeSearchParams& params,
+                (const vectorized::RangeSearchParams& params,
                  const VectorSearchUserParams& custom_params,
-                 segment_v2::RangeSearchResult* result),
+                 vectorized::RangeSearchResult* result),
                 (override));
 
 private:

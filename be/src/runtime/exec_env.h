@@ -31,6 +31,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/options.h"
 #include "olap/rowset/segment_v2/index_writer.h"
+#include "olap/rowset/segment_v2/tmp_file_dirs.h"
 #include "olap/tablet_fwd.h"
 #include "pipeline/pipeline_tracing.h"
 #include "runtime/cluster_info.h"
@@ -65,7 +66,6 @@ class HdfsMgr;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
-class TmpFileDirs;
 } // namespace segment_v2
 
 namespace kerberos {

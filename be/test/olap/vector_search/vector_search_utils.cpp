@@ -23,6 +23,7 @@
 #include <memory>
 
 #include "faiss_vector_index.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "vector_index.h"
 
 namespace doris::vector_search_utils {
@@ -143,7 +144,7 @@ void add_vectors_to_indexes_batch_mode(segment_v2::VectorIndex* doris_index,
 }
 
 // Helper function to print search results for comparison
-void print_search_results(const segment_v2::IndexSearchResult& doris_results,
+void print_search_results(const vectorized::IndexSearchResult& doris_results,
                           const std::vector<float>& native_distances,
                           const std::vector<faiss::idx_t>& native_indices, int query_idx) {
     std::cout << "Query vector index: " << query_idx << std::endl;
@@ -163,7 +164,7 @@ void print_search_results(const segment_v2::IndexSearchResult& doris_results,
 }
 
 // Helper function to compare search results between Doris and native Faiss
-void compare_search_results(const segment_v2::IndexSearchResult& doris_results,
+void compare_search_results(const vectorized::IndexSearchResult& doris_results,
                             const std::vector<float>& native_distances,
                             const std::vector<faiss::idx_t>& native_indices, float abs_error) {
     EXPECT_EQ(doris_results.roaring->cardinality(),
@@ -199,10 +200,10 @@ std::vector<std::pair<int, float>> perform_native_index_range_search(faiss::Inde
     return results;
 }
 
-std::unique_ptr<doris::segment_v2::IndexSearchResult> perform_doris_index_range_search(
+std::unique_ptr<doris::vectorized::IndexSearchResult> perform_doris_index_range_search(
         segment_v2::VectorIndex* index, const float* query_vector, float radius,
-        const segment_v2::IndexSearchParameters& params) {
-    auto result = std::make_unique<doris::segment_v2::IndexSearchResult>();
+        const vectorized::IndexSearchParameters& params) {
+    auto result = std::make_unique<doris::vectorized::IndexSearchResult>();
     std::ignore = index->range_search(query_vector, radius, params, *result);
     return result;
 }
@@ -229,20 +230,36 @@ float get_radius_from_flatten(const float* vector, int dim,
 
 float get_radius_from_matrix(const float* vector, int dim,
                              const std::vector<std::vector<float>>& matrix_vectors,
-                             float percentile) {
+                             float percentile,
+                             faiss::MetricType metric_type /* = faiss::METRIC_L2 */) {
     size_t n = matrix_vectors.size();
     std::vector<std::pair<size_t, float>> distances(n);
     for (size_t i = 0; i < n; i++) {
         double sum = 0;
-        for (int j = 0; j < dim; j++) {
-            accumulate(matrix_vectors[i][j], vector[j], sum);
+        if (metric_type == faiss::METRIC_L2) {
+            for (int j = 0; j < dim; j++) {
+                accumulate(matrix_vectors[i][j], vector[j], sum);
+            }
+            distances[i] = std::make_pair(i, finalize(sum));
+        } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
+            for (int j = 0; j < dim; j++) {
+                sum += matrix_vectors[i][j] * vector[j];
+            }
+            distances[i] = std::make_pair(i, static_cast<float>(sum));
+        } else {
+            throw std::invalid_argument("Unsupported metric type in get_radius_from_matrix");
         }
-        distances[i] = std::make_pair(i, finalize(sum));
     }
-    std::sort(distances.begin(), distances.end(),
-              [](const auto& a, const auto& b) { return a.second < b.second; });
-    // Use the median distance as the radius
+    if (metric_type == faiss::METRIC_L2) {
+        std::sort(distances.begin(), distances.end(),
+                  [](const auto& a, const auto& b) { return a.second < b.second; });
+    } else if (metric_type == faiss::METRIC_INNER_PRODUCT) {
+        std::sort(distances.begin(), distances.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+    }
+    // Use the percentile distance as the radius
     size_t percentile_index = static_cast<size_t>(n * percentile);
+    if (percentile_index >= n) percentile_index = n - 1;
     float radius = distances[percentile_index].second;
 
     return radius;

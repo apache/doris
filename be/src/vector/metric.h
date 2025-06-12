@@ -20,7 +20,7 @@
 #include <string>
 
 namespace doris::segment_v2 {
-enum class Metric { L2, INNER_PRODUCT, UNKNOWN };
+enum class Metric { L2, IP, UNKNOWN };
 
 std::string metric_to_string(Metric metric);
 

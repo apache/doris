@@ -26,6 +26,7 @@
 #include <iostream>
 #include <memory>
 
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vector_search_utils.h"
@@ -153,7 +154,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
     EXPECT_CALL(*_ann_index_iterator, read_from_index(testing::_))
             .Times(1)
             .WillOnce(testing::Invoke([](const segment_v2::IndexParam& value) {
-                auto* ann_param = std::get<segment_v2::AnnIndexParam*>(value);
+                auto* ann_param = std::get<vectorized::AnnIndexParam*>(value);
                 ann_param->distance = std::make_unique<std::vector<float>>();
                 ann_param->row_ids = std::make_unique<std::vector<uint64_t>>();
                 for (size_t i = 0; i < 10; ++i) {

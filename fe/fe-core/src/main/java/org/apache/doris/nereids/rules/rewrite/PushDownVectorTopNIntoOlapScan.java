@@ -103,11 +103,11 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
             return null;
         }
         SlotReference leftInput = (SlotReference) left;
-        if (!leftInput.getColumn().isPresent() || !leftInput.getTable().isPresent()) {
+        if (!leftInput.getOriginalColumn().isPresent() || !leftInput.getOriginalTable().isPresent()) {
             return null;
         }
-        TableIf table = leftInput.getTable().get();
-        Column column = leftInput.getColumn().get();
+        TableIf table = leftInput.getOriginalTable().get();
+        Column column = leftInput.getOriginalColumn().get();
         boolean hasAnnIndexOnColumn = false;
         for (Index index : table.getTableIndexes().getIndexes()) {
             if (index.getIndexType() == IndexType.ANN) {

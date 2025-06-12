@@ -24,9 +24,8 @@
 #include <string>
 
 #include "faiss_vector_index.h"
-#include "olap/rowset/segment_v2/ann_index_iterator.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/tablet_schema.h"
-#include "runtime/runtime_state.h"
 #include "vector_search_utils.h"
 using namespace doris::vector_search_utils;
 
@@ -65,13 +64,13 @@ TEST_F(VectorSearchTest, AnnIndexReaderRangeSearch) {
             roaring->add(i);
         }
 
-        doris::segment_v2::RangeSearchParams params;
+        doris::vectorized::RangeSearchParams params;
         params.radius = radius;
         params.query_value = query_value.data();
         params.roaring = roaring.get();
         doris::VectorSearchUserParams custom_params;
         custom_params.hnsw_ef_search = 16;
-        doris::segment_v2::RangeSearchResult result;
+        doris::vectorized::RangeSearchResult result;
         auto doris_faiss_vector_index = std::make_unique<doris::segment_v2::FaissVectorIndex>();
         std::ignore = doris_faiss_vector_index->load(this->_ram_dir.get());
         ann_index_reader->_vector_index = std::move(doris_faiss_vector_index);
