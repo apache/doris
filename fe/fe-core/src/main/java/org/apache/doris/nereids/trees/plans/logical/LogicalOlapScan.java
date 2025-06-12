@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -239,8 +240,16 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         }
         // NOTE: embed version info avoid mismatching under data maintaining
         // TODO: more efficient way to ignore the ignorable data maintaining
+        long version = 0;
+        try {
+            version = getTable().getVisibleVersion();
+        } catch (RpcException e) {
+            String errMsg = "table " + getTable().getName() + "in cloud getTableVisibleVersion error";
+            LOG.warn(errMsg, e);
+            throw new IllegalStateException(errMsg);
+        }
         return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
-                + "#" + getRelationId() + "@" + getTable().getVisibleVersion()
+                + "#" + getRelationId() + "@" + version
                 + "@" + getTable().getVisibleVersionTime());
     }
 
