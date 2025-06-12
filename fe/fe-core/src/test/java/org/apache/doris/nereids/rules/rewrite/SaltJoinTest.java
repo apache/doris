@@ -139,8 +139,10 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                 .printlnTree()
                 .matches(
                         logicalJoin(
-                                logicalOlapScan(),
-                                logicalOlapScan()
+                                logicalFilter(
+                                        logicalOlapScan()),
+                                logicalFilter(
+                                        logicalOlapScan())
                         ).when(join -> join.getHashJoinConjuncts().size() == 1 && join.getJoinType() == JoinType.INNER_JOIN)
                 );
     }
@@ -155,7 +157,9 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                 logicalProject(
                                         logicalOlapScan()),
                                 logicalProject(
-                                        logicalOlapScan()
+                                        logicalFilter(
+                                                logicalOlapScan()
+                                        )
                                 )
                         ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 );
@@ -169,10 +173,12 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                 .matches(
                         logicalJoin(
                                 logicalProject(
-                                        logicalOlapScan()
+                                        logicalFilter(
+                                                logicalOlapScan()
+                                        )
                                 ),
                                 logicalProject(
-                                        logicalOlapScan())
+                                                logicalOlapScan())
                         ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.RIGHT_OUTER_JOIN)
                 );
     }
