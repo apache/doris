@@ -58,7 +58,6 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
 
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
-    private static final String PROP_REPLICATION_NUM = "replication_num";
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
 
