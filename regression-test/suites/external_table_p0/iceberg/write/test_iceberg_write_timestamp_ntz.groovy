@@ -17,58 +17,49 @@
 
 suite("test_iceberg_write_timestamp_ntz", "p0,external,iceberg,external_docker,external_docker_iceberg") { 
     
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
+    String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("diable Hive test.")
-        return;
+        logger.info("disable iceberg test.")
+        return
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
-        setHivePrefix(hivePrefix)
+  
         try {
-            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-            String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
-            String iceberg_catalog_name = "test_iceberg_write_timestamp_ntz_${hivePrefix}"
+
+            String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
+            String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            String catalog_name = "iceberg_timestamp_ntz_test"
 
-            sql """drop catalog if exists ${iceberg_catalog_name}"""
-            sql """create catalog if not exists ${iceberg_catalog_name} properties (
-                'type'='iceberg',
-                'iceberg.catalog.type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'fs.defaultFS' = 'hdfs://${externalEnvIp}:${hdfs_port}',
-                'warehouse' = 'hdfs://${externalEnvIp}:${hdfs_port}',
-                'use_meta_cache' = 'true'
-            );"""
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """
+            CREATE CATALOG ${catalog_name} PROPERTIES (
+                   'type'='iceberg',
+                   'iceberg.catalog.type'='rest',
+                   'uri' = 'http://${externalEnvIp}:${rest_port}',
+                   "s3.access_key" = "admin",
+                   "s3.secret_key" = "password",
+                   "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
+                   "s3.region" = "us-east-1"
+             );"""
 
-           
-
-            sql """set enable_fallback_to_original_planner=false;"""          
-            sql """switch ${iceberg_catalog_name};"""
-            sql """use test_db;"""
-
+            logger.info("catalog " + catalog_name + " created")
+            sql """switch ${catalog_name};"""
+            logger.info("switched to catalog " + catalog_name)
+            sql """ use test_db;""" 
 
             sql """INSERT INTO t_ntz_doris VALUES ('2025-02-07 20:12:00');"""
             sql """INSERT INTO t_tz_doris VALUES ('2025-02-07 20:12:00');"""
 
          
-            explain {
-                sql("select * from t_ntz_doris")
-                contains "col='2025-02-07 20:12:00'"
-            }
-
-
-            explain {
-                sql("select * from t_tz_doris")
-                contains "col='2025-02-07 20:12:00'"
-            } 
-
+            qt_timestamp_ntz """select * from t_ntz_doris;"""
+            qt_timestamp_tz  """select * from t_tz_doris;"""
+  
           
-           sql """drop catalog if exists ${iceberg_catalog_name}"""
+            sql """drop catalog if exists ${catalog_name}"""
   
 
         } finally {
 
         }
-    }
 }

@@ -100,10 +100,7 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     std::shared_ptr<arrow::TimestampType> timestamp_type =
             std::static_pointer_cast<arrow::TimestampType>(array_builder->type());
     const std::string& timezone = timestamp_type->timezone();
-    cctz::time_zone real_ctz = ctz;
-    if ((timezone == "NONE" || timezone == "")) {
-        real_ctz = cctz::utc_time_zone();
-    }
+    const cctz::time_zone& real_ctz = timezone == "" ? cctz::utc_time_zone() : ctz;
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
