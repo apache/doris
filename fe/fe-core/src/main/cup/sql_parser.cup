@@ -4617,11 +4617,6 @@ show_param ::=
     {:
         RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
-    /* show column histogram */
-    | KW_COLUMN KW_HISTOGRAM table_name:tbl opt_col_list:cols
-    {:
-        RESULT = new ShowColumnHistStmt(tbl, cols);
-    :}
     /* show table creation statement */
     | KW_TABLE KW_CREATION opt_db:db opt_wild_where
     {:
