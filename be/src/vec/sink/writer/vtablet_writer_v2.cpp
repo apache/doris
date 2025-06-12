@@ -101,14 +101,7 @@ Status VTabletWriterV2::_incremental_open_streams(
                     tablet.set_index_id(index.index_id);
                     tablet.set_tablet_id(tablet_id);
                     if (!_load_stream_map->contains(node)) {
-                        if (_auto_partition_one_step_close) {
-                            return Status::InternalError(
-                                    "should not happen, node not in load_stream_map, node={}, "
-                                    "tablet_id={}, partition_id={}",
-                                    node, tablet_id, partition->id);
-                        } else {
-                            new_backends.insert(node);
-                        }
+                        new_backends.insert(node);
                     }
                     _tablets_for_node[node].emplace(tablet_id, tablet);
                     if (known_indexes.contains(index.index_id)) [[likely]] {
@@ -257,9 +250,6 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     }
     _load_stream_map = ExecEnv::GetInstance()->load_stream_map_pool()->get_or_create(
             _load_id, _backend_id, _stream_per_node, _num_local_sink);
-    if (table_sink.partition.__isset.auto_partition_one_step_close) {
-        _auto_partition_one_step_close = table_sink.partition.auto_partition_one_step_close;
-    }
     return Status::OK();
 }
 
@@ -320,7 +310,7 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
                     { tablets_for_schema.clear(); });
     auto st = streams.open(_state->exec_env()->brpc_streaming_client_cache(), *node_info, _txn_id,
                            *_schema, tablets_for_schema, _total_streams, idle_timeout_ms,
-                           _state->enable_profile(), _auto_partition_one_step_close);
+                           _state->enable_profile());
     if (!st.ok()) {
         LOG(WARNING) << "failed to open stream to backend " << dst_id
                      << ", load_id=" << print_id(_load_id) << ", err=" << st;
@@ -652,34 +642,25 @@ Status VTabletWriterV2::close(Status exec_status) {
         LOG(INFO) << "sink " << _sender_id << " released streams, is_last=" << is_last_sink
                   << ", load_id=" << print_id(_load_id);
 
-        if (!_auto_partition_one_step_close) {
-            // send CLOSE_LOAD on all non-incremental streams if this is the last sink
-            if (is_last_sink) {
-                _load_stream_map->close_load(false);
-            }
-
-            // close_wait on all non-incremental streams, even if this is not the last sink.
-            // because some per-instance data structures are now shared among all sinks
-            // due to sharing delta writers and load stream stubs.
-            RETURN_IF_ERROR(_close_wait(false));
-
-            // send CLOSE_LOAD on all incremental streams if this is the last sink.
-            // this must happen after all non-incremental streams are closed,
-            // so we can ensure all sinks are in close phase before closing incremental streams.
-            if (is_last_sink) {
-                _load_stream_map->close_load(true);
-            }
-
-            // close_wait on all incremental streams, even if this is not the last sink.
-            RETURN_IF_ERROR(_close_wait(true));
-        } else {
-            // send CLOSE_LOAD on all streams if this is the last sink.
-            if (is_last_sink) {
-                _load_stream_map->close_load_all_streams();
-            }
-            // close_wait on all streams, even if this is not the last sink.
-            RETURN_IF_ERROR(_close_wait_all_streams());
+        // send CLOSE_LOAD on all non-incremental streams if this is the last sink
+        if (is_last_sink) {
+            _load_stream_map->close_load(false);
         }
+
+        // close_wait on all non-incremental streams, even if this is not the last sink.
+        // because some per-instance data structures are now shared among all sinks
+        // due to sharing delta writers and load stream stubs.
+        RETURN_IF_ERROR(_close_wait(false));
+
+        // send CLOSE_LOAD on all incremental streams if this is the last sink.
+        // this must happen after all non-incremental streams are closed,
+        // so we can ensure all sinks are in close phase before closing incremental streams.
+        if (is_last_sink) {
+            _load_stream_map->close_load(true);
+        }
+
+        // close_wait on all incremental streams, even if this is not the last sink.
+        RETURN_IF_ERROR(_close_wait(true));
 
         // calculate and submit commit info
         if (is_last_sink) {
@@ -731,17 +712,58 @@ Status VTabletWriterV2::_close_wait(bool incremental) {
     std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams;
     for (const auto& [dst_id, streams] : streams_for_node) {
         for (const auto& stream : streams->streams()) {
-            unfinished_streams.insert(stream);
+            if (stream->is_incremental() == incremental) {
+                unfinished_streams.insert(stream);
+            }
         }
     }
     Status status;
+    // first wait for quorum success
     while (true) {
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        if (!status.ok() || unfinished_streams.empty()) {
+        bool quorum_success = _quorum_success(unfinished_streams);
+        if (quorum_success || !status.ok() || unfinished_streams.empty()) {
+            LOG(INFO) << "quorum success, quorum_success: " << quorum_success
+                      << ", is all unfinished: " << unfinished_streams.empty()
+                      << ", status: " << status << ", txn_id: " << _txn_id
+                      << ", load_id: " << print_id(_load_id);
             break;
         }
         bthread_usleep(1000 * 10);
+    }
+
+    // then wait for remaining streams as much as possible
+    if (status.ok() && !unfinished_streams.empty()) {
+        double max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
+        while (true) {
+            RETURN_IF_ERROR(_check_timeout());
+            RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
+
+            if (unfinished_streams.empty() || !status.ok()) {
+                break;
+            }
+
+            // check if we should stop waiting
+            if (static_cast<double>(UnixMillis() - _timeout_watch.elapsed_time()) >
+                        max_wait_time_ms ||
+                _state->execution_timeout() * 1000 - _timeout_watch.elapsed_time() <
+                        config::load_timeout_remaining_seconds * 1000) {
+                std::stringstream unfinished_streams_str;
+                for (const auto& stream : unfinished_streams) {
+                    unfinished_streams_str << stream->stream_id() << ",";
+                }
+                LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
+                             << ", load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
+                             << ", unfinished streams: " << unfinished_streams_str.str();
+                break;
+            }
+            bthread_usleep(1000 * 10);
+        }
+    }
+
+    if (!status.ok()) {
+        LOG(WARNING) << "close_wait failed: " << status << ", load_id=" << print_id(_load_id);
     }
     return status;
 }
@@ -809,68 +831,6 @@ double VTabletWriterV2::_calc_max_wait_time_ms(
     max_wait_time_ms += config::max_wait_time_multiplier * max_wait_time_ms;
 
     return max_wait_time_ms;
-}
-
-Status VTabletWriterV2::_close_wait_all_streams() {
-    SCOPED_TIMER(_close_load_timer);
-    auto streams_for_node = _load_stream_map->get_streams_for_node();
-
-    std::unordered_set<std::shared_ptr<LoadStreamStub>> unfinished_streams;
-    for (const auto& [dst_id, streams] : streams_for_node) {
-        for (const auto& stream : streams->streams()) {
-            unfinished_streams.insert(stream);
-        }
-    }
-
-    Status status;
-    // first wait for quorum success
-    while (true) {
-        RETURN_IF_ERROR(_check_timeout());
-        RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-        bool quorum_success = _quorum_success(unfinished_streams);
-        if (quorum_success || !status.ok() || unfinished_streams.empty()) {
-            LOG(INFO) << "quorum success, quorum_success: " << quorum_success
-                      << ", is all unfinished: " << unfinished_streams.empty()
-                      << ", status: " << status << ", txn_id: " << _txn_id
-                      << ", load_id: " << print_id(_load_id);
-            break;
-        }
-        bthread_usleep(1000 * 10);
-    }
-
-    // then wait for remaining streams as much as possible
-    if (status.ok() && !unfinished_streams.empty()) {
-        double max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
-        while (true) {
-            RETURN_IF_ERROR(_check_timeout());
-            RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
-
-            if (unfinished_streams.empty() || !status.ok()) {
-                break;
-            }
-
-            // check if we should stop waiting
-            if (static_cast<double>(UnixMillis() - _timeout_watch.elapsed_time()) >
-                        max_wait_time_ms ||
-                _state->execution_timeout() * 1000 - _timeout_watch.elapsed_time() <
-                        config::load_timeout_remaining_seconds * 1000) {
-                std::stringstream unfinished_streams_str;
-                for (const auto& stream : unfinished_streams) {
-                    unfinished_streams_str << stream->stream_id() << ",";
-                }
-                LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
-                             << ", load_id=" << print_id(_load_id) << ", txn_id=" << _txn_id
-                             << ", unfinished streams: " << unfinished_streams_str.str();
-                break;
-            }
-            bthread_usleep(1000 * 10);
-        }
-    }
-
-    if (!status.ok()) {
-        LOG(WARNING) << "close_wait failed: " << status << ", load_id=" << print_id(_load_id);
-    }
-    return status;
 }
 
 Status VTabletWriterV2::_check_timeout() {

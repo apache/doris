@@ -144,8 +144,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             const NodeInfo& node_info, int64_t txn_id,
                             const OlapTableSchemaParam& schema,
                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                            int64_t idle_timeout_ms, bool enable_profile,
-                            bool auto_partition_one_step_close) {
+                            int64_t idle_timeout_ms, bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
         return _status;
@@ -169,16 +168,13 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     request.set_src_id(_src_id);
     request.set_txn_id(txn_id);
     request.set_enable_profile(enable_profile);
-    if (_is_incremental && !auto_partition_one_step_close) {
+    if (_is_incremental) {
         request.set_total_streams(0);
     } else if (total_streams > 0) {
         request.set_total_streams(total_streams);
     } else {
         _status = Status::InternalError("total_streams should be greator than 0");
         return _status;
-    }
-    if (auto_partition_one_step_close) {
-        request.set_auto_partition_one_step_close(auto_partition_one_step_close);
     }
     request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
@@ -499,19 +495,17 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
                              const NodeInfo& node_info, int64_t txn_id,
                              const OlapTableSchemaParam& schema,
                              const std::vector<PTabletID>& tablets_for_schema, int total_streams,
-                             int64_t idle_timeout_ms, bool enable_profile,
-                             bool auto_partition_one_step_close) {
+                             int64_t idle_timeout_ms, bool enable_profile) {
     bool get_schema = true;
     auto status = Status::OK();
     for (auto& stream : _streams) {
         Status st;
         if (get_schema) {
             st = stream->open(client_cache, node_info, txn_id, schema, tablets_for_schema,
-                              total_streams, idle_timeout_ms, enable_profile,
-                              auto_partition_one_step_close);
+                              total_streams, idle_timeout_ms, enable_profile);
         } else {
             st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
-                              idle_timeout_ms, enable_profile, auto_partition_one_step_close);
+                              idle_timeout_ms, enable_profile);
         }
         if (st.ok()) {
             get_schema = false;

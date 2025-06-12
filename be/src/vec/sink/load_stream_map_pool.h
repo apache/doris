@@ -98,10 +98,6 @@ public:
     // only call this method after release() returns true.
     void close_load(bool incremental);
 
-    // send CLOSE_LOAD to all streams, return ERROR if any.
-    // only call this method after release() returns true.
-    void close_load_all_streams();
-
     std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
         decltype(_streams_for_node) snapshot;
         {

@@ -149,8 +149,6 @@ private:
 
     Status _close_wait(bool incremental);
 
-    Status _close_wait_all_streams();
-
     bool _quorum_success(
             const std::unordered_set<std::shared_ptr<LoadStreamStub>>& unfinished_streams);
 
@@ -245,8 +243,6 @@ private:
     VRowDistribution _row_distribution;
     // reuse to avoid frequent memory allocation and release.
     std::vector<RowPartTabletIds> _row_part_tablet_ids;
-
-    bool _auto_partition_one_step_close = false;
 
     std::unordered_set<int64_t> _write_tablets;
 };
