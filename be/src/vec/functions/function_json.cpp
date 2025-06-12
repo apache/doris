@@ -1641,6 +1641,182 @@ public:
     }
 };
 
+struct FunctionJsonMergePatch {
+    static constexpr auto name = "json_merge_patch";
+
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        bool is_nullable = false;
+        for (const auto& arg : arguments) {
+            if (arg->is_nullable()) {
+                is_nullable = true;
+                break;
+            }
+        }
+        return is_nullable ? make_nullable(std::make_shared<DataTypeString>())
+                           : std::make_shared<DataTypeString>();
+    }
+
+    static void execute(const std::vector<const ColumnString*>& data_columns,
+                        ColumnString& result_column, NullMap& null_map, size_t input_rows_count,
+                        std::vector<bool>& column_is_consts) {
+        rapidjson::Document document;
+        rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+        rapidjson::StringBuffer buf;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+
+        for (size_t row = 0; row < input_rows_count; row++) {
+            if (data_columns.size() < 2) {
+                null_map[row] = 1;
+                result_column.insert_default();
+                continue;
+            }
+
+            // Parse first JSON document
+            const auto& first_json =
+                    data_columns[0]->get_data_at(index_check_const(row, column_is_consts[0]));
+            std::string_view first_json_str(first_json.data, first_json.size);
+
+            rapidjson::Document first_doc;
+            first_doc.Parse(first_json_str.data(), first_json_str.size());
+            if (first_doc.HasParseError()) {
+                null_map[row] = 1;
+                result_column.insert_default();
+                continue;
+            }
+
+            rapidjson::Value result_value;
+            result_value.CopyFrom(first_doc, allocator);
+
+            // Merge with subsequent JSON documents
+            bool has_error = false;
+            for (size_t col = 1; col < data_columns.size(); col++) {
+                const auto& merge_json = data_columns[col]->get_data_at(
+                        index_check_const(row, column_is_consts[col]));
+                std::string_view merge_json_str(merge_json.data, merge_json.size);
+
+                rapidjson::Document merge_doc;
+                merge_doc.Parse(merge_json_str.data(), merge_json_str.size());
+                if (merge_doc.HasParseError()) {
+                    null_map[row] = 1;
+                    result_column.insert_default();
+                    has_error = true;
+                    break;
+                }
+
+                // Apply JSON_MERGE_PATCH logic
+                json_merge_patch(result_value, merge_doc, allocator);
+            }
+
+            if (!has_error) {
+                // Convert result to string
+                buf.Clear();
+                writer.Reset(buf);
+                result_value.Accept(writer);
+                result_column.insert_data(buf.GetString(), buf.GetSize());
+            }
+        }
+    }
+
+private:
+    static void json_merge_patch(rapidjson::Value& target, rapidjson::Value& patch,
+                                 rapidjson::Document::AllocatorType& allocator) {
+        if (!patch.IsObject()) {
+            target.CopyFrom(patch, allocator);
+            return;
+        }
+
+        if (!target.IsObject()) {
+            target.SetObject();
+        }
+
+        rapidjson::Value result;
+        result.SetObject();
+
+        bool has_target_keys_in_patch = false;
+        for (auto target_it = target.MemberBegin(); target_it != target.MemberEnd(); ++target_it) {
+            auto patch_it = patch.FindMember(target_it->name);
+            if (patch_it != patch.MemberEnd() && !patch_it->value.IsNull()) {
+                has_target_keys_in_patch = true;
+                break;
+            }
+        }
+
+        if (has_target_keys_in_patch) {
+            std::vector<std::pair<std::string, rapidjson::Value*>> new_keys;
+            for (auto patch_it = patch.MemberBegin(); patch_it != patch.MemberEnd(); ++patch_it) {
+                if (!patch_it->value.IsNull() &&
+                    target.FindMember(patch_it->name) == target.MemberEnd()) {
+                    new_keys.emplace_back(patch_it->name.GetString(), &patch_it->value);
+                }
+            }
+
+            for (auto target_it = target.MemberBegin(); target_it != target.MemberEnd();
+                 ++target_it) {
+                auto patch_it = patch.FindMember(target_it->name);
+
+                if (patch_it != patch.MemberEnd()) {
+                    if (patch_it->value.IsNull()) {
+                        continue;
+                    } else {
+                        rapidjson::Value key;
+                        key.CopyFrom(target_it->name, allocator);
+                        rapidjson::Value value;
+
+                        if (target_it->value.IsObject() && patch_it->value.IsObject()) {
+                            value.CopyFrom(target_it->value, allocator);
+                            json_merge_patch(value, const_cast<rapidjson::Value&>(patch_it->value),
+                                             allocator);
+                        } else {
+                            value.CopyFrom(patch_it->value, allocator);
+                        }
+                        result.AddMember(key, value, allocator);
+                    }
+                } else {
+                    rapidjson::Value key;
+                    key.CopyFrom(target_it->name, allocator);
+                    rapidjson::Value value;
+                    value.CopyFrom(target_it->value, allocator);
+                    result.AddMember(key, value, allocator);
+                }
+            }
+
+            for (const auto& new_key : new_keys) {
+                rapidjson::Value key;
+                key.SetString(new_key.first.c_str(),
+                              cast_set<rapidjson::SizeType>(new_key.first.length()), allocator);
+                rapidjson::Value value;
+                value.CopyFrom(*new_key.second, allocator);
+                result.AddMember(key, value, allocator);
+            }
+        } else {
+            for (auto patch_it = patch.MemberBegin(); patch_it != patch.MemberEnd(); ++patch_it) {
+                if (!patch_it->value.IsNull()) {
+                    rapidjson::Value key;
+                    key.CopyFrom(patch_it->name, allocator);
+                    rapidjson::Value value;
+                    value.CopyFrom(patch_it->value, allocator);
+                    result.AddMember(key, value, allocator);
+                }
+            }
+
+            for (auto target_it = target.MemberBegin(); target_it != target.MemberEnd();
+                 ++target_it) {
+                auto patch_it = patch.FindMember(target_it->name);
+                if (patch_it == patch.MemberEnd()) {
+                    // Key not in patch, keep it
+                    rapidjson::Value key;
+                    key.CopyFrom(target_it->name, allocator);
+                    rapidjson::Value value;
+                    value.CopyFrom(target_it->value, allocator);
+                    result.AddMember(key, value, allocator);
+                }
+            }
+        }
+
+        target.Swap(result);
+    }
+};
+
 void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonInt>();
     factory.register_function<FunctionGetJsonBigInt>();
@@ -1662,6 +1838,9 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonModifyImpl<FunctionJsonInsert>>();
     factory.register_function<FunctionJsonModifyImpl<FunctionJsonReplace>>();
     factory.register_function<FunctionJsonModifyImpl<FunctionJsonSet>>();
+
+    // Register JSON_MERGE_PATCH function
+    factory.register_function<FunctionJsonNullable<FunctionJsonMergePatch>>();
 }
 
 } // namespace doris::vectorized

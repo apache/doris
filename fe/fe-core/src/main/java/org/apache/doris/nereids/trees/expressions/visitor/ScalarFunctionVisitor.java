@@ -252,6 +252,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonMergePatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
@@ -1456,6 +1457,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonReplace(JsonReplace jsonReplace, C context) {
         return visitScalarFunction(jsonReplace, context);
+    }
+
+    default R visitJsonMergePatch(JsonMergePatch jsonMergePatch, C context) {
+        return visitScalarFunction(jsonMergePatch, context);
     }
 
     default R visitJsonSet(JsonSet jsonSet, C context) {

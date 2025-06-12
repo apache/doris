@@ -248,6 +248,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNo
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonMergePatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
@@ -737,6 +738,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonInsert.class, "json_insert"),
             scalar(JsonReplace.class, "json_replace"),
             scalar(JsonSet.class, "json_set"),
+            scalar(JsonMergePatch.class, "json_merge_patch"),
             scalar(JsonbExistsPath.class, "json_exists_path"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
             scalar(JsonbExtract.class, "jsonb_extract"),
