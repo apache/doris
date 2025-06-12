@@ -92,13 +92,28 @@ public class HdfsPropertiesUtils {
         return validateAndNormalizeUri(uriStr);
     }
 
+    /*
+     * Extracts the URI value from the given properties.
+     * If multiple URIs are specified (separated by commas), this method returns null.
+     * Note: Some storage systems may support multiple URIs (e.g., for load balancing or multi-host),
+     * but in the HDFS scenario, fs.defaultFS only supports a single URI.
+     * Therefore, such a format is considered invalid for HDFS. so, just return null.
+     */
     private static String getUri(Map<String, String> props) {
-        return props.entrySet().stream()
+        String uriValue = props.entrySet().stream()
                 .filter(e -> e.getKey().equalsIgnoreCase(URI_KEY))
                 .map(Map.Entry::getValue)
                 .filter(StringUtils::isNotBlank)
                 .findFirst()
                 .orElse(null);
+        if (uriValue == null) {
+            return null;
+        }
+        String[] uris = uriValue.split(",");
+        if (uris.length > 1) {
+            return null;
+        }
+        return uriValue;
     }
 
     private static boolean isSupportedSchema(String schema) {
