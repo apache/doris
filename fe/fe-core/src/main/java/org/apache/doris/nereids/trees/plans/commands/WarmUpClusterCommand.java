@@ -53,7 +53,7 @@ import java.util.Objects;
 /**
  * WarmUpClusterCommand
  */
-public class WarmUpClusterCommand extends Command {
+public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     private static final Logger LOG = LogManager.getLogger(WarmUpClusterCommand.class);
     private final List<WarmUpItem> warmUpItems;
     private final String srcCluster;
