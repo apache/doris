@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint.HintStatus;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -31,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -47,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -58,9 +61,9 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -84,12 +87,14 @@ import java.util.stream.Collectors;
  * ->
  * LogicalJoin (type:inner, t1.a=t2.a and r1=r2)
  *   |--LogicalProject (t1.a, if (t1.a IN (1, 2), random(0, 999), DEFAULT_SALT_VALUE) AS r1))
- *   | +--LogicalOlapScan(t1)
+ *   |  +--LogicalFilter(t1.a is not null)
+ *   |    +--LogicalOlapScan(t1)
  *   +--LogicalProject (projections: t2.a, if(explodeNumber IS NULL, DEFAULT_SALT_VALUE, explodeNumber) as r2)
  *     +--LogicalJoin (type=right_outer_join, t2.a = skewValue)
  *       |--LogicalGenerate(generators=[explode_numbers(1000)], generatorOutput=[explodeNumber])
  *       |  +--LogicalUnion(outputs=[skewValue], constantExprsList(1,2))
- *       +--LogicalOlapScan(t2)
+ *       +--LogicalFilter(t2.a is not null)
+ *         +--LogicalOlapScan(t2)
  *
  * case2:
  * LogicalJoin(type:inner, t1.a=t2.a, hint:skew(t1.a(1,2)))
@@ -107,12 +112,14 @@ import java.util.stream.Collectors;
  *
  * case3: not optimize, because rows will not be output in join when join key is null
  * LogicalJoin(type:inner, t1.a=t2.a, hint:skew(t1.a(null)))
+ *   |--LogicalOlapScan(t1)
  *   +--LogicalOlapScan(t2)
- *   +--LogicalOlapScan(t1)
  * ->
  * LogicalJoin(type:inner, t1.a=t2.a)
- *   +--LogicalOlapScan(t2)
- *   +--LogicalOlapScan(t1)
+ *   |--LogicalFilter(t1.a is not null)
+ *   |  +--LogicalOlapScan(t1)
+ *   +--LogicalFilter(t2.a is not null)
+ *     +--LogicalOlapScan(t2)
  * */
 public class SaltJoin extends OneRewriteRuleFactory {
     private static final String RANDOM_COLUMN_NAME_LEFT = "r1";
@@ -147,7 +154,12 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 || join.getJoinType().isRightOuterJoin() && !join.right().getOutput().contains((Slot) skewExpr)) {
             return null;
         }
-
+        int factor = getSaltFactor(ctx);
+        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(String.valueOf(factor),
+                TinyIntType.INSTANCE);
+        if (!literalType.isPresent()) {
+            return null;
+        }
         Expression leftSkewExpr = null;
         Expression rightSkewExpr = null;
         Expression skewConjunct = null;
@@ -172,16 +184,11 @@ public class SaltJoin extends OneRewriteRuleFactory {
         }
         List<Expression> skewValues = join.getDistributeHint().getSkewValues();
         Set<Expression> skewValuesSet = new HashSet<>(skewValues);
+        join = addNotNull(join, skewConjunct, skewValuesSet);
         List<Expression> expandSideValues = getSaltedSkewValuesForExpandSide(skewConjunct, skewValuesSet);
         List<Expression> skewSideValues = getSaltedSkewValuesForSkewSide(skewConjunct, skewValuesSet, join);
         if (skewSideValues.isEmpty()) {
-            return null;
-        }
-        int factor = getSaltFactor(ctx);
-        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(String.valueOf(factor),
-                TinyIntType.INSTANCE);
-        if (!literalType.isPresent()) {
-            return null;
+            return join;
         }
         DataType type = literalType.get().getDataType();
         LogicalProject<Plan> rightProject;
@@ -200,9 +207,10 @@ public class SaltJoin extends OneRewriteRuleFactory {
                 join.getHashJoinConjuncts().size() + 1);
         newHashJoinConjuncts.addAll(join.getHashJoinConjuncts());
         newHashJoinConjuncts.add(saltEqual);
+        hint.setStatus(HintStatus.SUCCESS);
+        hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
         return new LogicalJoin<>(join.getJoinType(), newHashJoinConjuncts.build(), join.getOtherJoinConjuncts(),
-                hint.withSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true)),
-                leftProject, rightProject, JoinReorderContext.EMPTY);
+                hint, leftProject, rightProject, JoinReorderContext.EMPTY);
     }
 
     // Add a project on top of originPlan, which includes all the original columns plus a case when column.
@@ -315,18 +323,6 @@ public class SaltJoin extends OneRewriteRuleFactory {
         return factor;
     }
 
-    private static List<Expression> getSaltedSkewValues(LogicalJoin<Plan, Plan> join, Expression skewConjunct) {
-        List<Expression> skewValues = join.getDistributeHint().getSkewValues();
-        Set<Expression> skewValuesSet = new HashSet<>(skewValues);
-        if (skewConjunct instanceof NullSafeEqual || join.getJoinType().isOneSideOuterJoin()) {
-            skewValues = new ArrayList<>(skewValuesSet);
-        } else {
-            skewValues = skewValuesSet.stream().filter(value -> !(value instanceof NullLiteral))
-                    .collect(Collectors.toList());
-        }
-        return skewValues;
-    }
-
     private static List<Expression> getSaltedSkewValuesForExpandSide(Expression skewConjunct,
             Set<Expression> skewValuesSet) {
         if (skewConjunct instanceof NullSafeEqual) {
@@ -351,5 +347,38 @@ public class SaltJoin extends OneRewriteRuleFactory {
             }
         }
         return ImmutableList.of();
+    }
+
+    private static LogicalJoin<Plan, Plan> addNotNull(LogicalJoin<Plan, Plan> join, Expression skewConjunct,
+            Set<Expression> skewValuesSet) {
+        if (skewConjunct instanceof NullSafeEqual) {
+            return join;
+        }
+        boolean containsNull = skewValuesSet.stream().anyMatch(value -> value instanceof NullLiteral);
+        if (!containsNull) {
+            return join;
+        }
+
+        LogicalFilter<Plan> leftFilter =
+                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(0)))), join.left());
+        LogicalFilter<Plan> rightFilter =
+                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(skewConjunct.child(1)))), join.right());
+        DistributeHint hint = join.getDistributeHint();
+        switch (join.getJoinType()) {
+            case INNER_JOIN:
+                hint.setStatus(HintStatus.SUCCESS);
+                hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
+                return join.withDistributeHintChildren(hint, leftFilter, rightFilter);
+            case LEFT_OUTER_JOIN:
+                hint.setStatus(HintStatus.SUCCESS);
+                hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
+                return join.withDistributeHintChildren(hint, join.left(), rightFilter);
+            case RIGHT_OUTER_JOIN:
+                hint.setStatus(HintStatus.SUCCESS);
+                hint.setSkewInfo(hint.getSkewInfo().withSuccessInSaltJoin(true));
+                return join.withDistributeHintChildren(hint, leftFilter, join.right());
+            default:
+                return join;
+        }
     }
 }

@@ -195,11 +195,11 @@ suite("salt_join") {
     sql """create table t3 (c3 int, c33 int) distributed by hash(c3) buckets 3 properties('replication_num' = '1');"""
     sql """create table t4 (c4 int, c44 int) distributed by hash(c4) buckets 3 properties('replication_num' = '1');"""
     qt_shape_leading_inner_subquery """
-    explain shape plan 
+    explain shape plan
     select count(*) from (select /*+leading(alias2 shuffle(skew(alias2.c2(1,2))) t1) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
     """
     qt_shape_leading_inner_subquery_switch """
-    explain shape plan 
+    explain shape plan
     select count(*) from (select /*+leading(t1 shuffle(skew(t1.c1(1,2))) alias2) */ c1, c11 from t1 join (select c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;
     """
 
@@ -279,5 +279,4 @@ suite("salt_join") {
     qt_null_safe_equal_inner_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 inner join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
     qt_null_safe_equal_left_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 left join[shuffle(skew(t1.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
     qt_null_safe_equal_right_other_and_null_shape "explain shape plan select t1.a,t1.b,t2.a,t2.b from test_null_safe3 t1 right join[shuffle(skew(t2.b(1,2,null)))] test_null_safe4 t2 on t1.b<=>t2.b;"
-
 }

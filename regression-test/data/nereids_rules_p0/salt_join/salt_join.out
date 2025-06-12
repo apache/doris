@@ -421,7 +421,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(alias2 t1 )
+Used: leading(alias2 shuffle_skew t1 )
 UnUsed:
 SyntaxError:
 
@@ -441,7 +441,7 @@ PhysicalResultSink
 --------PhysicalOlapScan[t3]
 
 Hint log:
-Used: leading(t1 alias2 )
+Used: leading(t1 shuffle_skew alias2 )
 UnUsed:
 SyntaxError:
 
@@ -730,34 +730,38 @@ SyntaxError:
 -- !equal_inner_only_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+----filter(( not b IS NULL))
+------PhysicalOlapScan[test_null_safe3]
+----filter(( not b IS NULL))
+------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_left_only_null_shape --
 PhysicalResultSink
 --hashJoin[LEFT_OUTER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
 ----PhysicalOlapScan[test_null_safe3]
-----PhysicalOlapScan[test_null_safe4]
+----filter(( not b IS NULL))
+------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_right_only_null_shape --
 PhysicalResultSink
 --hashJoin[RIGHT_OUTER_JOIN] hashCondition=((r2 = r1) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----filter(( not b IS NULL))
+------PhysicalOlapScan[test_null_safe3]
 ----PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_inner_no_null_shape --
@@ -770,8 +774,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_left_no_null_shape --
@@ -784,8 +788,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_right_no_null_shape --
@@ -798,22 +802,24 @@ PhysicalResultSink
 ----PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_inner_other_and_null_shape --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((r1 = r2) and (t1.b = t2.b)) otherCondition=()
-----PhysicalOlapScan[test_null_safe3]
+----filter(( not b IS NULL))
+------PhysicalOlapScan[test_null_safe3]
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------filter(( not b IS NULL))
+--------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_left_other_and_null_shape --
@@ -823,11 +829,12 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t2.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe4]
+------filter(( not b IS NULL))
+--------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !equal_right_other_and_null_shape --
@@ -836,12 +843,13 @@ PhysicalResultSink
 ----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((skewValue = t1.b)) otherCondition=()
 ------PhysicalGenerate
 --------PhysicalUnion
-------PhysicalOlapScan[test_null_safe3]
+------filter(( not b IS NULL))
+--------PhysicalOlapScan[test_null_safe3]
 ----PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_inner_only_null_shape --
@@ -854,8 +862,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_left_only_null_shape --
@@ -868,8 +876,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_right_only_null_shape --
@@ -882,8 +890,8 @@ PhysicalResultSink
 ----PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_inner_no_null_shape --
@@ -896,8 +904,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_left_no_null_shape --
@@ -910,8 +918,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_right_no_null_shape --
@@ -924,8 +932,8 @@ PhysicalResultSink
 ----PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_inner_other_and_null_shape --
@@ -938,8 +946,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_left_other_and_null_shape --
@@ -952,8 +960,8 @@ PhysicalResultSink
 ------PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 
 -- !null_safe_equal_right_other_and_null_shape --
@@ -966,7 +974,7 @@ PhysicalResultSink
 ----PhysicalOlapScan[test_null_safe4]
 
 Hint log:
-Used:
-UnUsed: [shuffle]_1
+Used: [shuffle_skew]_1
+UnUsed:
 SyntaxError:
 

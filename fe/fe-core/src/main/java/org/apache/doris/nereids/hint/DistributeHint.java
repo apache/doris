@@ -34,7 +34,7 @@ public class DistributeHint extends Hint {
 
     private boolean isSuccessInLeading = false;
 
-    private final JoinSkewInfo skewInfo;
+    private JoinSkewInfo skewInfo;
 
     public DistributeHint(DistributeType distributeType) {
         super("Distribute");
@@ -48,8 +48,8 @@ public class DistributeHint extends Hint {
         this.skewInfo = skewInfo;
     }
 
-    public DistributeHint withSkewInfo(JoinSkewInfo skewInfo) {
-        return new DistributeHint(distributeType, skewInfo);
+    public void setSkewInfo(JoinSkewInfo skewInfo) {
+        this.skewInfo = skewInfo;
     }
 
     public void setSuccessInLeading(boolean successInLeading) {
@@ -85,7 +85,12 @@ public class DistributeHint extends Hint {
             case NONE:
                 break;
             case SHUFFLE_RIGHT:
-                out.append("[shuffle]");
+                out.append("[shuffle");
+                if (skewInfo != null && skewInfo.isSuccessInSkewRewrite()) {
+                    out.append("_skew]");
+                } else {
+                    out.append("]");
+                }
                 break;
             case BROADCAST_RIGHT:
                 out.append("[broadcast]");

@@ -287,15 +287,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     .deepCopy(join.getMarkJoinSlotReference().get(), context));
 
         }
-        DistributeHint distributeHint = join.getDistributeHint();
-        if (join.getDistributeHint().getSkewInfo() != null) {
-            Expression skewExpr = ExpressionDeepCopier.INSTANCE.deepCopy(join.getDistributeHint().getSkewExpr(),
-                    context);
-            distributeHint = join.getDistributeHint().withSkewInfo(
-                    join.getDistributeHint().getSkewInfo().withSkewExpr(skewExpr));
+        DistributeHint hint = join.getDistributeHint();
+        if (hint.getSkewInfo() != null) {
+            Expression skewExpr = ExpressionDeepCopier.INSTANCE.deepCopy(hint.getSkewExpr(), context);
+            hint.setSkewInfo(hint.getSkewInfo().withSkewExpr(skewExpr));
         }
         return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                distributeHint, markJoinSlotReference, children, join.getJoinReorderContext());
+                hint, markJoinSlotReference, children, join.getJoinReorderContext());
     }
 
     @Override

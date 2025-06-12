@@ -175,9 +175,18 @@ public class LeadingHint extends Hint {
                 out.append(parameter + " ");
             } else if (parameter.startsWith("shuffle") || parameter.startsWith("broadcast")) {
                 DistributeHint distributeHint = strToHint.get(parameter);
-                if (distributeHint.isSuccess()) {
-                    out.append(distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)
-                            ? "shuffle " : "broadcast ");
+                if (!distributeHint.isSuccess()) {
+                    continue;
+                }
+                if (distributeHint.distributeType.equals(DistributeType.SHUFFLE_RIGHT)) {
+                    out.append("shuffle");
+                    if (distributeHint.getSkewInfo() != null && distributeHint.isSuccessInSkewRewrite()) {
+                        out.append("_skew ");
+                    } else {
+                        out.append(" ");
+                    }
+                } else {
+                    out.append("broadcast ");
                 }
             } else if (parameter.equals("join")) {
                 continue;
