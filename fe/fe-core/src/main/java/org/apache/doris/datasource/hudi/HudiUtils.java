@@ -56,6 +56,7 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
 
 import java.text.ParseException;
@@ -356,11 +357,13 @@ public class HudiUtils {
         root.setId(hudiInternalField.fieldId());
         root.setIsOptional(hudiInternalField.isOptional());
 
-        TColumnType tColumnType = new TColumnType();
         TNestedField nestedField = new TNestedField();
         switch (hudiInternalField.type().typeId()) {
             case ARRAY: {
+                TColumnType tColumnType = new TColumnType();
                 tColumnType.setType(TPrimitiveType.ARRAY);
+                root.setType(tColumnType);
+
                 TArrayField listField = new TArrayField();
                 List<Types.Field> hudiFields = ((Types.ArrayType) hudiInternalField.type()).fields();
                 listField.setItemField(getSchemaInfo(hudiFields.get(0)));
@@ -368,7 +371,10 @@ public class HudiUtils {
                 root.setNestedField(nestedField);
                 break;
             } case MAP: {
+                TColumnType tColumnType = new TColumnType();
                 tColumnType.setType(TPrimitiveType.MAP);
+                root.setType(tColumnType);
+
                 TMapField mapField = new TMapField();
                 List<Types.Field> hudiFields = ((Types.MapType) hudiInternalField.type()).fields();
                 mapField.setKeyField(getSchemaInfo(hudiFields.get(0)));
@@ -377,17 +383,20 @@ public class HudiUtils {
                 root.setNestedField(nestedField);
                 break;
             } case RECORD: {
+                TColumnType tColumnType = new TColumnType();
                 tColumnType.setType(TPrimitiveType.STRUCT);
+                root.setType(tColumnType);
+
                 List<Types.Field> hudiFields = ((Types.RecordType) hudiInternalField.type()).fields();
                 nestedField.setStructField(getSchemaInfo(hudiFields));
                 root.setNestedField(nestedField);
                 break;
             } default: {
-                tColumnType.setType(TPrimitiveType.NULL_TYPE);
+                root.setType(fromAvroHudiTypeToDorisType(AvroInternalSchemaConverter.convert(
+                        hudiInternalField.type(), hudiInternalField.name())).toColumnTypeThrift());
                 break;
             }
         }
-        root.setType(tColumnType);
         return root;
     }
 

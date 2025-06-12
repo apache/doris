@@ -459,7 +459,10 @@ struct TFileScanRangeParams {
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
 
+    // Every time a iceberg/hudi/paimon table makes a schema change, a new schema id is generated.
+    // This is used to represent the latest id.
     25: optional i64 current_schema_id;
+    // All schema information used in the current query process
     26: optional list<ExternalTableSchema.TSchema> history_schema_info 
 }
 

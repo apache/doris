@@ -34,7 +34,7 @@ public class ExternalUtil {
         root.setName(column.getName());
         root.setId(column.getUniqueId());
         root.setIsOptional(column.isAllowNull());
-        root.setType(column.columnTypeToThrift());
+        root.setType(column.getType().toColumnTypeThrift());
 
         TNestedField nestedField = new TNestedField();
         if (column.getType().isStructType()) {

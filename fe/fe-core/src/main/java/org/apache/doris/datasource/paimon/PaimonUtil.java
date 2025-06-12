@@ -268,8 +268,6 @@ public class PaimonUtil {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
         TNestedField nestedField = new TNestedField();
-        TColumnType tColumnType = new TColumnType();
-
         switch (dataType.getTypeRoot()) {
             case ARRAY: {
                 TArrayField listField = new TArrayField();
@@ -277,7 +275,10 @@ public class PaimonUtil {
                 listField.setItemField(getSchemaInfo(paimonArrayType.getElementType()));
                 nestedField.setArrayField(listField);
                 field.setNestedField(nestedField);
+
+                TColumnType tColumnType = new TColumnType();
                 tColumnType.setType(TPrimitiveType.ARRAY);
+                field.setType(tColumnType);
                 break;
             }
             case MAP: {
@@ -287,7 +288,10 @@ public class PaimonUtil {
                 mapField.setValueField(getSchemaInfo(mapType.getValueType()));
                 nestedField.setMapField(mapField);
                 field.setNestedField(nestedField);
+
+                TColumnType tColumnType = new TColumnType();
                 tColumnType.setType(TPrimitiveType.MAP);
+                field.setType(tColumnType);
                 break;
             }
             case ROW: {
@@ -295,14 +299,16 @@ public class PaimonUtil {
                 TStructField structField = getSchemaInfo(rowType.getFields());
                 nestedField.setStructField(structField);
                 field.setNestedField(nestedField);
+
+                TColumnType tColumnType = new TColumnType();
                 tColumnType.setType(TPrimitiveType.STRUCT);
+                field.setType(tColumnType);
                 break;
             }
             default:
-                tColumnType.setType(TPrimitiveType.NULL_TYPE);
+                field.setType(paimonPrimitiveTypeToDorisType(dataType).toColumnTypeThrift());
                 break;
         }
-        field.setType(tColumnType);
         return field;
     }
 

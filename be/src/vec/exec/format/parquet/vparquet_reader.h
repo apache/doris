@@ -266,11 +266,6 @@ private:
 
     const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 
-    // During initialization, multiple vfile_scanner's _colname_to_value_range will point to the same object,
-    // so the content in the object cannot be modified (there is a multi-threading problem).
-    // _colname_to_value_range_index_read used when _hive_use_column_names = false.
-    std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range_index_read;
-
     //sequence in file, need to read
     std::vector<std::string> _read_table_columns;
     std::vector<std::string> _read_file_columns;
@@ -290,9 +285,11 @@ private:
     cctz::time_zone* _ctz = nullptr;
 
     std::unordered_map<int, tparquet::OffsetIndex> _col_offsets;
-    const std::vector<std::string>* _column_names = nullptr;
 
     std::vector<std::string> _missing_cols;
+    // _table_column_names = _missing_cols + _read_table_columns
+    const std::vector<std::string>* _table_column_names = nullptr;
+
     Statistics _statistics;
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;

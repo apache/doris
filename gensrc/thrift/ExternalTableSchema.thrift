@@ -21,16 +21,16 @@ namespace java org.apache.doris.thrift.schema.external
 include "Types.thrift"
 
 struct TArrayField {
-    1: optional TField& item_field  // 列表的元素字段
+    1: optional TField& item_field  // Element field of the array
 }
 
 struct TMapField {
-    1: optional TField& key_field,
-    2: optional TField& value_field
+    1: optional TField& key_field, // Key field of the map
+    2: optional TField& value_field // Value field of the map
 }
 
 struct TStructField {
-    1: optional list<TField> fields  // 结构体的子字段列表
+    1: optional list<TField> fields // List of sub-fields for the struct
 }
 
 
@@ -42,14 +42,21 @@ union TNestedField {
 
 struct TField {
     1: optional bool is_optional,
-    2: optional i32 id,
-    3: optional string name,
-    4: optional Types.TColumnType type,  // 映射后的 doris type
-    5: optional TNestedField nestedField  // 用于扩展 ListField 或 StructField 或 MapField
+    2: optional i32 id,               // Field unique id
+    3: optional string name,          // Field name
+    4: optional Types.TColumnType type,  // Corresponding Doris column type
+    5: optional TNestedField nestedField  // Nested field definition (for array, struct, or map types)     
 }
 
 
 struct TSchema {
-    1: optional i64 schema_id,
-    2: optional TStructField root_field
+    1: optional i64 schema_id, // Each time a iceberg/hudi/paimon table schema changes, a new schema id is generated.
+    
+    // Used to represent all columns in the current table, treating all columns in the table as a struct.
+    // The reason for not using `list<TField>` is to reduce logical duplication in the code.
+    // For example:
+    //         desc table: a int ,
+    //                     b string
+    //         struct<a:int, b string>
+    2: optional TStructField root_field 
 }

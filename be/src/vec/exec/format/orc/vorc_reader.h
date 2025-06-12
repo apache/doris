@@ -629,22 +629,28 @@ private:
     int64_t _range_start_offset;
     int64_t _range_size;
     const std::string& _ctz;
-    const std::vector<std::string>* _table_column_names;
-    // _missing_column_names_set: used in iceberg/hudi/paimon, the columns are dropped
-    // but added back(drop column a then add column a). Shouldn't read this column data in this case.
+
     int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
+    // The columns of the table to be read (contain columns that do not exist)
+    const std::vector<std::string>* _table_column_names;
+
+    // The columns of the file to be read  (file column name)
     std::list<std::string> _read_file_cols;
+
+    // The columns of the table to be read (table column name)
     std::list<std::string> _read_table_cols;
 
-    std::list<std::string> _read_cols_lower_case;
+    // _read_table_cols + _missing_cols = _table_column_names
     std::list<std::string> _missing_cols;
+
+    // file column name to std::vector<orc::ColumnVectorBatch*> idx.
     std::unordered_map<std::string, int> _colname_to_idx;
 
-    // map col name in orc file to orc type
-    std::unordered_map<std::string, const orc::Type*> _type_map; // file column name to orc type
-    std::vector<const orc::Type*> _col_orc_type;
+    // file column name to orc type
+    std::unordered_map<std::string, const orc::Type*> _type_map;
+
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
@@ -685,7 +691,6 @@ private:
     std::shared_ptr<ObjectPool> _obj_pool;
     std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     bool _dict_cols_has_converted = false;
-    bool _has_complex_type = false;
 
     // resolve schema type change
     std::unordered_map<std::string, std::unique_ptr<converter::ColumnTypeConverter>> _converters;

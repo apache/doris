@@ -377,7 +377,7 @@ Status OrcReader::_init_read_columns() {
             if (root_type.getSubtype(i)->getKind() == orc::TypeKind::STRUCT) {
                 auto row_orc_type = root_type.getSubtype(i);
                 for (uint64_t j = 0; j < row_orc_type->getSubtypeCount(); j++) {
-                    _type_map.emplace("row." + row_orc_type->getFieldName(j),
+                    _type_map.emplace(TransactionalHive::ROW + "." + row_orc_type->getFieldName(j),
                                       row_orc_type->getSubtype(j));
                 }
             } else {
@@ -1023,16 +1023,6 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (_tuple_descriptor != nullptr) {
-        for (const auto& each : _tuple_descriptor->slots()) {
-            PrimitiveType column_type = each->col_type();
-            if (is_complex_type(column_type)) {
-                _has_complex_type = true;
-                break;
-            }
-        }
-    }
-
     for (const auto& kv : partition_columns) {
         auto iter = predicate_table_columns.find(kv.first);
         if (iter == predicate_table_columns.end()) {
@@ -1158,17 +1148,15 @@ Status OrcReader::set_fill_columns(
                 auto sub_type = selected_type.getSubtype(i);
                 if (sub_type->getKind() == orc::TypeKind::STRUCT) {
                     for (int j = 0; j < sub_type->getSubtypeCount(); ++j) {
-                        _col_orc_type.emplace_back(sub_type->getSubtype(j));
-                        _colname_to_idx["row." + sub_type->getFieldName(j)] = idx++;
+                        _colname_to_idx[TransactionalHive::ROW + "." + sub_type->getFieldName(j)] =
+                                idx++;
                     }
                 } else {
                     _colname_to_idx[selected_type.getFieldName(i)] = idx++;
-                    _col_orc_type.emplace_back(sub_type);
                 }
             }
         } else {
             for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
-                _col_orc_type.emplace_back(selected_type.getSubtype(i));
                 _colname_to_idx[selected_type.getFieldName(i)] = idx++;
             }
         }

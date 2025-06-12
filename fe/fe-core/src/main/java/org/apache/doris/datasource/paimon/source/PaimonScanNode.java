@@ -112,6 +112,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private String serializedTable;
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
+    // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
 
     public PaimonScanNode(PlanNodeId id,

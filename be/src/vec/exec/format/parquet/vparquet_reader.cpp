@@ -321,8 +321,7 @@ Status ParquetReader::init_reader(
     if (_total_groups == 0) {
         return Status::EndOfFile("init reader failed, empty parquet file: " + _scan_range.path);
     }
-
-    _column_names = &all_column_names;
+    _table_column_names = &all_column_names;
     auto schema_desc = _file_metadata->schema();
 
     std::map<std::string, std::string> required_file_columns; //file column -> table column

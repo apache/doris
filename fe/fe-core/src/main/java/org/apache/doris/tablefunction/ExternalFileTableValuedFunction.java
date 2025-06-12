@@ -376,6 +376,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String colName = result.getColumnNames(idx).toLowerCase();
+            // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
+            // query ambiguity, two columns with the same name but different capitalization are not allowed.
             if (columnLowerNames.contains(colName)) {
                 throw new NotSupportedException("Repeated lowercase column names: " + colName);
             } else {
