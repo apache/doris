@@ -32,6 +32,38 @@ namespace vectorized {
 static const int32_t date_threshold = 719528;
 #include "common/compile_check_begin.h"
 
+void write_datev2(const PrimitiveTypeTraits<TYPE_DATEV2>::ColumnItemType& int_val,
+                  BufferWritable& bw) {
+    DateV2Value<DateV2ValueType> val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(int_val);
+    char buf[64];
+    char* pos = val.to_string(buf);
+    bw.write(buf, pos - buf - 1);
+}
+
+Status DataTypeDateV2SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                     BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    UInt32 int_val = assert_cast<const ColumnDateV2&>(column).get_element(row_num);
+    write_datev2(int_val, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+Result<ColumnString::Ptr> DataTypeDateV2SerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    const size_t output_length = sizeof("YYYY-MM-DD");
+    column_to->reserve(size * output_length);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnDateV2&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_datev2(col.get_element(i), write_buffer);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 Status DataTypeDateV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                      int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {

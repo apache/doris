@@ -96,6 +96,15 @@ class DataTypeStringSerDeBase : public DataTypeSerDe {
 public:
     DataTypeStringSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override {
+        write_left_quotation(bw);
+        const auto& value = assert_cast<const ColumnString&>(column).get_data_at(row_num);
+        bw.write(value.data, value.size);
+        write_left_quotation(bw);
+        return Status::OK();
+    }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
         auto result = check_column_const_set_readability(column, row_num);

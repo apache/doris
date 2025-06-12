@@ -43,6 +43,11 @@ class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
     DataTypeQuantileStateSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override {
+        return Status::NotSupported("QuantileState does not support serialize_column_to_text");
+    }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
         /**

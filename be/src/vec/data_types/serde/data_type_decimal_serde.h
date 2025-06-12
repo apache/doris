@@ -60,6 +60,12 @@ public:
               scale(scale_),
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)) {}
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override;
+
+    Result<ColumnString::Ptr> serialize_column_to_column_string(
+            const IColumn& column) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 

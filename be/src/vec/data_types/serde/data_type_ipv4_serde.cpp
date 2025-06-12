@@ -26,6 +26,37 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+void write_ipv4(const typename PrimitiveTypeTraits<TYPE_IPV4>::ColumnItemType& value,
+                BufferWritable& bw) {
+    IPv4Value ipv4_value(value);
+    std::string ipv4_str = ipv4_value.to_string();
+    bw.write(ipv4_str.c_str(), ipv4_str.length());
+}
+
+Status DataTypeIPv4SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                   BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    IPv4 value = assert_cast<const ColumnIPv4&>(column).get_element(row_num);
+    write_ipv4(value, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+Result<ColumnString::Ptr> DataTypeIPv4SerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    const size_t output_length = sizeof("255.255.255.255");
+    column_to->reserve(size * output_length);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnIPv4&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_ipv4(col.get_element(i), write_buffer);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 template <bool is_binary_format>
 Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,

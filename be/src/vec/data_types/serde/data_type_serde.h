@@ -253,6 +253,15 @@ public:
 public:
     DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
+
+    // this function serialize one row cell to text
+    virtual Status serialize_column_to_text(const IColumn& column, int64_t row,
+                                            BufferWritable& bw) const = 0;
+
+    // this function serialize column to column string
+    virtual Result<ColumnString::Ptr> serialize_column_to_column_string(
+            const IColumn& column) const;
+
     // Text serializer and deserializer with formatOptions to handle different text format
     virtual Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                               BufferWritable& bw, FormatOptions& options) const = 0;
@@ -392,6 +401,18 @@ protected:
     static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
                                                  rapidjson::Value& target,
                                                  rapidjson::Document::AllocatorType& allocator);
+
+    void write_left_quotation(BufferWritable& bw) const {
+        if (_nesting_level >= 2) {
+            bw.write('"');
+        }
+    }
+
+    void write_right_quotation(BufferWritable& bw) const {
+        if (_nesting_level >= 2) {
+            bw.write('"');
+        }
+    }
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null

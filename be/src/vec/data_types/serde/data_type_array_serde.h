@@ -39,6 +39,9 @@ public:
     DataTypeArraySerDe(DataTypeSerDeSPtr _nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), nested_serde(std::move(_nested_serde)) {}
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
 

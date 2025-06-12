@@ -42,6 +42,12 @@ public:
     DataTypeIPv4SerDe(int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4>(nesting_level) {};
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override;
+
+    Result<ColumnString::Ptr> serialize_column_to_column_string(
+            const IColumn& column) const override;
+
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;

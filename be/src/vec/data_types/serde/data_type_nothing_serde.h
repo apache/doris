@@ -38,6 +38,11 @@ class DataTypeNothingSerde : public DataTypeSerDe {
 public:
     DataTypeNothingSerde() = default;
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override {
+        return Status::NotSupported("serialize_column_to_text with type " + column.get_name());
+    }
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
         return Status::NotSupported("serialize_one_cell_to_json with type " + column.get_name());

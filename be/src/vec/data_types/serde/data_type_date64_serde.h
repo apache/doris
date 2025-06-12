@@ -46,6 +46,12 @@ class DataTypeDate64SerDe : public DataTypeNumberSerDe<T> {
 public:
     DataTypeDate64SerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override;
+
+    Result<ColumnString::Ptr> serialize_column_to_column_string(
+            const IColumn& column) const override;
+
     Status serialize_one_cell_to_json(
             const IColumn& column, int64_t row_num, BufferWritable& bw,
             typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;

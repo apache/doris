@@ -39,6 +39,15 @@ namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
+Status DataTypeVariantSerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                      BufferWritable& bw) const {
+    const auto* var = check_and_get_column<ColumnVariant>(column);
+    if (!var->serialize_one_row_to_string(row_num, bw)) {
+        return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
+    }
+    return Status::OK();
+}
+
 template <bool is_binary_format>
 Status DataTypeVariantSerDe::_write_column_to_mysql(const IColumn& column,
                                                     MysqlRowBuffer<is_binary_format>& row_buffer,

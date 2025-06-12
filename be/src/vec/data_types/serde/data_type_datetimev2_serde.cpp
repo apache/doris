@@ -37,6 +37,39 @@ namespace doris::vectorized {
 static const int64_t micr_to_nano_second = 1000;
 #include "common/compile_check_begin.h"
 
+void write_datetimev2(const PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnItemType& int_val,
+                      BufferWritable& bw, int scale) {
+    DateV2Value<DateTimeV2ValueType> val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
+    char buf[64];
+    char* pos = val.to_string(buf, scale);
+    bw.write(buf, pos - buf - 1);
+}
+
+Status DataTypeDateTimeV2SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                         BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    UInt64 int_val = assert_cast<const ColumnDateTimeV2&>(column).get_element(row_num);
+    write_datetimev2(int_val, bw, scale);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+Result<ColumnString::Ptr> DataTypeDateTimeV2SerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    const size_t output_length = sizeof("YYYY-MM-DD HH:MM:SS") + scale;
+    column_to->reserve(size * output_length);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnDateTimeV2&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_datetimev2(col.get_element(i), write_buffer, scale);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                          int64_t end_idx, BufferWritable& bw,
                                                          FormatOptions& options) const {

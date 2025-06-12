@@ -35,6 +35,18 @@ namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
+Status DataTypeJsonbSerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                    BufferWritable& bw) const {
+    const StringRef& s = assert_cast<const ColumnString&>(column).get_data_at(row_num);
+    if (s.size == 0) {
+        bw.write("NULL", 4);
+    } else {
+        std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
+        bw.write(str.c_str(), str.size());
+    }
+    return Status::OK();
+}
+
 template <bool is_binary_format>
 Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<is_binary_format>& result,

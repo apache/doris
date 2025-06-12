@@ -39,6 +39,23 @@ namespace doris {
 namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
+
+Status DataTypeNullableSerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                       BufferWritable& bw) const {
+    const auto& col_null = assert_cast<const ColumnNullable&>(column);
+    if (col_null.is_null_at(row_num)) {
+        if (_nesting_level >= 2) {
+            bw.write("null", 4);
+        } else {
+            bw.write("NULL", 4);
+        }
+    } else {
+        RETURN_IF_ERROR(
+                nested_serde->serialize_column_to_text(col_null.get_nested_column(), row_num, bw));
+    }
+    return Status::OK();
+}
+
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                        int64_t end_idx, BufferWritable& bw,
                                                        FormatOptions& options) const {

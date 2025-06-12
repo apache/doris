@@ -37,6 +37,9 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
 public:
     DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(nesting_level) {};
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override;
+
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
