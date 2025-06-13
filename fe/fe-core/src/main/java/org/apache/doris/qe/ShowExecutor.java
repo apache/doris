@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
@@ -314,8 +313,6 @@ public class ShowExecutor {
             handleShowTable();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
-        } else if (stmt instanceof DescribeStmt) {
-            handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
             handleShowCreateTable();
         } else if (stmt instanceof ShowCreateMTMVStmt) {
@@ -1068,12 +1065,6 @@ public class ShowExecutor {
         String mtmvDdl = Env.getMTMVDdl(mtmv);
         rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Describe statement
-    private void handleDescribe() throws AnalysisException {
-        DescribeStmt describeStmt = (DescribeStmt) stmt;
-        resultSet = new ShowResultSet(describeStmt.getMetaData(), describeStmt.getResultRows());
     }
 
     // Show column statement.
