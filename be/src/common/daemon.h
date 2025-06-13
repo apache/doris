@@ -45,6 +45,7 @@ private:
     void je_purge_dirty_pages_thread() const;
     void cache_prune_stale_thread();
     void report_runtime_query_statistics_thread();
+    void report_delete_bitmap_metrics_thread();
     void wg_weighted_memory_ratio_refresh_thread();
     void calculate_workload_group_metrics_thread();
 

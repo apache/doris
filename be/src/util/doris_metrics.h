@@ -133,6 +133,8 @@ public:
 
     IntGauge* all_rowsets_num = nullptr;
     IntGauge* all_segments_num = nullptr;
+    IntGauge* valid_delete_bitmap_key_count {nullptr};
+    IntGauge* invalid_delete_bitmap_key_count {nullptr};
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits = nullptr;

@@ -365,6 +365,23 @@ void Daemon::report_runtime_query_statistics_thread() {
     }
 }
 
+void Daemon::report_delete_bitmap_metrics_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::report_delete_bitmap_metrics_interval_s))) {
+        if (config::enable_report_delete_bitmap_metrics) {
+            auto* metrics = DorisMetrics::instance();
+            metrics->valid_delete_bitmap_key_count->set_value(
+                    StorageEngine::instance()
+                            ->tablet_manager()
+                            ->get_valid_delete_bitmap_key_count());
+            metrics->invalid_delete_bitmap_key_count->set_value(
+                    StorageEngine::instance()
+                            ->tablet_manager()
+                            ->get_invalid_delete_bitmap_key_count());
+        }
+    }
+}
+
 void Daemon::je_purge_dirty_pages_thread() const {
     do {
         std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
@@ -453,6 +470,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+
+    st = Thread::create(
+            "Daemon", "delete_bitmap_metrics_thread",
+            [this]() { this->report_delete_bitmap_metrics_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     st = Thread::create(

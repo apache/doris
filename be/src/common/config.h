@@ -1445,6 +1445,9 @@ DECLARE_mInt32(load_trigger_compaction_version_percent);
 DECLARE_mInt64(base_compaction_interval_seconds_since_last_operation);
 DECLARE_mBool(enable_compaction_pause_on_high_memory);
 
+DECLARE_mBool(enable_report_delete_bitmap_metrics);
+DECLARE_mInt32(report_delete_bitmap_metrics_interval_s);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

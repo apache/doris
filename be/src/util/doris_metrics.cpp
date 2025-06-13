@@ -137,6 +137,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_base_max_compaction_score, MetricUnit:
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_rowsets_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segments_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(valid_delete_bitmap_key_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(invalid_delete_bitmap_key_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
@@ -269,6 +271,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_rowsets_num);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, all_segments_num);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, valid_delete_bitmap_key_count);
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, invalid_delete_bitmap_key_count);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);

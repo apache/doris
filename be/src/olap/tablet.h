@@ -614,6 +614,9 @@ public:
                                int32_t* rowset_count, int64_t* file_count);
     Status show_nested_index_file(std::string* json_meta);
 
+    uint64_t valid_delete_bitmap_key_count();
+    uint64_t invalid_delete_bitmap_key_count();
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
