@@ -15,28 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
-import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 
 /**
- * Project(OneRowRelation) -> OneRowRelation
+ * LogicalOneRowRelation -> LogicalProject(LogicalOneRowRelation)
  */
-public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
+public class OneRowRelationToProject extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
-        return logicalProject(logicalOneRowRelation()).then(project -> {
-            LogicalOneRowRelation oneRowRelation = project.child();
-            List<NamedExpression> namedExpressions = PlanUtils.mergeProjections(oneRowRelation.getProjects(),
-                    project.getProjects());
-            return oneRowRelation.withProjects(namedExpressions);
-
-        }).toRule(RuleType.PUSH_PROJECT_INTO_ONE_ROW_RELATION);
+        return RuleType.ONE_ROW_RELATION_TO_PROJECT.build(
+            logicalOneRowRelation().whenNot(LogicalOneRowRelation::isValid).then(oneRow ->
+                new LogicalProject<>(
+                    oneRow.getProjects(),
+                    new LogicalOneRowRelation(
+                        oneRow.getRelationId(),
+                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
+                    )
+                )
+            )
+        );
     }
 }
