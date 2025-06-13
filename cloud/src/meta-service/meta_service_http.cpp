@@ -229,7 +229,8 @@ static HttpResponse process_get_obj_store_info(MetaServiceImpl* service, brpc::C
 static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
-            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}};
+            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
+            {"alter_obj_info", AlterObjStoreInfoRequest::ALTER_OBJ_INFO}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -251,6 +252,7 @@ static HttpResponse process_alter_storage_vault(MetaServiceImpl* service, brpc::
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
             {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
+            {"alter_s3_vault", AlterObjStoreInfoRequest::ALTER_S3_VAULT},
             {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
             {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
 
@@ -740,6 +742,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"alter_s3_vault", process_alter_storage_vault},
             {"drop_s3_vault", process_alter_storage_vault},
             {"drop_hdfs_vault", process_alter_storage_vault},
+            {"alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_s3_vault", process_alter_storage_vault},
+
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
