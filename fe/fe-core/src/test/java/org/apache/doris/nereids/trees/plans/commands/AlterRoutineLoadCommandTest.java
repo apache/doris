@@ -49,7 +49,7 @@ public class AlterRoutineLoadCommandTest extends TestWithFeService {
         runBefore();
         new Expectations() {
             {
-                Env.getCurrentEnv().getRoutineLoadManager().getJob(anyString, anyString);
+                Env.getCurrentEnv().getRoutineLoadManager().getJob("db1", anyString);
                 minTimes = 0;
                 result = new KafkaRoutineLoadJob();
             }
