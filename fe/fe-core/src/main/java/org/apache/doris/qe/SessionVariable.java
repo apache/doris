@@ -1193,7 +1193,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
-    private int parallelScanMaxScannersCount = 48;
+    private int parallelScanMaxScannersCount = 0;
 
     @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)

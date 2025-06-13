@@ -133,7 +133,7 @@ suite("test_show_index_data_p2", "p2") {
         // trigger compactions for all tablets in ${tableName}
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
+            def backend_id = tablet.BackendId
             def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
@@ -146,7 +146,7 @@ suite("test_show_index_data_p2", "p2") {
             Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
                 Thread.sleep(30000)
                 String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
+                def backend_id = tablet.BackendId
                 def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)

@@ -59,7 +59,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                 _exec_env->workload_group_mgr()->get_or_create_workload_group(workload_group_info);
 
         // 3 create and update task scheduler
-        wg->upsert_task_scheduler(&workload_group_info);
+        static_cast<void>(wg->upsert_task_scheduler(&workload_group_info));
 
         // 4 upsert io throttle
         wg->upsert_scan_io_throttle(&workload_group_info);

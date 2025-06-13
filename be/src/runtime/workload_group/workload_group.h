@@ -61,9 +61,7 @@ class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
     ENABLE_FACTORY_CREATOR(WorkloadGroup);
 
 public:
-    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
-
-    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_query_thread_pool);
+    explicit WorkloadGroup(const WorkloadGroupInfo& wg_info);
 
     virtual ~WorkloadGroup();
 
@@ -188,7 +186,7 @@ public:
         return _resource_ctxs;
     }
 
-    void upsert_task_scheduler(WorkloadGroupInfo* tg_info);
+    Status upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
     virtual void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
                                      vectorized::SimplifiedScanScheduler** scan_sched,
@@ -224,24 +222,25 @@ public:
     std::shared_ptr<WorkloadGroupMetrics> get_metrics() { return _wg_metrics; }
 
     friend class WorkloadGroupMetrics;
+    friend class WorkloadGroupMgr;
 
     int64_t write_buffer_limit() const { return _memory_limit * _load_buffer_ratio / 100; }
 
     int64_t revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
                           RuntimeProfile* profile);
 
-    friend class DummyWorkloadGroupTest;
-
 private:
+    void set_id(uint64_t wg_id) { _id = wg_id; }
+
     void create_cgroup_cpu_ctl_no_lock();
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
-    void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
-                                    std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+    Status upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                      std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
 
     std::string _memory_debug_string() const;
 
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
-    const uint64_t _id;
+    uint64_t _id;
     std::string _name;
     int64_t _version;
     int64_t _memory_limit; // bytes
@@ -286,9 +285,6 @@ private:
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
 
-    // for some background workload, it doesn't need to create query thread pool
-    const bool _need_create_query_thread_pool;
-
     std::shared_ptr<WorkloadGroupMetrics> _wg_metrics {nullptr};
 };
 
@@ -316,6 +312,9 @@ struct WorkloadGroupInfo {
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;
     const bool valid = true;
+    const int pipeline_exec_thread_num = 0;
+    const int max_flush_thread_num = 0;
+    const int min_flush_thread_num = 0;
 
     static WorkloadGroupInfo parse_topic_info(const TWorkloadGroupInfo& tworkload_group_info);
 };
