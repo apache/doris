@@ -15,26 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-<<<<<<< HEAD
-=======
-#include "vec/columns/column_object.h"
-
-#include <gmock/gmock-more-matchers.h>
->>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 #include <rapidjson/prettywriter.h>
 #include <stdio.h>
 
-<<<<<<< HEAD
 #include "vec/columns/column_variant.h"
-=======
 #include "common/cast_set.h"
 #include "runtime/jsonb_value.h"
 #include "testutil/variant_util.h"
->>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
-#include "vec/columns/common_column_test.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -45,137 +35,27 @@ namespace doris::vectorized {
 
 class ColumnObjectTest : public ::testing::Test {};
 
-<<<<<<< HEAD
-auto construct_dst_varint_column() {
-    // 1. create an empty variant column
-    vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
-    dynamic_subcolumns.create_root(vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
-    dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.e"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.b"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
-                           vectorized::ColumnVariant::Subcolumn {0, true});
-    return ColumnVariant::create(std::move(dynamic_subcolumns), true);
-=======
-void convert_field_to_rapidjson(const vectorized::Field& field, rapidjson::Value& target,
-                                rapidjson::Document::AllocatorType& allocator) {
-    switch (field.get_type()) {
-    case vectorized::Field::Types::Null:
-        target.SetNull();
-        break;
-    case vectorized::Field::Types::Int64:
-        target.SetInt64(field.get<Int64>());
-        break;
-    case vectorized::Field::Types::Float64:
-        target.SetDouble(field.get<Float64>());
-        break;
-    case vectorized::Field::Types::JSONB: {
-        const auto& val = field.get<JsonbField>();
-        JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
-        convert_jsonb_to_rapidjson(*json_val, target, allocator);
-        break;
-    }
-    case vectorized::Field::Types::String: {
-        const String& val = field.get<String>();
-        target.SetString(val.data(), cast_set<rapidjson::SizeType>(val.size()));
-        break;
-    }
-    case vectorized::Field::Types::Array: {
-        const vectorized::Array& array = field.get<Array>();
-        target.SetArray();
-        for (const vectorized::Field& item : array) {
-            rapidjson::Value val;
-            convert_field_to_rapidjson(item, val, allocator);
-            target.PushBack(val, allocator);
-        }
-        break;
-    }
-    case vectorized::Field::Types::VariantMap: {
-        const vectorized::VariantMap& map = field.get<VariantMap>();
-        target.SetObject();
-        for (const auto& item : map) {
-            if (item.second.is_null()) {
-                continue;
-            }
-            rapidjson::Value key;
-            key.SetString(item.first.get_path().data(),
-                          cast_set<rapidjson::SizeType>(item.first.get_path().size()));
-            rapidjson::Value val;
-            convert_field_to_rapidjson(item.second, val, allocator);
-            if (val.IsNull() && item.first.empty()) {
-                // skip null value with empty key, indicate the null json value of root in variant map,
-                // usally padding in nested arrays
-                continue;
-            }
-            target.AddMember(key, val, allocator);
-        }
-        break;
-    }
-    default:
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "unkown field type: {}",
-                               field.get_type_name());
-        break;
-    }
->>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
-}
-
-void convert_variant_map_to_rapidjson(const vectorized::VariantMap& map, rapidjson::Value& target,
-                                      rapidjson::Document::AllocatorType& allocator) {
-    target.SetObject();
-    for (const auto& item : map) {
-        if (item.second.is_null()) {
-            continue;
-        }
-        rapidjson::Value key;
-        key.SetString(item.first.get_path().data(),
-                      cast_set<rapidjson::SizeType>(item.first.get_path().size()));
-        rapidjson::Value val;
-        convert_field_to_rapidjson(item.second, val, allocator);
-        if (val.IsNull() && item.first.empty()) {
-            // skip null value with empty key, indicate the null json value of root in variant map,
-            // usally padding in nested arrays
-            continue;
-        }
-        target.AddMember(key, val, allocator);
-    }
-}
-
-void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
-                                rapidjson::Document::AllocatorType& allocator) {
-    target.SetArray();
-    for (const vectorized::Field& item : array) {
-        rapidjson::Value val;
-        convert_field_to_rapidjson(item, val, allocator);
-        target.PushBack(val, allocator);
-    }
-}
-
 TEST(ColumnVariantTest, insert_try_insert) {
     auto v = VariantUtil::construct_dst_varint_column();
     FieldInfo info;
-    info.scalar_type_id = TypeIndex::Nothing;
+    info.scalar_type_id = PrimitiveType::TYPE_VARIANT;
     info.num_dimensions = 0;
     PathInData path("v.f");
     auto sub = v->get_subcolumn(path);
     Int64 value = 43;
-    sub->insert(value, info);
+    sub->insert(Field::create_field<TYPE_BIGINT>(value), info);
 
     info.num_dimensions = 1;
-    sub->insert(value, info);
+    sub->insert(Field::create_field<TYPE_BIGINT>(value), info);
 
     info.num_dimensions = 2;
-    sub->insert(value, info);
+    sub->insert(Field::create_field<TYPE_BIGINT>(value), info);
 }
 
 TEST(ColumnVariantTest, basic_finalize) {
     auto variant = VariantUtil::construct_basic_varint_column();
     // 4. finalize
-    EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(variant->size(), 10);
 
@@ -199,22 +79,14 @@ TEST(ColumnVariantTest, basic_finalize) {
     }
 }
 
-<<<<<<< HEAD
 // TEST
-TEST_F(ColumnObjectTest, test_pop_back) {
-    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
-
-    Field field_int = Field::create_field<TYPE_INT>(123);
-    Field field_string = Field::create_field<TYPE_STRING>("hello");
-=======
 TEST(ColumnVariantTest, basic_deserialize) {
     auto variant = VariantUtil::construct_basic_varint_column();
 
     // 4. finalize
-    EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(variant->size(), 10);
->>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
 
     const auto& [path, value] = variant->get_sparse_data_paths_and_values();
     const auto& offsets = variant->serialized_sparse_column_offsets();
@@ -222,16 +94,10 @@ TEST(ColumnVariantTest, basic_deserialize) {
         size_t start = offsets[row - 1];
         size_t end = offsets[row];
 
-<<<<<<< HEAD
-    subcolumn.pop_back(1);
-    EXPECT_EQ(subcolumn.size(), 1);
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(TINYINT)");
-=======
         auto data = path->get_data_at(start);
         EXPECT_EQ(data, StringRef("v.b.d", 5));
         auto pair = variant->deserialize_from_sparse_column(value, start++);
         EXPECT_EQ(pair.first.get<Int64>(), 30);
->>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
 
         auto data2 = path->get_data_at(start);
         auto pair2 = variant->deserialize_from_sparse_column(value, start++);
@@ -246,7 +112,6 @@ TEST(ColumnVariantTest, basic_deserialize) {
     }
 }
 
-<<<<<<< HEAD
 TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
 
@@ -328,10 +193,11 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     EXPECT_EQ(subcolumn.size(), 0);
     EXPECT_EQ(subcolumn.data_types.size(), 0);
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nothing");
-=======
+}
+
 TEST(ColumnVariantTest, basic_inset_range_from) {
     auto src = VariantUtil::construct_basic_varint_column();
-    EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    src->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(src->size(), 10);
 
@@ -348,7 +214,7 @@ TEST(ColumnVariantTest, basic_inset_range_from) {
 
     // 5 subcolumn
     EXPECT_EQ(dst->subcolumns.size(), 6);
-    ColumnObject::Subcolumns dst_subcolumns = dst->subcolumns;
+    ColumnVariant::Subcolumns dst_subcolumns = dst->subcolumns;
     std::sort(
             dst_subcolumns.begin(), dst_subcolumns.end(),
             [](const auto& lhsItem, const auto& rhsItem) { return lhsItem->path < rhsItem->path; });
@@ -431,7 +297,7 @@ auto convert_to_jsonb_field(auto serde, auto& column) {
     Slice data((char*)(str_ref.data), str_ref.size);
 
     auto jsonb_type = doris::vectorized::DataTypeFactory::instance().create_data_type(
-            TypeIndex::JSONB, false);
+            PrimitiveType::TYPE_JSONB, false);
     auto jsonb_serde = jsonb_type->get_serde();
     auto jsonb_column = jsonb_type->create_column();
 
@@ -448,7 +314,7 @@ auto convert_string_to_jsonb_field(auto& column) {
     Slice data((char*)(str_ref.data), str_ref.size);
 
     auto jsonb_type = doris::vectorized::DataTypeFactory::instance().create_data_type(
-            TypeIndex::JSONB, false);
+            PrimitiveType::TYPE_JSONB, false);
     auto jsonb_serde = jsonb_type->get_serde();
     auto jsonb_column = jsonb_type->create_column();
     DataTypeSerDe::FormatOptions format_options;
@@ -465,27 +331,27 @@ doris::vectorized::Field get_jsonb_field(std::string_view type) {
     static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
     if (field_map.empty()) {
         DataTypePtr data_type_int = doris::vectorized::DataTypeFactory::instance().create_data_type(
-                TypeIndex::Int8, false);
+                PrimitiveType::TYPE_INT, false);
         DataTypePtr data_type_array_int =
                 std::make_shared<doris::vectorized::DataTypeArray>(data_type_int);
         auto array_column_int = data_type_array_int->create_column();
         array_column_int->insert(VariantUtil::get_field("array_int"));
         auto array_serde_int = data_type_array_int->get_serde();
-        field_map["array_int"] = convert_to_jsonb_field(array_serde_int, *array_column_int);
+        field_map["array_int"] = doris::vectorized::Field::create_field<TYPE_JSONB>(convert_to_jsonb_field(array_serde_int, *array_column_int));
 
         DataTypePtr data_type_str = doris::vectorized::DataTypeFactory::instance().create_data_type(
-                TypeIndex::String, false);
+                PrimitiveType::TYPE_STRING, false);
         DataTypePtr data_type_array_str =
                 std::make_shared<doris::vectorized::DataTypeArray>(data_type_str);
         auto array_column_str = data_type_array_str->create_column();
         array_column_str->insert(VariantUtil::get_field("array_str"));
         auto array_serde_str = data_type_array_str->get_serde();
-        field_map["array_str"] = convert_to_jsonb_field(array_serde_str, *array_column_str);
+        field_map["array_str"] = doris::vectorized::Field::create_field<TYPE_JSONB>(convert_to_jsonb_field(array_serde_str, *array_column_str));
 
         auto column_int = data_type_int->create_column();
         column_int->insert(VariantUtil::get_field("int"));
         auto serde_int = data_type_int->get_serde();
-        field_map["int"] = convert_to_jsonb_field(serde_int, *column_int);
+        field_map["int"] = doris::vectorized::Field::create_field<TYPE_JSONB>(convert_to_jsonb_field(serde_int, *column_int));
 
         // auto column_str = data_type_str->create_column();
         // column_str->insert(VariantUtil::get_field("string"));
@@ -552,7 +418,7 @@ TEST(ColumnVariantTest, advanced_finalize) {
     auto variant = VariantUtil::construct_advanced_varint_column();
 
     // 4. finalize
-    EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(variant->size(), 15);
 
@@ -578,10 +444,10 @@ TEST(ColumnVariantTest, advanced_finalize) {
     {
         // Test fill_path_column_from_sparse_data
         auto map = std::make_unique<NullMap>(15, 0);
-        vectorized::ColumnObject::fill_path_column_from_sparse_data(
+        vectorized::ColumnVariant::fill_path_column_from_sparse_data(
                 *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
                 variant->get_sparse_column(), 0, 5);
-        vectorized::ColumnObject::fill_path_column_from_sparse_data(
+        vectorized::ColumnVariant::fill_path_column_from_sparse_data(
                 *variant->get_subcolumn({}) /*root*/, map.get(), StringRef {"array"},
                 variant->get_sparse_column(), 5, 15);
     }
@@ -591,7 +457,7 @@ TEST(ColumnVariantTest, advanced_deserialize) {
     auto variant = VariantUtil::construct_advanced_varint_column();
 
     // 4. finalize
-    EXPECT_TRUE(variant->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    variant->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(variant->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(variant->size(), 15);
 
@@ -648,7 +514,7 @@ TEST(ColumnVariantTest, advanced_deserialize) {
 
 TEST(ColumnVariantTest, advanced_insert_range_from) {
     auto src = VariantUtil::construct_advanced_varint_column();
-    EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    src->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(src->size(), 15);
 
@@ -663,7 +529,7 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
     EXPECT_EQ(dst->size(), 15);
 
     EXPECT_EQ(dst->subcolumns.size(), 6);
-    ColumnObject::Subcolumns dst_subcolumns = dst->subcolumns;
+    ColumnVariant::Subcolumns dst_subcolumns = dst->subcolumns;
 
     std::sort(
             dst_subcolumns.begin(), dst_subcolumns.end(),
@@ -682,15 +548,15 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
             if (column->path.get_path() == "v.b") {
                 EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
                                   ->get_nested_type()
-                                  ->get_type_id(),
-                          TypeIndex::JSONB);
+                                  ->get_primitive_type(),
+                          PrimitiveType::TYPE_JSONB);
             }
         } else if (column->path.get_path().size() == 5) {
             EXPECT_EQ(column->data.get_non_null_value_size(), 10);
             EXPECT_EQ(assert_cast<const DataTypeNullable*>(column->data.data_types[0].get())
                               ->get_nested_type()
-                              ->get_type_id(),
-                      TypeIndex::JSONB);
+                              ->get_primitive_type(),
+                      PrimitiveType::TYPE_JSONB);
             for (size_t row = 0; row < 5; ++row) {
                 EXPECT_TRUE(column->data.data[0]->is_null_at(row));
             }
@@ -771,12 +637,12 @@ TEST(ColumnVariantTest, advanced_insert_range_from) {
 
 TEST(ColumnVariantTest, empty_inset_range_from) {
     auto src = VariantUtil::construct_varint_column_only_subcolumns();
-    EXPECT_TRUE(src->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    src->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(src->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(src->size(), 6);
 
     // dst is an empty column
-    auto dst = ColumnObject::create(5);
+    auto dst = ColumnVariant::create(5);
 
     // subcolumn->subcolumn          v.a v.b v.c v.f v.e
     dst->insert_range_from(*src, 0, 6);
@@ -805,8 +671,7 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
 
     auto src_contains_seven_subcolumns = VariantUtil::construct_varint_column_more_subcolumns();
 
-    EXPECT_TRUE(
-            src_contains_seven_subcolumns->finalize(ColumnObject::FinalizeMode::WRITE_MODE).ok());
+    src_contains_seven_subcolumns->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(src_contains_seven_subcolumns->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(src_contains_seven_subcolumns->size(), 5);
 
@@ -856,9 +721,8 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
     }
 
     auto src_contains_subcoumns_and_sparse_columns = VariantUtil::construct_basic_varint_column();
-    EXPECT_TRUE(src_contains_subcoumns_and_sparse_columns
-                        ->finalize(ColumnObject::FinalizeMode::WRITE_MODE)
-                        .ok());
+    src_contains_subcoumns_and_sparse_columns
+            ->finalize(ColumnVariant::FinalizeMode::WRITE_MODE);
     EXPECT_TRUE(
             src_contains_subcoumns_and_sparse_columns->pick_subcolumns_to_sparse_column({}).ok());
     EXPECT_EQ(src_contains_subcoumns_and_sparse_columns->size(), 10);
@@ -939,15 +803,15 @@ TEST(ColumnVariantTest, empty_inset_range_from) {
 }
 
 TEST(ColumnVariantTest, insert_null_to_decimal_column) {
-    ColumnObject::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
+    ColumnVariant::Subcolumn subcolumn(0, true /* is_nullable */, false /* is_root */);
     Field null_field;
     subcolumn.insert(null_field);
     subcolumn.finalize();
     EXPECT_EQ(subcolumn.data.size(), 1);
     EXPECT_EQ(subcolumn.data[0]->size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), TypeIndex::Nothing);
-    Field decimal_field(DecimalField<Decimal128V2>(10, 2));
+    EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), PrimitiveType::TYPE_NULL);
+    Field decimal_field = Field::create_field<TYPE_DECIMALV2>(DecimalField<Decimal128V2>(10, 2));
     subcolumn.insert(decimal_field);
     subcolumn.finalize();
     EXPECT_EQ(subcolumn.get_non_null_value_size(), 1);
@@ -956,8 +820,7 @@ TEST(ColumnVariantTest, insert_null_to_decimal_column) {
     EXPECT_EQ(subcolumn.data[0]->is_null_at(0), true);
     EXPECT_EQ(subcolumn.data[0]->is_null_at(1), false);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), TypeIndex::Decimal128V2);
->>>>>>> 954311c1aad ([feature](semi-structure) support variant and index with many features)
+    EXPECT_EQ(subcolumn.least_common_type.get_base_type_id(), PrimitiveType::TYPE_DECIMALV2);
 }
 
 TEST_F(ColumnObjectTest, test_insert_indices_from) {
@@ -993,11 +856,11 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
 
         Field result1;
         dst_column->get(0, result1);
-        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 123);
+        EXPECT_EQ(result1.get<VariantMap>().at(PathInData("")).get<Int64>(), 123);
 
         Field result2;
         dst_column->get(1, result2);
-        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
+        EXPECT_EQ(result2.get<VariantMap>().at(PathInData("")).get<Int64>(), 456);
     }
 
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
@@ -1034,9 +897,9 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         dst_column->get(1, result2);
         dst_column->get(2, result3);
 
-        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 789);
-        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
-        EXPECT_EQ(result3.get<VariantMap>().at("").get<Int64>(), 123);
+        EXPECT_EQ(result1.get<VariantMap>().at(PathInData("")).get<Int64>(), 789);
+        EXPECT_EQ(result2.get<VariantMap>().at(PathInData("")).get<Int64>(), 456);
+        EXPECT_EQ(result3.get<VariantMap>().at(PathInData("")).get<Int64>(), 123);
     }
 
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
@@ -1047,13 +910,13 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& map1 = field_map.get<VariantMap&>();
-        map1["a"] = Field::create_field<TYPE_INT>(123);
+        map1.insert_or_assign(PathInData("a"), Field::create_field<TYPE_INT>(123));
         src_column->try_insert(field_map);
 
         // Create another map with {"b": "hello"}
         field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& map2 = field_map.get<VariantMap&>();
-        map2["b"] = Field::create_field<TYPE_STRING>(String("hello"));
+        map2.insert_or_assign(PathInData("b"), Field::create_field<TYPE_STRING>(String("hello")));
         src_column->try_insert(field_map);
 
         src_column->finalize();
@@ -1082,8 +945,8 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         const auto& result1_map = result1.get<const VariantMap&>();
         const auto& result2_map = result2.get<const VariantMap&>();
 
-        EXPECT_EQ(result1_map.at("b").get<const String&>(), "hello");
-        EXPECT_EQ(result2_map.at("a").get<Int64>(), 123);
+        EXPECT_EQ(result1_map.at(PathInData("b")).get<const String&>(), "hello");
+        EXPECT_EQ(result2_map.at(PathInData("a")).get<Int64>(), 123);
     }
 }
 
