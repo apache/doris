@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -29,6 +30,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class HdfsProperties extends HdfsCompatibleProperties {
 
@@ -65,6 +67,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private Map<String, String> backendConfigProperties;
 
+    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
+
     /**
      * The final HDFS configuration map that determines the effective settings.
      * Priority rules:
@@ -73,8 +77,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
      * 3. This map should be used to read the resolved HDFS configuration, ensuring the correct precedence is applied.
      */
     private Map<String, String> userOverriddenHdfsConfig;
-
-    public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
 
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username",
@@ -88,7 +90,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (MapUtils.isEmpty(props)) {
             return false;
         }
-        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props)) {
+        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
             return true;
         }
         if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
@@ -134,15 +136,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
                 || Strings.isNullOrEmpty(hdfsKerberosKeytab))) {
             throw new IllegalArgumentException("HDFS authentication type is kerberos, "
                     + "but principal or keytab is not set.");
-        }
-        // If fsDefaultFS is not explicitly provided, we attempt to infer it from the 'uri' field.
-        // However, the 'uri' is not a dedicated HDFS-specific property and may be present
-        // even when the user is configuring multiple storage backends.
-        // Additionally, since we are not using FileSystem.get(Configuration conf),
-        // fsDefaultFS is not strictly required here.
-        // This is a best-effort fallback to populate fsDefaultFS when possible.
-        if (StringUtils.isBlank(fsDefaultFS)) {
-            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps);
         }
     }
 
@@ -193,16 +186,21 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return HdfsPropertiesUtils.convertUrlToFilePath(url);
+        return HdfsPropertiesUtils.convertUrlToFilePath(url, supportSchema);
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return HdfsPropertiesUtils.validateAndGetUri(loadProps);
+        return HdfsPropertiesUtils.validateAndGetUri(loadProps, supportSchema);
     }
 
     @Override
     public String getStorageName() {
         return "HDFS";
+    }
+
+    @Override
+    Set<String> getSupportedSchemas() {
+        return supportSchema;
     }
 }
