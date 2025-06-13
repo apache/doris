@@ -3373,6 +3373,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
     }
 
+    public Column getSkipBitmapColumn() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isSkipBitmapColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public boolean hasSkipBitmapColumn() {
+        return getSkipBitmapColumn() != null;
+    }
+
     @Override
     public boolean autoAnalyzeEnabled() {
         if (tableProperty == null) {
