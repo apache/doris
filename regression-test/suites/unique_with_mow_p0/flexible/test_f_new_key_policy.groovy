@@ -34,7 +34,7 @@ suite("test_f_new_key_policy", "p0") {
     qt_sql """select * from ${tableName} order by k;"""
 
     def checkVariable = { expected -> 
-        def res = sql_return_maparray """show variables where Variable_name="partial_update_new_key_policy";""";
+        def res = sql_return_maparray """show variables where Variable_name="partial_update_new_key_behavior";""";
         logger.info("res: ${res}")
         assertTrue(res[0].VARIABLE_VALUE.equalsIgnoreCase(expected));
     }
@@ -50,7 +50,7 @@ suite("test_f_new_key_policy", "p0") {
         set 'format', 'json'
         set 'read_json_by_line', 'true'
         set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-        set 'partial_update_new_key_policy', 'append'
+        set 'partial_update_new_key_behavior', 'append'
         inputStream new ByteArrayInputStream(load1.getBytes())
         time 10000
     }
@@ -65,14 +65,14 @@ suite("test_f_new_key_policy", "p0") {
         set 'format', 'json'
         set 'read_json_by_line', 'true'
         set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-        set 'partial_update_new_key_policy', 'error'
+        set 'partial_update_new_key_behavior', 'error'
         inputStream new ByteArrayInputStream(load2.getBytes())
         time 10000
         check {result, exception, startTime, endTime ->
             assertTrue(exception == null)
             def json = parseJson(result)
             assertEquals("Fail", json.Status)
-            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR. Row with key=[20] is not in table."))
+            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR. Row with key=[20] is not in table."))
         }
     }
     qt_stream_load_error """select * from ${tableName} order by k;"""
@@ -82,12 +82,12 @@ suite("test_f_new_key_policy", "p0") {
                       {"k":4,"c2":888}
                       {"k":20,"c1":888,"c3":7777}
                       {"k":22,"c2":888,"c3":7777}"""
-    // 2.2 partial_update_new_key_policy will not take effect when it's not a partial update
+    // 2.2 partial_update_new_key_behavior will not take effect when it's not a partial update
     streamLoad {
         table "${tableName}"
         set 'format', 'json'
         set 'read_json_by_line', 'true'
-        set 'partial_update_new_key_policy', 'error'
+        set 'partial_update_new_key_behavior', 'error'
         inputStream new ByteArrayInputStream(load3.getBytes())
         time 10000
     }

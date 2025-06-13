@@ -237,7 +237,7 @@ Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema,
     } break;
     case doris::PartialUpdateNewRowPolicyPB::ERROR: {
         return Status::Error<ErrorCode::NEW_ROWS_IN_PARTIAL_UPDATE, false>(
-                "Can't append new rows in partial update when partial_update_new_key_policy is "
+                "Can't append new rows in partial update when partial_update_new_key_behavior is "
                 "ERROR. Row with key=[{}] is not in table.",
                 line());
     } break;

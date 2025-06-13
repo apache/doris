@@ -33,7 +33,7 @@ suite("test_partial_update_new_key_policy", "p0") {
     qt_sql """select * from ${tableName} order by k;"""
 
     def checkVariable = { expected -> 
-        def res = sql_return_maparray """show variables where Variable_name="partial_update_new_key_policy";""";
+        def res = sql_return_maparray """show variables where Variable_name="partial_update_new_key_behavior";""";
         logger.info("res: ${res}")
         assertTrue(res[0].Value.equalsIgnoreCase(expected));
     }
@@ -43,44 +43,44 @@ suite("test_partial_update_new_key_policy", "p0") {
     sql "set enable_unique_key_partial_update=true;"
     sql "sync"
 
-    sql """set partial_update_new_key_policy="APPEND";"""
+    sql """set partial_update_new_key_behavior="APPEND";"""
     sql "sync;"
     checkVariable("APPEND")
     explain {
         sql "insert into ${tableName}(k,c1) values(0,10),(3,10),(4,10),(5,10);"
-        contains "PARTIAL_UPDATE_NEW_KEY_POLICY: APPEND" 
+        contains "PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: APPEND" 
     }
     sql "insert into ${tableName}(k,c1) values(0,10),(3,10),(4,10),(5,10);"
     qt_insert_append """select * from ${tableName} order by k;"""
 
 
-    sql """set partial_update_new_key_policy="ERROR";"""
+    sql """set partial_update_new_key_behavior="ERROR";"""
     sql "sync;"
     checkVariable("ERROR")
     explain {
         sql "insert into ${tableName}(k,c2) values(1,30),(2,30);"
-        contains "PARTIAL_UPDATE_NEW_KEY_POLICY: ERROR"
+        contains "PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: ERROR"
     }
     sql "insert into ${tableName}(k,c2) values(1,30),(2,30);"
     qt_insert_error1 """select * from ${tableName} order by k;"""
     test {
         sql "insert into ${tableName}(k,c2) values(1,30),(10,999),(11,999);"
-        exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR. Row with key=[10] is not in table."
+        exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR. Row with key=[10] is not in table."
     }
     qt_insert_error2 """select * from ${tableName} order by k;"""
 
 
-    sql """set partial_update_new_key_policy=default;"""
+    sql """set partial_update_new_key_behavior=default;"""
     sql "sync;"
     checkVariable("APPEND")
     test {
-        sql """set partial_update_new_key_policy="invalid";"""
-        exception "partial_update_new_key_policy should be one of {'APPEND', 'ERROR'}, but found invalid"
+        sql """set partial_update_new_key_behavior="invalid";"""
+        exception "partial_update_new_key_behavior should be one of {'APPEND', 'ERROR'}, but found invalid"
     }
     checkVariable("APPEND")
 
-    // 1.2 partial_update_new_key_policy will not take effect when enable_unique_key_partial_update is false
-    sql "set partial_update_new_key_policy=ERROR;"
+    // 1.2 partial_update_new_key_behavior will not take effect when enable_unique_key_partial_update is false
+    sql "set partial_update_new_key_behavior=ERROR;"
     sql "set enable_unique_key_partial_update=false;"
     sql "sync;"
 
@@ -96,7 +96,7 @@ suite("test_partial_update_new_key_policy", "p0") {
         set 'format', 'csv'
         set 'columns', 'k,c3'
         set 'partial_columns', 'true'
-        set 'partial_update_new_key_policy', 'append'
+        set 'partial_update_new_key_behavior', 'append'
         file 'row_policy1.csv'
         time 10000
     }
@@ -108,25 +108,25 @@ suite("test_partial_update_new_key_policy", "p0") {
         set 'format', 'csv'
         set 'columns', 'k,c3'
         set 'partial_columns', 'true'
-        set 'partial_update_new_key_policy', 'error'
+        set 'partial_update_new_key_behavior', 'error'
         file 'row_policy2.csv'
         time 10000
         check {result, exception, startTime, endTime ->
             assertTrue(exception == null)
             def json = parseJson(result)
             assertEquals("Fail", json.Status)
-            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR. Row with key=[13] is not in table."))
+            assertTrue(json.Message.toString().contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR. Row with key=[13] is not in table."))
         }
     }
     qt_stream_load_error """select * from ${tableName} order by k;"""
-    // 2.3 partial_update_new_key_policy will not take effect when enable_unique_key_partial_update is false
+    // 2.3 partial_update_new_key_behavior will not take effect when enable_unique_key_partial_update is false
     streamLoad {
         table "${tableName}"
         set 'column_separator', ','
         set 'format', 'csv'
         set 'columns', 'k,c1,c2,c3'
         set 'partial_columns', 'false'
-        set 'partial_update_new_key_policy', 'error'
+        set 'partial_update_new_key_behavior', 'error'
         file 'row_policy3.csv'
         time 10000
     }
@@ -164,7 +164,7 @@ suite("test_partial_update_new_key_policy", "p0") {
         "provider" = "${getS3Provider()}"
     ) properties(
         "partial_columns" = "true",
-        "partial_update_new_key_policy" = "APPEND"
+        "partial_update_new_key_behavior" = "APPEND"
     );
     """
     waitForBrokerLoadDone(label)
@@ -188,15 +188,15 @@ suite("test_partial_update_new_key_policy", "p0") {
         "provider" = "${getS3Provider()}"
     ) properties(
         "partial_columns" = "true",
-        "partial_update_new_key_policy" = "ERROR"
+        "partial_update_new_key_behavior" = "ERROR"
     );
     """
     waitForBrokerLoadDone(label, 600)
     res = sql_return_maparray """show load where label="$label";"""
-    assert res[0].State == "CANCELLED" && res[0].ErrorMsg.contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR. Row with key=[13] is not in table.")
+    assert res[0].State == "CANCELLED" && res[0].ErrorMsg.contains("[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR. Row with key=[13] is not in table.")
     qt_broker_load_error """select * from ${tableName} order by k;"""
 
-    // 3.3 partial_update_new_key_policy will not take effect when enable_unique_key_partial_update is false
+    // 3.3 partial_update_new_key_behavior will not take effect when enable_unique_key_partial_update is false
     label = "test_pu_new_key_policy3" + UUID.randomUUID().toString().replace("-", "_")
     sql """
     LOAD LABEL $label (
@@ -211,7 +211,7 @@ suite("test_partial_update_new_key_policy", "p0") {
         "AWS_REGION" = "${getS3Region()}",
         "provider" = "${getS3Provider()}"
     ) properties(
-        "partial_update_new_key_policy" = "ERROR"
+        "partial_update_new_key_behavior" = "ERROR"
     );
     """
     waitForBrokerLoadDone(label)
