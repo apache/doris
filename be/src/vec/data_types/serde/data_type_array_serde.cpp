@@ -31,6 +31,26 @@ namespace doris::vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
+Status DataTypeArraySerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                    BufferWritable& bw) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        RETURN_IF_ERROR(nested_serde->serialize_column_to_text(nested_column, i, bw));
+    }
+    bw.write("]", 1);
+    return Status::OK();
+}
+
 Status DataTypeArraySerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                     int64_t end_idx, BufferWritable& bw,
                                                     FormatOptions& options) const {
