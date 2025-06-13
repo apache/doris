@@ -48,7 +48,7 @@ Status DeltaLengthByteArrayDecoder::_get_internal(Slice* buffer, int max_values,
     const int32_t* length_ptr = _buffered_length.data() + _length_idx;
     for (int i = 0; i < max_values; ++i) {
         int32_t len = length_ptr[i];
-        if (PREDICT_FALSE(len < 0)) {
+        if (len < 0) [[unlikely]] {
             return Status::InvalidArgument("Negative string delta length");
         }
         buffer[i].size = len;
@@ -87,7 +87,7 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
 
     int suffix_read;
     RETURN_IF_ERROR(_suffix_decoder.decode(buffer, max_values, &suffix_read));
-    if (PREDICT_FALSE(suffix_read != max_values)) {
+    if (suffix_read != max_values) [[unlikely]] {
         return Status::IOError("Read {}, expecting {} from suffix decoder",
                                std::to_string(suffix_read), std::to_string(max_values));
     }
@@ -95,13 +95,12 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
     int64_t data_size = 0;
     const int32_t* prefix_len_ptr = _buffered_prefix_length.data() + _prefix_len_offset;
     for (int i = 0; i < max_values; ++i) {
-        if (PREDICT_FALSE(prefix_len_ptr[i] < 0)) {
+        if (prefix_len_ptr[i] < 0) [[unlikely]] {
             return Status::InvalidArgument("negative prefix length in DELTA_BYTE_ARRAY");
         }
-        if (PREDICT_FALSE(common::add_overflow(data_size, static_cast<int64_t>(prefix_len_ptr[i]),
-                                               data_size) ||
-                          common::add_overflow(data_size, static_cast<int64_t>(buffer[i].size),
-                                               data_size))) {
+        if (common::add_overflow(data_size, static_cast<int64_t>(prefix_len_ptr[i]), data_size) ||
+            common::add_overflow(data_size, static_cast<int64_t>(buffer[i].size), data_size))
+                [[unlikely]] {
             return Status::InvalidArgument("excess expansion in DELTA_BYTE_ARRAY");
         }
     }
@@ -111,7 +110,7 @@ Status DeltaByteArrayDecoder::_get_internal(Slice* buffer, int max_values, int* 
 
     char* data_ptr = _buffered_data.data();
     for (int i = 0; i < max_values; ++i) {
-        if (PREDICT_FALSE(static_cast<size_t>(prefix_len_ptr[i]) > prefix.length())) {
+        if (static_cast<size_t>(prefix_len_ptr[i]) > prefix.length()) [[unlikely]] {
             return Status::InvalidArgument("prefix length too large in DELTA_BYTE_ARRAY");
         }
         memcpy(data_ptr, prefix.data(), prefix_len_ptr[i]);

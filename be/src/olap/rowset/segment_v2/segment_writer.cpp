@@ -869,8 +869,8 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     auto segment_size = estimate_segment_size();
-    if (PREDICT_FALSE(segment_size >= MAX_SEGMENT_SIZE ||
-                      _num_rows_written >= _opts.max_rows_per_segment)) {
+    if (segment_size >= MAX_SEGMENT_SIZE || _num_rows_written >= _opts.max_rows_per_segment)
+            [[unlikely]] {
         return 0;
     }
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)segment_size) / row_avg_size_in_bytes;
@@ -916,7 +916,7 @@ std::string SegmentWriter::_full_encode_keys(
 }
 
 void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
-                                       size_t pos, string* encoded_keys) {
+                                       size_t pos, std::string* encoded_keys) {
     auto field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column
@@ -931,7 +931,7 @@ void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor
     _seq_coder->full_encode_ascending(field, encoded_keys);
 }
 
-void SegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void SegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }

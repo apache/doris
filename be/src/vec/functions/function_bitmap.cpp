@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
+#include <absl/strings/numbers.h>
 #include <absl/strings/str_split.h>
 #include <glog/logging.h>
 #include <stdint.h>
@@ -34,7 +35,6 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "gutil/strings/numbers.h"
 #include "util/bitmap_value.h"
 #include "util/hash_util.hpp"
 #include "util/murmur_hash3.h"
@@ -235,7 +235,7 @@ struct BitmapFromString {
             auto res = absl::StrSplit(std::string_view {raw_str, str_size}, ",", absl::SkipEmpty());
             uint64_t value = 0;
             for (auto s : res) {
-                if (!safe_strtou64(std::string(s), &value)) {
+                if (!absl::SimpleAtoi(s, &value)) {
                     return false;
                 }
                 bits.push_back(value);
