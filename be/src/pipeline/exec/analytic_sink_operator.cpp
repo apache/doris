@@ -185,6 +185,8 @@ Status AnalyticSinkLocalState::close(RuntimeState* state, Status exec_status) {
     return PipelineXSinkLocalState<AnalyticSharedState>::close(state, exec_status);
 }
 
+//TODO: eg sum/avg/count/min/max ROWS BETWEEN N PRECEDING AND M FOLLOWING
+//maybe could be optimized caculate at cumulative mode
 bool AnalyticSinkLocalState::_get_next_for_sliding_rows(int64_t current_block_rows,
                                                         int64_t current_block_base_pos) {
     const bool is_n_following_frame = _rows_end_offset > 0;
@@ -336,7 +338,7 @@ Status AnalyticSinkLocalState::_execute_impl() {
             _get_partition_by_end();
             // streaming_mode means no need get all parition data, could calculate data when it's arrived
             if (!_partition_by_pose.is_ended && (!_streaming_mode || _need_more_data)) {
-                _need_more_data &= false;
+                _need_more_data = false;
                 break;
             }
             _init_result_columns();
@@ -367,14 +369,6 @@ Status AnalyticSinkLocalState::_execute_impl() {
 void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int64_t partition_end,
                                                    int64_t frame_start, int64_t frame_end) {
     // here is the core function, should not add timer
-    // If the end is not greater than the start, the current window should be empty.
-    _current_window_empty =
-            std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
-
-    if (_current_window_empty) {
-        LOG(INFO) << "asd " << print_id(state()->query_id());
-    }
-    _current_window_empty = false;
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i] && _current_window_empty) {
             continue;
