@@ -4246,26 +4246,6 @@ show_param ::=
     {:
         RESULT = new ShowOpenTableStmt();
     :}
-    /* show tables */
-    | opt_full KW_TABLES opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, null, parser.isVerbose, parser.wild, parser.where);
-    :}
-    /* show tables */
-    | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
-    :}
-    /* show views */
-    | opt_full KW_VIEWS opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, null, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
-    :}
-    /* show views */
-    | opt_full KW_VIEWS from_or_in ident:ctl DOT ident:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
-    :}
     /* show table id */
     | KW_TABLE INTEGER_LITERAL:tableId
     {:
