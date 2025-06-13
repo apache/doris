@@ -1164,6 +1164,11 @@ public:
         }
     }
     void get_scalar_type(PrimitiveType* type) const {
+        if (type_indexes.size() == 1) {
+            // Most cases will have only one type
+            *type = *type_indexes.begin();
+            return;
+        }
         DataTypePtr data_type;
         get_least_supertype_jsonb(type_indexes, &data_type);
         *type = data_type->get_primitive_type();
@@ -1177,13 +1182,28 @@ private:
     bool have_nulls = false;
 };
 
+void get_precision_and_scale(const Field& field, int* precision, int* scale) {
+    if (field.get_type() == PrimitiveType::TYPE_ARRAY) {
+        for (const auto& item : field.get<Array>()) {
+            if (item.is_null()) {
+                continue;
+            }
+            get_precision_and_scale(item, precision, scale);
+            return;
+        }
+    }
+    *precision = field.get_precision();
+    *scale = field.get_scale();
+}
+
 template <typename Visitor>
 void get_field_info_impl(const Field& field, FieldInfo* info) {
     Visitor to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
     PrimitiveType type_id;
-    int precision = field.get_precision();
-    int scale = field.get_scale();
+    int precision = 0;
+    int scale = 0;
+    get_precision_and_scale(field, &precision, &scale);
     to_scalar_type_visitor.get_scalar_type(&type_id);
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     *info = {

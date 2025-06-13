@@ -93,7 +93,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
                 'array_datev2':array<datev2>,
                 'array_ipv4':array<ipv4>,
                 'array_ipv6':array<ipv6>,
-                'array_float':array<float>,
+                'array_float':array<decimalv3(26,9)>,
                 'array_boolean':array<boolean>,
                 'int_':int, 
                 'string_':string, 
@@ -104,7 +104,7 @@ suite("regression_test_variant_predefine_schema", "p0"){
                 'datev2_':datev2,
                 'ipv4_':ipv4,
                 'ipv6_':ipv6,
-                'float_':float,
+                'float_':decimalv3(26,9),
                 'boolean_':boolean,
                 'varchar_': text
             > NULL
