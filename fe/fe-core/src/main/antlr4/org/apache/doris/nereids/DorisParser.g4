@@ -73,8 +73,7 @@ statementBase
     ;
 
 unsupportedStatement
-    : unsupportedUseStatement
-    | unsupportedStatsStatement
+    : unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
@@ -885,12 +884,9 @@ supportedUnsetStatement
     ;
 
 supportedUseStatement
-     : SWITCH catalog=identifier                                                      #switchCatalog
-     | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    ;
-
-unsupportedUseStatement
-    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+     : SWITCH catalog=identifier                                                        #switchCatalog
+     | USE (catalog=identifier DOT)? database=identifier                                #useDatabase
+     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier   #useCloudCluster
     ;
 
 stageAndPattern
