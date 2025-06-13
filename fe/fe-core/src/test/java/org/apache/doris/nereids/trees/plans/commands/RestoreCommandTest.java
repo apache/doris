@@ -98,6 +98,7 @@ public class RestoreCommandTest {
 
         Map<String, String> properties = new HashedMap();
         properties.put("timeout", "86400");
+        properties.put("allow_load", "true");
         properties.put("backup_timestamp", "2025-06-12-11-15-20");
         properties.put("reserve_replica", "true");
         properties.put("reserve_colocate", "true");

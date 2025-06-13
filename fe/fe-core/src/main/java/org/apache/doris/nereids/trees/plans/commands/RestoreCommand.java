@@ -56,7 +56,7 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private static final Logger LOG = LogManager.getLogger(RestoreCommand.class);
     private static final String PROP_TIMEOUT = "timeout";
     private static final long MIN_TIMEOUT_MS = 600 * 1000L;
-
+    private static final String PROP_ALLOW_LOAD = "allow_load";
     private static final String PROP_BACKUP_TIMESTAMP = "backup_timestamp";
     private static final String PROP_META_VERSION = "meta_version";
     private static final String PROP_IS_BEING_SYNCED = PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED;
@@ -68,6 +68,8 @@ public class RestoreCommand extends Command implements ForwardWithSync {
     private static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     private static final String PROP_ATOMIC_RESTORE = "atomic_restore";
     private static final String PROP_FORCE_REPLACE = "force_replace";
+
+    private boolean allowLoad = false;
     private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
     private int metaVersion = -1;
@@ -216,6 +218,9 @@ public class RestoreCommand extends Command implements ForwardWithSync {
 
         Map<String, String> copiedProperties = Maps.newHashMap(properties);
 
+        // allow load
+        allowLoad = eatBooleanProperty(copiedProperties, PROP_ALLOW_LOAD, allowLoad);
+
         // replication num
         this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "");
         if (this.replicaAlloc.isNotSet()) {
@@ -318,6 +323,10 @@ public class RestoreCommand extends Command implements ForwardWithSync {
 
     public String getDbName() {
         return labelNameInfo.getDb();
+    }
+
+    public boolean allowLoad() {
+        return allowLoad;
     }
 
     public String getBackupTimestamp() {
