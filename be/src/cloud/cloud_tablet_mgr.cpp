@@ -262,6 +262,22 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
     LOG_INFO("finish vacuum stale rowsets")
             .tag("num_vacuumed", num_vacuumed)
             .tag("num_tablets", tablets_to_vacuum.size());
+
+    {
+        LOG_INFO("begin to remove unused rowsets");
+        std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_unused_rowsets;
+        tablets_to_remove_unused_rowsets.reserve(_tablet_map->size());
+        _tablet_map->traverse([&tablets_to_remove_unused_rowsets](auto&& t) {
+            if (t->need_remove_unused_rowsets()) {
+                tablets_to_remove_unused_rowsets.push_back(t);
+            }
+        });
+        for (auto& t : tablets_to_remove_unused_rowsets) {
+            t->remove_unused_rowsets();
+        }
+        LOG_INFO("finish remove unused rowsets")
+                .tag("num_tablets", tablets_to_remove_unused_rowsets.size());
+    }
 }
 
 std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
