@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "common/status.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/jsonb_value.h"
@@ -91,7 +92,9 @@ void JsonbSerializeUtil::jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const 
                                         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                         Block& dst, const std::vector<std::string>& default_values,
                                         const std::unordered_set<int>& include_cids) {
-    auto pdoc = JsonbDocument::checkAndCreateDocument(data, size);
+    JsonbDocument* pdoc = nullptr;
+    THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
+
     JsonbDocument& doc = *pdoc;
     size_t num_rows = dst.rows();
     size_t filled_columns = 0;

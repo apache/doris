@@ -292,7 +292,10 @@ public:
         EXPECT_EQ(jsonb_column->size(), load_cols[0]->size());
         for (size_t r = 0; r < jsonb_column->size(); ++r) {
             StringRef jsonb_data = jsonb_column->get_data_at(r);
-            auto pdoc = JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size);
+            JsonbDocument* pdoc = nullptr;
+            auto st =
+                    JsonbDocument::checkAndCreateDocument(jsonb_data.data, jsonb_data.size, &pdoc);
+            ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
             JsonbDocument& doc = *pdoc;
             size_t cIdx = 0;
             for (auto it = doc->begin(); it != doc->end(); ++it) {

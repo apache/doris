@@ -54,8 +54,9 @@ void VExplodeJsonObjectTableFunction::process_row(size_t row_idx) {
 
     StringRef text = _json_object_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        JsonbDocument* doc = JsonbDocument::checkAndCreateDocument(text.data, text.size);
-        if (!doc || !doc->getValue()) [[unlikely]] {
+        JsonbDocument* doc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(text.data, text.size, &doc);
+        if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             // error jsonb, put null into output, cur_size = 0 , we will insert_default
             return;
         }
