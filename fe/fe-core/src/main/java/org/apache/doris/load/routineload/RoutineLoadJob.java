@@ -1950,7 +1950,9 @@ public abstract class RoutineLoadJob
             CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                     origStmt.originStmt);
             CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
-            createRoutineLoadInfo.validate(new ConnectContext());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+            createRoutineLoadInfo.validate(ctx);
             setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
