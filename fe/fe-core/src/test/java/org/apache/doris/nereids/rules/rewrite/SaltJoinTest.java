@@ -139,10 +139,8 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                 .printlnTree()
                 .matches(
                         logicalJoin(
-                                logicalFilter(
-                                        logicalOlapScan()),
-                                logicalFilter(
-                                        logicalOlapScan())
+                                logicalOlapScan(),
+                                logicalOlapScan()
                         ).when(join -> join.getHashJoinConjuncts().size() == 1 && join.getJoinType() == JoinType.INNER_JOIN)
                 );
     }
@@ -157,9 +155,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                                 logicalProject(
                                         logicalOlapScan()),
                                 logicalProject(
-                                        logicalFilter(
-                                                logicalOlapScan()
-                                        )
+                                        logicalOlapScan()
                                 )
                         ).when(join -> join.getHashJoinConjuncts().size() == 2 && join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 );
@@ -173,9 +169,7 @@ public class SaltJoinTest extends TestWithFeService implements MemoPatternMatchS
                 .matches(
                         logicalJoin(
                                 logicalProject(
-                                        logicalFilter(
                                                 logicalOlapScan()
-                                        )
                                 ),
                                 logicalProject(
                                                 logicalOlapScan())
