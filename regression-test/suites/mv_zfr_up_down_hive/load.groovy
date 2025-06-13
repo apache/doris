@@ -48,7 +48,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
 //    sql """create database if not exists ${dbName}"""
 //    sql """use ${dbName}"""
 
-    String hivePrefix = "hive2"
+    String hivePrefix = "hive3"
     setHivePrefix(hivePrefix)
 
     String tableName1 = """${suiteName}_tb1"""
@@ -255,12 +255,10 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
         insert into ${dbName}.${tableName10} values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
         """
 
-    String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     sql """drop catalog if exists ${ctlName}"""
     sql """create catalog if not exists ${ctlName} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            'hive.metastore.uris' = 'thrift://172.20.48.119:9383'
         );"""
 
     sql """use ${dbName}"""
