@@ -87,42 +87,42 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING ) 
+        partitioned by(dt STRING ) 
         STORED AS ORC;
         """
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-12-15') values (1,1,"2017-12-15")"""
 
     hive_docker """
         CREATE TABLE ${dbName}.${tableName2} (
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING ) 
+        partitioned by(dt STRING ) 
         STORED AS ORC;
         """
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-12-15') values (1,1,"2017-12-15")"""
 
 
     hive_docker """
@@ -130,21 +130,21 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING ) 
+        partitioned by(dt STRING ) 
         STORED AS ORC;
         """
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-12-15') values (1,1,"2017-12-15")"""
 
     hive_docker """
         CREATE TABLE ${dbName}.${tableName4} (
@@ -162,21 +162,21 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING ) 
+        partitioned by(dt STRING ) 
         STORED AS ORC;
         """
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-12-15') values (1,1,"2017-12-15")"""
 
 
     hive_docker """
@@ -184,21 +184,21 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING ) 
+        partitioned by(dt STRING ) 
         STORED AS ORC;
         """
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-12-15') values (1,1,"2017-12-15")"""
 
     hive_docker """
         CREATE TABLE ${dbName}.${tableName7} (
@@ -227,21 +227,21 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING ) 
+        partitioned by(dt STRING ) 
         STORED AS ORC;
         """
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-12-15') values (1,1,"2017-12-15")"""
 
 
     hive_docker """
@@ -271,7 +271,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName1}
             REFRESH AUTO ON MANUAL
-            partition by(`date`)
+            partition by(`dt`)
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
@@ -282,7 +282,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName2}
             REFRESH AUTO ON MANUAL
-            partition by(`date`)
+            partition by(`dt`)
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
@@ -293,7 +293,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName3}
             REFRESH AUTO ON MANUAL
-            partition by(`date`)
+            partition by(`dt`)
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
@@ -304,7 +304,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName4}
             REFRESH AUTO ON MANUAL
-            partition by(`date`)
+            partition by(`dt`)
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
@@ -315,7 +315,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName5}
             REFRESH AUTO ON MANUAL
-            partition by(`date`)
+            partition by(`dt`)
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
@@ -326,7 +326,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     sql """
         CREATE MATERIALIZED VIEW ${mtmvName6}
             REFRESH AUTO ON MANUAL
-            partition by(`date`)
+            partition by(`dt`)
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
