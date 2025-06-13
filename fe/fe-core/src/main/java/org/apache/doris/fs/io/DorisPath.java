@@ -17,7 +17,12 @@
 
 package org.apache.doris.fs.io;
 
+import org.apache.doris.common.util.S3URI;
+
 import org.apache.hadoop.fs.Path;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
 
 public class DorisPath {
     private String path;
@@ -33,5 +38,13 @@ public class DorisPath {
 
     public Path toHadoopPath() {
         return new Path(path);
+    }
+
+    public S3URI toS3URI() {
+        try {
+            return S3URI.create(path);
+        } catch (Exception e) {
+            throw new UncheckedIOException("Invalid S3 URI: " + path, new IOException(e));
+        }
     }
 }

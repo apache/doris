@@ -60,17 +60,12 @@ public class IOUtils {
     /**
      * Copies from one stream to another.
      *
-     * @param in
-     *            InputStream to read from
-     * @param out
-     *            OutputStream to write to
-     * @param buffSize
-     *            the size of the buffer
-     * @param speed
-     *            limit of the copy (B/s)
-     * @param close
-     *            whether or not close the InputStream and OutputStream at the
-     *            end. The streams are closed in the finally clause.
+     * @param in InputStream to read from
+     * @param out OutputStream to write to
+     * @param buffSize the size of the buffer
+     * @param speed limit of the copy (B/s)
+     * @param close whether or not close the InputStream and OutputStream at the
+     *         end. The streams are closed in the finally clause.
      */
     public static long copyBytes(InputStream in, OutputStream out,
             int buffSize, int speed, boolean close) throws IOException {
@@ -119,15 +114,11 @@ public class IOUtils {
     /**
      * Copies from one stream to another.
      *
-     * @param in
-     *            InputStream to read from
-     * @param out
-     *            OutputStream to write to
-     * @param buffSize
-     *            the size of the buffer
-     * @param close
-     *            whether or not close the InputStream and OutputStream at the
-     *            end. The streams are closed in the finally clause.
+     * @param in InputStream to read from
+     * @param out OutputStream to write to
+     * @param buffSize the size of the buffer
+     * @param close whether or not close the InputStream and OutputStream at the
+     *         end. The streams are closed in the finally clause.
      */
     public static long copyBytes(InputStream in, OutputStream out,
             int buffSize, boolean close) throws IOException {
@@ -157,17 +148,12 @@ public class IOUtils {
     /**
      * Reads len bytes in a loop.
      *
-     * @param in
-     *            The InputStream to read from
-     * @param buf
-     *            The buffer to fill
-     * @param off
-     *            offset from the buffer
-     * @param len
-     *            the length of bytes to read
-     * @throws IOException
-     *             if it could not read requested number of bytes for any reason
-     *             (including EOF)
+     * @param in The InputStream to read from
+     * @param buf The buffer to fill
+     * @param off offset from the buffer
+     * @param len the length of bytes to read
+     * @throws IOException if it could not read requested number of bytes for any reason
+     *         (including EOF)
      */
     public static void readFully(InputStream in, byte[] buf, int off, int len)
             throws IOException {
@@ -186,13 +172,10 @@ public class IOUtils {
     /**
      * Similar to readFully(). Skips bytes in a loop.
      *
-     * @param in
-     *            The InputStream to skip bytes from
-     * @param len
-     *            number of bytes to skip.
-     * @throws IOException
-     *             if it could not skip requested number of bytes for any reason
-     *             (including EOF)
+     * @param in The InputStream to skip bytes from
+     * @param len number of bytes to skip.
+     * @throws IOException if it could not skip requested number of bytes for any reason
+     *         (including EOF)
      */
     public static void skipFully(InputStream in, long len) throws IOException {
         long tmpLen = len;
@@ -209,10 +192,8 @@ public class IOUtils {
      * Close the Closeable objects and <b>ignore</b> any {@link IOException} or
      * null pointers. Must only be used for cleanup in exception handlers.
      *
-     * @param log
-     *            the log to record problems to at debug level. Can be null.
-     * @param closeables
-     *            the objects to close
+     * @param log the log to record problems to at debug level. Can be null.
+     * @param closeables the objects to close
      */
     public static void cleanup(Logger log, java.io.Closeable... closeables) {
         for (java.io.Closeable c : closeables) {
@@ -232,8 +213,7 @@ public class IOUtils {
      * Closes the stream ignoring {@link IOException}. Must only be called in
      * cleaning up from exception handlers.
      *
-     * @param stream
-     *            the Stream to close
+     * @param stream the Stream to close
      */
     public static void closeStream(java.io.Closeable stream) {
         cleanup(null, stream);
@@ -242,8 +222,7 @@ public class IOUtils {
     /**
      * Closes the socket ignoring {@link IOException}
      *
-     * @param sock
-     *            the Socket to close
+     * @param sock the Socket to close
      */
     public static void closeSocket(Socket sock) {
         // avoids try { close() } dance
@@ -269,5 +248,10 @@ public class IOUtils {
             return Text.readString(input);
         }
         return null;
+    }
+
+    // Same as Math.clamp in JDK 21
+    public static long clamp(long value, long min, long max) {
+        return Math.max(min, Math.min(max, value));
     }
 }
