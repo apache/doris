@@ -368,7 +368,7 @@ void CompactionMixin::build_basic_info() {
     COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
     COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
-    TEST_SYNC_POINT_RETURN_WITH_VOID("compaction::CompactionMixin::build_basic_info");
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("compaction::CompactionMixin::build_basic_info", Status::OK());
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
