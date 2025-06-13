@@ -20,68 +20,116 @@ package org.apache.doris.fs.io.hdfs;
 import org.apache.doris.fs.io.DorisPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
-import static java.util.Objects.requireNonNull;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Objects;
 
+/**
+ * HdfsOutputStream provides an output stream implementation for writing data to HDFS
+ * using DorisPath and FSDataOutputStream.
+ * It extends FSDataOutputStream and adds additional checks and Kerberos authentication handling.
+ */
 public class HdfsOutputStream extends FSDataOutputStream {
+    // The DorisPath representing the file location in HDFS.
     private final DorisPath path;
+    // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
+    // The DFSFileSystem used to interact with HDFS.
     private final DFSFileSystem dfs;
+    // Indicates whether the stream has been closed.
     private boolean closed;
 
+    /**
+     * Constructs a HdfsOutputStream with the given DorisPath, FSDataOutputStream, and DFSFileSystem.
+     *
+     * @param path the DorisPath representing the file location
+     * @param out the underlying Hadoop FSDataOutputStream
+     * @param dfs the DFSFileSystem used to interact with HDFS
+     */
     public HdfsOutputStream(DorisPath path, FSDataOutputStream out, DFSFileSystem dfs) {
         super(out, null, out.getPos());
-        this.path = requireNonNull(path, "path is null");
+        this.path = Objects.requireNonNull(path, "path is null");
         this.hadoopPath = path.toHadoopPath();
         this.dfs = dfs;
     }
 
+    /**
+     * Checks if the stream is closed and throws an IOException if it is.
+     * Used internally before performing any operation.
+     *
+     * @throws IOException if the stream is closed
+     */
+    private void checkClosed() throws IOException {
+        if (closed) {
+            throw new IOException("Output stream is closed: " + path);
+        }
+    }
+
+    /**
+     * Returns the originally wrapped OutputStream, not the delegate.
+     *
+     * @return the wrapped OutputStream
+     */
     @Override
     public OutputStream getWrappedStream() {
-        // return the originally wrapped stream, not the delegate
         return ((FSDataOutputStream) super.getWrappedStream()).getWrappedStream();
     }
 
+    /**
+     * Writes the specified byte to this output stream, handling Kerberos ticket refresh if needed.
+     *
+     * @param b the byte to write
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public void write(int b) throws IOException {
         checkClosed();
-        // handle Kerberos ticket refresh during long write operations
         dfs.getAuthenticator().doAs(() -> {
             super.write(b);
             return null;
         });
     }
 
+    /**
+     * Writes len bytes from the specified byte array starting at offset off to this output stream,
+     * handling Kerberos ticket refresh if needed.
+     *
+     * @param b the data
+     * @param off the start offset in the data
+     * @param len the number of bytes to write
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
         checkClosed();
-        // handle Kerberos ticket refresh during long write operations
         dfs.getAuthenticator().doAs(() -> {
             super.write(b, off, len);
             return null;
         });
     }
 
+    /**
+     * Flushes this output stream and forces any buffered output bytes to be written out.
+     *
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public void flush() throws IOException {
         checkClosed();
         super.flush();
     }
 
+    /**
+     * Closes this output stream and releases any system resources associated with it.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void close() throws IOException {
         closed = true;
         super.close();
-    }
-
-
-    private void checkClosed() throws IOException {
-        if (closed) {
-            throw new IOException("Output stream is closed: " + path);
-        }
     }
 }

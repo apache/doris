@@ -20,22 +20,54 @@ package org.apache.doris.fs.io.hdfs;
 import org.apache.doris.fs.io.DorisInputStream;
 import org.apache.doris.fs.io.DorisPath;
 
-import static java.util.Objects.requireNonNull;
 import org.apache.hadoop.fs.FSDataInputStream;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.Objects;
 
+/**
+ * HdfsInputStream provides an input stream implementation for reading data from HDFS
+ * using DorisPath and FSDataInputStream.
+ * It extends DorisInputStream and wraps Hadoop's FSDataInputStream, providing additional checks and error handling.
+ */
 public class HdfsInputStream extends DorisInputStream {
+    // The DorisPath representing the file location in HDFS.
     private final DorisPath path;
+    // The underlying Hadoop FSDataInputStream used for reading.
     private final FSDataInputStream stream;
+    // Indicates whether the stream has been closed.
     private boolean closed;
 
+    /**
+     * Constructs a HdfsInputStream with the given DorisPath and FSDataInputStream.
+     *
+     * @param path the DorisPath representing the file location
+     * @param stream the underlying Hadoop FSDataInputStream
+     */
     HdfsInputStream(DorisPath path, FSDataInputStream stream) {
-        this.path = requireNonNull(path, "path is null");
-        this.stream = requireNonNull(stream, "stream is null");
+        this.path = Objects.requireNonNull(path, "path is null");
+        this.stream = Objects.requireNonNull(stream, "stream is null");
     }
 
+    /**
+     * Checks if the stream is closed and throws an IOException if it is.
+     * Used internally before performing any operation.
+     *
+     * @throws IOException if the stream is closed
+     */
+    private void checkClosed() throws IOException {
+        if (closed) {
+            throw new IOException("Input stream is closed: " + path);
+        }
+    }
+
+    /**
+     * Returns the number of bytes that can be read from this input stream without blocking.
+     *
+     * @return the number of available bytes
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public int available() throws IOException {
         checkClosed();
@@ -46,6 +78,12 @@ public class HdfsInputStream extends DorisInputStream {
         }
     }
 
+    /**
+     * Returns the current position in the input stream.
+     *
+     * @return the current position
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public long getPosition() throws IOException {
         checkClosed();
@@ -56,6 +94,12 @@ public class HdfsInputStream extends DorisInputStream {
         }
     }
 
+    /**
+     * Seeks to the specified position in the input stream.
+     *
+     * @param position the position to seek to
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public void seek(long position) throws IOException {
         checkClosed();
@@ -67,6 +111,12 @@ public class HdfsInputStream extends DorisInputStream {
         }
     }
 
+    /**
+     * Reads the next byte of data from the input stream.
+     *
+     * @return the next byte of data, or -1 if the end of the stream is reached
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public int read() throws IOException {
         checkClosed();
@@ -79,6 +129,15 @@ public class HdfsInputStream extends DorisInputStream {
         }
     }
 
+    /**
+     * Reads up to len bytes of data from the input stream into an array of bytes.
+     *
+     * @param b the buffer into which the data is read
+     * @param off the start offset in array b at which the data is written
+     * @param len the maximum number of bytes to read
+     * @return the total number of bytes read into the buffer, or -1 if there is no more data
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
         checkClosed();
@@ -91,6 +150,13 @@ public class HdfsInputStream extends DorisInputStream {
         }
     }
 
+    /**
+     * Skips over and discards n bytes of data from this input stream.
+     *
+     * @param n the number of bytes to skip
+     * @return the actual number of bytes skipped
+     * @throws IOException if an I/O error occurs or the stream is closed
+     */
     @Override
     public long skip(long n) throws IOException {
         checkClosed();
@@ -101,15 +167,14 @@ public class HdfsInputStream extends DorisInputStream {
         }
     }
 
+    /**
+     * Closes this input stream and releases any system resources associated with it.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void close() throws IOException {
         closed = true;
         stream.close();
-    }
-
-    private void checkClosed() throws IOException {
-        if (closed) {
-            throw new IOException("Input stream is closed: " + path);
-        }
     }
 }

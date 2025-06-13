@@ -19,16 +19,57 @@ package org.apache.doris.fs.io;
 
 import java.io.IOException;
 
+/**
+ * DorisInputFile represents an abstraction for a file input source in Doris filesystem layer.
+ * <p>
+ * This interface provides methods to access file content, retrieve file metadata, and check file existence.
+ * Implementations of this interface allow Doris to interact with various file systems in a unified way.
+ */
 public interface DorisInputFile {
-    DorisInput newInput() throws IOException;
+    /**
+     * Returns the path of this file as a DorisPath object.
+     *
+     * @return the DorisPath representing the file location
+     */
+    DorisPath path();
 
-    DorisInputStream newStream() throws IOException;
-
+    /**
+     * Returns the length of the file in bytes.
+     *
+     * @return the size of the file in bytes
+     * @throws IOException if an I/O error occurs
+     */
     long length() throws IOException;
 
+    /**
+     * Returns the last modified time of the file.
+     *
+     * @return the last modified timestamp in milliseconds since epoch
+     * @throws IOException if an I/O error occurs
+     */
     long lastModifiedTime() throws IOException;
 
+    /**
+     * Checks whether the file exists.
+     *
+     * @return true if the file exists, false otherwise
+     * @throws IOException if an I/O error occurs
+     */
     boolean exists() throws IOException;
 
-    DorisPath path();
+    /**
+     * Creates a new DorisInput for reading the file content in a random-access manner.
+     *
+     * @return a new DorisInput instance for this file
+     * @throws IOException if an I/O error occurs
+     */
+    DorisInput newInput() throws IOException;
+
+    /**
+     * Creates a new DorisInputStream for reading the file content as a stream.
+     *
+     * @return a new DorisInputStream instance for this file
+     * @throws IOException if an I/O error occurs
+     */
+    DorisInputStream newStream() throws IOException;
 }

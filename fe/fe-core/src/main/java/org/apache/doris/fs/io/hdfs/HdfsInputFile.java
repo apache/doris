@@ -24,38 +24,71 @@ import org.apache.doris.fs.io.DorisInputStream;
 import org.apache.doris.fs.io.DorisPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
-import static java.util.Objects.requireNonNull;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
+import java.util.Objects;
 
+/**
+ * HdfsInputFile provides an implementation of DorisInputFile for reading data from HDFS.
+ * It wraps a DorisPath and DFSFileSystem to open files and retrieve file metadata from HDFS.
+ */
 public class HdfsInputFile implements DorisInputFile {
+    // The DorisPath representing the file location in HDFS.
     private final DorisPath path;
+    // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
+    // The DFSFileSystem used to interact with HDFS.
     private final DFSFileSystem dfs;
 
-    // The following fields are lazily initialized
+    // The length of the file, lazily initialized.
     private long length;
+    // The FileStatus object for the file, lazily initialized.
     private FileStatus status;
 
+    /**
+     * Constructs a HdfsInputFile with the given DorisPath, file length, and DFSFileSystem.
+     *
+     * @param path the DorisPath representing the file location
+     * @param length the length of the file, or -1 if unknown
+     * @param dfs the DFSFileSystem used to interact with HDFS
+     */
     public HdfsInputFile(DorisPath path, long length, DFSFileSystem dfs) {
-        this.path = requireNonNull(path, "path is null");
-        this.dfs = requireNonNull(dfs, "hdfs file system is null");
+        this.path = Objects.requireNonNull(path, "path is null");
+        this.dfs = Objects.requireNonNull(dfs, "hdfs file system is null");
         this.hadoopPath = path.toHadoopPath();
         this.length = length;
     }
 
+    /**
+     * Returns a new DorisInput for reading from this file.
+     *
+     * @return a new DorisInput instance
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public DorisInput newInput() throws IOException {
         return new HdfsInput(dfs.openFile(hadoopPath), this);
     }
 
+    /**
+     * Returns a new DorisInputStream for streaming reads from this file.
+     *
+     * @return a new DorisInputStream instance
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public DorisInputStream newStream() throws IOException {
         return new HdfsInputStream(path, dfs.openFile(hadoopPath));
     }
 
+    /**
+     * Returns the length of the file, querying HDFS if necessary.
+     *
+     * @return the file length
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public long length() throws IOException {
         if (length == -1) {
@@ -64,27 +97,55 @@ public class HdfsInputFile implements DorisInputFile {
         return length;
     }
 
+    /**
+     * Returns the last modified time of the file.
+     *
+     * @return the last modified time in milliseconds
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public long lastModifiedTime() throws IOException {
         return getFileStatus().getModificationTime();
     }
 
+    /**
+     * Checks if the file exists in HDFS.
+     *
+     * @return true if the file exists, false otherwise
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public boolean exists() throws IOException {
         Status status = dfs.exists(path.toString());
         return status.ok();
     }
 
+    /**
+     * Returns the DorisPath associated with this input file.
+     *
+     * @return the DorisPath
+     */
     @Override
     public DorisPath path() {
         return path;
     }
 
+    /**
+     * Returns the string representation of the file path.
+     *
+     * @return the file path as a string
+     */
     @Override
     public String toString() {
         return path().toString();
     }
 
+    /**
+     * Lazily retrieves the FileStatus from HDFS for this file.
+     *
+     * @return the FileStatus object
+     * @throws IOException if an I/O error occurs
+     */
     private FileStatus getFileStatus() throws IOException {
         if (status == null) {
             status = dfs.getFileStatus(hadoopPath);

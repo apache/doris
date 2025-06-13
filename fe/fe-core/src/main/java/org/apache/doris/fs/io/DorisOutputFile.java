@@ -20,10 +20,40 @@ package org.apache.doris.fs.io;
 import java.io.IOException;
 import java.io.OutputStream;
 
+/**
+ * DorisOutputFile represents an abstraction for a file output destination in the Doris filesystem layer.
+ * <p>
+ * This interface provides methods to create output streams for writing file content,
+ * either as a new file or by overwriting an existing file.
+ * It also provides a method to retrieve the file's path.
+ * Implementations of this interface allow Doris to interact with various file systems
+ * in a unified way for output operations.
+ */
 public interface DorisOutputFile {
+    /**
+     * Creates a new file and returns an OutputStream for writing to it.
+     * <p>
+     * If the file already exists, this method may fail depending on the implementation.
+     *
+     * @return an OutputStream for writing to the new file
+     * @throws IOException if an I/O error occurs or the file already exists
+     */
     OutputStream create() throws IOException;
 
+    /**
+     * Creates a new file or overwrites the existing file and returns an OutputStream for writing to it.
+     * <p>
+     * If the file already exists, it will be overwritten.
+     *
+     * @return an OutputStream for writing to the file
+     * @throws IOException if an I/O error occurs
+     */
     OutputStream createOrOverwrite() throws IOException;
 
+    /**
+     * Returns the path of this output file as a DorisPath object.
+     *
+     * @return the DorisPath representing the file location
+     */
     DorisPath path();
 }

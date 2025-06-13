@@ -20,9 +20,32 @@ package org.apache.doris.fs.io;
 import java.io.IOException;
 import java.io.InputStream;
 
+/**
+ * DorisInputStream is an abstract base class for input streams in the Doris filesystem layer.
+ * <p>
+ * This class extends {@link InputStream} and provides additional methods for position-aware
+ * stream reading, such as retrieving the current position and seeking to a specific position.
+ * Implementations of this class enable Doris to interact with various storage backends in a unified way.
+ */
 public abstract class DorisInputStream extends InputStream {
 
+    /**
+     * Returns the current position in the input stream.
+     * <p>
+     * The position indicates the number of bytes read from the beginning of the stream.
+     *
+     * @return the current byte offset in the stream
+     * @throws IOException if an I/O error occurs while retrieving the position
+     */
     public abstract long getPosition() throws IOException;
 
+    /**
+     * Seeks to the specified position in the input stream.
+     * <p>
+     * After calling this method, the next read will occur at the given byte offset.
+     *
+     * @param position the byte offset to seek to
+     * @throws IOException if an I/O error occurs or the position is invalid
+     */
     public abstract void seek(long position) throws IOException;
 }

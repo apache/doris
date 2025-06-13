@@ -28,13 +28,32 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Objects;
 
+/**
+ * DelegateInputFile is an implementation of the Iceberg InputFile interface.
+ * It wraps a DorisInputFile and delegates file input operations to it, providing
+ * integration between Doris file system and Iceberg's file IO abstraction.
+ */
 public class DelegateInputFile implements InputFile {
+    /**
+     * The underlying DorisInputFile used for file operations.
+     */
     private final DorisInputFile inputFile;
 
+    /**
+     * Constructs a DelegateInputFile with the specified DorisInputFile.
+     * @param inputFile the DorisInputFile to delegate operations to
+     */
     public DelegateInputFile(DorisInputFile inputFile) {
         this.inputFile = Objects.requireNonNull(inputFile, "inputFile is null");
     }
 
+    // ===================== File Information Methods =====================
+
+    /**
+     * Returns the length of the file in bytes.
+     * Throws UncheckedIOException if the file status cannot be retrieved.
+     * @return the file length in bytes
+     */
     @Override
     public long getLength() {
         try {
@@ -44,6 +63,36 @@ public class DelegateInputFile implements InputFile {
         }
     }
 
+    /**
+     * Returns the location (path) of the file as a string.
+     * @return the file location
+     */
+    @Override
+    public String location() {
+        return inputFile.path().toString();
+    }
+
+    /**
+     * Checks if the file exists.
+     * Throws UncheckedIOException if the existence check fails.
+     * @return true if the file exists, false otherwise
+     */
+    @Override
+    public boolean exists() {
+        try {
+            return inputFile.exists();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to check existence for file: " + location(), e);
+        }
+    }
+
+    // ===================== File Stream Methods =====================
+
+    /**
+     * Opens a new SeekableInputStream for reading the file.
+     * Throws NotFoundException if the file is not found, or UncheckedIOException for other IO errors.
+     * @return a SeekableInputStream for the file
+     */
     @Override
     public SeekableInputStream newStream() {
         try {
@@ -55,20 +104,12 @@ public class DelegateInputFile implements InputFile {
         }
     }
 
-    @Override
-    public String location() {
-        return inputFile.path().toString();
-    }
+    // ===================== Object Methods =====================
 
-    @Override
-    public boolean exists() {
-        try {
-            return inputFile.exists();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to check existence for file: " + location(), e);
-        }
-    }
-
+    /**
+     * Returns a string representation of this DelegateInputFile.
+     * @return string representation
+     */
     @Override
     public String toString() {
         return inputFile.toString();

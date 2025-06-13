@@ -21,38 +21,73 @@ import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.DorisPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
-import static java.util.Objects.requireNonNull;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Objects;
 
+/**
+ * HdfsOutputFile provides an implementation of DorisOutputFile for writing data to HDFS.
+ * It wraps a DorisPath and DFSFileSystem to create or overwrite files in HDFS.
+ */
 public class HdfsOutputFile implements DorisOutputFile {
+    // The DorisPath representing the file location in HDFS.
     private final DorisPath path;
+    // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
+    // The DFSFileSystem used to interact with HDFS.
     private final DFSFileSystem dfs;
 
+    /**
+     * Constructs a HdfsOutputFile with the given DorisPath and DFSFileSystem.
+     *
+     * @param path the DorisPath representing the file location
+     * @param dfs the DFSFileSystem used to interact with HDFS
+     */
     public HdfsOutputFile(DorisPath path, DFSFileSystem dfs) {
-        this.path = requireNonNull(path, "path is null");
+        this.path = Objects.requireNonNull(path, "path is null");
         this.hadoopPath = path.toHadoopPath();
-        this.dfs = requireNonNull(dfs, "dfs is null");
+        this.dfs = Objects.requireNonNull(dfs, "dfs is null");
     }
 
+    /**
+     * Creates a new file in HDFS. Fails if the file already exists.
+     *
+     * @return OutputStream for writing to the new file
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public OutputStream create() throws IOException {
         return dfs.createFile(hadoopPath, false);
     }
 
+    /**
+     * Creates a new file or overwrites the file if it already exists in HDFS.
+     *
+     * @return OutputStream for writing to the file
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public OutputStream createOrOverwrite() throws IOException {
         return dfs.createFile(hadoopPath, true);
     }
 
+    /**
+     * Returns the DorisPath associated with this output file.
+     *
+     * @return the DorisPath
+     */
     @Override
     public DorisPath path() {
         return path;
     }
 
+    /**
+     * Returns the string representation of the file path.
+     *
+     * @return the file path as a string
+     */
     @Override
     public String toString() {
         return path().toString();
