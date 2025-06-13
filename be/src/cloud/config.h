@@ -78,7 +78,7 @@ DECLARE_mInt64(min_compaction_failure_interval_ms);
 DECLARE_mBool(enable_new_tablet_do_compaction);
 // For cloud read/write separate mode
 DECLARE_mInt64(base_compaction_freeze_interval_s);
-DECLARE_mInt64(cu_compaction_freeze_interval_s);
+DECLARE_mInt64(compaction_load_max_freeze_interval_s);
 DECLARE_mInt64(cumu_compaction_interval_s);
 
 DECLARE_mInt32(compaction_timeout_seconds);
