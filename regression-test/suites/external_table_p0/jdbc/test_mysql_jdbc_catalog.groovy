@@ -72,6 +72,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String dt_null = "dt_null";
         String test_zd = "test_zd"
 
+        sql """switch internal"""
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
