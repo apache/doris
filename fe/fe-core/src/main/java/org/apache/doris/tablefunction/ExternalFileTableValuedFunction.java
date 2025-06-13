@@ -91,7 +91,7 @@ import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
- * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
+ * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL/HTTP_STREAM/GROUP_COMMIT table-valued-function
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
