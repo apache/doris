@@ -30,7 +30,6 @@
 #include "pipeline/task_scheduler.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/workload_group/dummy_workload_group.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_metrics.h"
 #include "util/mem_info.h"
@@ -41,6 +40,9 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
+
+const static string INTERNAL_NORMAL_WG_NAME = "normal";
+const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
 PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double cache_ratio,
                          bool any_wg_exceed_limit, int64_t reserve_size)
@@ -54,41 +56,90 @@ PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double c
 
 WorkloadGroupMgr::~WorkloadGroupMgr() = default;
 
-WorkloadGroupMgr::WorkloadGroupMgr() {
-    _dummy_workload_group = std::make_shared<DummyWorkloadGroup>();
-}
+WorkloadGroupMgr::WorkloadGroupMgr() = default;
 
 WorkloadGroupPtr WorkloadGroupMgr::get_or_create_workload_group(
-        const WorkloadGroupInfo& workload_group_info) {
-    {
-        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        if (LIKELY(_workload_groups.count(workload_group_info.id))) {
-            auto workload_group = _workload_groups[workload_group_info.id];
-            workload_group->check_and_update(workload_group_info);
-            return workload_group;
+        const WorkloadGroupInfo& fe_wg_info) {
+    std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+    // 1. update internal wg's id
+    if (fe_wg_info.name == INTERNAL_NORMAL_WG_NAME) {
+        WorkloadGroupPtr wg_ptr = nullptr;
+        uint64_t old_wg_id = -1;
+        int before_wg_size = _workload_groups.size();
+        for (auto& wg_pair : _workload_groups) {
+            uint64_t wg_id = wg_pair.first;
+            WorkloadGroupPtr wg = wg_pair.second;
+            if (INTERNAL_NORMAL_WG_NAME == wg->name() && wg_id != fe_wg_info.id) {
+                wg_ptr = wg_pair.second;
+                old_wg_id = wg_id;
+                break;
+            }
+        }
+        if (wg_ptr) {
+            _workload_groups.erase(old_wg_id);
+            wg_ptr->set_id(fe_wg_info.id);
+            _workload_groups[wg_ptr->id()] = wg_ptr;
+            LOG(INFO) << "[topic_publish_wg] normal wg id changed, before: " << old_wg_id
+                      << ", after:" << wg_ptr->id() << ", wg size:" << before_wg_size << ", "
+                      << _workload_groups.size();
         }
     }
 
-    auto new_task_group = std::make_shared<WorkloadGroup>(workload_group_info);
-    std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
-    if (_workload_groups.contains(workload_group_info.id)) {
-        auto workload_group = _workload_groups[workload_group_info.id];
-        workload_group->check_and_update(workload_group_info);
+    // 2. check and update wg
+    if (LIKELY(_workload_groups.count(fe_wg_info.id))) {
+        auto workload_group = _workload_groups[fe_wg_info.id];
+        workload_group->check_and_update(fe_wg_info);
         return workload_group;
     }
-    _workload_groups[workload_group_info.id] = new_task_group;
+
+    auto new_task_group = std::make_shared<WorkloadGroup>(fe_wg_info);
+    _workload_groups[fe_wg_info.id] = new_task_group;
     return new_task_group;
 }
 
-WorkloadGroupPtr WorkloadGroupMgr::get_group(uint64_t wg_id) {
-    if (wg_id == DUMMY_WORKLOAD_GROUP_ID) {
-        return _dummy_workload_group;
+WorkloadGroupPtr WorkloadGroupMgr::get_group(std::vector<uint64_t>& id_list) {
+    WorkloadGroupPtr ret_wg = nullptr;
+    int wg_cout = 0;
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        for (auto& wg_id : id_list) {
+            if (_workload_groups.find(wg_id) != _workload_groups.end()) {
+                wg_cout++;
+                ret_wg = _workload_groups.at(wg_id);
+            }
+        }
     }
-    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    if (_workload_groups.find(wg_id) != _workload_groups.end()) {
-        return _workload_groups.at(wg_id);
+
+    if (wg_cout > 1) {
+        std::stringstream ss;
+        ss << "Unexpected error: find too much wg in BE; input id=";
+
+        for (auto& id : id_list) {
+            ss << id << ",";
+        }
+
+        ss << " be wg: ";
+        for (auto& wg_pair : _workload_groups) {
+            ss << wg_pair.second->debug_string() << ", ";
+        }
+        LOG(ERROR) << ss.str();
     }
-    return nullptr;
+    // DCHECK(wg_cout <= 1);
+
+    if (ret_wg == nullptr) {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        for (auto& wg_pair : _workload_groups) {
+            if (wg_pair.second->name() == INTERNAL_NORMAL_WG_NAME) {
+                ret_wg = wg_pair.second;
+                break;
+            }
+        }
+    }
+
+    if (ret_wg == nullptr) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "not even find normal wg in BE");
+    }
+    return ret_wg;
 }
 
 void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_id) {
@@ -996,6 +1047,25 @@ void WorkloadGroupMgr::stop() {
     for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
     }
+}
+
+Status WorkloadGroupMgr::create_internal_wg() {
+    TWorkloadGroupInfo twg_info;
+    twg_info.__set_id(INTERNAL_NORMAL_WG_ID);
+    twg_info.__set_name(INTERNAL_NORMAL_WG_NAME);
+    twg_info.__set_version(0);
+
+    WorkloadGroupInfo wg_info = WorkloadGroupInfo::parse_topic_info(twg_info);
+    auto normal_wg = std::make_shared<WorkloadGroup>(wg_info);
+
+    RETURN_IF_ERROR(normal_wg->upsert_task_scheduler(&wg_info));
+
+    {
+        std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+        _workload_groups[normal_wg->id()] = normal_wg;
+    }
+
+    return Status::OK();
 }
 
 } // namespace doris
