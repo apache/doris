@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.SetType;
