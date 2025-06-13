@@ -36,22 +36,25 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     String suiteName = "mtmv_up_down_olap_hive"
     String ctlName = "${suiteName}_ctl"
     String dbName = context.config.getDbNameByFile(context.file)
-    sql """create catalog if not exists ${ctlName} properties (
-        "type"="hms",
-        'hive.metastore.uris' = 'thrift://172.20.48.119:9383',
-        'fs.defaultFS' = 'hdfs://172.20.48.119:8320',
-        'hadoop.username' = 'hadoop',
-        'enable.auto.analyze' = 'false'
-        );"""
-    sql """switch ${ctlName}"""
-    sql """create database if not exists ${dbName}"""
-    sql """use ${dbName}"""
+
+//    sql """create catalog if not exists ${ctlName} properties (
+//        "type"="hms",
+//        'hive.metastore.uris' = 'thrift://172.20.48.119:9383',
+//        'fs.defaultFS' = 'hdfs://172.20.48.119:8320',
+//        'hadoop.username' = 'hadoop',
+//        'enable.auto.analyze' = 'false'
+//        );"""
+//    sql """switch ${ctlName}"""
+//    sql """create database if not exists ${dbName}"""
+//    sql """use ${dbName}"""
+
+    String hivePrefix = "hive2"
+    setHivePrefix(hivePrefix)
 
     String tableName1 = """${suiteName}_tb1"""
     String tableName2 = """${suiteName}_tb2"""
     String tableName3 = """${suiteName}_tb3"""
     String tableName4 = """${suiteName}_tb4"""
-    String tableName4_rn = """${suiteName}_tb4_rn"""
     String tableName5 = """${suiteName}_tb5"""
     String tableName6 = """${suiteName}_tb6"""
     String tableName7 = """${suiteName}_tb7"""
@@ -65,158 +68,201 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     String mtmvName5 = """${suiteName}_mtmv5"""
     String mtmvName6 = """${suiteName}_mtmv6"""
 
-    sql """drop table if exists `${tableName1}`"""
-    sql """drop table if exists `${tableName2}`"""
-    sql """drop table if exists `${tableName3}`"""
-    sql """drop table if exists `${tableName4}`"""
-    sql """drop table if exists `${tableName4_rn}`"""
-    sql """drop table if exists `${tableName5}`"""
-    sql """drop table if exists `${tableName6}`"""
-    sql """drop table if exists `${tableName7}`"""
-    sql """drop table if exists `${tableName8}`"""
-    sql """drop table if exists `${tableName9}`"""
-    sql """drop table if exists `${tableName10}`"""
+    hive_docker """ drop table if exists ${dbName}.${tableName1} """
+    hive_docker """ drop table if exists ${dbName}.${tableName2} """
+    hive_docker """ drop table if exists ${dbName}.${tableName3} """
+    hive_docker """ drop table if exists ${dbName}.${tableName4} """
+    hive_docker """ drop table if exists ${dbName}.${tableName5} """
+    hive_docker """ drop table if exists ${dbName}.${tableName6} """
+    hive_docker """ drop table if exists ${dbName}.${tableName7} """
+    hive_docker """ drop table if exists ${dbName}.${tableName8} """
+    hive_docker """ drop table if exists ${dbName}.${tableName9} """
+    hive_docker """ drop table if exists ${dbName}.${tableName10} """
 
-    sql """
-        CREATE TABLE `${tableName1}` (
-          `user_id` INT COMMENT '用户id',
-          `num` INT COMMENT '数量',
-          `date` DATE COMMENT '数据灌入日期时间'
-        ) ENGINE=hive
-        PARTITION BY LIST (date) ()
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName1} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
-        """
+    hive_docker """ drop database if exists ${dbName}"""
+    hive_docker """ create database ${dbName}"""
 
-    sql """
-        CREATE TABLE `${tableName2}` (
-          `user_id` INT COMMENT '用户id',
-          `num` INT COMMENT '数量',
-          `date` DATE COMMENT '数据灌入日期时间'
-        ) ENGINE=hive
-        PARTITION BY LIST (date) ()
-        PROPERTIES (
-            'file_format'='parquet'
-        );
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName1} (
+          `user_id` INT,
+          `num` INT
+        ) 
+        partitioned by(date STRING) 
+        STORED AS ORC;
         """
-    sql """
-        insert into ${tableName2} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
-        """
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
 
-    sql """
-        CREATE TABLE `${tableName3}` (
-          `user_id` INT COMMENT '用户id',
-          `num` INT COMMENT '数量',
-          `date` DATE COMMENT '数据灌入日期时间'
-        ) ENGINE=hive
-        PARTITION BY LIST (date) ()
-        PROPERTIES (
-            'file_format'='parquet'
-        );
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName2} (
+          `user_id` INT,
+          `num` INT
+        ) 
+        partitioned by(date STRING) 
+        STORED AS ORC;
         """
-    sql """
-        insert into ${tableName3} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
-        """
-
-    sql """
-        CREATE TABLE `${tableName4}` (
-          `user_id` INT COMMENT '用户id',
-          `age` INT COMMENT '年龄'
-        ) ENGINE=hive
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName4} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
-        """
-
-    sql """
-        CREATE TABLE `${tableName5}` (
-          `user_id` INT COMMENT '用户id',
-          `num` INT COMMENT '数量',
-          `date` DATE COMMENT '数据灌入日期时间'
-        ) ENGINE=hive
-        PARTITION BY LIST (date) ()
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName5} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
-        """
-
-    sql """
-        CREATE TABLE `${tableName6}` (
-          `user_id` INT COMMENT '用户id',
-          `num` INT COMMENT '数量',
-          `date` DATE COMMENT '数据灌入日期时间'
-        ) ENGINE=hive
-        PARTITION BY LIST (date) ()
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName6} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
-        """
-    sql """
-        CREATE TABLE `${tableName7}` (
-          `user_id` INT COMMENT '用户id',
-          `age` INT COMMENT '年龄'
-        ) ENGINE=hive
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName7} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
-        """
-    sql """
-        CREATE TABLE `${tableName8}` (
-          `user_id` INT COMMENT '用户id',
-          `age` INT COMMENT '年龄'
-        ) ENGINE=hive
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName8} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
-        """
-    sql """
-        CREATE TABLE `${tableName9}` (
-          `user_id` INT COMMENT '用户id',
-          `num` INT COMMENT '数量',
-          `date` DATE COMMENT '数据灌入日期时间'
-        ) ENGINE=hive
-        PARTITION BY LIST (date) ()
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName9} values (1,1,"2017-01-15"),(2,2,"2017-02-15"),(3,3,"2017-03-15"),(4,4,"2017-04-15"),(5,5,"2017-05-15"),(6,6,"2017-06-15"),(7,7,"2017-07-15"),(8,8,"2017-08-15"),(9,9,"2017-09-15"),(10,10,"2017-10-15"),(11,11,"2017-11-15"),(12,12,"2017-12-15");
-        """
-    sql """
-        CREATE TABLE `${tableName10}` (
-          `user_id` INT COMMENT '用户id',
-          `age` INT COMMENT '年龄'
-        ) ENGINE=hive
-        PROPERTIES (
-            'file_format'='parquet'
-        );
-        """
-    sql """
-        insert into ${tableName10} values(1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
-        """
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
 
 
-    sql """switch internal;"""
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName3} (
+          `user_id` INT,
+          `num` INT
+        ) 
+        partitioned by(date STRING) 
+        STORED AS ORC;
+        """
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName4} (
+          `user_id` INT ,
+          `age` INT 
+        ) 
+        STORED AS ORC;
+        """
+    hive_docker """
+        insert into ${dbName}.${tableName4} values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName5} (
+          `user_id` INT,
+          `num` INT
+        ) 
+        partitioned by(date STRING) 
+        STORED AS ORC;
+        """
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName6} (
+          `user_id` INT,
+          `num` INT
+        ) 
+        partitioned by(date STRING) 
+        STORED AS ORC;
+        """
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName7} (
+          `user_id` INT ,
+          `age` INT 
+        ) 
+        STORED AS ORC;
+        """
+    hive_docker """
+        insert into ${dbName}.${tableName7} values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName8} (
+          `user_id` INT ,
+          `age` INT 
+        ) 
+        STORED AS ORC;
+        """
+    hive_docker """
+        insert into ${dbName}.${tableName8} values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName9} (
+          `user_id` INT,
+          `num` INT
+        ) 
+        partitioned by(date STRING) 
+        STORED AS ORC;
+        """
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-02-15') values (1,1,"2017-02-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-03-15') values (1,1,"2017-03-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-04-15') values (1,1,"2017-04-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-05-15') values (1,1,"2017-05-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-06-15') values (1,1,"2017-06-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-07-15') values (1,1,"2017-07-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-08-15') values (1,1,"2017-08-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-09-15') values (1,1,"2017-09-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-010-15') values (1,1,"2017-10-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-11-15') values (1,1,"2017-11-15")"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-12-15') values (1,1,"2017-12-15")"""
+
+
+    hive_docker """
+        CREATE TABLE ${dbName}.${tableName10} (
+          `user_id` INT ,
+          `age` INT 
+        ) 
+        STORED AS ORC;
+        """
+    hive_docker """
+        insert into ${dbName}.${tableName10} values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
+        """
+
+    String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    sql """drop catalog if exists ${ctlName}"""
+    sql """create catalog if not exists ${ctlName} properties (
+            "type"="hms",
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+        );"""
+
     sql """use ${dbName}"""
     sql """drop materialized view if exists ${mtmvName1};"""
     sql """drop materialized view if exists ${mtmvName2};"""

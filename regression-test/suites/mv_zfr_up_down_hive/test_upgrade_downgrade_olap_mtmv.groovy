@@ -208,6 +208,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
 
 
     // mtmv3: insert data
+    // 确认一下我们这边插入之后会自动变为不同步
     sql """insert into ${ctlName}.${dbName}.${tableName3} values(1,1,"2017-01-15");"""
     def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
     def test_sql3 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"""
@@ -215,7 +216,12 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") {
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv3[0][0] == "NORMAL")
         assertTrue(state_mtmv3[0][2] == false)
+
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+//            assertTrue(state_mtmv3[0][0] == "NORMAL")
+//            assertTrue(state_mtmv3[0][2] == true)
+//            sql """select * from ${ctlName}.${dbName}.${tableName3}"""
+
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
             mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
