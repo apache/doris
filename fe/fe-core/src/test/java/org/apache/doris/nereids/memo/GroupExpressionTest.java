@@ -20,7 +20,6 @@ package org.apache.doris.nereids.memo;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.FakePlan;
-import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;

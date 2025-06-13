@@ -19,6 +19,9 @@ package org.apache.doris.nereids.cost;
 
 import org.apache.doris.qe.SessionVariable;
 
+/**
+ * CostV1.
+ */
 public class Cost {
     private static final Cost INFINITE = new Cost(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
             Double.POSITIVE_INFINITY,
