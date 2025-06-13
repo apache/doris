@@ -59,14 +59,6 @@ public class WarmUpClusterCommandTest {
                 minTimes = 0;
                 result = env;
 
-                env.getCatalogMgr().getCatalog(anyString);
-                minTimes = 0;
-                result = catalog;
-
-                catalog.getDb(anyString);
-                minTimes = 0;
-                result = db;
-
                 env.getAccessManager();
                 minTimes = 0;
                 result = accessControllerManager;
