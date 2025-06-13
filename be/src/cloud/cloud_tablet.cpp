@@ -64,6 +64,7 @@ bvar::LatencyRecorder g_base_compaction_get_delete_bitmap_lock_time_ms(
         "base_compaction_get_delete_bitmap_lock_time_ms");
 
 bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
+bvar::Adder<int64_t> g_unused_rowsets_bytes("unused_rowsets_bytes");
 
 static constexpr int LOAD_INITIATOR_ID = -1;
 
@@ -350,10 +351,17 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                 std::vector<RowsetSharedPtr> unused_rowsets;
                 if (auto find_it = _rs_version_map.find(rs->version());
                     find_it != _rs_version_map.end()) {
-                    DCHECK(find_it->second->rowset_id() != rs->rowset_id())
-                            << "tablet_id=" << tablet_id()
-                            << ", rowset_id=" << rs->rowset_id().to_string()
-                            << ", existed rowset_id=" << find_it->second->rowset_id().to_string();
+                    if (find_it->second->rowset_id() == rs->rowset_id()) {
+                        LOG(WARNING) << "tablet_id=" << tablet_id()
+                                     << ", rowset_id=" << rs->rowset_id().to_string()
+                                     << ", existed rowset_id="
+                                     << find_it->second->rowset_id().to_string();
+                        DCHECK(find_it->second->rowset_id() != rs->rowset_id())
+                                << "tablet_id=" << tablet_id()
+                                << ", rowset_id=" << rs->rowset_id().to_string()
+                                << ", existed rowset_id="
+                                << find_it->second->rowset_id().to_string();
+                    }
                     unused_rowsets.push_back(find_it->second);
                 }
                 add_unused_rowsets(unused_rowsets);
@@ -508,6 +516,7 @@ void CloudTablet::add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets
     std::lock_guard<std::mutex> lock(_gc_mutex);
     for (const auto& rowset : rowsets) {
         _unused_rowsets[rowset->rowset_id()] = rowset;
+        g_unused_rowsets_bytes << rowset->total_disk_size();
     }
     g_unused_rowsets_count << rowsets.size();
 }
@@ -529,8 +538,9 @@ void CloudTablet::remove_unused_rowsets() {
         }
         tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
         rs->clear_cache();
-        it = _unused_rowsets.erase(it);
         g_unused_rowsets_count << -1;
+        g_unused_rowsets_bytes << -rs->total_disk_size();
+        it = _unused_rowsets.erase(it);
         removed_rowsets_num++;
     }
 
@@ -556,14 +566,11 @@ void CloudTablet::remove_unused_rowsets() {
         removed_delete_bitmap_num++;
     }
 
-    if (removed_rowsets_num > 0 || removed_delete_bitmap_num > 0) {
-        LOG(INFO) << "tablet_id=" << tablet_id()
-                  << ", unused_rowset size=" << _unused_rowsets.size()
-                  << ", unused_delete_bitmap size=" << _unused_delete_bitmap.size()
-                  << ", removed_rowsets_num=" << removed_rowsets_num
-                  << ", removed_delete_bitmap_num=" << removed_delete_bitmap_num
-                  << ", cost(us)=" << watch.get_elapse_time_us();
-    }
+    LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
+              << ", unused_delete_bitmap size=" << _unused_delete_bitmap.size()
+              << ", removed_rowsets_num=" << removed_rowsets_num
+              << ", removed_delete_bitmap_num=" << removed_delete_bitmap_num
+              << ", cost(us)=" << watch.get_elapse_time_us();
 }
 
 void CloudTablet::update_base_size(const Rowset& rs) {
