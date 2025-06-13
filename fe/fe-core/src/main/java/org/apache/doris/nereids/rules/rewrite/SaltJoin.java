@@ -184,11 +184,10 @@ public class SaltJoin extends OneRewriteRuleFactory {
         }
         List<Expression> skewValues = join.getDistributeHint().getSkewValues();
         Set<Expression> skewValuesSet = new HashSet<>(skewValues);
-        join = addNotNull(join, skewConjunct, skewValuesSet);
         List<Expression> expandSideValues = getSaltedSkewValuesForExpandSide(skewConjunct, skewValuesSet);
         List<Expression> skewSideValues = getSaltedSkewValuesForSkewSide(skewConjunct, skewValuesSet, join);
         if (skewSideValues.isEmpty()) {
-            return join;
+            return null;
         }
         DataType type = literalType.get().getDataType();
         LogicalProject<Plan> rightProject;
