@@ -556,7 +556,7 @@ TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
         TDataSink tsink;
         EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-        EXPECT_GT(task->_execution_deps.empty(), 1);
+        EXPECT_GT(task->_execution_deps.size(), 1);
     }
     _query_ctx->get_execution_dependency()->set_ready();
     {
