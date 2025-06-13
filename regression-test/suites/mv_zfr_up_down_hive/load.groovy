@@ -87,7 +87,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING) 
+        partitioned by(date STRING ) 
         STORED AS ORC;
         """
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
@@ -108,7 +108,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING) 
+        partitioned by(date STRING ) 
         STORED AS ORC;
         """
     hive_docker """insert into ${dbName}.${tableName2} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
@@ -130,7 +130,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING) 
+        partitioned by(date STRING ) 
         STORED AS ORC;
         """
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
@@ -162,7 +162,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING) 
+        partitioned by(date STRING ) 
         STORED AS ORC;
         """
     hive_docker """insert into ${dbName}.${tableName5} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
@@ -184,7 +184,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING) 
+        partitioned by(date STRING ) 
         STORED AS ORC;
         """
     hive_docker """insert into ${dbName}.${tableName6} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
@@ -227,7 +227,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
           `user_id` INT,
           `num` INT
         ) 
-        partitioned by(date STRING) 
+        partitioned by(date STRING ) 
         STORED AS ORC;
         """
     hive_docker """insert into ${dbName}.${tableName9} PARTITION(date='2017-01-15') values (1,1,"2017-01-15")"""
