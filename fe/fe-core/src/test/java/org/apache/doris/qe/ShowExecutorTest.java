@@ -369,7 +369,6 @@ public class ShowExecutorTest {
     @Test
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         Env env = AccessTestUtil.fetchAdminCatalog();
 
         new MockUp<Env>() {
