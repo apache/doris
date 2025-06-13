@@ -346,7 +346,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             NereidsParser nereidsParser = new NereidsParser();
             CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                     defineStmt.originStmt);
-            command.validate(new ConnectContext());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(dbName);
+            command.validate(ctx);
             if (command.getWhereClauseItem() != null) {
                 setWhereClause(command.getWhereClauseItem().getDefineExpr());
             }
