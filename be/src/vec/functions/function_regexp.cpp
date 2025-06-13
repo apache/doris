@@ -114,7 +114,6 @@ struct RegexpCountImpl {
     }
 };
 
-
 class FunctionRegexpCount : public IFunction {
 public:
     static constexpr auto name = "regexp_count";
@@ -179,8 +178,8 @@ public:
                                            : block.get_by_position(arguments[0]).column;
         default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
 
-        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count,
-                                                 result_data, result_null_map->get_data());
+        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
+                                      result_null_map->get_data());
         bool is_nullable = false;
         for (const auto& arg_idx : arguments) {
             if (block.get_by_position(arg_idx).type->is_nullable()) {
