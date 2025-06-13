@@ -885,8 +885,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 return ColumnStatistic.UNKNOWN;
             }
         } else {
-            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
-                catalogId, dbId, table.getId(), idxId, colName);
+            ColumnStatistic columnStatistics = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                    catalogId, dbId, table.getId(), idxId, colName);
+            if (!columnStatistics.isUnKnown
+                    && columnStatistics.ndv == 0
+                    && (columnStatistics.minExpr != null || columnStatistics.maxExpr != null)
+                    && columnStatistics.numNulls == columnStatistics.count) {
+                return ColumnStatistic.UNKNOWN;
+            }
+            return columnStatistics;
         }
     }
 
