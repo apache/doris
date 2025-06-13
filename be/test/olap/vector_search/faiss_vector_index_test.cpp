@@ -349,10 +349,10 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
                     doris_index.get(), native_index.get(), vectors);
 
             std::vector<float> query_vec = vectors.front();
-            float radius = 0;    
-        
-            radius = doris::vector_search_utils::get_radius_from_matrix(
-                query_vec.data(), params.d, vectors, 0.4f, metric);
+            float radius = 0;
+
+            radius = doris::vector_search_utils::get_radius_from_matrix(query_vec.data(), params.d,
+                                                                        vectors, 0.4f, metric);
 
             HNSWSearchParameters hnsw_params;
             hnsw_params.ef_search = 16;

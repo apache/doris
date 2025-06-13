@@ -85,25 +85,24 @@ void AnnIndexColumnWriter::close_on_error() {}
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
                                               const uint8_t* null_map, const uint8_t* offsets_ptr,
-                                              size_t count) {
+                                              size_t num_rows) {
     // TODO: Performance optimization
-    if (count == 0) {
+    if (num_rows == 0) {
         return Status::OK();
     }
 
     const auto* offsets = reinterpret_cast<const size_t*>(offsets_ptr);
     const size_t dim = _vector_index->get_dimension();
-    for (int i = 1; i < count; ++i) {
-        auto array_elem_size = offsets[i] - offsets[i - 1];
+    for (size_t i = 0; i < num_rows; ++i) {
+        auto array_elem_size = offsets[i + 1] - offsets[i];
         if (array_elem_size != dim) {
-            return Status::InvalidArgument(
-                    "Ann index only support array with {} dimension, but get {}", dim,
-                    array_elem_size);
+            return Status::InvalidArgument("Ann index expect array with {} dim, got {}.", dim,
+                                           array_elem_size);
         }
     }
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
-    RETURN_IF_ERROR(_vector_index->add(count, p));
+    RETURN_IF_ERROR(_vector_index->add(num_rows, p));
 
     return Status::OK();
 }
