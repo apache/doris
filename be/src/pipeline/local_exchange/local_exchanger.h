@@ -192,7 +192,7 @@ class LocalExchangeSinkLocalState;
 struct BlockWrapper {
     ENABLE_FACTORY_CREATOR(BlockWrapper);
     BlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
-    ~BlockWrapper() { DCHECK_EQ(ref_count.load(), 0); }
+    ~BlockWrapper() = default;
     void ref(int delta) { ref_count += delta; }
     void unref(LocalExchangeSharedState* shared_state, size_t allocated_bytes, int channel_id) {
         if (ref_count.fetch_sub(1) == 1) {

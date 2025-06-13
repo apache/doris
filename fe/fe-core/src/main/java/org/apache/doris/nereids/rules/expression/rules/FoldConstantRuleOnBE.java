@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -227,6 +228,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
         // Frontend can not represent geo types
         if (expr instanceof BoundFunction && ((BoundFunction) expr).getName().toLowerCase().startsWith("st_")) {
+            return true;
+        }
+
+        // Skip from_base64 function to avoid incorrect binary data processing during constant folding
+        if (expr instanceof FromBase64) {
             return true;
         }
 
@@ -488,16 +494,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                // get the raw byte data to avoid character encoding conversion problems
-                ByteString bytesValues = resultContent.getBytesValue(i);
-                // use UTF-8 encoding to ensure proper handling of binary data
-                String stringValue = bytesValues.toStringUtf8();
-                // handle special NULL value cases
-                if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
-                    res.add(new NullLiteral(type));
-                } else {
-                    res.add(new StringLiteral(stringValue));
-                }
+                Literal literal = new StringLiteral(resultContent.getStringValue(i));
+                res.add(literal);
             }
         } else if (type.isArrayType()) {
             ArrayType arrayType = (ArrayType) type;

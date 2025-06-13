@@ -891,7 +891,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         final TColumnDef colDef = new TColumnDef(desc);
                         final String comment = column.getComment();
                         if (comment != null) {
-                            colDef.setComment(comment);
+                            if (Config.column_comment_length_limit > 0
+                                    && comment.length() > Config.column_comment_length_limit) {
+                                colDef.setComment(comment.substring(0, Config.column_comment_length_limit));
+                            } else {
+                                colDef.setComment(comment);
+                            }
                         }
                         if (column.isKey()) {
                             if (table instanceof OlapTable) {
@@ -952,7 +957,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
-                                colDef.setComment(comment);
+                                if (Config.column_comment_length_limit > 0
+                                        && comment.length() > Config.column_comment_length_limit) {
+                                    colDef.setComment(comment.substring(0, Config.column_comment_length_limit));
+                                } else {
+                                    colDef.setComment(comment);
+                                }
                             }
                             if (column.isKey()) {
                                 if (table instanceof OlapTable) {
@@ -2196,7 +2206,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             httpStreamParams.setParams(coord.getStreamLoadPlan());
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
-            throw new UserException("exec sql error" + e);
+            throw e;
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);
@@ -2271,7 +2281,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setWaitInternalGroupCommitFinish(Config.wait_internal_group_commit_finish);
         } catch (UserException e) {
             LOG.warn("exec sql error", e);
-            throw new UserException("exec sql error" + e);
+            throw e;
         } catch (Throwable e) {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result." + e);

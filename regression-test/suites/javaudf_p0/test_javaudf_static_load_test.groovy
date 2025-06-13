@@ -22,6 +22,10 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("test_javaudf_static_load_test") {
+    // static load udf tests suite for 1 backends regression.
+    if (sql("show backends").size() > 1) return
+
+
     def tableName = "test_javaudf_static_load_test"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
