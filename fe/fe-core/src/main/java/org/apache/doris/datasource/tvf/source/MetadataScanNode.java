@@ -71,6 +71,7 @@ public class MetadataScanNode extends ExternalScanNode {
     @Override
     protected void createScanRangeLocations() {
         List<String> requiredFileds = desc.getSlots().stream()
+                .filter(slot -> slot.isMaterialized())
                 .map(slot -> slot.getColumn().getName())
                 .collect(java.util.stream.Collectors.toList());
         for (TMetaScanRange metaScanRange : tvf.getMetaScanRanges(requiredFileds)) {
