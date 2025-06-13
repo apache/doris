@@ -364,6 +364,10 @@ public class MetaServiceClient {
                 .alterCluster(request);
     }
 
+    /**
+     * This method is deprecated, there is no code to call it.
+     */
+    @Deprecated
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request) {
         if (!request.hasCloudUniqueId()) {
             Cloud.AlterObjStoreInfoRequest.Builder builder = Cloud.AlterObjStoreInfoRequest.newBuilder();

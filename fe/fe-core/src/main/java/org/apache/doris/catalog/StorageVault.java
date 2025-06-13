@@ -264,7 +264,11 @@ public abstract class StorageVault {
             Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
             builder.mergeFrom(vault.getObjInfo());
             builder.clearId();
-            builder.setSk("xxxxxxx");
+
+            if (vault.getObjInfo().hasAk()) {
+                builder.setSk("xxxxxxx");
+            }
+
             if (!vault.getObjInfo().hasUsePathStyle()) {
                 // There is no `use_path_style` field in old version, think `use_path_style` false
                 builder.setUsePathStyle(false);

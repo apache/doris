@@ -118,7 +118,6 @@ TEST(HLLSerdeTest, serializeOneCellToJson) {
     column_hll->insert_value(hll);
     ASSERT_EQ(column_hll->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = hll_serde->serialize_one_cell_to_json(*column_hll, 0, buffer_writer, formatOptions);
@@ -164,7 +163,6 @@ TEST(HLLSerdeTest, serializeColumnToJson) {
     column_hll->insert_value(hll);
     ASSERT_EQ(column_hll->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = hll_serde->serialize_column_to_json(*column_hll, 0, 2, buffer_writer, formatOptions);
