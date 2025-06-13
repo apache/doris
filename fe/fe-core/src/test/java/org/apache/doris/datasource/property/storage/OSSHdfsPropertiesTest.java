@@ -106,6 +106,12 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.endpoint", "http://cn-hangzhou.oss-dls.aliyuncs.com");
         OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("cn-hangzhou", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.put("oss.endpoint", "ap-northeast-1.oss-dls.aliyuncs.com");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("ap-northeast-1", props.getBackendConfigProperties().get("fs.oss.region"));
+        origProps.put("oss.endpoint", "cn-north-2-gov-1.oss-dls.aliyuncs.com");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("cn-north-2-gov-1", props.getBackendConfigProperties().get("fs.oss.region"));
     }
 
     @Test

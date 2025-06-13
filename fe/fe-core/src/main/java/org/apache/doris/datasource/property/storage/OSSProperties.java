@@ -57,7 +57,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
      * <p>
-     * Supported formats:
+     * Supported formats: <a href="https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints">aliyun oss</a>?
      * - oss-cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * - <a href="https://oss-cn-shanghai.aliyuncs.com">...</a>      => region = cn-shanghai
      * - oss-cn-beijing-internal.aliyuncs.com      => region = cn-beijing (internal endpoint)

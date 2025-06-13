@@ -65,7 +65,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     private Map<String, String> backendConfigProperties;
 
     private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("(?:https?://)?(cn-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com");
+            .compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com");
 
     private static final String ENABLE_KEY = "oss.hdfs.enabled";
 
@@ -100,7 +100,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase());
         if (!matcher.matches()) {
             throw new IllegalArgumentException("The endpoint is not a valid OSS HDFS endpoint: " + endpoint
-                    + ". It should match the pattern: cn-<region>.oss-dls.aliyuncs.com");
+                    + ". It should match the pattern: <region>.oss-dls.aliyuncs.com");
         }
         // Extract region from the endpoint, e.g., "cn-shanghai.oss-dls.aliyuncs.com" -> "cn-shanghai"
         if (StringUtils.isBlank(this.region)) {
