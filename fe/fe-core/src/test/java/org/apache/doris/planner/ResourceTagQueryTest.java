@@ -63,7 +63,6 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.UUID;
 
 public class ResourceTagQueryTest {
@@ -207,9 +206,8 @@ public class ResourceTagQueryTest {
         ComputeGroup cg2 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
         Assert.assertTrue(cg2 instanceof MergedComputeGroup);
         MergedComputeGroup cg3 = (MergedComputeGroup) cg2;
-        Set<String> cgNameSet1 = cg3.getNames();
-        Assert.assertTrue(cgNameSet1.size() == 1);
-        Assert.assertTrue(cgNameSet1.contains("default"));
+        String cg3Name = cg3.getName();
+        Assert.assertTrue(cg3Name.contains("default"));
 
         // update connection context and query
         connectContext.setComputeGroup(cg2);
@@ -224,8 +222,7 @@ public class ResourceTagQueryTest {
         ComputeGroup cg4 = Env.getCurrentEnv().getAuth().getComputeGroup(Auth.ROOT_USER);
         Assert.assertTrue(cg4 instanceof MergedComputeGroup);
         MergedComputeGroup cg5 = (MergedComputeGroup) cg4;
-        Assert.assertTrue(cg5.getNames().size() == 1);
-        Assert.assertTrue(cg5.getNames().contains("zone1"));
+        Assert.assertTrue(cg5.getName().contains("zone1"));
 
         // update connection context and query, it will failed because no zone1 backend
         connectContext.setComputeGroup(cg4);
