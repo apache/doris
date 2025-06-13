@@ -51,11 +51,11 @@ suite("test_iceberg_full_schema_change", "p0,external,doris,external_docker,exte
     for (String table: tables) {
         qt_all """ select * FROM ${table} ORDER BY id"""
 
-        // qt_country_usa """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
-        // qt_country_usa_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
+        qt_country_usa """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
+        qt_country_usa_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'full_name') AS full_name, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'country') = 'USA' ORDER BY id"""
 
-        // qt_city_new """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
-        // qt_city_new_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age, STRUCT_ELEMENT(array_column[1], 'item') AS first_item FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
+        qt_city_new """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
+        qt_city_new_cols """select id, STRUCT_ELEMENT(struct_column, 'country') AS country, STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') AS age, STRUCT_ELEMENT(array_column[1], 'item') AS first_item FROM ${table} WHERE STRUCT_ELEMENT(struct_column, 'city') LIKE 'New%' ORDER BY id"""
 
         qt_age_over_30 """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') > 30 ORDER BY id"""
         qt_age_over_30_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, STRUCT_ELEMENT(array_column[2], 'category') AS second_category FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'age') > 30 ORDER BY id"""
@@ -93,8 +93,8 @@ suite("test_iceberg_full_schema_change", "p0,external,doris,external_docker,exte
         qt_c_over_20 """select * FROM ${table} WHERE STRUCT_ELEMENT(struct_column2, 'c') > 20 ORDER BY id"""
         qt_c_over_20_cols """select id, STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'b'), 'cc') AS b_cc FROM ${table} WHERE STRUCT_ELEMENT(struct_column2, 'c') > 20 ORDER BY id"""
 
-        // qt_new_aa_50 """select * FROM ${table} WHERE STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'new_a'), 'new_aa') = 50 ORDER BY id"""
-        // qt_new_aa_50_cols """select id, STRUCT_ELEMENT(struct_column2, 'c') AS c_value FROM ${table} WHERE STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'new_a'), 'new_aa') = 50 ORDER BY id"""
+        qt_new_aa_50 """select * FROM ${table} WHERE STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'new_a'), 'new_aa') = 50 ORDER BY id"""
+        qt_new_aa_50_cols """select id, STRUCT_ELEMENT(struct_column2, 'c') AS c_value FROM ${table} WHERE STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'new_a'), 'new_aa') = 50 ORDER BY id"""
 
         qt_gender_female """select * FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') = 'Female' ORDER BY id"""
         qt_gender_female_cols """select id, STRUCT_ELEMENT(struct_column, 'city') AS city, ARRAY_SIZE(array_column) AS array_size FROM ${table} WHERE STRUCT_ELEMENT(MAP_VALUES(new_map_column)[1], 'gender') = 'Female' ORDER BY id"""

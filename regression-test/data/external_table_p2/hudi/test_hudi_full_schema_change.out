@@ -23,6 +23,40 @@
 20	{"person20":{"age":38, "full_name":"James Lee", "gender":"Male"}}	{"country":"Japan", "city":"Osaka"}	[{"item":"Mango", "quantity":6, "category":"Fruit"}, {"item":"Onion", "quantity":3, "category":"Vegetable"}]	{"b":{"cc":"FinalCC", "new_dd":110}, "new_a":{"new_aa":95, "bb":"FinalBB"}, "c":21}
 21	{"person21":{"age":45, "full_name":"Sophia White", "gender":"Female"}}	{"country":"Italy", "city":"Rome"}	[{"item":"Pasta", "quantity":4, "category":"Food"}, {"item":"Olive", "quantity":9, "category":"Food"}]	{"b":{"cc":"ExampleCC", "new_dd":120}, "new_a":{"new_aa":100, "bb":"ExampleBB"}, "c":25}
 
+-- !country_usa --
+5	{"person5":{"age":40, "full_name":"Eve", "gender":null}}	{"country":"USA", "city":"Phoenix"}	[{"item":"Lemon", "quantity":null, "category":null}, {"item":"Lime", "quantity":null, "category":null}]	\N
+6	{"person6":{"age":22, "full_name":"Frank", "gender":null}}	{"country":"USA", "city":"Philadelphia"}	[{"item":"Watermelon", "quantity":null, "category":null}, {"item":"Strawberry", "quantity":null, "category":null}]	\N
+7	{"person7":{"age":27, "full_name":"Grace", "gender":null}}	{"country":"USA", "city":"San Antonio"}	[{"item":"Blueberry", "quantity":null, "category":null}, {"item":"Raspberry", "quantity":null, "category":null}]	\N
+8	{"person8":{"age":32, "full_name":"Hank", "gender":null}}	{"country":"USA", "city":"San Diego"}	[{"item":"Cherry", "quantity":5, "category":null}, {"item":"Plum", "quantity":3, "category":null}]	\N
+9	{"person9":{"age":29, "full_name":"Ivy", "gender":null}}	{"country":"USA", "city":"Dallas"}	[{"item":"Peach", "quantity":4, "category":null}, {"item":"Apricot", "quantity":2, "category":null}]	\N
+10	{"person10":{"age":26, "full_name":"Jack", "gender":null}}	{"country":"USA", "city":"Austin"}	[{"item":"Fig", "quantity":6, "category":null}, {"item":"Date", "quantity":7, "category":null}]	\N
+11	{"person11":{"age":31, "full_name":"Karen", "gender":"Female"}}	{"country":"USA", "city":"Seattle"}	[{"item":"Coconut", "quantity":1, "category":null}, {"item":"Papaya", "quantity":2, "category":null}]	\N
+12	{"person12":{"age":24, "full_name":"Leo", "gender":"Male"}}	{"country":"USA", "city":"Portland"}	[{"item":"Guava", "quantity":3, "category":null}, {"item":"Lychee", "quantity":4, "category":null}]	\N
+13	{"person13":{"age":33, "full_name":"Mona", "gender":"Female"}}	{"country":"USA", "city":"Denver"}	[{"item":"Avocado", "quantity":2, "category":"Fruit"}, {"item":"Tomato", "quantity":5, "category":"Vegetable"}]	\N
+14	{"person14":{"age":28, "full_name":"Nina", "gender":"Female"}}	{"country":"USA", "city":"Miami"}	[{"item":"Cucumber", "quantity":6, "category":"Vegetable"}, {"item":"Carrot", "quantity":7, "category":"Vegetable"}]	\N
+15	{"person15":{"age":30, "full_name":"Emma Smith", "gender":"Female"}}	{"country":"USA", "city":"New York"}	[{"item":"Banana", "quantity":3, "category":"Fruit"}, {"item":"Potato", "quantity":8, "category":"Vegetable"}]	\N
+
+-- !country_usa_cols --
+5	Phoenix	Eve	2
+6	Philadelphia	Frank	2
+7	San Antonio	Grace	2
+8	San Diego	Hank	2
+9	Dallas	Ivy	2
+10	Austin	Jack	2
+11	Seattle	Karen	2
+12	Portland	Leo	2
+13	Denver	Mona	2
+14	Miami	Nina	2
+15	New York	Emma Smith	2
+
+-- !city_new --
+1	{"person1":{"age":25, "full_name":"Alice", "gender":null}}	{"country":null, "city":"New York"}	[{"item":"Apple", "quantity":null, "category":null}, {"item":"Banana", "quantity":null, "category":null}]	\N
+15	{"person15":{"age":30, "full_name":"Emma Smith", "gender":"Female"}}	{"country":"USA", "city":"New York"}	[{"item":"Banana", "quantity":3, "category":"Fruit"}, {"item":"Potato", "quantity":8, "category":"Vegetable"}]	\N
+
+-- !city_new_cols --
+1	\N	25	Apple
+15	USA	30	Banana
+
 -- !age_over_30 --
 4	{"person4":{"age":35, "full_name":"David", "gender":null}}	{"country":null, "city":"Houston"}	[{"item":"Kiwi", "quantity":null, "category":null}, {"item":"Pineapple", "quantity":null, "category":null}]	\N
 5	{"person5":{"age":40, "full_name":"Eve", "gender":null}}	{"country":"USA", "city":"Phoenix"}	[{"item":"Lemon", "quantity":null, "category":null}, {"item":"Lime", "quantity":null, "category":null}]	\N
@@ -242,6 +276,12 @@
 -- !c_over_20_cols --
 20	FinalCC
 21	ExampleCC
+
+-- !new_aa_50 --
+16	{"person16":{"age":28, "full_name":"Liam Brown", "gender":"Male"}}	{"country":"UK", "city":"London"}	[{"item":"Bread", "quantity":2, "category":"Food"}, {"item":"Milk", "quantity":1, "category":"Dairy"}]	{"b":{"cc":"NestedCC", "new_dd":75}, "new_a":{"new_aa":50, "bb":"NestedBB"}, "c":9}
+
+-- !new_aa_50_cols --
+16	9
 
 -- !gender_female --
 11	{"person11":{"age":31, "full_name":"Karen", "gender":"Female"}}	{"country":"USA", "city":"Seattle"}	[{"item":"Coconut", "quantity":1, "category":null}, {"item":"Papaya", "quantity":2, "category":null}]	\N

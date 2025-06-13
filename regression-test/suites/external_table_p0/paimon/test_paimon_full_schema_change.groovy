@@ -64,9 +64,6 @@ suite("test_paimon_full_schema_change", "p0,external,doris,external_docker,exter
             qt_array_size_2 """select * FROM ${table} WHERE ARRAY_SIZE(array_column) = 2 ORDER BY id"""
             qt_array_size_2_cols """select id, STRUCT_ELEMENT(struct_column, 'location') AS location, STRUCT_ELEMENT(array_column[1], 'new_product') AS first_product FROM ${table} WHERE ARRAY_SIZE(array_column) = 2 ORDER BY id"""
 
-            // qt_product_apple """select * FROM ${table} WHERE EXISTS (SELECT 1 FROM UNNEST(array_column) AS arr WHERE STRUCT_ELEMENT(arr, 'new_product') = 'Apple') ORDER BY id"""
-            // qt_product_apple_cols """select id, STRUCT_ELEMENT(struct_column, 'location') AS location, STRUCT_ELEMENT(MAP_VALUES(map_column)[1], 'full_name') AS full_name FROM ${table} WHERE EXISTS (SELECT 1 FROM UNNEST(array_column) AS arr WHERE STRUCT_ELEMENT(arr, 'new_product') = 'Apple') ORDER BY id"""
-
             qt_struct2_not_null """select * FROM ${table} WHERE struct_column2 IS NOT NULL ORDER BY id"""
             qt_struct2_not_null_cols """select id, STRUCT_ELEMENT(struct_column2, 'b') AS b_value, STRUCT_ELEMENT(STRUCT_ELEMENT(struct_column2, 'c'), 'cc') AS c_cc FROM ${table} WHERE struct_column2 IS NOT NULL ORDER BY id"""
 
