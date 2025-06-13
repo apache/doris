@@ -17,5 +17,5 @@
 944935237	2	1	1	true	1741682404960657985	1741682404960657985	0	{"a":34,"b":"44","c":54,"d":64,"e":74,"f":84,"g":94,"h":104,"i":114,"j":124}
 
 -- !sql --
-{"a":"Int32","b":"String","c":"Int128","d":"Int8","e":"Int8","f":"Int8","g":"Int8","h":"Int8","i":"Int16","j":"Int16"}
+{"a":"tinyint","b":"string","c":"largeint","d":"tinyint","e":"tinyint","f":"tinyint","g":"tinyint","h":"tinyint","i":"tinyint","j":"tinyint"}
 

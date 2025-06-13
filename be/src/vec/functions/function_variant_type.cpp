@@ -16,6 +16,7 @@
 // under the License.
 #include <glog/logging.h>
 
+#include "util/string_util.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/schema_util.h"
 #include "vec/functions/simple_function_factory.h"
@@ -53,7 +54,7 @@ public:
             }
             FieldInfo info;
             schema_util::get_field_info(value, &info);
-            result[key.get_path()] = type_to_string(info.scalar_type_id);
+            result[key.get_path()] = to_lower(type_to_string(info.scalar_type_id));
         }
         return result;
     }
