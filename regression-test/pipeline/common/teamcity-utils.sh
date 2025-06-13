@@ -74,6 +74,7 @@ conment_to_context=(
     ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
     ['vault_p0']='vault_p0 (Doris Cloud Regression)'
     ['nonConcurrent']='NonConcurrent Regression (Doris Regression)'
+)
 
 get_commit_id_of_build() {
     # 获取某个build的commit id
