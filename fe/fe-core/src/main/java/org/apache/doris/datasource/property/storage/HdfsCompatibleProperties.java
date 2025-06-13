@@ -19,11 +19,13 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public abstract class HdfsCompatibleProperties extends StorageProperties {
 
@@ -41,6 +43,23 @@ public abstract class HdfsCompatibleProperties extends StorageProperties {
 
     protected Configuration configuration;
 
+    public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
+
+    abstract Set<String> getSupportedSchemas();
+
+    @Override
+    protected void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        // If fsDefaultFS is not explicitly provided, we attempt to infer it from the 'uri' field.
+        // However, the 'uri' is not a dedicated HDFS-specific property and may be present
+        // even when the user is configuring multiple storage backends.
+        // Additionally, since we are not using FileSystem.get(Configuration conf),
+        // fsDefaultFS is not strictly required here.
+        // This is a best-effort fallback to populate fsDefaultFS when possible.
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, getSupportedSchemas());
+        }
+    }
 
     protected HdfsCompatibleProperties(Type type, Map<String, String> origProps) {
         super(type, origProps);

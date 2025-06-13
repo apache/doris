@@ -20,12 +20,14 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.collect.ImmutableSet;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,6 +71,8 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     private static final String ENABLE_KEY = "oss.hdfs.enabled";
 
+    private static final Set<String> supportSchema = ImmutableSet.of("oss");
+
     protected OSSHdfsProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
     }
@@ -92,6 +96,11 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         if (!endpointIsValid(endpoint)) {
             throw new IllegalArgumentException("Property oss.endpoint is required and must be a valid OSS endpoint.");
         }
+    }
+
+    @Override
+    Set<String> getSupportedSchemas() {
+        return supportSchema;
     }
 
     @Override
@@ -138,6 +147,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         config.put("fs.oss.region", region);
         config.put("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
         config.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.JindoOSS");
+        if (StringUtils.isNotBlank(fsDefaultFS)) {
+            config.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
+        }
         config.forEach(conf::set);
         this.backendConfigProperties = config;
         this.configuration = conf;

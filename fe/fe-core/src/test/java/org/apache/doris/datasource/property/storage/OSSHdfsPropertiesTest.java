@@ -138,4 +138,21 @@ public class OSSHdfsPropertiesTest {
         Assertions.assertEquals("HDFS", props.getStorageName());
     }
 
+    @Test
+    public void testDefaultFS() {
+        Map<String, String> origProps = new HashMap<>();
+        origProps.put("oss.endpoint", "cn-shanghai.oss-dls.aliyuncs.com");
+        origProps.put("oss.access_key", "testAccessKey");
+        origProps.put("oss.secret_key", "testSecretKey");
+        origProps.put("fs.defaultFS", "oss://my-bucket");
+        OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("oss://my-bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
+        origProps.put("uri", "oss://bucket/");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("oss://my-bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
+        origProps.remove("fs.defaultFS");
+        props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
+        Assertions.assertEquals("oss://bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
+    }
+
 }
