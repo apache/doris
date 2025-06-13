@@ -7559,12 +7559,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return createDataSyncJobCommand;
     }
 
-    public LogicalPlan visitDropResource(DorisParser.DropResourceContext ctx) {
-        boolean ifExist = ctx.EXISTS() != null;
-        String resouceName = visitIdentifierOrText(ctx.identifierOrText());
-        return new DropResourceCommand(ifExist, resouceName);
-    }
-
     @Override
     public LogicalPlan visitDropRowPolicy(DorisParser.DropRowPolicyContext ctx) {
         boolean ifExist = ctx.EXISTS() != null;

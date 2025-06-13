@@ -440,11 +440,6 @@ supportedLoadStatement
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     ;
 
-supportedOtherStatement
-    : HELP mark=identifierOrText                                                    #help
-    | UNLOCK TABLES                                                                 #unlockTables
-    ;
-
 supportedKillStatement
     : KILL (CONNECTION)? INTEGER_VALUE                                              #killConnection
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)                                   #killQuery
