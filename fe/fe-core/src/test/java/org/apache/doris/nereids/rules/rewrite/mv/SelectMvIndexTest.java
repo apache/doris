@@ -168,21 +168,11 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         createMv(createMVSql);
         ConnectContext.get().getState().setNereids(true);
         Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("db1")
-                        .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta()
-                        .forEach((id, meta) -> {
-                            if (meta.getWhereClause() != null) {
-                                meta.getWhereClause().setDisableTableName(false);
-                            }
-                        });
+                        .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta();
         testMv(query1, EMPS_MV_NAME);
         ConnectContext.get().getState().setNereids(false);
         Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("db1")
-                .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta()
-                .forEach((id, meta) -> {
-                    if (meta.getWhereClause() != null) {
-                        meta.getWhereClause().setDisableTableName(true);
-                    }
-                });
+                .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta();
     }
 
     @Test

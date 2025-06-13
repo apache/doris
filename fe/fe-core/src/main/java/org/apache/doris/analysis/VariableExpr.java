@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -190,6 +192,22 @@ public class VariableExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        if (setType == SetType.USER) {
+            sb.append("@");
+        } else {
+            sb.append("@@");
+            if (setType == SetType.GLOBAL) {
+                sb.append("GLOBAL.");
+            }
+        }
+        sb.append(name);
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         StringBuilder sb = new StringBuilder();
         if (setType == SetType.USER) {
             sb.append("@");

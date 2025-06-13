@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -347,6 +349,51 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
                 sb.append(", ");
             }
             sb.append(lastExpr.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        StringBuilder sb = new StringBuilder();
+
+        String fnName = getFnName().getFunction();
+        if (fn != null) {
+            // `array_last` will be replaced with `element_at` function after analysis.
+            // At this moment, using the name `array_last` would generate invalid SQL.
+            fnName = fn.getFunctionName().getFunction();
+        }
+        sb.append(fnName);
+        sb.append("(");
+        int childSize = children.size();
+        Expr lastExpr = getChild(childSize - 1);
+        // eg: select array_map(x->x>10, k1) from table,
+        // but we need analyze each param, so change the function like this in parser
+        // array_map(x->x>10, k1) ---> array_map(k1, x->x>10),
+        // so maybe the lambda expr is the end position. and need this check.
+        boolean lastIsLambdaExpr = (lastExpr instanceof LambdaFunctionExpr);
+        if (lastIsLambdaExpr) {
+            sb.append(lastExpr.toSql(disableTableName, needExternalSql, tableType, table));
+            sb.append(", ");
+        }
+        for (int i = 0; i < childSize - 1; ++i) {
+            sb.append(getChild(i).toSql(disableTableName, needExternalSql, tableType, table));
+            if (i != childSize - 2) {
+                sb.append(", ");
+            }
+        }
+        // and some functions is only implement as a normal array function;
+        // but also want use as lambda function, select array_sortby(x->x,['b','a','c']);
+        // so we convert to: array_sortby(array('b', 'a', 'c'), array_map(x -> `x`, array('b', 'a', 'c')))
+        if (!lastIsLambdaExpr) {
+            if (childSize > 1) {
+                // some functions don't have lambda expr, so don't need to add ","
+                // such as array_exists(array_map(x->x>3, [1,2,3,6,34,3,11]))
+                sb.append(", ");
+            }
+            sb.append(lastExpr.toSql(disableTableName, needExternalSql, tableType, table));
         }
         sb.append(")");
         return sb.toString();

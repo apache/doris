@@ -1071,7 +1071,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
     private PreAggStatus checkPredicates(List<Expression> predicates, CheckContext checkContext) {
         Set<String> indexConjuncts = PlanNode
                 .splitAndCompoundPredicateToConjuncts(checkContext.getMeta().getWhereClause()).stream()
-                .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
+                .map(e -> new NereidsParser().parseExpression(e.toSqlWithoutTbl()).toSql()).collect(Collectors.toSet());
         return disablePreAggIfContainsAnyValueColumn(
                 predicates.stream().filter(e -> !indexConjuncts.contains(e.toSql())).collect(Collectors.toList()),
                 checkContext, "Predicate %s contains value column %s");
