@@ -28,6 +28,7 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
 #include "meta-service/txn_kv.h"
@@ -329,35 +330,37 @@ private:
                                        const GetDeleteBitmapUpdateLockRequest* request,
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        std::string& instance_id, std::string& lock_key,
-                                       std::string lock_use_version);
+                                       std::string lock_use_version, KVStats* stats);
 
     void get_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
                                           const GetDeleteBitmapUpdateLockRequest* request,
                                           GetDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done,
                                           std::string& instance_id, MetaServiceCode& code,
-                                          std::string& msg, std::stringstream& ss);
+                                          std::string& msg, std::stringstream& ss, KVStats* stats);
 
     void get_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
                                           const GetDeleteBitmapUpdateLockRequest* request,
                                           GetDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done,
                                           std::string& instance_id, MetaServiceCode& code,
-                                          std::string& msg, std::stringstream& ss);
+                                          std::string& msg, std::stringstream& ss, KVStats* stats);
 
     void remove_delete_bitmap_update_lock_v2(google::protobuf::RpcController* controller,
                                              const RemoveDeleteBitmapUpdateLockRequest* request,
                                              RemoveDeleteBitmapUpdateLockResponse* response,
                                              ::google::protobuf::Closure* done,
                                              std::string& instance_id, MetaServiceCode& code,
-                                             std::string& msg, std::stringstream& ss);
+                                             std::string& msg, std::stringstream& ss,
+                                             KVStats* stats);
 
     void remove_delete_bitmap_update_lock_v1(google::protobuf::RpcController* controller,
                                              const RemoveDeleteBitmapUpdateLockRequest* request,
                                              RemoveDeleteBitmapUpdateLockResponse* response,
                                              ::google::protobuf::Closure* done,
                                              std::string& instance_id, MetaServiceCode& code,
-                                             std::string& msg, std::stringstream& ss);
+                                             std::string& msg, std::stringstream& ss,
+                                             KVStats* stats);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;

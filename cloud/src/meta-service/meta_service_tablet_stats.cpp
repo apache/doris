@@ -27,6 +27,7 @@
 #include <string_view>
 
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/util.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
@@ -170,10 +171,11 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
 
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
-                               TabletStatsPB& stats, bool snapshot) {
+                               TabletStatsPB& tablet_stats, bool snapshot) {
     TabletStats detached_stats;
-    internal_get_tablet_stats(code, msg, txn, instance_id, idx, stats, detached_stats, snapshot);
-    merge_tablet_stats(stats, detached_stats);
+    internal_get_tablet_stats(code, msg, txn, instance_id, idx, tablet_stats, detached_stats,
+                              snapshot);
+    merge_tablet_stats(tablet_stats, detached_stats);
 }
 
 MetaServiceResponseStatus parse_fix_tablet_stats_param(

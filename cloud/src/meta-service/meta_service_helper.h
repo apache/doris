@@ -29,6 +29,7 @@
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -232,9 +233,12 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     brpc::ClosureGuard closure_guard(done);                                              \
     [[maybe_unused]] std::stringstream ss;                                               \
     [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                         \
+    [[maybe_unused]] std::unique_ptr<Transaction> txn;                                   \
     [[maybe_unused]] std::string msg;                                                    \
     [[maybe_unused]] std::string instance_id;                                            \
     [[maybe_unused]] bool drop_request = false;                                          \
+    [[maybe_unused]] KVStats stats(g_bvar_rpc_kv_##func_name##_read_counter,             \
+                                   g_bvar_rpc_kv_##func_name##_write_counter);           \
     std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) { \
         response->mutable_status()->set_code(code);                                      \
         response->mutable_status()->set_msg(msg);                                        \
@@ -242,6 +246,10 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         closure_guard.reset(nullptr);                                                    \
         if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {     \
             g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                     \
+            if (txn != nullptr) {                                                        \
+                stats.read_counter << txn->num_get_keys();                               \
+                stats.write_counter << txn->num_del_keys() + txn->num_put_keys();        \
+            }                                                                            \
         }                                                                                \
     });
 

@@ -110,7 +110,6 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
 
     RPC_RATE_LIMIT(begin_txn)
     //1. Generate version stamp for txn id
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -379,7 +378,6 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         return;
     }
     RPC_RATE_LIMIT(precommit_txn);
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -609,7 +607,6 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
     }
     RPC_RATE_LIMIT(get_rl_task_commit_attach)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -678,7 +675,6 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
     }
     RPC_RATE_LIMIT(reset_rl_progress)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2846,7 +2842,6 @@ void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
     }
 
     RPC_RATE_LIMIT(abort_txn);
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2893,7 +2888,6 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
     }
 
     RPC_RATE_LIMIT(get_txn)
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3010,7 +3004,7 @@ void MetaServiceImpl::get_current_max_txn_id(::google::protobuf::RpcController* 
         return;
     }
     RPC_RATE_LIMIT(get_current_max_txn_id)
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
@@ -3086,7 +3080,6 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
     }
 
     RPC_RATE_LIMIT(begin_sub_txn)
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3284,7 +3277,6 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
     }
 
     RPC_RATE_LIMIT(abort_sub_txn)
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3391,7 +3383,6 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
     std::string end_info_key = txn_info_key({instance_id, INT64_MAX, INT64_MAX});
     LOG(INFO) << "begin_info_key:" << hex(begin_info_key) << " end_info_key:" << hex(end_info_key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
@@ -3507,7 +3498,6 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
     LOG(INFO) << "begin_running_key:" << hex(begin_running_key)
               << " end_running_key:" << hex(end_running_key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
@@ -3864,7 +3854,7 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     const int64_t db_id = request->db_id();
     std::string label = request->label();
     const std::string label_key = txn_label_key({instance_id, db_id, label});
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to create txn. err=" << err << " db_id=" << db_id

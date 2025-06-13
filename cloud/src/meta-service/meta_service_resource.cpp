@@ -226,7 +226,6 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -987,7 +986,6 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1255,7 +1253,6 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1415,7 +1412,6 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1646,7 +1642,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         return;
     }
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1932,7 +1927,6 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2443,7 +2437,6 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2591,7 +2584,6 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2751,7 +2743,6 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3133,7 +3124,6 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3222,7 +3212,6 @@ void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
 
     std::string key = system_meta_service_arn_info_key();
     std::string val;
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3318,7 +3307,6 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
     std::string val;
     instance_key(key_info, &key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3397,7 +3385,6 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(begin_copy)
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3515,7 +3502,6 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
     }
     RPC_RATE_LIMIT(finish_copy)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3619,7 +3605,6 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
         return;
     }
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3672,7 +3657,6 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
     }
     RPC_RATE_LIMIT(get_copy_files)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -3736,7 +3720,6 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
     }
     RPC_RATE_LIMIT(filter_copy_files)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);

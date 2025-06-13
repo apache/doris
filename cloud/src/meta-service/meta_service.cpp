@@ -38,6 +38,7 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -49,6 +50,7 @@
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/stopwatch.h"
 #include "common/string_util.h"
 #include "common/util.h"
@@ -90,7 +92,9 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
     std::vector<NodeInfo> nodes;
     std::string err = rc_mgr->get_node(cloud_unique_id, &nodes);
-    { TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err); }
+    {
+        TEST_SYNC_POINT_CALLBACK("get_instance_id_err", &err);
+    }
     std::string instance_id;
     if (!err.empty()) {
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
@@ -250,7 +254,7 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
     }
 
     code = MetaServiceCode::OK;
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         msg = "failed to create txn";
@@ -287,7 +291,9 @@ void MetaServiceImpl::get_version(::google::protobuf::RpcController* controller,
             response->set_version(version_pb.version());
             response->add_version_update_time_ms(version_pb.update_time_ms());
         }
-        { TEST_SYNC_POINT_CALLBACK("get_version_code", &code); }
+        {
+            TEST_SYNC_POINT_CALLBACK("get_version_code", &code);
+        }
         return;
     } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         msg = "not found";
@@ -358,7 +364,10 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             code = cast_as<ErrCategory::CREATE>(err);
             break;
         }
-
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.read_counter << txn->num_get_keys();
+            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+        });
         for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
             size_t limit = (i + BATCH_SIZE < num_acquired) ? i + BATCH_SIZE : num_acquired;
             version_keys.clear();
@@ -433,7 +442,7 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
 void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode& code,
                             std::string& msg, const doris::TabletMetaCloudPB& meta,
                             std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-                            std::set<std::pair<int64_t, int32_t>>& saved_schema) {
+                            std::set<std::pair<int64_t, int32_t>>& saved_schema, KVStats& stats) {
     doris::TabletMetaCloudPB tablet_meta(meta);
     bool has_first_rowset = tablet_meta.rs_metas_size() > 0;
 
@@ -456,6 +465,10 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         msg = "failed to init txn";
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats.read_counter << txn->num_get_keys();
+        stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+    });
 
     std::string rs_key, rs_val;
     if (has_first_rowset) {
@@ -593,6 +606,10 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             msg = fmt::format("failed to create txn");
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.read_counter << txn0->num_get_keys();
+            stats.write_counter << txn0->num_del_keys() + txn0->num_put_keys();
+        });
 
         InstanceKeyInfo key_info {instance_id};
         std::string key;
@@ -652,7 +669,8 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
     std::set<std::pair<int64_t, int32_t>> saved_schema;
     TEST_SYNC_POINT_RETURN_WITH_VOID("create_tablets");
     for (auto& tablet_meta : request->tablet_metas()) {
-        internal_create_tablet(request, code, msg, tablet_meta, txn_kv_, instance_id, saved_schema);
+        internal_create_tablet(request, code, msg, tablet_meta, txn_kv_, instance_id, saved_schema,
+                               stats);
         if (code != MetaServiceCode::OK) {
             return;
         }
@@ -733,7 +751,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         return;
     }
     RPC_RATE_LIMIT(update_tablet)
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -840,7 +858,6 @@ void MetaServiceImpl::update_tablet_schema(::google::protobuf::RpcController* co
 
     RPC_RATE_LIMIT(update_tablet_schema)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -911,7 +928,7 @@ void MetaServiceImpl::get_tablet(::google::protobuf::RpcController* controller,
         return;
     }
     RPC_RATE_LIMIT(get_tablet)
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1000,6 +1017,7 @@ static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
 * @param txn_id The transaction ID to check.
 * @param code Reference to the error code to be set in case of failure.
 * @param msg Reference to the error message to be set in case of failure.
+* @param stats count rpc kv read write num
 * @return true if the transaction status matches the expected status, false otherwise.  
  */
 static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn,
@@ -1091,7 +1109,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     int64_t tablet_id = rowset_meta.tablet_id();
     const auto& rowset_id = rowset_meta.rowset_id_v2();
     auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
-    std::unique_ptr<Transaction> txn;
+
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1228,7 +1246,6 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1383,7 +1400,6 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
     MetaRowsetTmpKeyInfo key_info {instance_id, txn_id, tablet_id};
     meta_rowset_tmp_key(key_info, &update_key);
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -1648,7 +1664,10 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             LOG(WARNING) << msg;
             return;
         }
-
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.read_counter << txn->num_get_keys();
+            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+        });
         TabletIndexPB idx;
         // Get tablet id index from kv
         get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
@@ -1810,7 +1829,6 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
     }
     RPC_RATE_LIMIT(get_tablet_stats)
 
-    std::unique_ptr<Transaction> txn;
     for (auto& i : request->tablet_idx()) {
         TabletIndexPB idx(i);
         // FIXME(plat1ko): Get all tablet stats in one txn
@@ -1820,6 +1838,11 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             msg = fmt::format("failed to create txn, tablet_id={}", idx.tablet_id());
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.read_counter << txn->num_get_keys();
+            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            txn.reset(nullptr);
+        });
         if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
               idx.has_partition_id() && i.has_tablet_id())) {
             get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
@@ -2130,7 +2153,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     auto table_id = request->table_id();
     auto tablet_id = request->tablet_id();
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2266,6 +2288,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             err = txn->commit();
             TEST_SYNC_POINT_CALLBACK("update_delete_bitmap:commit:err", request->initiator(), i,
                                      &err);
+            stats.read_counter << txn->num_get_keys();
+            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
             total_txn_put_keys += txn->num_put_keys();
             total_txn_put_bytes += txn->put_bytes();
             total_txn_size += txn->approximate_bytes();
@@ -2307,7 +2331,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
 #ifdef ENABLE_INJECTION_POINT
         if (config::enable_update_delete_bitmap_kv_check) {
-            if (!check_delete_bitmap_kv_exists(code, msg, txn, key, instance_id, tablet_id,
+            if (!check_delete_bitmap_kv_exists(code, msg, txn0, key, instance_id, tablet_id,
                                                request->lock_id())) {
                 return;
             }
@@ -2489,6 +2513,10 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             msg = "failed to init txn";
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.read_counter << txn->num_get_keys();
+            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+        });
         MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
                                              begin_versions[i], 0};
         MetaDeleteBitmapInfo end_key_info {instance_id, tablet_id, rowset_ids[i], end_versions[i],
@@ -2606,6 +2634,10 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             msg = "failed to init txn";
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.read_counter << txn->num_get_keys();
+            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+        });
         TabletIndexPB idx(request->idx());
         TabletStatsPB tablet_stat;
         internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
@@ -2672,7 +2704,7 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
                                                     std::string& instance_id, std::string& lock_key,
-                                                    std::string lock_use_version) {
+                                                    std::string lock_use_version, KVStats* stats) {
     bool require_tablet_stats =
             request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
     if (!require_tablet_stats) return true;
@@ -2692,6 +2724,10 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
         msg = "failed to init txn";
         return false;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats->read_counter << txn->num_get_keys();
+        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+    });
     auto table_id = request->table_id();
     std::stringstream ss;
     if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
@@ -2866,7 +2902,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
         GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
-        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats* stats) {
     VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     auto table_id = request->table_id();
@@ -2883,6 +2920,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
             msg = "failed to init txn";
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats->read_counter << txn->num_get_keys();
+            stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+        });
         std::string lock_val;
         DeleteBitmapUpdateLockPB lock_info;
         err = txn->get(lock_key, &lock_val);
@@ -3095,7 +3136,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         }
     }
 
-    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v2")) {
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v2",
+                                       stats)) {
         return;
     }
 }
@@ -3104,7 +3146,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
         GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
-        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats* stats) {
     VLOG_DEBUG << "get delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
@@ -3114,6 +3157,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         msg = "failed to init txn";
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats->read_counter << txn->num_get_keys();
+        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+    });
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
@@ -3179,7 +3226,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         return;
     }
 
-    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1")) {
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1",
+                                       stats)) {
         return;
     };
 }
@@ -3188,7 +3236,8 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const RemoveDeleteBitmapUpdateLockRequest* request,
         RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
-        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats* stats) {
     VLOG_DEBUG << "remove delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
@@ -3198,6 +3247,10 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         msg = "failed to init txn";
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats->read_counter << txn->num_get_keys();
+        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+    });
     if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, request->table_id(), request->initiator()});
@@ -3267,7 +3320,8 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         google::protobuf::RpcController* controller,
         const RemoveDeleteBitmapUpdateLockRequest* request,
         RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
-        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss) {
+        std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        KVStats* stats) {
     VLOG_DEBUG << "remove delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
@@ -3277,6 +3331,10 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         msg = "failed to init txn";
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats->read_counter << txn->num_get_keys();
+        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+    });
     std::string lock_key =
             meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
     std::string lock_val;
@@ -3353,10 +3411,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
               << " use_version=" << use_version;
     if (use_version == "v2") {
         get_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
-                                         msg, ss);
+                                         msg, ss, &stats);
     } else {
         get_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
-                                         msg, ss);
+                                         msg, ss, &stats);
     }
 }
 
@@ -3384,10 +3442,10 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
               << " use_version=" << use_version;
     if (use_version == "v2") {
         remove_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
-                                            msg, ss);
+                                            msg, ss, &stats);
     } else {
         remove_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
-                                            msg, ss);
+                                            msg, ss, &stats);
     }
 }
 
@@ -3424,7 +3482,6 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
         msg = ss.str();
         return;
     }
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to init txn";
@@ -3563,7 +3620,6 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
 
     RPC_RATE_LIMIT(get_schema_dict)
 
-    std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
