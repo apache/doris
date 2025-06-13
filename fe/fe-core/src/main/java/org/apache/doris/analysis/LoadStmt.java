@@ -136,7 +136,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
     public static final String KEY_SKIP_LINES = "skip_lines";
     public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     public static final String PARTIAL_COLUMNS = "partial_columns";
-    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_policy";
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_behavior";
 
     public static final String KEY_COMMENT = "comment";
 

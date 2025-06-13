@@ -290,7 +290,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             }
             default: {
                 return Status::InvalidArgument(
-                        "Unknown partial_update_new_key_policy: {}, should be one of "
+                        "Unknown partial_update_new_key_behavior: {}, should be one of "
                         "'APPEND' or 'ERROR'",
                         tschema.partial_update_new_key_policy);
             }

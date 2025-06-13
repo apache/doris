@@ -710,7 +710,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         auto it = policy_map.find(policy_name);
         if (it == policy_map.end()) {
             return Status::InvalidArgument(
-                    "Invalid partial_update_new_key_policy {}, must be one of {'APPEND', 'ERROR'}",
+                    "Invalid partial_update_new_key_behavior {}, must be one of {'APPEND', "
+                    "'ERROR'}",
                     policy_name);
         }
         request.__set_partial_update_new_key_policy(it->second);

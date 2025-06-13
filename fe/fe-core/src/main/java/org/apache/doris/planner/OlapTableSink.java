@@ -380,7 +380,7 @@ public class OlapTableSink extends DataSink {
             } else {
                 strBuilder.append(prefix + "  PARTIAL_UPDATE_MODE: UPDATE_FLEXIBLE_COLUMNS");
             }
-            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_POLICY: " + partialUpdateNewKeyPolicy);
+            strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
     }

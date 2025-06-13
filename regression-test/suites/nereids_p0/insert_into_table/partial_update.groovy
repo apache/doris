@@ -180,11 +180,11 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             sql """insert into ${tableName5} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
             qt_5 """select * from ${tableName5} order by id;"""
             sql "set enable_unique_key_partial_update=true;"
-            sql """set partial_update_new_key_policy="ERROR";"""
+            sql """set partial_update_new_key_behavior="ERROR";"""
             sql "sync;"
             test {
                 sql """ insert into ${tableName5}(id,balance,last_access_time) values(1,500,"2023-07-03 12:00:01"),(3,23,"2023-07-03 12:00:02"),(18,9999999,"2023-07-03 12:00:03"); """
-                exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_policy is ERROR"
+                exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"
             }
             qt_5 """select * from ${tableName5} order by id;"""
             sql "set enable_unique_key_partial_update=false;"
