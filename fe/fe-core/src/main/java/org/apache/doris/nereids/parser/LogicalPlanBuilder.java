@@ -934,6 +934,7 @@ import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshDictionaryCo
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
+import org.apache.doris.nereids.trees.plans.commands.use.UseCloudClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -6409,6 +6410,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return statementScope;
+    }
+
+    @Override
+    public LogicalPlan visitUseCloudCluster(DorisParser.UseCloudClusterContext ctx) {
+        if (ctx.catalog != null) {
+            return new UseCloudClusterCommand(
+                stripQuotes(ctx.cluster.getText()),
+                stripQuotes(ctx.database.getText()),
+                stripQuotes(ctx.catalog.getText()));
+        } else if (ctx.database != null) {
+            return new UseCloudClusterCommand(
+                stripQuotes(ctx.cluster.getText()),
+                stripQuotes(ctx.database.getText()));
+        }
+
+        return new UseCloudClusterCommand(stripQuotes(ctx.cluster.getText()));
     }
 
     @Override
