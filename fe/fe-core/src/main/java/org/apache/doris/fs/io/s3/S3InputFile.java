@@ -34,94 +34,129 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Objects;
 
+/**
+ * An implementation of DorisInputFile for Amazon S3 storage.
+ * This class provides functionality to read files from S3 buckets,
+ * check their existence, and retrieve their metadata such as length
+ * and last modified time.
+ */
 public class S3InputFile implements DorisInputFile {
-    private final S3Client client;
-    private final S3URI s3URI;
-    // private final S3Context context;
-    // private final RequestPayer requestPayer;
-    // private final Optional<EncryptionKey> key;
-    private long length;
-    private long lastModifiedTime;
+    // The S3 client used for making requests to AWS S3
+    private final S3Client s3Client;
 
-    public S3InputFile(S3Client client, S3URI s3URI, Long length, long lastModifiedTime) {
-        this.client = Objects.requireNonNull(client, "client is null");
-        this.s3URI = Objects.requireNonNull(s3URI, "uri is null");
-        // this.context = requireNonNull(context, "context is null");
-        // this.requestPayer = context.requestPayer();
-        this.length = length;
-        this.lastModifiedTime = lastModifiedTime;
-        // this.key = requireNonNull(key, "key is null");
-        // location.location().verifyValidFileLocation();
+    // The parsed S3 URI containing bucket and key information
+    private final S3URI s3Uri;
+
+    // The length of the S3 object in bytes, -1 if not yet retrieved
+    private long objectLength;
+
+    // The last modified timestamp of the S3 object, -1 if not yet retrieved
+    private long lastModified;
+
+    /**
+     * Constructs a new S3InputFile with the specified parameters.
+     *
+     * @param s3Client The S3 client to use for requests
+     * @param s3Uri The parsed S3 URI of the object
+     * @param length Initial length of the object, or -1 if unknown
+     * @param lastModifiedTime Initial last modified time, or -1 if unknown
+     */
+    public S3InputFile(S3Client s3Client, S3URI s3Uri, long length, long lastModifiedTime) {
+        this.s3Client = Objects.requireNonNull(s3Client, "s3Client cannot be null");
+        this.s3Uri = Objects.requireNonNull(s3Uri, "s3Uri cannot be null");
+        this.objectLength = length;
+        this.lastModified = lastModifiedTime;
     }
+
+    // ----------------------------------------
+    // DorisInputFile Interface Implementation
+    // ----------------------------------------
 
     @Override
     public DorisInput newInput() {
-        return new S3Input(path(), client, newGetObjectRequest());
+        return new S3Input(path(), s3Client, createGetObjectRequest());
     }
 
     @Override
     public DorisInputStream newStream() {
-        return new S3InputStream(path(), client, newGetObjectRequest(), length);
+        return new S3InputStream(path(), s3Client, createGetObjectRequest(), objectLength);
     }
 
     @Override
-    public long length()
-            throws IOException {
-        if ((length == -1) && !headObject()) {
-            throw new FileNotFoundException(s3URI.toString());
+    public long length() throws IOException {
+        if (objectLength == -1 && !fetchObjectMetadata()) {
+            throw new FileNotFoundException(s3Uri.toString());
         }
-        return length;
+        return objectLength;
     }
 
     @Override
-    public long lastModifiedTime()
-            throws IOException {
-        if ((lastModifiedTime == -1) && !headObject()) {
-            throw new FileNotFoundException(s3URI.toString());
+    public long lastModifiedTime() throws IOException {
+        if (lastModified == -1 && !fetchObjectMetadata()) {
+            throw new FileNotFoundException(s3Uri.toString());
         }
-        return lastModifiedTime;
+        return lastModified;
     }
 
     @Override
-    public boolean exists()
-            throws IOException {
-        return headObject();
+    public boolean exists() throws IOException {
+        return fetchObjectMetadata();
     }
 
     @Override
     public DorisPath path() {
-        return s3URI.toDorisPath();
+        return s3Uri.toDorisPath();
     }
 
-    private GetObjectRequest newGetObjectRequest() {
+    // ----------------------------------------
+    // Internal Helper Methods
+    // ----------------------------------------
+
+    /**
+     * Creates a GetObjectRequest for the S3 object.
+     *
+     * @return The configured GetObjectRequest
+     */
+    private GetObjectRequest createGetObjectRequest() {
         return GetObjectRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getKey())
+                .bucket(s3Uri.getBucket())
+                .key(s3Uri.getKey())
                 .build();
     }
 
-    private HeadObjectRequest newHeadObjectRequest() {
+    /**
+     * Creates a HeadObjectRequest for the S3 object.
+     *
+     * @return The configured HeadObjectRequest
+     */
+    private HeadObjectRequest createHeadObjectRequest() {
         return HeadObjectRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getKey())
+                .bucket(s3Uri.getBucket())
+                .key(s3Uri.getKey())
                 .build();
     }
 
-    private boolean headObject() throws IOException {
-        HeadObjectRequest request = newHeadObjectRequest();
+    /**
+     * Fetches metadata for the S3 object using a HEAD request.
+     * Updates the object length and last modified time if successful.
+     *
+     * @return true if the object exists and metadata was fetched, false otherwise
+     * @throws IOException if there was an error making the request
+     */
+    private boolean fetchObjectMetadata() throws IOException {
         try {
-            HeadObjectResponse response = client.headObject(request);
-            if (length == -1) {
-                length = response.contentLength();
+            HeadObjectResponse response = s3Client.headObject(createHeadObjectRequest());
+            if (objectLength == -1) {
+                objectLength = response.contentLength();
             }
-            if (lastModifiedTime == -1) {
-                lastModifiedTime = response.lastModified().toEpochMilli();
+            if (lastModified == -1) {
+                lastModified = response.lastModified().toEpochMilli();
             }
             return true;
         } catch (NoSuchKeyException e) {
             return false;
         } catch (SdkException e) {
-            throw new IOException("failed to head object for S3, key=" + s3URI.getKey(), e);
+            throw new IOException("Failed to fetch S3 object metadata, key=" + s3Uri.getKey(), e);
         }
     }
 }

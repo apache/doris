@@ -25,6 +25,7 @@ import static java.lang.Math.min;
 import static java.lang.System.arraycopy;
 import static java.net.HttpURLConnection.HTTP_PRECON_FAILED;
 import static java.util.concurrent.CompletableFuture.supplyAsync;
+
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -51,78 +52,140 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 
+/**
+ * An OutputStream implementation that writes data to Amazon S3.
+ * This class supports both single-part and multi-part uploads to S3.
+ * For files larger than the part size (5MB), it automatically switches to multi-part upload.
+ * The implementation is thread-safe and handles upload failures gracefully.
+ */
 public class S3OutputStream extends OutputStream {
-    private final List<CompletedPart> parts = new ArrayList<>();
+    // List to track completed parts for multi-part upload
+    private final List<CompletedPart> completedParts = new ArrayList<>();
+    
+    // Executor for handling asynchronous upload operations
     private final Executor uploadExecutor;
-    private final S3Client client;
-    private final S3URI s3URI;
+    
+    // S3 client for interacting with Amazon S3
+    private final S3Client s3Client;
+    
+    // URI containing bucket and key information for the S3 object
+    private final S3URI s3Uri;
+    
+    // Size of each part for multi-part upload (5MB)
     private final int partSize;
 
-    private int currentPartNumber;
-    private byte[] buffer = new byte[0];
-    private int bufferSize;
-    private int initialBufferSize = 64;
+    // Current part number for multi-part upload
+    private int currentPartNum;
+    
+    // Buffer for storing data before upload
+    private byte[] dataBuffer = new byte[0];
+    
+    // Current size of data in buffer
+    private int bufferLength;
+    
+    // Initial size of the buffer
+    private int initialBufferLength = 64;
 
-    private boolean closed;
-    private boolean failed;
-    private boolean multipartUploadStarted;
-    private Future<CompletedPart> inProgressUploadFuture;
+    // Flag indicating if the stream is closed
+    private boolean isClosed;
+    
+    // Flag indicating if an upload operation has failed
+    private boolean hasFailed;
+    
+    // Flag indicating if multi-part upload has been initiated
+    private boolean isMultipartStarted;
+    
+    // Future representing the current upload operation
+    private Future<CompletedPart> currentUploadFuture;
 
-    // Mutated by background thread which does the multipart upload.
-    // Read by both main thread and background thread.
-    // Visibility is ensured by calling get() on inProgressUploadFuture.
+    // Upload ID for multi-part upload, shared between threads
     private Optional<String> uploadId = Optional.empty();
 
-    public S3OutputStream(Executor uploadExecutor, S3Client client, S3URI s3URI) {
-        this.uploadExecutor = Objects.requireNonNull(uploadExecutor, "uploadExecutor is null");
-        this.client = Objects.requireNonNull(client, "client is null");
-        this.s3URI = Objects.requireNonNull(s3URI, "location is null");
+    /**
+     * Constructs a new S3OutputStream.
+     *
+     * @param uploadExecutor executor for handling asynchronous upload operations
+     * @param s3Client client for interacting with Amazon S3
+     * @param s3Uri URI containing bucket and key information
+     */
+    public S3OutputStream(Executor uploadExecutor, S3Client s3Client, S3URI s3Uri) {
+        this.uploadExecutor = Objects.requireNonNull(uploadExecutor, "uploadExecutor cannot be null");
+        this.s3Client = Objects.requireNonNull(s3Client, "s3Client cannot be null");
+        this.s3Uri = Objects.requireNonNull(s3Uri, "s3Uri cannot be null");
         this.partSize = 5 * 1024 * 1024; // 5 MB
     }
 
+    // ===============================
+    // OutputStream Implementation
+    // ===============================
+
+    /**
+     * Writes a single byte to the output stream.
+     *
+     * @param byteValue the byte to write
+     * @throws IOException if an I/O error occurs
+     */
     @Override
-    public void write(int b) throws IOException {
-        checkClosed();
-        ensureCapacity(1);
-        buffer[bufferSize] = (byte) b;
-        bufferSize++;
-        flushBuffer(false);
+    public void write(int byteValue) throws IOException {
+        validateStreamOpen();
+        ensureBufferCapacity(1);
+        dataBuffer[bufferLength] = (byte) byteValue;
+        bufferLength++;
+        flushBufferIfNeeded(false);
     }
 
+    /**
+     * Writes a portion of byte array to the output stream.
+     *
+     * @param data the data to write
+     * @param offset starting offset in the data
+     * @param length number of bytes to write
+     * @throws IOException if an I/O error occurs
+     */
     @Override
-    public void write(byte[] bytes, int offset, int length) throws IOException {
-        checkClosed();
+    public void write(byte[] data, int offset, int length) throws IOException {
+        validateStreamOpen();
 
         while (length > 0) {
-            ensureCapacity(length);
+            ensureBufferCapacity(length);
 
-            int copied = min(buffer.length - bufferSize, length);
-            arraycopy(bytes, offset, buffer, bufferSize, copied);
-            bufferSize += copied;
+            int bytesToCopy = min(dataBuffer.length - bufferLength, length);
+            arraycopy(data, offset, dataBuffer, bufferLength, bytesToCopy);
+            bufferLength += bytesToCopy;
 
-            flushBuffer(false);
+            flushBufferIfNeeded(false);
 
-            offset += copied;
-            length -= copied;
+            offset += bytesToCopy;
+            length -= bytesToCopy;
         }
     }
 
+    /**
+     * Flushes the stream, ensuring any buffered data is written.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void flush() throws IOException {
-        checkClosed();
-        flushBuffer(false);
+        validateStreamOpen();
+        flushBufferIfNeeded(false);
     }
 
+    /**
+     * Closes the stream, uploading any remaining data.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     @Override
     public void close() throws IOException {
-        if (closed) {
+        if (isClosed) {
             return;
         }
-        closed = true;
+        isClosed = true;
 
-        if (failed) {
+        if (hasFailed) {
             try {
-                abortUpload();
+                abortMultipartUpload();
                 return;
             } catch (SdkException e) {
                 throw new IOException(e);
@@ -130,180 +193,221 @@ public class S3OutputStream extends OutputStream {
         }
 
         try {
-            flushBuffer(true);
-            waitForPreviousUploadFinish();
+            flushBufferIfNeeded(true);
+            waitForUploadCompletion();
         } catch (IOException | RuntimeException e) {
-            abortUploadSuppressed(e);
+            abortUploadAndAddSuppressed(e);
             throw e;
         }
 
         try {
-            uploadId.ifPresent(this::finishUpload);
+            uploadId.ifPresent(this::completeMultipartUpload);
         } catch (SdkException e) {
-            abortUploadSuppressed(e);
+            abortUploadAndAddSuppressed(e);
             throw new IOException(e);
         }
     }
 
-    private void checkClosed() throws IOException {
-        if (closed) {
-            throw new IOException("Output stream is closed: " + s3URI.toString());
-        }
-    }
+    // ===============================
+    // Buffer Management
+    // ===============================
 
-    private void ensureCapacity(int extra) {
-        int capacity = min(partSize, bufferSize + extra);
-        if (buffer.length < capacity) {
-            int target = max(buffer.length, initialBufferSize);
-            if (target < capacity) {
-                target += target / 2;
-                target = (int) IOUtils.clamp(target, capacity, partSize);
+    /**
+     * Ensures the buffer has enough capacity for additional data.
+     *
+     * @param additionalBytes number of additional bytes needed
+     */
+    private void ensureBufferCapacity(int additionalBytes) {
+        int requiredCapacity = min(partSize, bufferLength + additionalBytes);
+        if (dataBuffer.length < requiredCapacity) {
+            int newCapacity = max(dataBuffer.length, initialBufferLength);
+            if (newCapacity < requiredCapacity) {
+                newCapacity += newCapacity / 2;
+                newCapacity = (int) IOUtils.clamp(newCapacity, requiredCapacity, partSize);
             }
-            buffer = Arrays.copyOf(buffer, target);
+            dataBuffer = Arrays.copyOf(dataBuffer, newCapacity);
         }
     }
 
-    private PutObjectRequest newPutObjectRequest() {
-        return PutObjectRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getKey())
-                .contentLength((long) bufferSize)
+    /**
+     * Flushes the buffer if it's full or if final flush is requested.
+     *
+     * @param isFinalFlush whether this is the final flush
+     * @throws IOException if an I/O error occurs
+     */
+    private void flushBufferIfNeeded(boolean isFinalFlush) throws IOException {
+        if (isFinalFlush && !isMultipartStarted) {
+            uploadSinglePart();
+            return;
+        }
+
+        if ((bufferLength == partSize) || (isFinalFlush && bufferLength > 0)) {
+            uploadPart();
+        }
+    }
+
+    // ===============================
+    // Upload Operations
+    // ===============================
+
+    /**
+     * Uploads the current buffer as a single part.
+     *
+     * @throws IOException if an I/O error occurs
+     */
+    private void uploadSinglePart() throws IOException {
+        PutObjectRequest request = PutObjectRequest.builder()
+                .bucket(s3Uri.getBucket())
+                .key(s3Uri.getKey())
+                .contentLength((long) bufferLength)
                 .build();
-    }
 
-    private void flushBuffer(boolean finished)
-            throws IOException {
-        // skip multipart upload if there would only be one part
-        if (finished && !multipartUploadStarted) {
-            PutObjectRequest request = newPutObjectRequest();
-            ByteBuffer bytes = ByteBuffer.wrap(buffer, 0, bufferSize);
+        ByteBuffer byteBuffer = ByteBuffer.wrap(dataBuffer, 0, bufferLength);
 
-            try {
-                client.putObject(request, RequestBody.fromByteBuffer(bytes));
-                return;
-            } catch (S3Exception e) {
-                failed = true;
-                // when `location` already exists, the operation will fail with `412 Precondition Failed`
-                if (e.statusCode() == HTTP_PRECON_FAILED) {
-                    throw new FileAlreadyExistsException(s3URI.toString());
-                }
-                throw new IOException(String.format("Put failed for bucket [%s] key [%s]: %s",
-                        s3URI.getBucket(), s3URI.getKey(), e.getMessage()), e);
-            } catch (SdkException e) {
-                failed = true;
-                throw new IOException(String.format("Put failed for bucket [%s] key [%s]: %s",
-                        s3URI.getBucket(), s3URI.getKey(), e.getMessage()), e);
+        try {
+            s3Client.putObject(request, RequestBody.fromByteBuffer(byteBuffer));
+        } catch (S3Exception e) {
+            hasFailed = true;
+            if (e.statusCode() == HTTP_PRECON_FAILED) {
+                throw new FileAlreadyExistsException(s3Uri.toString());
             }
-        }
-
-        // the multipart upload API only allows the last part to be smaller than 5MB
-        if ((bufferSize == partSize) || (finished && (bufferSize > 0))) {
-            byte[] data = buffer;
-            int length = bufferSize;
-
-            if (finished) {
-                this.buffer = null;
-            } else {
-                this.buffer = new byte[0];
-                this.initialBufferSize = partSize;
-                bufferSize = 0;
-            }
-
-            try {
-                waitForPreviousUploadFinish();
-            } catch (IOException e) {
-                failed = true;
-                abortUploadSuppressed(e);
-                throw e;
-            }
-            multipartUploadStarted = true;
-            inProgressUploadFuture = supplyAsync(() -> uploadPage(data, length), uploadExecutor);
+            throw new IOException(String.format("Failed to upload to bucket [%s] key [%s]: %s",
+                    s3Uri.getBucket(), s3Uri.getKey(), e.getMessage()), e);
+        } catch (SdkException e) {
+            hasFailed = true;
+            throw new IOException(String.format("Failed to upload to bucket [%s] key [%s]: %s",
+                    s3Uri.getBucket(), s3Uri.getKey(), e.getMessage()), e);
         }
     }
 
-    private void waitForPreviousUploadFinish()
-            throws IOException {
-        if (inProgressUploadFuture == null) {
+    /**
+     * Uploads the current buffer as a part in multi-part upload.
+     *
+     * @throws IOException if an I/O error occurs
+     */
+    private void uploadPart() throws IOException {
+        byte[] partData = dataBuffer;
+        int partLength = bufferLength;
+
+        if (currentUploadFuture != null) {
+            waitForUploadCompletion();
+        }
+
+        dataBuffer = new byte[0];
+        initialBufferLength = partSize;
+        bufferLength = 0;
+        isMultipartStarted = true;
+
+        currentUploadFuture = supplyAsync(() -> uploadPartToS3(partData, partLength), uploadExecutor);
+    }
+
+    /**
+     * Uploads a part to S3 as part of multi-part upload.
+     *
+     * @param data the data to upload
+     * @param length the length of data
+     * @return the completed part information
+     */
+    private CompletedPart uploadPartToS3(byte[] data, int length) {
+        if (uploadId.isEmpty()) {
+            CreateMultipartUploadRequest request = CreateMultipartUploadRequest.builder()
+                    .bucket(s3Uri.getBucket())
+                    .key(s3Uri.getKey())
+                    .build();
+            uploadId = Optional.of(s3Client.createMultipartUpload(request).uploadId());
+        }
+
+        currentPartNum++;
+        UploadPartRequest request = UploadPartRequest.builder()
+                .bucket(s3Uri.getBucket())
+                .key(s3Uri.getKey())
+                .uploadId(uploadId.get())
+                .partNumber(currentPartNum)
+                .contentLength((long) length)
+                .build();
+
+        ByteBuffer byteBuffer = ByteBuffer.wrap(data, 0, length);
+        UploadPartResponse response = s3Client.uploadPart(request, RequestBody.fromByteBuffer(byteBuffer));
+        
+        CompletedPart completedPart = CompletedPart.builder()
+                .partNumber(currentPartNum)
+                .eTag(response.eTag())
+                .build();
+
+        completedParts.add(completedPart);
+        return completedPart;
+    }
+
+    // ===============================
+    // Helper Methods
+    // ===============================
+
+    /**
+     * Validates that the stream is not closed.
+     *
+     * @throws IOException if the stream is closed
+     */
+    private void validateStreamOpen() throws IOException {
+        if (isClosed) {
+            throw new IOException("Stream is closed: " + s3Uri.toString());
+        }
+    }
+
+    /**
+     * Waits for the current upload operation to complete.
+     *
+     * @throws IOException if the upload fails
+     */
+    private void waitForUploadCompletion() throws IOException {
+        if (currentUploadFuture == null) {
             return;
         }
 
         try {
-            inProgressUploadFuture.get();
+            currentUploadFuture.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new InterruptedIOException();
         } catch (ExecutionException e) {
-            throw new IOException("Streaming upload failed", e);
+            throw new IOException("Upload failed", e);
         }
     }
 
-    private CreateMultipartUploadRequest newCreateMultipartUploadRequest() {
-        return CreateMultipartUploadRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getKey())
-                .build();
-    }
-
-    private UploadPartRequest newUploadPartRequest(long length) {
-        return UploadPartRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getBucket())
-                .contentLength((long) length)
-                .uploadId(uploadId.get())
-                .partNumber(currentPartNumber)
-                .build();
-    }
-
-    private CompleteMultipartUploadRequest newCompleteMultipartUploadRequest(String uploadId) {
-        return CompleteMultipartUploadRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getKey())
+    /**
+     * Completes the multi-part upload.
+     *
+     * @param uploadId the ID of the multi-part upload
+     */
+    private void completeMultipartUpload(String uploadId) {
+        CompleteMultipartUploadRequest request = CompleteMultipartUploadRequest.builder()
+                .bucket(s3Uri.getBucket())
+                .key(s3Uri.getKey())
                 .uploadId(uploadId)
-                .multipartUpload(x -> x.parts(parts))
+                .multipartUpload(builder -> builder.parts(completedParts))
                 .build();
+        s3Client.completeMultipartUpload(request);
     }
 
-    private AbortMultipartUploadRequest newAbortMultipartUploadRequest(String uploadId) {
-        return AbortMultipartUploadRequest.builder()
-                .bucket(s3URI.getBucket())
-                .key(s3URI.getKey())
-                .uploadId(uploadId)
-                .build();
+    /**
+     * Aborts the multi-part upload.
+     */
+    private void abortMultipartUpload() {
+        uploadId.map(id -> AbortMultipartUploadRequest.builder()
+                .bucket(s3Uri.getBucket())
+                .key(s3Uri.getKey())
+                .uploadId(id)
+                .build())
+                .ifPresent(s3Client::abortMultipartUpload);
     }
 
-    private CompletedPart uploadPage(byte[] data, int length) {
-        if (uploadId.isEmpty()) {
-            CreateMultipartUploadRequest request = newCreateMultipartUploadRequest();
-            uploadId = Optional.of(client.createMultipartUpload(request).uploadId());
-        }
-
-        currentPartNumber++;
-        UploadPartRequest request = newUploadPartRequest(length);
-
-        ByteBuffer bytes = ByteBuffer.wrap(data, 0, length);
-        UploadPartResponse response = client.uploadPart(request, RequestBody.fromByteBuffer(bytes));
-        CompletedPart part = CompletedPart.builder()
-                .partNumber(currentPartNumber)
-                .eTag(response.eTag())
-                .build();
-
-        parts.add(part);
-        return part;
-    }
-
-    private void finishUpload(String uploadId) {
-        CompleteMultipartUploadRequest request = newCompleteMultipartUploadRequest(uploadId);
-        client.completeMultipartUpload(request);
-    }
-
-    private void abortUpload() {
-        uploadId.map(id -> newAbortMultipartUploadRequest(id))
-                .ifPresent(client::abortMultipartUpload);
-    }
-
-    private void abortUploadSuppressed(Throwable throwable) {
+    /**
+     * Aborts the upload and adds any suppressed exceptions.
+     *
+     * @param throwable the exception to add suppressed exceptions to
+     */
+    private void abortUploadAndAddSuppressed(Throwable throwable) {
         try {
-            abortUpload();
+            abortMultipartUpload();
         } catch (Throwable t) {
             if (throwable != t) {
                 throwable.addSuppressed(t);

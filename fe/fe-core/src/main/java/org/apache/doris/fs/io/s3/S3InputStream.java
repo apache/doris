@@ -37,32 +37,57 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 
+/**
+ * An implementation of DorisInputStream that reads data from Amazon S3.
+ * This class provides functionality to read S3 objects with support for seeking,
+ * buffering, and handling various S3-specific edge cases.
+ */
 public class S3InputStream extends DorisInputStream {
+    // Default TCP buffer size for network operations (8KB)
     private static final long DEFAULT_TCP_BUFFER_SIZE = 1024 * 8;
+    // Maximum number of bytes to skip when seeking forward
     private static final int MAX_SKIP_BYTES = 1024 * 1024;
 
-    private final DorisPath path;
-    private final S3Client client;
-    private final GetObjectRequest request;
-    private final long length;
+    // The S3 path being read
+    private final DorisPath filePath;
+    // AWS S3 client for making requests
+    private final S3Client s3Client;
+    // The base request object for S3 GET operations
+    private final GetObjectRequest baseRequest;
+    // Total length of the S3 object, -1 if unknown
+    private final long objectLength;
 
-    private boolean closed;
-    private ResponseInputStream<GetObjectResponse> in;
-    private long streamPosition;
+    // Whether the stream has been closed
+    private boolean isClosed;
+    // Current input stream for reading data
+    private ResponseInputStream<GetObjectResponse> inputStream;
+    // Current position in the stream where data is being read
+    private long currentPosition;
+    // Position where next read operation should start
     private long nextReadPosition;
 
+    /**
+     * Constructs a new S3InputStream.
+     *
+     * @param path The Doris path representing the S3 object
+     * @param client The S3 client to use for requests
+     * @param request The base GET object request
+     * @param length The total length of the object, or -1 if unknown
+     */
     public S3InputStream(DorisPath path, S3Client client, GetObjectRequest request, long length) {
-        this.path = requireNonNull(path, "path is null");
-        this.client = requireNonNull(client, "client is null");
-        this.request = requireNonNull(request, "request is null");
-        this.length = length;
+        this.filePath = requireNonNull(path, "path is null");
+        this.s3Client = requireNonNull(client, "client is null");
+        this.baseRequest = requireNonNull(request, "request is null");
+        this.objectLength = length;
     }
+
+    // **************** Public Interface Methods ****************
 
     @Override
     public int available() throws IOException {
-        checkClosed();
-        if ((in != null) && (nextReadPosition == streamPosition)) {
-            return getAvailable();
+        validateStreamState();
+        if ((inputStream != null) && (nextReadPosition == currentPosition)) {
+            return getAvailableBytes();
         }
         return 0;
     }
@@ -74,26 +99,26 @@ public class S3InputStream extends DorisInputStream {
 
     @Override
     public void seek(long position) throws IOException {
-        checkClosed();
+        validateStreamState();
         if (position < 0) {
-            throw new IOException("Negative seek offset");
+            throw new IOException("Cannot seek to negative position");
         }
-        if ((length != -1) && (position > length)) {
-            throw new IOException(String.format("Cannot seek to %d. File size is %d: %s", position, length, path));
+        if ((objectLength != -1) && (position > objectLength)) {
+            throw new IOException(String.format("Cannot seek to %d. File size is %d: %s", 
+                position, objectLength, filePath));
         }
-
         nextReadPosition = position;
     }
 
     @Override
     public int read() throws IOException {
-        checkClosed();
-        seekStream(false);
+        validateStreamState();
+        seekToPosition(false);
 
-        return retryableRead(() -> {
-            int value = doRead();
+        return executeWithRetry(() -> {
+            int value = readByte();
             if (value >= 0) {
-                streamPosition++;
+                currentPosition++;
                 nextReadPosition++;
             }
             return value;
@@ -101,164 +126,187 @@ public class S3InputStream extends DorisInputStream {
     }
 
     @Override
-    public int read(byte[] bytes, int offset, int length) throws IOException {
-        checkClosed();
-        seekStream(false);
+    public int read(byte[] buffer, int offset, int length) throws IOException {
+        validateStreamState();
+        seekToPosition(false);
 
-        return retryableRead(() -> {
-            int n = doRead(bytes, offset, length);
-            if (n > 0) {
-                streamPosition += n;
-                nextReadPosition += n;
+        return executeWithRetry(() -> {
+            int bytesRead = readBytes(buffer, offset, length);
+            if (bytesRead > 0) {
+                currentPosition += bytesRead;
+                nextReadPosition += bytesRead;
             }
-            return n;
+            return bytesRead;
         });
     }
 
     @Override
-    public long skip(long n) throws IOException {
-        checkClosed();
-        long skipSize = IOUtils.clamp(n, 0, length != -1 ? length - nextReadPosition : Integer.MAX_VALUE);
-        nextReadPosition += skipSize;
-        return skipSize;
+    public long skip(long bytesToSkip) throws IOException {
+        validateStreamState();
+        long actualSkip = IOUtils.clamp(bytesToSkip, 0, 
+            objectLength != -1 ? objectLength - nextReadPosition : Integer.MAX_VALUE);
+        nextReadPosition += actualSkip;
+        return actualSkip;
     }
 
     @Override
     public void skipNBytes(long n) throws IOException {
-        checkClosed();
+        validateStreamState();
 
         if (n <= 0) {
             return;
         }
-        long position = nextReadPosition + n;
-        if ((position < 0) || (length != -1 && position > length)) {
+        long targetPosition = nextReadPosition + n;
+        if ((targetPosition < 0) || (objectLength != -1 && targetPosition > objectLength)) {
             throw new EOFException(String.format("Unable to skip %d bytes (position=%d, fileSize=%d): %s",
-                    n, nextReadPosition, length, path));
+                    n, nextReadPosition, objectLength, filePath));
         }
-        nextReadPosition = position;
+        nextReadPosition = targetPosition;
     }
 
     @Override
     public void close() {
-        if (closed) {
+        if (isClosed) {
             return;
         }
-        closed = true;
-        closeStream();
+        isClosed = true;
+        closeCurrentStream();
     }
 
-    private <T> T retryableRead(IOExceptionThrowingSupplier<T> supplier) throws IOException {
+    // **************** Private Helper Methods ****************
+
+    /**
+     * Executes a read operation with one retry attempt on failure.
+     */
+    private <T> T executeWithRetry(IOExceptionThrowingSupplier<T> operation) throws IOException {
         try {
-            return supplier.get();
+            return operation.get();
         } catch (IOException e) {
-            seekStream(true);
+            seekToPosition(true);
         }
-
-        return supplier.get();
+        return operation.get();
     }
 
+    /**
+     * Functional interface for operations that may throw IOException.
+     */
     private interface IOExceptionThrowingSupplier<T> {
         T get() throws IOException;
     }
 
-    private void checkClosed() throws IOException {
-        if (closed) {
-            throw new IOException("Input is closed: " + path.toString());
+    /**
+     * Validates that the stream is not closed.
+     */
+    private void validateStreamState() throws IOException {
+        if (isClosed) {
+            throw new IOException("Stream is closed: " + filePath.toString());
         }
     }
 
-    private void seekStream(boolean forceStreamReset) throws IOException {
-        if (!forceStreamReset && (in != null) && (nextReadPosition == streamPosition)) {
-            // already at specified position
+    /**
+     * Seeks the stream to the next read position.
+     */
+    private void seekToPosition(boolean forceReset) throws IOException {
+        if (!forceReset && (inputStream != null) && (nextReadPosition == currentPosition)) {
             return;
         }
 
-        if (!forceStreamReset && (in != null) && (nextReadPosition > streamPosition)) {
-            // seeking forwards
-            long skip = nextReadPosition - streamPosition;
-            if (skip <= max(getAvailable(), MAX_SKIP_BYTES)) {
-                // already buffered or seek is small enough
-                if (doSkip(skip) == skip) {
-                    streamPosition = nextReadPosition;
+        if (!forceReset && (inputStream != null) && (nextReadPosition > currentPosition)) {
+            long skipDistance = nextReadPosition - currentPosition;
+            if (skipDistance <= max(getAvailableBytes(), MAX_SKIP_BYTES)) {
+                if (skipStreamBytes(skipDistance) == skipDistance) {
+                    currentPosition = nextReadPosition;
                     return;
                 }
             }
         }
 
-        // close the stream and open at desired position
-        streamPosition = nextReadPosition;
-        closeStream();
+        currentPosition = nextReadPosition;
+        closeCurrentStream();
 
         try {
-            GetObjectRequest rangeRequest = request;
+            GetObjectRequest rangeRequest = baseRequest;
             if (nextReadPosition != 0) {
                 String range = String.format("bytes=%d-", nextReadPosition);
-                rangeRequest = request.toBuilder().range(range).build();
+                rangeRequest = baseRequest.toBuilder().range(range).build();
             }
-            in = client.getObject(rangeRequest);
-            // a workaround for https://github.com/aws/aws-sdk-java-v2/issues/3538
-            if (in.response().contentLength() != null && in.response().contentLength() == 0) {
-                in = new ResponseInputStream<>(in.response(), nullInputStream());
+            inputStream = s3Client.getObject(rangeRequest);
+            
+            if (inputStream.response().contentLength() != null 
+                && inputStream.response().contentLength() == 0) {
+                inputStream = new ResponseInputStream<>(inputStream.response(), nullInputStream());
             }
-            streamPosition = nextReadPosition;
+            currentPosition = nextReadPosition;
         } catch (NoSuchKeyException e) {
-            var ex = new FileNotFoundException(path.toString());
+            var ex = new FileNotFoundException(filePath.toString());
             ex.initCause(e);
             throw ex;
         } catch (SdkException e) {
-            throw new IOException("Failed to open S3 file: " + path, e);
+            throw new IOException("Failed to open S3 file: " + filePath, e);
         }
     }
 
-    private void closeStream() {
-        if (in == null) {
+    /**
+     * Closes the current input stream.
+     */
+    private void closeCurrentStream() {
+        if (inputStream == null) {
             return;
         }
 
-        try (var v = in) {
-            // According to the documentation: Abort will close the underlying connection,
-            // dropping all remaining data in the stream, and not leaving the connection
-            // open to be used for future requests. This can be more expensive
-            // than just reading remaining data.
-            if (length != -1 && length - streamPosition <= DEFAULT_TCP_BUFFER_SIZE) {
-                drainInputStream(in);
+        try (var stream = inputStream) {
+            if (objectLength != -1 && objectLength - currentPosition <= DEFAULT_TCP_BUFFER_SIZE) {
+                drainInputStream(stream);
             } else {
-                in.abort();
-                in.release();
+                stream.abort();
+                stream.release();
             }
         } catch (AbortedException | IOException e) {
+            // Ignore exceptions during close
         } finally {
-            in = null;
+            inputStream = null;
         }
     }
 
-    private int getAvailable() throws IOException {
+    /**
+     * Gets available bytes in the current stream.
+     */
+    private int getAvailableBytes() throws IOException {
         try {
-            return in.available();
+            return inputStream.available();
         } catch (AbortedException e) {
             throw new InterruptedIOException();
         }
     }
 
-    private long doSkip(long n) throws IOException {
+    /**
+     * Skips bytes in the current stream.
+     */
+    private long skipStreamBytes(long n) throws IOException {
         try {
-            return in.skip(n);
+            return inputStream.skip(n);
         } catch (AbortedException e) {
             throw new InterruptedIOException();
         }
     }
 
-    private int doRead() throws IOException {
+    /**
+     * Reads a single byte from the current stream.
+     */
+    private int readByte() throws IOException {
         try {
-            return in.read();
+            return inputStream.read();
         } catch (AbortedException e) {
             throw new InterruptedIOException();
         }
     }
 
-    private int doRead(byte[] bytes, int offset, int length) throws IOException {
+    /**
+     * Reads multiple bytes from the current stream.
+     */
+    private int readBytes(byte[] bytes, int offset, int length) throws IOException {
         try {
-            return in.read(bytes, offset, length);
+            return inputStream.read(bytes, offset, length);
         } catch (AbortedException e) {
             throw new InterruptedIOException();
         }
