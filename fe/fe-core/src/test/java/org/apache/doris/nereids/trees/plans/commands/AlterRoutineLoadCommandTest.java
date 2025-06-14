@@ -29,7 +29,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
