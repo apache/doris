@@ -387,7 +387,77 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_null_operator9 """ SELECT * FROM STUDENT WHERE (id IS NOT NULL AND NULL); """
         order_qt_null_operator10 """ SELECT * FROM STUDENT WHERE (name IS NULL OR age IS NOT NULL); """
 
-        sql """ drop catalog if exists oracle_null_operator; """
+        // test function rules
+        // test push down
+        sql """ drop catalog if exists oracle_function_rules"""
+        // test invalid config
+        test {
+            sql """create catalog if not exists oracle_function_rules properties(
+                "type"="jdbc",
+                "user"="doris_test",
+                "password"="123456",
+                "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+            );"""
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql """create catalog if not exists oracle_function_rules properties(
+            "type"="jdbc",
+            "user"="doris_test",
+            "password"="123456",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver",
+            "function_rules" = '{"pushdown" : {"supported" : ["abs"]}}'
+        );"""
+
+        sql "use oracle_function_rules.DORIS_TEST"
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"], "unsupported" : []}}')"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // test rewrite
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"abs" : "abs2"}}');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs2("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // reset function rules
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // test invalid config
+        test {
+            sql """alter catalog oracle_function_rules set properties("function_rules" = 'invalid_json')"""
+            exception """Failed to parse push down rules: invalid_json"""
+        }
+
+        // sql """ drop catalog if exists oracle_null_operator; """
 
     }
 }
