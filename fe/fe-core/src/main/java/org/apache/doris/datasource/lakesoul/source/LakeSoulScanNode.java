@@ -254,8 +254,12 @@ public class LakeSoulScanNode extends FileQueryScanNode {
             }
         }
         List<String> pkKeys = null;
+        // partition;primary keys
         if (!tableInfo.getPartitions().equals(";")) {
-            pkKeys = Lists.newArrayList(tableInfo.getPartitions().split(";")[1].split(","));
+            String[] parts = tableInfo.getPartitions().split(";");
+            if (parts.length > 1) {
+                pkKeys = Lists.newArrayList(parts[1].split(","));
+            }
         }
 
         for (Map.Entry<String, Map<Integer, List<String>>> entry : splitByRangeAndHashPartition.entrySet()) {
