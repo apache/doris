@@ -52,7 +52,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 struct RegexpCountImpl {
-    // template <bool Const>
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
                              size_t input_rows_count, ColumnInt32::Container& result_data,
                              NullMap& null_map) {
@@ -67,7 +66,6 @@ struct RegexpCountImpl {
         }
     }
 
-    // template <bool Const>
     static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
                                    const ColumnString* pattern_col, NullMap& null_map,
                                    const size_t index_now) {
@@ -167,16 +165,10 @@ public:
         auto result_data_column = ColumnInt32::create(input_rows_count);
         auto& result_data = result_data_column->get_data();
 
-        bool col_const[2];
         ColumnPtr argument_columns[2];
-        for (int i = 0; i < 2; ++i) {
-            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
-        }
-        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
-                                                     *block.get_by_position(arguments[0]).column)
-                                                     .convert_to_full_column()
-                                           : block.get_by_position(arguments[0]).column;
-        default_preprocess_parameter_columns(argument_columns, col_const, {1}, block, arguments);
+        argument_columns[0] =  block.get_by_position(arguments[0]).column;
+        
+        argument_columns[1] =  block.get_by_position(arguments[1]).column;
 
         RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
                                       result_null_map->get_data());
