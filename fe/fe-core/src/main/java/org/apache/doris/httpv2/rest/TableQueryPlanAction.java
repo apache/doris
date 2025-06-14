@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -58,7 +59,6 @@ import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryPlanInfo;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTabletVersionInfo;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -282,8 +282,7 @@ public class TableQueryPlanAction extends RestBaseController {
             tQueryPlanInfo.plan_fragment = tPlanFragment;
             tQueryPlanInfo.desc_tbl = planner.getDescTable().toThrift();
             // set query_id
-            UUID uuid = UUID.randomUUID();
-            tQueryPlanInfo.query_id = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            tQueryPlanInfo.query_id = UUIDUtil.genTUniqueId();
 
             Map<Long, TTabletVersionInfo> tabletInfo = new HashMap<>();
             // acquire resolved tablet distribution

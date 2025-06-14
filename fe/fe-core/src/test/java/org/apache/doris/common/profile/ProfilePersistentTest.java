@@ -59,21 +59,18 @@ public class ProfilePersistentTest {
     private static final Logger LOG = LogManager.getLogger(ProfilePersistentTest.class);
 
     public static SummaryProfile constructRandomSummaryProfile() {
-        TUniqueId qUniqueId = new TUniqueId();
         UUID uuid = UUID.randomUUID();
-        qUniqueId.setHi(uuid.getMostSignificantBits());
-        qUniqueId.setLo(uuid.getLeastSignificantBits());
         // Construct a summary profile
         SummaryBuilder builder = new SummaryBuilder();
-        builder.profileId(DebugUtil.printId(qUniqueId));
+        builder.profileId(DebugUtil.printId(uuid));
         builder.taskType(System.currentTimeMillis() % 2 == 0 ? "QUERY" : "LOAD");
         long currentTimestampSeconds = System.currentTimeMillis() / 1000;
         builder.startTime(TimeUtils.longToTimeString(currentTimestampSeconds));
         builder.endTime(TimeUtils.longToTimeString(currentTimestampSeconds + 10));
         builder.totalTime(DebugUtil.getPrettyStringMs(10));
         builder.taskState(QueryState.RUNNING.toString());
-        builder.user(DebugUtil.printId(qUniqueId) + "-user");
-        builder.defaultDb(DebugUtil.printId(qUniqueId) + "-db");
+        builder.user(DebugUtil.printId(uuid) + "-user");
+        builder.defaultDb(DebugUtil.printId(uuid) + "-db");
 
         SummaryProfile summaryProfile = new SummaryProfile();
         summaryProfile.fuzzyInit();
