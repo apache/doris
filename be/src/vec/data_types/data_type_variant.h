@@ -50,19 +50,21 @@ class IColumn;
 namespace doris::vectorized {
 class DataTypeVariant : public IDataType {
 private:
-    String schema_format;
-    bool is_nullable;
+    int32_t _max_subcolumns_count = 0;
+    std::string name = "Variant";
 
 public:
     static constexpr PrimitiveType PType = TYPE_VARIANT;
-    DataTypeVariant(const String& schema_format_ = "json", bool is_nullable_ = true);
-    const std::string get_family_name() const override { return "Variant"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
+    DataTypeVariant() = default;
+    DataTypeVariant(int32_t max_subcolumns_count);
+    String do_get_name() const override { return name; }
+    const std::string get_family_name() const override { return "Variant"; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
     }
-    MutableColumnPtr create_column() const override { return ColumnVariant::create(is_nullable); }
+    MutableColumnPtr create_column() const override;
     bool equals(const IDataType& rhs) const override;
     bool have_subtypes() const override { return true; };
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -82,5 +84,9 @@ public:
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::VARIANT);
     }
+    void to_pb_column_meta(PColumnMeta* col_meta) const override;
+    // Return Field which wrapped with the real type.
+    Field get_type_field(const IColumn& column, size_t row) const override;
+    int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
 };
 } // namespace doris::vectorized

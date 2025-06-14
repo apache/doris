@@ -228,6 +228,12 @@ public:
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDecimalSerDe<T>>(precision, scale, nesting_level);
     };
+    Field get_type_field(const IColumn& column, size_t row) const override {
+        const auto& decimal_column = static_cast<const ColumnDecimal<T>&>(column);
+        Field field;
+        decimal_column.get(row, field);
+        return {std::move(field), static_cast<int8_t>(precision), static_cast<int8_t>(scale)};
+    }
 
     /// Decimal specific
 

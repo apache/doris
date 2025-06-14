@@ -371,6 +371,9 @@ private:
     const KeyCoder* _value_key_coder {};
 };
 
+template <PrimitiveType PT>
+class InvertedIndexQueryParam;
+
 /**
  * @brief InvertedIndexQueryParamFactory is a factory class to create QueryValue object.
  * we need a template function to make predict class like in_list_predict template class to use.
@@ -383,17 +386,38 @@ class InvertedIndexQueryParamFactory {
 public:
     virtual ~InvertedIndexQueryParamFactory() = default;
 
-    template <PrimitiveType PT>
-    static Status create_query_value(const void* value,
-                                     std::unique_ptr<InvertedIndexQueryParamFactory>& result_param);
+    template <PrimitiveType PT, typename ValueType>
+    static Status create_query_value(
+            const ValueType* value, std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
+        static_assert(!std::is_same_v<ValueType, void>,
+                      "ValueType cannot be void, as it is unsupported and dangerous.");
+
+        using CPP_TYPE = typename PrimitiveTypeTraits<PT>::CppType;
+        std::unique_ptr<InvertedIndexQueryParam<PT>> param =
+                InvertedIndexQueryParam<PT>::create_unique();
+
+        CPP_TYPE cpp_val;
+        if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
+            auto field_val =
+                    doris::vectorized::get<doris::vectorized::NearestFieldType<CPP_TYPE>>(*value);
+            cpp_val = static_cast<CPP_TYPE>(field_val);
+        } else {
+            cpp_val = static_cast<CPP_TYPE>(*value);
+        }
+
+        auto storage_val = PrimitiveTypeConvertor<PT>::to_storage_field_type(cpp_val);
+        param->set_value(&storage_val);
+        result_param = std::move(param);
+        return Status::OK();
+    }
 
     static Status create_query_value(
-            const PrimitiveType& primitiveType, const void* value,
+            const PrimitiveType& primitiveType, const doris::vectorized::Field* value,
             std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
         switch (primitiveType) {
-#define M(TYPE)                                               \
-    case TYPE: {                                              \
-        return create_query_value<TYPE>(value, result_param); \
+#define M(TYPE)                                                                         \
+    case TYPE: {                                                                        \
+        return create_query_value<TYPE, doris::vectorized::Field>(value, result_param); \
     }
             M(PrimitiveType::TYPE_BOOLEAN)
             M(PrimitiveType::TYPE_TINYINT)
@@ -453,35 +477,37 @@ class InvertedIndexIterator {
 
 public:
     InvertedIndexIterator(const io::IOContext& io_ctx, OlapReaderStatistics* stats,
-                          RuntimeState* runtime_state, std::shared_ptr<InvertedIndexReader> reader)
-            : _io_ctx(io_ctx),
-              _stats(stats),
-              _runtime_state(runtime_state),
-              _reader(std::move(reader)) {}
+                          RuntimeState* runtime_state);
 
-    Status read_from_inverted_index(const std::string& column_name, const void* query_value,
-                                    InvertedIndexQueryType query_type, uint32_t segment_num_rows,
+    void add_reader(InvertedIndexReaderType type, const InvertedIndexReaderPtr& reader);
+
+    Status read_from_inverted_index(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+                                    const void* query_value, InvertedIndexQueryType query_type,
+                                    uint32_t segment_num_rows,
+
                                     std::shared_ptr<roaring::Roaring>& bit_map,
                                     bool skip_try = false);
-    Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
+
+    Status try_read_from_inverted_index(const InvertedIndexReaderPtr& reader,
+                                        const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 
     Status read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle,
-                            lucene::store::Directory* dir = nullptr) {
-        return _reader->read_null_bitmap(&_io_ctx, _stats, cache_handle, dir);
-    }
+                            lucene::store::Directory* dir = nullptr);
 
-    [[nodiscard]] InvertedIndexReaderType get_inverted_index_reader_type() const;
-    [[nodiscard]] const std::map<std::string, std::string>& get_index_properties() const;
-    [[nodiscard]] bool has_null() { return _reader->has_null(); };
+    [[nodiscard]] Result<bool> has_null();
 
-    const InvertedIndexReaderPtr& reader() { return _reader; }
+    InvertedIndexReaderPtr get_reader(InvertedIndexReaderType type);
 
 private:
+    Result<InvertedIndexReaderPtr> _select_best_reader(const vectorized::DataTypePtr& column_type,
+                                                       InvertedIndexQueryType query_type);
+    Result<InvertedIndexReaderPtr> _select_best_reader();
+
     io::IOContext _io_ctx;
     OlapReaderStatistics* _stats = nullptr;
     RuntimeState* _runtime_state = nullptr;
-    std::shared_ptr<InvertedIndexReader> _reader;
+    std::unordered_map<InvertedIndexReaderType, InvertedIndexReaderPtr> _readers;
 };
 
 } // namespace segment_v2
