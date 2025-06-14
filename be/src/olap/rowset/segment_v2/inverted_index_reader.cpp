@@ -612,10 +612,11 @@ Status BkdIndexReader::invoke_bkd_try_query(const io::IOContext* io_ctx, const v
     return Status::OK();
 }
 
-Status BkdIndexReader::invoke_bkd_query(const io::IOContext* io_ctx, const void* query_value,
-                                        InvertedIndexQueryType query_type,
+Status BkdIndexReader::invoke_bkd_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
+                                        const void* query_value, InvertedIndexQueryType query_type,
                                         std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                         std::shared_ptr<roaring::Roaring>& bit_map) {
+    SCOPED_RAW_TIMER(&stats->inverted_index_searcher_search_timer);
     switch (query_type) {
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
         auto visitor =
@@ -730,7 +731,7 @@ Status BkdIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatistics* 
             return Status::OK();
         }
 
-        RETURN_IF_ERROR(invoke_bkd_query(io_ctx, query_value, query_type, r, bit_map));
+        RETURN_IF_ERROR(invoke_bkd_query(io_ctx, stats, query_value, query_type, r, bit_map));
         bit_map->runOptimize();
         cache->insert(cache_key, bit_map, &cache_handler);
 
