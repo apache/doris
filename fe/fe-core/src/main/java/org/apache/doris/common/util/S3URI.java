@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.fs.io.DorisPath;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -44,24 +45,23 @@ import java.util.stream.Collectors;
  * 2. Virtual Host Style: https://my-bucket.s3.us-west-1.amazonaws.com/resources/doc.txt?versionId=abc123&partNumber=77&partNumber=88
  * or
  * 3. Path Style: https://s3.us-west-1.amazonaws.com/my-bucket/resources/doc.txt?versionId=abc123&partNumber=77&partNumber=88
- *
+ * <p>
  * Regarding the above-mentioned common styles, we can use <code>isPathStyle</code> to control whether to use path style
  * or virtual host style.
  * "Virtual host style" is the currently mainstream and recommended approach to use, so the default value of
  * <code>isPathStyle</code> is false.
- *
+ * <p>
  * Other Styles:
  * 1. Virtual Host AWS Client (Hadoop S3) Mixed Style:
  * s3://my-bucket.s3.us-west-1.amazonaws.com/resources/doc.txt?versionId=abc123&partNumber=77&partNumber=88
  * or
  * 2. Path AWS Client (Hadoop S3) Mixed Style:
  * s3://s3.us-west-1.amazonaws.com/my-bucket/resources/doc.txt?versionId=abc123&partNumber=77&partNumber=88
- *
+ * <p>
  * For these two styles, we can use <code>isPathStyle</code> and <code>forceParsingByStandardUri</code>
  * to control whether to use.
  * Virtual Host AWS Client (Hadoop S3) Mixed Style: <code>isPathStyle = false && forceParsingByStandardUri = true</code>
  * Path AWS Client (Hadoop S3) Mixed Style: <code>isPathStyle = true && forceParsingByStandardUri = true</code>
- *
  */
 
 public class S3URI {
@@ -76,6 +76,7 @@ public class S3URI {
     private static final Set<String> OS_SCHEMES = ImmutableSet.of("s3", "s3a", "s3n",
             "bos", "oss", "cos", "cosn", "obs", "azure");
 
+    private String originLocation;
     private URI uri;
 
     private String bucket;
@@ -115,6 +116,7 @@ public class S3URI {
         if (Strings.isNullOrEmpty(location)) {
             throw new UserException("s3 location can not be null");
         }
+        this.originLocation = location;
         this.isPathStyle = isPathStyle;
         parseUri(location, forceParsingByStandardUri);
     }
@@ -133,6 +135,7 @@ public class S3URI {
 
     /**
      * parse uri location and encode to a URI.
+     *
      * @param location
      * @throws UserException
      */
@@ -331,5 +334,9 @@ public class S3URI {
         sb.append(", queryParams=").append(queryParams);
         sb.append('}');
         return sb.toString();
+    }
+
+    public DorisPath toDorisPath() {
+        return new DorisPath(originLocation);
     }
 }

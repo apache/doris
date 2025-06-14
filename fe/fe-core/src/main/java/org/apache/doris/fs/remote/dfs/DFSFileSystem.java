@@ -24,6 +24,11 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.io.DorisInputFile;
+import org.apache.doris.fs.io.DorisOutputFile;
+import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.hdfs.HdfsInputFile;
+import org.apache.doris.fs.io.hdfs.HdfsOutputFile;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -84,8 +89,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         try {
-            org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
             Path locatedPath = new Path(remotePath);
+            org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(locatedPath);
             RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
             while (locatedFiles.hasNext()) {
                 LocatedFileStatus fileStatus = locatedFiles.next();
@@ -106,8 +111,9 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status listDirectories(String remotePath, Set<String> result) {
         try {
-            FileSystem fileSystem = nativeFileSystem(remotePath);
-            FileStatus[] fileStatuses = getFileStatuses(remotePath, fileSystem);
+            Path locatedPath = new Path(remotePath);
+            FileSystem fileSystem = nativeFileSystem(locatedPath);
+            FileStatus[] fileStatuses = getFileStatuses(locatedPath, fileSystem);
             result.addAll(
                     Arrays.stream(fileStatuses)
                             .filter(FileStatus::isDirectory)
@@ -126,14 +132,14 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     @VisibleForTesting
-    public FileSystem nativeFileSystem(String remotePath) throws UserException {
+    public FileSystem nativeFileSystem(Path remotePath) throws IOException {
         if (closed.get()) {
-            throw new UserException("FileSystem is closed.");
+            throw new IOException("FileSystem is closed.");
         }
         if (dfsFileSystem == null) {
             synchronized (this) {
                 if (closed.get()) {
-                    throw new UserException("FileSystem is closed.");
+                    throw new IOException("FileSystem is closed.");
                 }
                 if (dfsFileSystem == null) {
                     Configuration conf = hdfsProperties.getHadoopConfiguration();
@@ -141,7 +147,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
                             try {
-                                return FileSystem.get(new Path(remotePath).toUri(), conf);
+                                return FileSystem.get(remotePath.toUri(), conf);
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
                             }
@@ -149,7 +155,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                         operations = new HDFSFileOperations(dfsFileSystem);
                         RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
-                        throw new UserException("Failed to get dfs FileSystem for " + e.getMessage(), e);
+                        throw new IOException("Failed to get dfs FileSystem for " + e.getMessage(), e);
                     }
                 }
             }
@@ -162,8 +168,8 @@ public class DFSFileSystem extends RemoteFileSystem {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
-    protected FileStatus[] getFileStatuses(String remotePath, FileSystem fileSystem) throws IOException {
-        return authenticator.doAs(() -> fileSystem.listStatus(new Path(remotePath)));
+    protected FileStatus[] getFileStatuses(Path remotePath, FileSystem fileSystem) throws IOException {
+        return authenticator.doAs(() -> fileSystem.listStatus(remotePath));
     }
 
     public static Configuration getHdfsConf(boolean fallbackToSimpleAuth) {
@@ -336,7 +342,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getPath());
-            FileSystem fileSystem = nativeFileSystem(remotePath);
+            FileSystem fileSystem = nativeFileSystem(inputFilePath);
             boolean isPathExist = authenticator.doAs(() -> fileSystem.exists(inputFilePath));
             if (!isPathExist) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
@@ -449,7 +455,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
                 return new Status(Status.ErrCode.COMMON_ERROR, "only allow rename in same file system");
             }
-            FileSystem fileSystem = nativeFileSystem(destPath);
+            FileSystem fileSystem = nativeFileSystem(new Path(destPath));
             Path srcfilePath = new Path(srcPathUri.getPath());
             Path destfilePath = new Path(destPathUri.getPath());
             boolean isRenameSuccess = authenticator.doAs(() -> fileSystem.rename(srcfilePath, destfilePath));
@@ -472,7 +478,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             URI pathUri = URI.create(remotePath);
             Path inputFilePath = new Path(pathUri.getPath());
-            FileSystem fileSystem = nativeFileSystem(remotePath);
+            FileSystem fileSystem = nativeFileSystem(inputFilePath);
             authenticator.doAs(() -> fileSystem.delete(inputFilePath, true));
         } catch (UserException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
@@ -497,8 +503,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
-            FileSystem fileSystem = nativeFileSystem(remotePath);
             Path pathPattern = new Path(pathUri.getPath());
+            FileSystem fileSystem = nativeFileSystem(pathPattern);
             FileStatus[] files = authenticator.doAs(() -> fileSystem.globStatus(pathPattern));
             if (files == null) {
                 LOG.info("no files in path " + remotePath);
@@ -525,8 +531,9 @@ public class DFSFileSystem extends RemoteFileSystem {
     @Override
     public Status makeDir(String remotePath) {
         try {
-            FileSystem fileSystem = nativeFileSystem(remotePath);
-            if (!authenticator.doAs(() -> fileSystem.mkdirs(new Path(remotePath)))) {
+            Path locatedPath = new Path(remotePath);
+            FileSystem fileSystem = nativeFileSystem(locatedPath);
+            if (!authenticator.doAs(() -> fileSystem.mkdirs(locatedPath))) {
                 LOG.warn("failed to make dir for " + remotePath);
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to make dir for " + remotePath);
             }
@@ -553,5 +560,30 @@ public class DFSFileSystem extends RemoteFileSystem {
                 LOG.warn("Failed to close DFSFileSystem: {}", e.getMessage(), e);
             }
         }
+    }
+
+    public FileStatus getFileStatus(Path path) throws IOException {
+        FileSystem fileSystem = nativeFileSystem(path);
+        return authenticator.doAs(() -> fileSystem.getFileStatus(path));
+    }
+
+    public FSDataInputStream openFile(Path path) throws IOException {
+        FileSystem fileSystem = nativeFileSystem(path);
+        return authenticator.doAs(() -> fileSystem.open(path));
+    }
+
+    public FSDataOutputStream createFile(Path path, boolean overwrite) throws IOException {
+        FileSystem fileSystem = nativeFileSystem(path);
+        return authenticator.doAs(() -> fileSystem.create(path, overwrite));
+    }
+
+    @Override
+    public DorisOutputFile newOutputFile(DorisPath path) {
+        return new HdfsOutputFile(path, this);
+    }
+
+    @Override
+    public DorisInputFile newInputFile(DorisPath path, long length) {
+        return new HdfsInputFile(path, length, this);
     }
 }
