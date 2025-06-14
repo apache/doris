@@ -77,12 +77,16 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
     @Mocked
     private HiveScanNode hiveScanNode4;
 
+    private int originCacheLastVersionIntervalSecond;
+
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
         Config.enable_query_hive_views = true;
         Config.cache_enable_sql_mode = true;
         Config.cache_enable_partition_mode = true;
+        this.originCacheLastVersionIntervalSecond = Config.cache_last_version_interval_second;
+        Config.cache_last_version_interval_second = 300; // 5 minutes
         connectContext.getSessionVariable().setEnableSqlCache(true);
 
         env = Env.getCurrentEnv();
@@ -105,6 +109,11 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
         mgr.getInternalCatalog().createTable(createTableStmt);
+    }
+
+    @Override
+    protected void runAfterAll() throws Exception {
+        Config.cache_last_version_interval_second = originCacheLastVersionIntervalSecond;
     }
 
     private void init(HMSExternalCatalog hmsCatalog) {
