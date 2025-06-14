@@ -166,6 +166,10 @@ public class FeNameFormat {
         checkCommonName("workload schedule policy", policyName);
     }
 
+    public static void checkIndexPolicyName(String policyName) throws AnalysisException {
+        checkCommonName("index policy", policyName);
+    }
+
     public static void checkCommonName(String type, String name) throws AnalysisException {
         final String regex = getCommonNameRegex();
         if (Strings.isNullOrEmpty(name) || !name.matches(regex)) {

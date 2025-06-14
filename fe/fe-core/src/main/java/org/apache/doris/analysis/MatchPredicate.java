@@ -154,6 +154,7 @@ public class MatchPredicate extends Predicate {
     private Map<String, String> invertedIndexCharFilter;
     private boolean invertedIndexParserLowercase = true;
     private String invertedIndexParserStopwords = "";
+    private String invertedIndexCustomAnalyzer = "";
 
     private MatchPredicate() {
         // use for serde only
@@ -182,6 +183,7 @@ public class MatchPredicate extends Predicate {
         invertedIndexCharFilter = other.invertedIndexCharFilter;
         invertedIndexParserLowercase = other.invertedIndexParserLowercase;
         invertedIndexParserStopwords = other.invertedIndexParserStopwords;
+        invertedIndexCustomAnalyzer = other.invertedIndexCustomAnalyzer;
     }
 
     /**
@@ -196,6 +198,7 @@ public class MatchPredicate extends Predicate {
             this.invertedIndexCharFilter = invertedIndex.getInvertedIndexCharFilter();
             this.invertedIndexParserLowercase = invertedIndex.getInvertedIndexParserLowercase();
             this.invertedIndexParserStopwords = invertedIndex.getInvertedIndexParserStopwords();
+            this.invertedIndexCustomAnalyzer = invertedIndex.getInvertedIndexCustomAnalyzer();
         }
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true, nullableMode);
@@ -231,6 +234,7 @@ public class MatchPredicate extends Predicate {
         msg.match_predicate.setCharFilterMap(invertedIndexCharFilter);
         msg.match_predicate.setParserLowercase(invertedIndexParserLowercase);
         msg.match_predicate.setParserStopwords(invertedIndexParserStopwords);
+        msg.match_predicate.setCustomAnalyzer(invertedIndexCustomAnalyzer);
     }
 
     @Override
@@ -277,6 +281,7 @@ public class MatchPredicate extends Predicate {
                             invertedIndexCharFilter = index.getInvertedIndexCharFilter();
                             invertedIndexParserLowercase = index.getInvertedIndexParserLowercase();
                             invertedIndexParserStopwords = index.getInvertedIndexParserStopwords();
+                            invertedIndexCustomAnalyzer = index.getInvertedIndexCustomAnalyzer();
                             break;
                         }
                     }

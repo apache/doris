@@ -47,21 +47,18 @@ TEST_F(PhraseQueryTest, test_parser_info) {
     properties.insert({"support_phrase", "true"});
     properties.insert({"lower_case", "true"});
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
-                                     bool sequential_opt) {
-        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-                                 properties, query_info, sequential_opt);
+    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info) {
+        PhraseQuery::parser_info(search_str, properties, query_info);
     };
 
     auto parser = [&parser_info](std::string search_str, std::string res1, size_t res2,
                                  int32_t res3, bool res4, size_t res5) {
         InvertedIndexQueryInfo query_info;
-        parser_info(search_str, query_info, true);
+        parser_info(search_str, query_info);
         EXPECT_EQ(search_str, res1);
-        EXPECT_EQ(query_info.terms.size(), res2);
+        EXPECT_EQ(query_info.term_infos.size(), res2);
         EXPECT_EQ(query_info.slop, res3);
         EXPECT_EQ(query_info.ordered, res4);
-        EXPECT_EQ(query_info.additional_terms.size(), res5);
     };
 
     // "english/history off.gif ~20+" sequential_opt = true
@@ -85,32 +82,28 @@ TEST_F(PhraseQueryTest, test_parser_info1) {
     properties.insert({"support_phrase", "true"});
     properties.insert({"lower_case", "true"});
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
-                                     bool sequential_opt) {
-        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-                                 properties, query_info, sequential_opt);
+    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info) {
+        PhraseQuery::parser_info(search_str, properties, query_info);
     };
 
     {
         InvertedIndexQueryInfo query_info;
         std::string search_str = "我在 北京 ~4+";
-        parser_info(search_str, query_info, true);
+        parser_info(search_str, query_info);
         EXPECT_EQ(search_str, "我在 北京");
         EXPECT_EQ(query_info.slop, 4);
         EXPECT_EQ(query_info.ordered, true);
-        EXPECT_EQ(query_info.terms.size(), 4);
-        EXPECT_EQ(query_info.additional_terms.size(), 2);
+        EXPECT_EQ(query_info.term_infos.size(), 4);
     }
 
     {
         InvertedIndexQueryInfo query_info;
         std::string search_str = "List of Pirates of the Caribbean characters ~4+";
-        parser_info(search_str, query_info, true);
+        parser_info(search_str, query_info);
         EXPECT_EQ(search_str, "List of Pirates of the Caribbean characters");
         EXPECT_EQ(query_info.slop, 4);
         EXPECT_EQ(query_info.ordered, true);
-        EXPECT_EQ(query_info.terms.size(), 4);
-        EXPECT_EQ(query_info.additional_terms.size(), 0);
+        EXPECT_EQ(query_info.term_infos.size(), 4);
     }
 }
 
