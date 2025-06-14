@@ -156,32 +156,51 @@ public class LdapClient {
     List<String> getGroups(String userName) {
         List<String> groups = Lists.newArrayList();
         if (LdapConfig.ldap_group_basedn.isEmpty()) {
+            LOG.debug("Group base DN is empty");
             return groups;
         }
-        String userDn = getUserDn(userName);
-        if (userDn == null) {
-            return groups;
-        }
+
         List<String> groupDns;
-
-        // Support Open Directory implementations
-        // If no group filter is configured, it defaults to querying groups based on the attribute 'member'
-        // for standard LDAP implementations
         if (!LdapConfig.ldap_group_filter.isEmpty()) {
-            groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
+            // Support Open Directory implementations
+            String filter = LdapConfig.ldap_group_filter.replace("{login}", userName);
+            LOG.debug("Using group filter: {} with base DN: {}", filter, LdapConfig.ldap_group_basedn);
+            
+            LdapQuery query = org.springframework.ldap.query.LdapQueryBuilder.query()
+                .attributes("dn")
                 .base(LdapConfig.ldap_group_basedn)
-                .filter(getGroupFilter(LdapConfig.ldap_group_filter, userName)));
+                .filter(filter);
+                
+            groupDns = getDn(query);
+
+            if (groupDns == null || groupDns.isEmpty()) {
+                LOG.debug("No groups found for user: {} using filter: {}", userName, filter);
+                return groups;
+            }
         } else {
-            groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
+            // Standard LDAP using member attribute
+            String userDn = getUserDn(userName);
+            if (userDn == null) {
+                LOG.debug("User DN not found for user: {}", userName);
+                return groups;
+            }
+            LOG.debug("Using standard LDAP member attribute with userDn: {}", userDn);
+            
+            LdapQuery query = org.springframework.ldap.query.LdapQueryBuilder.query()
+                .attributes("dn")
                 .base(LdapConfig.ldap_group_basedn)
-                .where("member").is(userDn));
+                .where("member").is(userDn);
+                
+            groupDns = getDn(query);
         }
 
-        if (groupDns == null) {
+        if (groupDns == null || groupDns.isEmpty()) {
+            LOG.debug("No groups found for user: {}", userName);
             return groups;
         }
 
-        // group dn like: 'cn=groupName,ou=groups,dc=example,dc=com', we only need the groupName.
+        LOG.debug("Found {} group DNs", groupDns.size());
+        // Extract just the group name from DN
         for (String dn : groupDns) {
             String[] strings = dn.split("[,=]", 3);
             if (strings.length > 2) {
@@ -209,11 +228,12 @@ public class LdapClient {
     private List<String> getDn(LdapQuery query) {
         init();
         try {
-            return clientInfo.getLdapTemplatePool().search(query, new AbstractContextMapper<String>() {
-                protected String doMapFromContext(DirContextOperations ctx) {
-                    return ctx.getNameInNamespace();
-                }
-            });
+            return clientInfo.getLdapTemplatePool().search(query, 
+                new AbstractContextMapper<String>() {
+                    protected String doMapFromContext(DirContextOperations ctx) {
+                        return ctx.getNameInNamespace();
+                    }
+                });
         } catch (Exception e) {
             LOG.error("Get user dn fail.", e);
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
@@ -225,7 +245,4 @@ public class LdapClient {
         return userFilter.replaceAll("\\{login}", userName);
     }
 
-    private String getGroupFilter(String groupFilter, String userName) {
-        return groupFilter.replaceAll("\\{login}", userName);
-    }
 }
