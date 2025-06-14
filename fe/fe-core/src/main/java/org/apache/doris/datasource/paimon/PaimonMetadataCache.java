@@ -29,6 +29,7 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.table.Table;
 import org.jetbrains.annotations.NotNull;
@@ -37,6 +38,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
@@ -86,9 +88,9 @@ public class PaimonMetadataCache {
         // snapshotId and schemaId
         Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
         long latestSchemaId = 0L;
-        OptionalLong optionalSnapshotId = table.latestSnapshotId();
-        if (optionalSnapshotId.isPresent()) {
-            latestSnapshotId = optionalSnapshotId.getAsLong();
+        Optional<Snapshot> optionalSnapshot = table.latestSnapshot();
+        if (optionalSnapshot.isPresent()) {
+            latestSnapshotId = optionalSnapshot.get().id();
             latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
             snapshotTable =
                 table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
