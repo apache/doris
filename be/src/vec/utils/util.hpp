@@ -20,6 +20,8 @@
 #include <thrift/protocol/TJSONProtocol.h>
 
 #include <boost/shared_ptr.hpp>
+#include <functional>
+#include <type_traits>
 
 #include "runtime/descriptors.h"
 #include "util/simd/bits.h"
@@ -228,6 +230,40 @@ inline size_t calculate_false_number(ColumnPtr column) {
         const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
         return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
     }
+}
+
+using safe_multiplies = std::multiplies<>;
+using safe_divides = std::divides<>;
+using safe_plus = std::plus<>;
+using safe_minus = std::minus<>;
+
+template <typename Op, typename T1, typename T2, typename... Rest>
+auto safe_arithmetic(Op op, T1&& a, T2&& b, Rest&&... rest) {
+    using CommonType = std::common_type_t<T1, T2, Rest...>;
+    CommonType result = op(static_cast<CommonType>(std::forward<T1>(a)),
+                           static_cast<CommonType>(std::forward<T2>(b)));
+    ((result = op(result, static_cast<CommonType>(std::forward<Rest>(rest)))), ...);
+    return result;
+}
+
+template <typename... Args>
+auto safe_add(Args&&... args) {
+    return safe_arithmetic(safe_plus(), std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+auto safe_subtract(Args&&... args) {
+    return safe_arithmetic(safe_minus(), std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+auto safe_multiply(Args&&... args) {
+    return safe_arithmetic(safe_multiplies(), std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+auto safe_divide(Args&&... args) {
+    return safe_arithmetic(safe_divides(), std::forward<Args>(args)...);
 }
 
 } // namespace doris::vectorized
