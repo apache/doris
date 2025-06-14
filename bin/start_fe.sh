@@ -223,6 +223,14 @@ if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     done
 fi
 
+# add jindofs
+# should after jars in lib/, or it will override the hadoop jars in lib/
+if [[ -d "${DORIS_HOME}/lib/jindofs" ]]; then
+    for f in "${DORIS_HOME}/lib/jindofs"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
+    done
+fi
+
 # make sure the doris-fe.jar is at first order, so that some classed
 # with same qualified name can be loaded priority from doris-fe.jar
 CLASSPATH="${DORIS_FE_JAR}:${CLASSPATH}"
