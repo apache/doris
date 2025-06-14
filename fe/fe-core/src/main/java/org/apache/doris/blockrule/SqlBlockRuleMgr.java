@@ -247,7 +247,7 @@ public class SqlBlockRuleMgr implements Writable {
             return;
         }
         if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().internalSession) {
+                && ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule
@@ -286,7 +286,7 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
             throws AnalysisException {
-        if (ConnectContext.get().getSessionVariable().internalSession) {
+        if (ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule
