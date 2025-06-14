@@ -40,7 +40,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.Map;
 
-public class AlterRoutineLoadCommandTest extends TestWithFeService {
+public class AlterRoutineLoadCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
     @Mocked
     private Env env;
