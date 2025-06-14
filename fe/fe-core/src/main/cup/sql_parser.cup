@@ -4901,20 +4901,6 @@ opt_explain_options ::=
     :}
     ;
 
-// Describe statement
-describe_stmt ::=
-    | describe_command opt_explain_options:options query_stmt:query
-    {:
-        query.setIsExplain(options);
-        RESULT = query;
-    :}   
-    | describe_command opt_explain_options:options insert_stmt:stmt
-    {:
-        stmt.getQueryStmt().setIsExplain(options);
-        RESULT = stmt;
-    :}
-    ;
-
 describe_command ::=
     KW_DESCRIBE
     | KW_DESC
