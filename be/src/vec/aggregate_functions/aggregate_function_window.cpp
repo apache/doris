@@ -385,7 +385,7 @@ CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_first
                                           WindowFunctionFirstImpl);
 CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_last, FirstLastData,
                                           WindowFunctionLastImpl);
-CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_nth_value, FirstLastData,
+CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_window_nth_value, NthValueData,
                                           WindowFunctionNthValueImpl);
 
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
