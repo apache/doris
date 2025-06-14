@@ -83,7 +83,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (scan_range.__isset.split_source) {
             p._batch_split_mode = true;
             auto split_source = scan_range.split_source;
-            RuntimeProfile::Counter* get_split_timer = ADD_TIMER(_runtime_profile, "GetSplitTime");
+            RuntimeProfile::Counter* get_split_timer = ADD_TIMER(custom_profile(), "GetSplitTime");
 
             _max_scanners = calc_max_scanners(p.query_parallel_instance_num());
             _split_source = std::make_shared<vectorized::RemoteSplitSourceConnector>(

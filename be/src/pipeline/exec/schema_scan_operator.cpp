@@ -41,7 +41,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
     _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
-    profile()->add_child(_scanner_param.profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
     const auto* schema_table =
