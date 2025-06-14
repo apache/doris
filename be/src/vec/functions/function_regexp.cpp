@@ -168,6 +168,7 @@ public:
         ColumnPtr argument_columns[2];
         argument_columns[0] = block.get_by_position(arguments[0]).column;
         
+        
         argument_columns[1] = block.get_by_position(arguments[1]).column;
 
         RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
