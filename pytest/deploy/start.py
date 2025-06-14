@@ -179,6 +179,7 @@ def add_auditload_plugin():
           ( \
               query_id varchar(48) comment 'Unique query id', \
               \`time\` datetime not null comment 'Query start time', \
+              session_id varchar(36) comment 'Session id', \
               client_ip varchar(32) comment 'Client IP', \
               user varchar(64) comment 'User name', \
               db varchar(96) comment 'Database of this query', \
@@ -196,7 +197,7 @@ def add_auditload_plugin():
               peak_memory_bytes bigint comment 'Peak memory bytes used on all backends of this query', \
               stmt string comment 'The original statement, trimed if longer than 2G ' \
           ) engine=OLAP \
-          duplicate key(query_id, \`time\`, client_ip) \
+          duplicate key(query_id, \`time\`, session_id) \
           partition by range(\`time\`) () \
           distributed by hash(query_id) buckets 1 \
           properties( \

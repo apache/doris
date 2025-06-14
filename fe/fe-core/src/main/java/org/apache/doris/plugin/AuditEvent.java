@@ -106,6 +106,8 @@ public class AuditEvent {
     public String cloudClusterName = "";
     @AuditField(value = "WorkloadGroup")
     public String workloadGroup = "";
+    @AuditField(value = "SessionId")
+    public String sessionId = "";
     // note: newly added fields should be always before fuzzyVariables
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
@@ -288,6 +290,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setSpillReadBytesFromLocalStorage(long bytes) {
             auditEvent.spillReadBytesFromLocalStorage = bytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSessionId(String sessionId) {
+            auditEvent.sessionId = sessionId;
             return this;
         }
 

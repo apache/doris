@@ -204,6 +204,7 @@ public class AuditLogHelper {
         auditEventBuilder
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
+                .setSessionId(ctx.getSessionId())
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setSqlHash(ctx.getSqlHash())
                 .setEventType(EventType.AFTER_QUERY)
