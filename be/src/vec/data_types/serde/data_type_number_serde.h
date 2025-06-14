@@ -108,6 +108,10 @@ public:
                                   int64_t row_num) const override;
     Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

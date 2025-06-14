@@ -73,6 +73,12 @@ public:
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override {
+        return Status::NotSupported("Method write_column_to_jsonb not implemented for type Array");
+    }
+
 private:
     // Hll is binary data which is not shown by mysql.
     template <bool is_binary_format>

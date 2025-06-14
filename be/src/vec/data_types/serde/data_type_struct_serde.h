@@ -174,6 +174,13 @@ public:
 
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override {
+        return Status::NotSupported("Method write_column_to_jsonb not implemented for type {}",
+                                    column.get_name());
+    }
+
 private:
     std::optional<size_t> try_get_position_by_name(const String& name) const;
 
