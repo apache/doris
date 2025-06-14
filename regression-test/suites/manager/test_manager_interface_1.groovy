@@ -527,6 +527,7 @@ suite('test_manager_interface_1',"p0") {
         assertTrue(result[0][1].contains("CREATE TABLE `audit_log`"))
         assertTrue(result[0][1].contains("`query_id` varchar(128) NULL,"))
         assertTrue(result[0][1].contains("`time` datetime(3) NULL,"))
+        assertTrue(result[0][1].contains("`session_id` varchar(36) NULL,"))
         assertTrue(result[0][1].contains("`client_ip` varchar(128) NULL,")) 
         assertTrue(result[0][1].contains("`user` varchar(128) NULL,")) 
         assertTrue(result[0][1].contains("`catalog` varchar(128) NULL")) 
@@ -550,7 +551,7 @@ suite('test_manager_interface_1',"p0") {
 
         assertTrue(result[0][1].contains("ENGINE=OLAP"))
 
-        assertTrue(result[0][1].contains("DUPLICATE KEY(`query_id`, `time`, `client_ip`)"))
+        assertTrue(result[0][1].contains("DUPLICATE KEY(`query_id`, `time`, `session_id`)"))
         assertTrue(result[0][1].contains("""PARTITION BY RANGE(`time`)"""))
         assertTrue(result[0][1].contains("""dynamic_partition.enable" = "true"""))
         assertTrue(result[0][1].contains("""dynamic_partition.time_unit" = "DAY"""))

@@ -141,6 +141,8 @@ public class InternalSchema {
                 ScalarType.createVarchar(Config.label_regex_length), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("time",
                 ScalarType.createDatetimeV2Type(3), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("session_id",
+                ScalarType.createVarchar(36), ColumnNullableType.NULLABLE));
         // cs info
         AUDIT_SCHEMA.add(new ColumnDef("client_ip",
                 ScalarType.createVarchar(128), ColumnNullableType.NULLABLE));

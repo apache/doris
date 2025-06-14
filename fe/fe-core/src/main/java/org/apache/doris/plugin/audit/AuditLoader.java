@@ -151,6 +151,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // uuid and time
         logBuffer.append(event.queryId).append(AUDIT_TABLE_COL_SEPARATOR);
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(event.sessionId).append(AUDIT_TABLE_COL_SEPARATOR);
 
         // cs info
         logBuffer.append(event.clientIp).append(AUDIT_TABLE_COL_SEPARATOR);
