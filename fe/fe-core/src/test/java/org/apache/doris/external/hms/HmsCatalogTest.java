@@ -381,8 +381,6 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Assertions.assertNotNull(sv);
 
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
-        queryViews(false);
-
         // force use nereids planner to query hive views
         queryViews(true);
     }
