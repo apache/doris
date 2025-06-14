@@ -1,23 +1,28 @@
-create database if not exists demo.test_db;
 use demo.test_db;
 
-drop table if exists tag_branch_table;
-create table tag_branch_table (c1 int);
-insert into tag_branch_table values (1);
+SET spark.sql.catalog.spark_catalog.write.delete.mode = merge-on-read;
+SET spark.sql.catalog.spark_catalog.write.update.mode = merge-on-read;
 
-alter table demo.test_db.tag_branch_table create branch b1;
-alter table demo.test_db.tag_branch_table create tag t1;
+CREATE TABLE test_iceberg_systable_unpartitioned (
+  id INT,
+  name STRING
+)
+USING ICEBERG;
 
-insert into tag_branch_table values (2);
+CREATE TABLE test_iceberg_systable_partitioned (
+  id INT,
+  name STRING
+)
+USING ICEBERG
+PARTITIONED BY (id);
 
-alter table demo.test_db.tag_branch_table create branch b2;
-alter table demo.test_db.tag_branch_table create tag t2;
+INSERT INTO test_iceberg_systable_unpartitioned VALUES
+(1, 'Alice'), (2, 'Bob'), (3, 'Carol'), (4, 'Dave'), (5, 'Eve'),
+(6, 'Frank'), (7, 'Grace'), (8, 'Heidi'), (9, 'Ivan'), (10, 'Judy');
 
-alter table demo.test_db.tag_branch_table add column c2 int;
+INSERT INTO test_iceberg_systable_partitioned VALUES
+(1, 'Alice'), (2, 'Bob'), (3, 'Carol'), (4, 'Dave'), (5, 'Eve'),
+(6, 'Frank'), (7, 'Grace'), (8, 'Heidi'), (9, 'Ivan'), (10, 'Judy');
 
-insert into tag_branch_table values (3, 4);
-
-alter table demo.test_db.tag_branch_table create branch b3;
-alter table demo.test_db.tag_branch_table create tag t3;
-
-alter table demo.test_db.tag_branch_table add column c3 int;
+DELETE FROM test_iceberg_systable_unpartitioned WHERE id % 2 = 1;
+DELETE FROM test_iceberg_systable_partitioned WHERE id % 2 = 1;
