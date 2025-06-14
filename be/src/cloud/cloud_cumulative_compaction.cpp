@@ -226,6 +226,8 @@ Status CloudCumulativeCompaction::execute_compact() {
             .tag("cumulative_point", cloud_tablet()->cumulative_layer_point())
             .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
             .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0))
+            .tag("local_read_time_us", _stats.cloud_local_read_time)
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
             .tag("local_read_bytes", _local_read_bytes_total)
             .tag("remote_read_bytes", _remote_read_bytes_total);
 
