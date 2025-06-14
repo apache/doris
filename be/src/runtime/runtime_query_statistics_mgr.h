@@ -57,6 +57,7 @@ public:
 
     // used for backend_active_tasks
     void get_active_be_tasks_block(vectorized::Block* block);
+    Status get_query_statistics(const std::string& query_id, TQueryStatistics* query_stats);
 
     // used for MemoryReclamation
     void get_tasks_resource_context(std::vector<std::shared_ptr<ResourceContext>>& resource_ctxs);
