@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.junit.jupiter.api.Assertions;
-
 suite("docs/table-design/data-partitioning/basic-concepts.md") {
     sql "drop table if exists example_range_tbl"
     sql """
@@ -141,7 +139,8 @@ suite("docs/table-design/data-partitioning/basic-concepts.md") {
         "dynamic_partition.enable" = "true",
         "dynamic_partition.time_unit" = "month", --- 二者粒度必须相同
         "dynamic_partition.start" = "-2", --- 动态分区自动清理超过两周的历史分区
-        "dynamic_partition.end" = "0", --- 动态分区不创建未来分区，完全交给自动分区
+        "dynamic_partition.create_method" = "AUTO", --- 必需。分区创建完全由自动分区负责
+        "dynamic_partition.end" = "123", --- 将被忽略
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "8"
     );
