@@ -25,6 +25,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
@@ -64,7 +65,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset, boolean isMultiTable) {
-        super(UUID.randomUUID(), kafkaTaskInfo.getJobId(),
+        super(UUIDUtil.genUUID(), kafkaTaskInfo.getJobId(),
                 kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId(), isMultiTable,
                 kafkaTaskInfo.getLastScheduledTime(), kafkaTaskInfo.getIsEof());
         this.partitionIdToOffset = partitionIdToOffset;

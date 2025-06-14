@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.sync.SyncChannel;
 import org.apache.doris.load.sync.SyncChannelCallback;
 import org.apache.doris.load.sync.SyncJob;
@@ -56,7 +57,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
@@ -245,8 +245,7 @@ public class CanalSyncChannel extends SyncChannel {
     @Override
     public void initTxn(long timeoutSecond) {
         if (!isTxnInit()) {
-            UUID uuid = UUID.randomUUID();
-            TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            TUniqueId loadId = UUIDUtil.genTUniqueId();
             this.timeoutSecond = timeoutSecond;
             TTxnParams txnConf = new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1)
                     .setDb(db.getFullName()).setTbl(tbl.getName()).setDbId(db.getId());
