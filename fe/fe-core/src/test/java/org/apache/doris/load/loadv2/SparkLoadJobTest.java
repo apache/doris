@@ -510,8 +510,6 @@ public class SparkLoadJobTest {
                 result = resourceMgr;
                 resourceMgr.getResource(anyString);
                 result = sparkResource;
-                Env.getCurrentEnvJournalVersion();
-                result = FeMetaVersion.VERSION_CURRENT;
             }
         };
 

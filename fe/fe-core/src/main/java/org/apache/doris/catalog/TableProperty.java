@@ -19,13 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
@@ -41,8 +37,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -55,7 +49,7 @@ import java.util.Map;
  * Different properties is recognized by prefix such as dynamic_partition
  * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
-public class TableProperty implements Writable, GsonPostProcessable {
+public class TableProperty implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
 
     @SerializedName(value = "properties")
@@ -713,16 +707,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static TableProperty read(DataInput in) throws IOException {
-        TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class);
-        return tableProperty;
-    }
-
     public void gsonPostProcess() throws IOException {
         executeBuildDynamicProperty();
         buildInMemory();
@@ -752,19 +736,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-            // get replica num from property map and create replica allocation
-            String repNum = properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
-            if (!Strings.isNullOrEmpty(repNum)) {
-                ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(repNum));
-                properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        replicaAlloc.toCreateStmt());
-            } else {
-                properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
-            }
-        }
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
     }

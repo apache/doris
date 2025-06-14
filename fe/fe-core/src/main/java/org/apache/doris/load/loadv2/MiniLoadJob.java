@@ -21,9 +21,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Sets;
@@ -31,9 +29,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Set;
 
 @Deprecated
@@ -66,18 +61,6 @@ public class MiniLoadJob extends LoadJob {
     @Override
     protected void replayTxnAttachment(TransactionState txnState) {
         updateLoadingStatue(txnState);
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        tableName = Text.readString(in);
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
