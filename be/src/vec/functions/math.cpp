@@ -89,6 +89,26 @@ struct AtanhName {
 using FunctionAtanh =
         FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AtanhName, std::atanh>>;
 
+struct GammaName {
+    static constexpr auto name = "gamma";
+    static constexpr bool is_invalid_input(Float64 x) {
+        constexpr auto eps = std::numeric_limits<Float64>::epsilon();
+        return x <= 0 && std::abs(x - std::floor(x)) < eps;
+    }
+};
+using FunctionGamma =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<GammaName, std::tgamma>>;
+
+struct LGammaName {
+    static constexpr auto name = "lgamma";
+    static constexpr bool is_invalid_input(Float64 x) {
+        constexpr Float64 eps = std::numeric_limits<Float64>::epsilon();
+        return x <= eps;
+    }
+};
+using FunctionLGamma =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<LGammaName, std::lgamma>>;
+
 template <PrimitiveType AType, PrimitiveType BType>
 struct Atan2Impl {
     using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
@@ -538,6 +558,8 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAtan>();
     factory.register_function<FunctionAtanh>();
     factory.register_function<FunctionAtan2>();
+    factory.register_function<FunctionGamma>();
+    factory.register_function<FunctionLGamma>();
     factory.register_function<FunctionCos>();
     factory.register_function<FunctionCosh>();
     factory.register_function<FunctionE>();

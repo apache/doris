@@ -309,6 +309,25 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT FLOOR(10.123, 2)") // Decimal with precision
     testFoldConst("SELECT FLOOR(-10.123, 1)") // Negative with precision
 
+//Gamma function cases
+    testFoldConst("SELECT gamma(1) AS gamma_case_1")
+    testFoldConst("SELECT gamma(5) AS gamma_case_2")
+    testFoldConst("SELECT gamma(0.5) AS gamma_case_3")
+    testFoldConst("SELECT gamma(-1.5) AS gamma_case_4")
+    testFoldConst("SELECT gamma(0) AS gamma_case_zero")
+    testFoldConst("SELECT gamma(-1) AS gamma_case_neg_int")
+    testFoldConst("SELECT gamma(1.5), gamma(2.5), gamma(3.5), gamma(4.5)")
+    testFoldConst("SELECT gamma(-0.5), gamma(-1.5), gamma(-2.5)")
+    testFoldConst("SELECT gamma(NULL) AS gamma_case_null")
+
+//Lgamma functio cases
+    testFoldConst("SELECT lgamma(1) AS lgamma_case_1")
+    testFoldConst("SELECT lgamma(5) AS lgamma_case_2")
+    testFoldConst("SELECT lgamma(0.5) AS lgamma_case_3")
+    testFoldConst("SELECT lgamma(0) AS lgamma_case_zero")
+    testFoldConst("SELECT lgamma(-1) AS lgamma_case_neg")
+    testFoldConst("SELECT lgamma(NULL) AS gamma_case_null")
+
 //Fmod function cases
     testFoldConst("SELECT MOD(10.5, 3.2) AS fmod_case_1") //fmod(10.5 % 3.2)
     testFoldConst("SELECT MOD(-10.5, 3.2) AS fmod_case_2") //fmod(-10.5 % 3.2)
