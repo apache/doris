@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -43,7 +44,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 public class CacheHotspotManagerUtils {
@@ -238,8 +238,7 @@ public class CacheHotspotManagerUtils {
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UUIDUtil.genTUniqueId();
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);

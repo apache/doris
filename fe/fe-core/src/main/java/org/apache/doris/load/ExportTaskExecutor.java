@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.ExportFailMsg.CancelType;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -200,8 +201,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         connectContext.setDatabase(exportJob.getTableName().getDb());
         connectContext.setQualifiedUser(exportJob.getQualifiedUser());
         connectContext.setCurrentUserIdentity(exportJob.getUserIdentity());
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        TUniqueId queryId = UUIDUtil.genTUniqueId();
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
         return new AutoCloseConnectContext(connectContext);
