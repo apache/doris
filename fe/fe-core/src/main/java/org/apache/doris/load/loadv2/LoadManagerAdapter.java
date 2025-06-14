@@ -22,12 +22,12 @@ import org.apache.doris.analysis.LoadType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.io.IOException;
-import java.util.UUID;
 
 /**
  * This class is temporary for load refactor, all unified external load should use this adapter in
@@ -49,7 +49,7 @@ public class LoadManagerAdapter {
                 context.getState().setOk();
                 break;
             case MYSQL_LOAD:
-                String loadId = UUID.randomUUID().toString();
+                String loadId = UUIDUtil.genUUID().toString();
                 this.mysqlLoadId = loadId;
                 LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
                         .executeMySqlLoadJobFromStmt(context, insertStmt, loadId);

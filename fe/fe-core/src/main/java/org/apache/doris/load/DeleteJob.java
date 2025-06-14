@@ -45,6 +45,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
@@ -80,7 +81,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -567,7 +567,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                             .getReplicaAllocation(partition.getId())
                                             .getTotalReplicaNum()));
             // generate label
-            String label = DELETE_PREFIX + UUID.randomUUID();
+            String label = DELETE_PREFIX + UUIDUtil.genUUID();
             //generate jobId
             long jobId = Env.getCurrentEnv().getNextId();
             List<String> partitionNames = partitions.stream().map(Partition::getName).collect(Collectors.toList());
@@ -604,7 +604,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                                             .getReplicaAllocation(partition.getId())
                                             .getTotalReplicaNum()));
             // generate label
-            String label = DELETE_PREFIX + UUID.randomUUID();
+            String label = DELETE_PREFIX + UUIDUtil.genUUID();
             //generate jobId
             long jobId = Env.getCurrentEnv().getNextId();
             List<String> partitionNames = partitions.stream().map(Partition::getName).collect(Collectors.toList());
