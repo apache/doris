@@ -52,7 +52,14 @@ public:
 
     FileReader* get_remote_reader() { return _remote_file_reader.get(); }
 
-    static std::pair<size_t, size_t> s_align_size(size_t offset, size_t size, size_t length);
+    /**
+     * @param offset request offset to read from
+     * @param req_size number bytes to read, it is less or equal to param `file_size`
+     * @param file_size bytes of the file to read
+     *
+     * @return aligned offset and real bytes to read
+     */
+    static std::pair<size_t, size_t> s_align_size(size_t offset, size_t req_size, size_t file_size);
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
