@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.thrift.TUniqueId;
 
 import mockit.Expectations;
@@ -30,7 +31,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @ResourceLock("global")
 public class AutoProfileTest {
@@ -40,8 +40,7 @@ public class AutoProfileTest {
     }
 
     private Profile createProfile() {
-        UUID taskId = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+        TUniqueId queryId = UUIDUtil.genTUniqueId();
         List<Integer> fragments = new ArrayList<>();
         ExecutionProfile executionProfile = new ExecutionProfile(queryId, fragments);
 

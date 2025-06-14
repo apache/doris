@@ -18,6 +18,7 @@
 package org.apache.doris.job.task;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
@@ -29,8 +30,6 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.RandomUtils;
-
-import java.util.UUID;
 
 @Data
 @Log4j2
@@ -169,8 +168,7 @@ public abstract class AbstractTask implements Task {
     protected abstract void executeCancelLogic(boolean needWaitCancelComplete) throws Exception;
 
     public static TUniqueId generateQueryId() {
-        UUID taskId = UUID.randomUUID();
-        return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+        return UUIDUtil.genTUniqueId();
     }
 
     @Override

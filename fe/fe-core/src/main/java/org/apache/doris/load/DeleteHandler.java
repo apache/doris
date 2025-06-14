@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -53,7 +54,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -95,7 +95,7 @@ public class DeleteHandler implements Writable {
      * use for Nereids process empty relation
      */
     public void processEmptyRelation(QueryState execState) {
-        String sb = "{'label':'" + DeleteJob.DELETE_PREFIX + UUID.randomUUID()
+        String sb = "{'label':'" + DeleteJob.DELETE_PREFIX + UUIDUtil.genUUID()
                 + "', 'txnId':'" + -1
                 + "', 'status':'" + TransactionStatus.VISIBLE.name() + "'}";
         execState.setOk(0, 0, sb);
