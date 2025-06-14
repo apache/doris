@@ -30,6 +30,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(catalog_returns { catalog_sales item date_dim } warehouse )
-UnUsed: 
+UnUsed:
 SyntaxError:
 
