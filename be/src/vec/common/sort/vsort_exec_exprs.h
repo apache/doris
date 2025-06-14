@@ -23,6 +23,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class ObjectPool;
 class RowDescriptor;
@@ -93,4 +94,5 @@ private:
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

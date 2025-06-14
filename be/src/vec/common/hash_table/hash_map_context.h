@@ -20,6 +20,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
@@ -31,6 +32,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 constexpr auto BITSIZE = 8;
 
@@ -271,7 +273,7 @@ struct MethodSerialized : public MethodBase<TData> {
         init_serialized_keys_impl(key_columns, num_rows, is_build ? build_stored_keys : stored_keys,
                                   is_build ? build_arena : Base::arena);
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
+            Base::init_join_bucket_num(cast_set<uint32_t>(num_rows), bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -351,7 +353,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
         init_serialized_keys_impl(key_columns, num_rows,
                                   is_build ? _build_stored_keys : _stored_keys);
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
+            Base::init_join_bucket_num(cast_set<uint32_t>(num_rows), bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -395,7 +397,7 @@ struct MethodOneNumber : public MethodBase<TData> {
                                                     .data
                                           : key_columns[0]->get_raw_data().data);
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
+            Base::init_join_bucket_num(cast_set<uint32_t>(num_rows), bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -443,11 +445,11 @@ struct MethodKeysFixed : public MethodBase<TData> {
                     continue;
                 }
                 size_t bucket = j / BITSIZE;
-                size_t offset = j % BITSIZE;
+                size_t data_offset = j % BITSIZE;
                 const auto& data =
                         assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                 for (size_t i = 0; i < row_numbers; ++i) {
-                    *((char*)(&result[i]) + bucket) |= data[i] << offset;
+                    *((char*)(&result[i]) + bucket) |= data[i] << data_offset;
                 }
             }
             offset += bitmap_size;
@@ -542,7 +544,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
         }
 
         if (is_join) {
-            Base::init_join_bucket_num(num_rows, bucket_size, null_map);
+            Base::init_join_bucket_num(cast_set<uint32_t>(num_rows), bucket_size, null_map);
         } else {
             Base::init_hash_values(num_rows, null_map);
         }
@@ -716,4 +718,5 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

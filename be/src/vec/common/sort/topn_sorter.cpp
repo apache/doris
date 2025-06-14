@@ -28,6 +28,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
@@ -94,4 +95,5 @@ size_t TopNSorter::data_size() const {
     return _state->data_size();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

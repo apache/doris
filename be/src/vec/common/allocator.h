@@ -80,6 +80,7 @@
 #endif
 
 namespace doris {
+#include "common/compile_check_begin.h"
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
 
@@ -357,4 +358,5 @@ public:
 protected:
     static constexpr size_t get_stack_threshold() { return N; }
 };
+#include "common/compile_check_end.h"
 } // namespace doris

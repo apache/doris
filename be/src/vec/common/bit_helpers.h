@@ -21,6 +21,7 @@
 #pragma once
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 inline uint32_t get_leading_zero_bits_unsafe(T x) {
@@ -42,4 +43,5 @@ inline uint32_t bit_scan_reverse(T x) {
            get_leading_zero_bits_unsafe(x);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

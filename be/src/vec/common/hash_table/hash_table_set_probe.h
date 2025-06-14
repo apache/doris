@@ -20,6 +20,7 @@
 #include "vec/columns/column.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <class HashTableContext, bool is_intersected>
 struct HashTableProbe {
@@ -59,4 +60,5 @@ private:
     std::vector<StringRef> _probe_keys;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

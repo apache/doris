@@ -27,6 +27,7 @@
 #include "vec/common/hash_table/ph_hash_set.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 namespace ColumnsHashing {
 
@@ -153,4 +154,5 @@ protected:
 
 } // namespace ColumnsHashing
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
