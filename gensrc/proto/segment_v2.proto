@@ -157,7 +157,14 @@ message ColumnPathInfo {
     optional bool has_nested = 3;
     // The original parent variant's unique id, used to distinguish from different variants
     optional uint32 parrent_column_unique_id = 4;
+    // is_typed flags if the subcolumn is assigned specific types
+    optional bool is_typed = 5;
 }
+
+message VariantStatisticsPB {
+    // in the order of subcolumns in variant
+    map<string, uint32> sparse_column_non_null_size = 2;
+} 
 
 message ColumnMetaPB {
     // column id in table schema
@@ -192,11 +199,14 @@ message ColumnMetaPB {
     optional int32 precision = 15; // ColumnMessage.precision
     optional int32 frac = 16; // ColumnMessag
 
-    repeated ColumnMetaPB sparse_columns = 17; // sparse column within a variant column
+    repeated ColumnMetaPB sparse_columns = 17; // deprecated
 
     optional bool result_is_nullable = 18; // used on agg_state type
     optional string function_name = 19; // used on agg_state type
     optional int32 be_exec_version = 20; // used on agg_state type
+    optional VariantStatisticsPB variant_statistics = 21; // only used in variant type
+    optional int32 variant_max_subcolumns_count = 22 [default = 0];
+    optional uint64 none_null_size = 23 [default = 0];
 }
 
 message PrimaryKeyIndexMetaPB {

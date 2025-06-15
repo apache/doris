@@ -32,6 +32,8 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/json/json_parser.h"
+#include "vec/json/parse2column.cpp"
 
 namespace doris {
 
@@ -39,33 +41,16 @@ namespace vectorized {
 #include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
+
 Status DataTypeVariantSerDe::_write_column_to_mysql(const IColumn& column,
                                                     MysqlRowBuffer<is_binary_format>& row_buffer,
                                                     int64_t row_idx, bool col_const,
                                                     const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
-    if (!variant.is_finalized()) {
-        const_cast<ColumnVariant&>(variant).finalize();
-    }
-    RETURN_IF_ERROR(variant.sanitize());
-    if (variant.is_scalar_variant()) {
-        // Serialize scalar types, like int, string, array, faster path
-        const auto& root = variant.get_subcolumn({});
-        RETURN_IF_ERROR(root->get_least_common_type_serde()->write_column_to_mysql(
-                root->get_finalized_column(), row_buffer, row_idx, col_const, options));
-    } else {
-        // Serialize hierarchy types to json format
-        rapidjson::StringBuffer buffer;
-        bool is_null = false;
-        if (!variant.serialize_one_row_to_json_format(row_idx, &buffer, &is_null)) {
-            return Status::InternalError("Invalid json format");
-        }
-        if (is_null) {
-            row_buffer.push_null();
-        } else {
-            row_buffer.push_string(buffer.GetString(), buffer.GetLength());
-        }
-    }
+    // Serialize hierarchy types to json format
+    std::string buffer;
+    variant.serialize_one_row_to_string(row_idx, &buffer);
+    row_buffer.push_string(buffer.data(), buffer.size());
     return Status::OK();
 }
 
@@ -93,15 +78,9 @@ void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbW
                                                    Arena* mem_pool, int32_t col_id,
                                                    int64_t row_num) const {
     const auto& variant = assert_cast<const ColumnVariant&>(column);
-    if (!variant.is_finalized()) {
-        const_cast<ColumnVariant&>(variant).finalize();
-    }
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
-    if (!variant.serialize_one_row_to_string(row_num, &value_str)) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                               variant.dump_structure());
-    }
+    variant.serialize_one_row_to_string(row_num, &value_str);
     JsonBinaryValue jsonb_value;
     // encode as jsonb
     bool succ = jsonb_value.from_json_string(value_str.data(), value_str.size()).ok();
@@ -138,9 +117,23 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
                                                         BufferWritable& bw,
                                                         FormatOptions& options) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
-    if (!var->serialize_one_row_to_string(row_num, bw)) {
-        return Status::InternalError("Failed to serialize variant {}", var->dump_structure());
-    }
+    var->serialize_one_row_to_string(row_num, bw);
+    return Status::OK();
+}
+
+Status DataTypeVariantSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                            const FormatOptions& options) const {
+    vectorized::ParseConfig config;
+    auto parser = parsers_pool.get([] { return new JsonParser(); });
+    RETURN_IF_CATCH_EXCEPTION(
+            parse_json_to_variant(column, slice.data, slice.size, parser.get(), config));
+    return Status::OK();
+}
+
+Status DataTypeVariantSerDe::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
+        const FormatOptions& options) const {
+    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
     return Status::OK();
 }
 
@@ -156,10 +149,7 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                              array_builder->type()->name()));
         } else {
             std::string serialized_value;
-            if (!var->serialize_one_row_to_string(i, &serialized_value)) {
-                return Status::Error(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                     var->dump_structure());
-            }
+            var->serialize_one_row_to_string(i, &serialized_value);
             RETURN_IF_ERROR(
                     checkArrowStatus(builder.Append(serialized_value.data(),
                                                     static_cast<int>(serialized_value.size())),
@@ -175,17 +165,14 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
                                                  int64_t start, int64_t end,
                                                  std::vector<StringRef>& buffer_list) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
-    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     INIT_MEMORY_FOR_ORC_WRITER()
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             auto serialized_value = std::make_unique<std::string>();
-            if (!var->serialize_one_row_to_string(row_id, serialized_value.get())) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
-            }
+            var->serialize_one_row_to_string(row_id, serialized_value.get());
             auto len = serialized_value->length();
 
             REALLOC_MEMORY_FOR_ORC_WRITER()

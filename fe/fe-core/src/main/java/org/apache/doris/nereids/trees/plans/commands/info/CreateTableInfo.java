@@ -21,7 +21,8 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
@@ -37,7 +38,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.GeneratedColumnUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
@@ -72,6 +72,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantField;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -140,6 +142,8 @@ public class CreateTableInfo {
     private String clusterName = null;
     private List<String> clusterKeysColumnNames = null;
     private PartitionTableInfo partitionTableInfo; // get when validate
+    private Map<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> columnToIndexes = new HashMap<>();
+    private TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
 
     /**
      * constructor for create table
@@ -672,8 +676,6 @@ public class CreateTableInfo {
         // validate index
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
-            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
             try {
                 invertedIndexFileStorageFormat = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
                         new HashMap<>(properties));
@@ -694,6 +696,9 @@ public class CreateTableInfo {
                             indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
                                     invertedIndexFileStorageFormat);
                             found = true;
+                            columnToIndexes.computeIfAbsent(column, k -> new HashMap<>())
+                                .computeIfAbsent(indexDef.getIndexType(), k -> new ArrayList<>())
+                                    .add(indexDef);
                             break;
                         }
                     }
@@ -703,17 +708,12 @@ public class CreateTableInfo {
                     }
                 }
                 distinct.add(indexDef.getIndexName());
-                distinctCol.add(Pair.of(indexDef.getIndexType(), indexDef.getColumnNames().stream()
-                        .map(String::toUpperCase).collect(Collectors.toList())));
             }
             if (distinct.size() != indexes.size()) {
                 throw new AnalysisException("index name must be unique.");
             }
-            if (distinctCol.size() != indexes.size()) {
-                throw new AnalysisException(
-                        "same index columns have multiple same type index is not allowed.");
-            }
         }
+        columnToIndexesCheck();
         generatedColumnCheck(ctx);
     }
 
@@ -977,6 +977,91 @@ public class CreateTableInfo {
             }
             if (column.getGeneratedColumnDesc().isPresent() && !engineName.equalsIgnoreCase("olap")) {
                 throw new AnalysisException("Tables can only have generated columns if the olap engine is used");
+            }
+        }
+    }
+
+    // 1. if the column is variant type, check it's field pattern is valid
+    // 2. if the column is not variant type, check it's index def is valid
+    private void columnToIndexesCheck() {
+        for (Map.Entry<ColumnDefinition, Map<IndexType, List<IndexDefinition>>> entry : columnToIndexes.entrySet()) {
+            ColumnDefinition column = entry.getKey();
+            Map<IndexType, List<IndexDefinition>> indexTypeToIndexDefs = entry.getValue();
+            for (Map.Entry<IndexType, List<IndexDefinition>> indexDefEntry : indexTypeToIndexDefs.entrySet()) {
+                IndexType indexType = indexDefEntry.getKey();
+                List<IndexDefinition> indexDefs = indexDefEntry.getValue();
+                if (indexType != IndexType.INVERTED) {
+                    if (indexDefs.size() > 1) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                    + " cannot have multiple indexes, index type: " + indexType);
+                    } else {
+                        continue;
+                    }
+                }
+
+                // check inverted index
+                if (column.getType().isVariantType()) {
+                    Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
+                    Map<String, DataType> fieldPatternToDataType = new HashMap<>();
+                    for (IndexDefinition indexDef : indexDefs) {
+                        String fieldPattern = InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties());
+                        if (fieldPattern.isEmpty()) {
+                            fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>()).add(indexDef);
+                            fieldPatternToDataType.put(fieldPattern, column.getType());
+                            continue;
+                        }
+                        boolean findFieldPattern = false;
+                        VariantType variantType = (VariantType) column.getType();
+                        List<VariantField> predefinedFields = variantType.getPredefinedFields();
+                        for (VariantField field : predefinedFields) {
+                            if (field.getPattern().equals(fieldPattern)) {
+                                findFieldPattern = true;
+                                if (!IndexDefinition.isSupportIdxType(field.getDataType())) {
+                                    throw new AnalysisException("field pattern: "
+                                            + fieldPattern + " is not supported for inverted index"
+                                            + " of column: " + column.getName());
+                                }
+                                fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
+                                                                                                    .add(indexDef);
+                                fieldPatternToDataType.put(fieldPattern, field.getDataType());
+                                break;
+                            }
+                        }
+                        if (!findFieldPattern) {
+                            throw new AnalysisException("can not find field pattern: " + fieldPattern
+                                        + " in column: " + column.getName());
+                        }
+                    }
+                    for (Map.Entry<String, List<IndexDefinition>> fieldIndexEntry : fieldPatternToIndexDef.entrySet()) {
+                        String fieldPattern = fieldIndexEntry.getKey();
+                        List<IndexDefinition> fieldPatternIndexDefs = fieldIndexEntry.getValue();
+                        DataType dataType = fieldPatternToDataType.get(fieldPattern);
+                        if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(dataType, fieldPatternIndexDefs)) {
+                            throw new AnalysisException("column: "
+                                + column.getName()
+                                + " cannot have multiple inverted indexes with field pattern: "
+                                + fieldPattern);
+                        }
+                    }
+                } else {
+                    for (IndexDefinition indexDef : indexDefs) {
+                        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                            throw new AnalysisException("column: " + column.getName()
+                                                                + " cannot have field pattern in index.");
+                        }
+                    }
+                    if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(column.getType(), indexDefs)) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                                + " cannot have multiple inverted indexes.");
+                    }
+                    if (invertedIndexFileStorageFormat != null
+                                && invertedIndexFileStorageFormat.compareTo(TInvertedIndexFileStorageFormat.V2) < 0
+                                && indexDefs.size() > 1) {
+                        throw new AnalysisException("column: " + column.getName()
+                                                + " cannot have multiple inverted indexes with file storage format: "
+                                                + invertedIndexFileStorageFormat);
+                    }
+                }
             }
         }
     }
