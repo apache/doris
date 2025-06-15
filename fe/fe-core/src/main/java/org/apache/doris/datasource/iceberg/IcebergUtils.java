@@ -67,12 +67,15 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
@@ -87,6 +90,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.And;
 import org.apache.iceberg.expressions.Expression;
@@ -98,6 +102,8 @@ import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.transforms.PartitionSpecVisitor;
+import org.apache.iceberg.transforms.SortOrderVisitor;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.LocationUtil;
@@ -105,6 +111,7 @@ import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.spark.sql.connector.expressions.BucketTransform;
 
 import java.io.IOException;
 import java.time.DateTimeException;
@@ -114,10 +121,13 @@ import java.time.Month;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -1207,4 +1217,144 @@ public class IcebergUtils {
                 Optional.empty(), catalog, dbName, tbName, Optional.empty());
         }
     }
+
+    public static String showCreateTable(IcebergExternalTable icebergExternalTable) {
+        StringBuilder output = new StringBuilder();
+        output.append(String.format("CREATE TABLE `%s`(\n", icebergExternalTable.getName()));
+
+        Table icebergTable = icebergExternalTable.getIcebergTable();
+        Iterator<Types.NestedField> fields = icebergTable.schema().columns().iterator();
+        while (fields.hasNext()) {
+            Types.NestedField field = fields.next();
+            output.append(String.format("  `%s` %s", field.name(), field.type()));
+            if (field.doc() != null) {
+                output.append(String.format(" COMMENT '%s'", field.doc()));
+            }
+            if (fields.hasNext()) {
+                output.append(",\n");
+            }
+        }
+        output.append(")\n");
+
+        PartitionSpec partitionSpec = icebergTable.spec();
+        if (partitionSpec.isPartitioned()) {
+            output.append(parsePartitionColumnDefinitions(partitionSpec));
+        }
+
+        output.append("LOCATION ")
+                .append(String.format("'%s'\n", icebergTable.location()));
+
+        Map<String, String> properties = getTableProperties(icebergTable);
+        if (!properties.isEmpty()) {
+            output.append("TBLPROPERTIES (\n");
+            Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<String, String> entry = iter.next();
+                output.append(String.format("  '%s'='%s'", entry.getKey(), entry.getValue()));
+                if (iter.hasNext()) {
+                    output.append(",\n");
+                }
+            }
+            output.append(")");
+        }
+
+        return output.toString();
+    }
+
+    private static String parsePartitionColumnDefinitions(PartitionSpec spec) {
+        if (spec.isUnpartitioned()) {
+            return "";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        List<String> nonBucketParts = new ArrayList<>();
+        List<BucketSpec> bucketSpecList = new ArrayList<>();
+        BucketSpec bucketSpec;
+
+        org.apache.spark.sql.connector.expressions.Transform[] transforms = toSparkTransforms(spec);
+        for (org.apache.spark.sql.connector.expressions.Transform transform : transforms) {
+            if (transform instanceof BucketTransform) {
+                BucketTransform bt = (BucketTransform) transform;
+                List<String> bucketCols = Arrays.stream(bt.references())
+                        .map(ref -> String.join(".", ref.fieldNames()))
+                        .collect(Collectors.toList());
+                List<String> sortCols = Arrays.stream(bt.references())
+                        .map(ref -> String.join(".", ref.fieldNames()))
+                        .collect(Collectors.toList());
+                int numBuckets = Integer.parseInt(bt.numBuckets().toString());
+                bucketSpec = new BucketSpec(numBuckets, bucketCols, sortCols);
+                bucketSpecList.add(bucketSpec);
+            } else {
+                nonBucketParts.add(transform.describe());
+            }
+        }
+
+        if (!nonBucketParts.isEmpty()) {
+            builder.append("PARTITIONED BY (")
+                    .append(String.join(", ", nonBucketParts))
+                    .append(")\n");
+        }
+
+        for (BucketSpec bs : bucketSpecList) {
+            if (!bs.bucketColumnNames().isEmpty()) {
+                builder.append("CLUSTERED BY (")
+                        .append(String.join(", ", bs.bucketColumnNames()))
+                        .append(")\n")
+                        .append("INTO ").append(bs.numBuckets()).append(" BUCKETS\n");
+
+                if (!bs.sortColumnNames().isEmpty()) {
+                    builder.append("SORTED BY (")
+                            .append(String.join(", ", bs.sortColumnNames()))
+                            .append(")\n");
+                }
+            }
+        }
+
+        return builder.toString();
+    }
+
+    private static Map<String, String> getTableProperties(Table icebergTable) {
+        ImmutableMap.Builder<String, String> propsBuilder = ImmutableMap.builder();
+        String fileFormat =
+                icebergTable
+                .properties()
+                .getOrDefault(
+                    TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
+        propsBuilder.put("format", "iceberg/" + fileFormat);
+        propsBuilder.put("provider", "iceberg");
+        String currentSnapshotId =
+                icebergTable.currentSnapshot() != null
+                ? String.valueOf(icebergTable.currentSnapshot().snapshotId())
+                : "none";
+        propsBuilder.put(TableProperties.CURRENT_SNAPSHOT_ID, currentSnapshotId);
+        propsBuilder.put("location", icebergTable.location());
+        if (icebergTable instanceof BaseTable) {
+            TableOperations ops = ((BaseTable) icebergTable).operations();
+            propsBuilder.put(TableProperties.FORMAT_VERSION, String.valueOf(ops.current().formatVersion()));
+        }
+        if (!icebergTable.sortOrder().isUnsorted()) {
+            propsBuilder.put("sort-order", describe(icebergTable.sortOrder()));
+        }
+        Set<String> identifierFields = icebergTable.schema().identifierFieldNames();
+        if (!identifierFields.isEmpty()) {
+            propsBuilder.put("identifier-fields", "[" + String.join(",", identifierFields) + "]");
+        }
+        icebergTable.properties().entrySet().stream()
+            .filter(entry -> !TableProperties.RESERVED_PROPERTIES.contains(entry.getKey()))
+            .forEach(propsBuilder::put);
+        return propsBuilder.build();
+    }
+
+    private static String describe(org.apache.iceberg.SortOrder order) {
+        return Joiner.on(", ").join(SortOrderVisitor.visit(order, DescribeSortOrderVisitor.INSTANCE));
+    }
+
+    private static org.apache.spark.sql.connector.expressions.Transform[] toSparkTransforms(PartitionSpec spec) {
+        SpecTransformToSparkTransform visitor = new SpecTransformToSparkTransform(spec.schema());
+        List<org.apache.spark.sql.connector.expressions.Transform> transforms =
+                PartitionSpecVisitor.visit(spec, visitor);
+        return transforms.stream().filter(Objects::nonNull)
+            .toArray(org.apache.spark.sql.connector.expressions.Transform[]::new);
+    }
+
 }
