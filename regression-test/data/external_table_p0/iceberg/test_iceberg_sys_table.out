@@ -357,8 +357,8 @@ snapshot_id	bigint	Yes	true	\N	NONE
 summary	map<text,text>	Yes	true	\N	NONE
 
 -- !select_snapshots --
-{"spark.app.id":"app-20250612143201-0000", "added-data-files":"10", "added-records":"10", "added-files-size":"6200", "changed-partition-count":"1", "total-records":"10", "total-files-size":"6200", "total-data-files":"10", "total-delete-files":"0", "total-position-deletes":"0", "total-equality-deletes":"0"}
-{"spark.app.id":"app-20250612143201-0000", "deleted-data-files":"5", "deleted-records":"5", "removed-files-size":"3103", "changed-partition-count":"1", "total-records":"5", "total-files-size":"3097", "total-data-files":"5", "total-delete-files":"0", "total-position-deletes":"0", "total-equality-deletes":"0"}
+append
+overwrite
 
 -- !select_snapshots_count --
 2
@@ -772,8 +772,8 @@ snapshot_id	bigint	Yes	true	\N	NONE
 summary	map<text,text>	Yes	true	\N	NONE
 
 -- !select_snapshots --
-{"spark.app.id":"app-20250612143201-0000", "added-data-files":"10", "added-records":"10", "added-files-size":"6200", "changed-partition-count":"10", "total-records":"10", "total-files-size":"6200", "total-data-files":"10", "total-delete-files":"0", "total-position-deletes":"0", "total-equality-deletes":"0"}
-{"spark.app.id":"app-20250612143201-0000", "deleted-data-files":"5", "deleted-records":"5", "removed-files-size":"3103", "changed-partition-count":"5", "total-records":"5", "total-files-size":"3097", "total-data-files":"5", "total-delete-files":"0", "total-position-deletes":"0", "total-equality-deletes":"0"}
+append
+overwrite
 
 -- !select_snapshots_count --
 2

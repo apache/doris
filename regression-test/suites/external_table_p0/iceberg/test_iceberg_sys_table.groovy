@@ -207,7 +207,7 @@ suite("test_iceberg_sys_table", "p0,external,doris,external_docker,external_dock
             }
         }
 
-        order_qt_select_snapshots """select summary from ${systableName}"""
+        order_qt_select_snapshots """select operation from ${systableName}"""
         order_qt_select_snapshots_count """select count(*) from ${systableName}"""
 
         List<List<Object>> res1 = sql """select * from ${systableName} order by committed_at"""
