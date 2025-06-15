@@ -55,5 +55,5 @@ public interface DorisOutputFile {
      *
      * @return the DorisPath representing the file location
      */
-    DorisPath path();
+    ParsedPath path();
 }

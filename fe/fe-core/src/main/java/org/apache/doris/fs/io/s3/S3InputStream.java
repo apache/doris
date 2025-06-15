@@ -19,7 +19,7 @@ package org.apache.doris.fs.io.s3;
 
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
@@ -49,7 +49,7 @@ public class S3InputStream extends DorisInputStream {
     private static final int MAX_SKIP_BYTES = 1024 * 1024;
 
     // The S3 path being read
-    private final DorisPath filePath;
+    private final ParsedPath filePath;
     // AWS S3 client for making requests
     private final S3Client s3Client;
     // The base request object for S3 GET operations
@@ -74,7 +74,7 @@ public class S3InputStream extends DorisInputStream {
      * @param request The base GET object request
      * @param length The total length of the object, or -1 if unknown
      */
-    public S3InputStream(DorisPath path, S3Client client, GetObjectRequest request, long length) {
+    public S3InputStream(ParsedPath path, S3Client client, GetObjectRequest request, long length) {
         this.filePath = requireNonNull(path, "path is null");
         this.s3Client = requireNonNull(client, "client is null");
         this.baseRequest = requireNonNull(request, "request is null");
@@ -104,8 +104,8 @@ public class S3InputStream extends DorisInputStream {
             throw new IOException("Cannot seek to negative position");
         }
         if ((objectLength != -1) && (position > objectLength)) {
-            throw new IOException(String.format("Cannot seek to %d. File size is %d: %s", 
-                position, objectLength, filePath));
+            throw new IOException(String.format("Cannot seek to %d. File size is %d: %s",
+                    position, objectLength, filePath));
         }
         nextReadPosition = position;
     }
@@ -143,8 +143,8 @@ public class S3InputStream extends DorisInputStream {
     @Override
     public long skip(long bytesToSkip) throws IOException {
         validateStreamState();
-        long actualSkip = IOUtils.clamp(bytesToSkip, 0, 
-            objectLength != -1 ? objectLength - nextReadPosition : Integer.MAX_VALUE);
+        long actualSkip = IOUtils.clamp(bytesToSkip, 0,
+                objectLength != -1 ? objectLength - nextReadPosition : Integer.MAX_VALUE);
         nextReadPosition += actualSkip;
         return actualSkip;
     }
@@ -231,9 +231,9 @@ public class S3InputStream extends DorisInputStream {
                 rangeRequest = baseRequest.toBuilder().range(range).build();
             }
             inputStream = s3Client.getObject(rangeRequest);
-            
-            if (inputStream.response().contentLength() != null 
-                && inputStream.response().contentLength() == 0) {
+
+            if (inputStream.response().contentLength() != null
+                    && inputStream.response().contentLength() == 0) {
                 inputStream = new ResponseInputStream<>(inputStream.response(), nullInputStream());
             }
             currentPosition = nextReadPosition;

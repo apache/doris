@@ -19,7 +19,7 @@ package org.apache.doris.datasource.iceberg.fileio;
 
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import com.google.common.io.CountingOutputStream;
 import org.apache.iceberg.io.InputFile;
@@ -52,7 +52,7 @@ public class DelegateOutputFile implements OutputFile {
      * @param fileSystem the Doris file system to delegate operations to
      * @param path the DorisPath representing the file location
      */
-    public DelegateOutputFile(FileSystem fileSystem, DorisPath path) {
+    public DelegateOutputFile(FileSystem fileSystem, ParsedPath path) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");
         this.outputFile = fileSystem.newOutputFile(path);
     }
@@ -61,6 +61,7 @@ public class DelegateOutputFile implements OutputFile {
 
     /**
      * Creates a new file for writing. Throws UncheckedIOException if creation fails.
+     *
      * @return a PositionOutputStream for writing to the file
      */
     @Override
@@ -74,6 +75,7 @@ public class DelegateOutputFile implements OutputFile {
 
     /**
      * Creates or overwrites a file for writing. Throws UncheckedIOException if creation fails.
+     *
      * @return a PositionOutputStream for writing to the file
      */
     @Override
@@ -89,6 +91,7 @@ public class DelegateOutputFile implements OutputFile {
 
     /**
      * Returns the location (path) of the file as a string.
+     *
      * @return the file location
      */
     @Override
@@ -98,6 +101,7 @@ public class DelegateOutputFile implements OutputFile {
 
     /**
      * Converts this output file to an InputFile for reading.
+     *
      * @return an InputFile instance for the same file
      */
     @Override
@@ -109,6 +113,7 @@ public class DelegateOutputFile implements OutputFile {
 
     /**
      * Returns a string representation of this DelegateOutputFile.
+     *
      * @return string representation
      */
     @Override
@@ -128,6 +133,7 @@ public class DelegateOutputFile implements OutputFile {
 
         /**
          * Constructs a CountingPositionOutputStream with the specified OutputStream.
+         *
          * @param stream the OutputStream to wrap
          */
         private CountingPositionOutputStream(OutputStream stream) {
@@ -136,6 +142,7 @@ public class DelegateOutputFile implements OutputFile {
 
         /**
          * Returns the current position (number of bytes written).
+         *
          * @return the number of bytes written
          */
         @Override
@@ -145,6 +152,7 @@ public class DelegateOutputFile implements OutputFile {
 
         /**
          * Writes a single byte to the output stream.
+         *
          * @param b the byte to write
          * @throws IOException if an I/O error occurs
          */
@@ -155,6 +163,7 @@ public class DelegateOutputFile implements OutputFile {
 
         /**
          * Writes a portion of a byte array to the output stream.
+         *
          * @param b the byte array
          * @param off the start offset
          * @param len the number of bytes to write
@@ -167,6 +176,7 @@ public class DelegateOutputFile implements OutputFile {
 
         /**
          * Flushes the output stream.
+         *
          * @throws IOException if an I/O error occurs
          */
         @Override
@@ -176,6 +186,7 @@ public class DelegateOutputFile implements OutputFile {
 
         /**
          * Closes the output stream.
+         *
          * @throws IOException if an I/O error occurs
          */
         @Override

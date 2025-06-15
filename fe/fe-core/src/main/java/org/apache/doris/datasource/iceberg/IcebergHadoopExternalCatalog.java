@@ -19,6 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.google.common.base.Preconditions;
@@ -32,7 +33,7 @@ import java.util.Map;
 public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
 
     public IcebergHadoopExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-                                        String comment) {
+            String comment) {
         super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         String warehouse = props.get(CatalogProperties.WAREHOUSE_LOCATION);
@@ -61,13 +62,26 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        try {
-            this.catalog = preExecutionAuthenticator.execute(() -> {
-                hadoopCatalog.initialize(getName(), catalogProperties);
-                return hadoopCatalog;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Hadoop catalog init error!", e);
+
+        // TODO: This is a temporary solution to support Iceberg with Kerberos authentication.
+        // Because currently, DelegateFileIO only support hdfs file operation,
+        // and all we want to solve is to use the hdfs file operation in Iceberg to support Kerberos authentication.
+        // Later, we should always set FILE_IO_IMPL to DelegateFileIO for all kinds of storages.
+        if (catalogProperties.getOrDefault("hdfs.authentication.type", "").equalsIgnoreCase("kerberos")
+                || catalogProperties.getOrDefault("hadoop.security.authentication", "").equalsIgnoreCase("kerberos")) {
+            catalogProperties.put(CatalogProperties.FILE_IO_IMPL,
+                    "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+        }
+
+        if (catalogProperties.containsKey(HMSExternalCatalog.GET_SCHEMA_FROM_TABLE)) {
+            try {
+                this.catalog = preExecutionAuthenticator.execute(() -> {
+                    hadoopCatalog.initialize(getName(), catalogProperties);
+                    return hadoopCatalog;
+                });
+            } catch (Exception e) {
+                throw new RuntimeException("Hadoop catalog init error!", e);
+            }
         }
     }
 }

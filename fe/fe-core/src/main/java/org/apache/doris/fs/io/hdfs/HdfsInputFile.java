@@ -21,7 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.fs.io.DorisInput;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import org.apache.hadoop.fs.FileStatus;
@@ -36,7 +36,7 @@ import java.util.Objects;
  */
 public class HdfsInputFile implements DorisInputFile {
     // The DorisPath representing the file location in HDFS.
-    private final DorisPath path;
+    private final ParsedPath path;
     // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
     // The DFSFileSystem used to interact with HDFS.
@@ -54,7 +54,7 @@ public class HdfsInputFile implements DorisInputFile {
      * @param length the length of the file, or -1 if unknown
      * @param dfs the DFSFileSystem used to interact with HDFS
      */
-    public HdfsInputFile(DorisPath path, long length, DFSFileSystem dfs) {
+    public HdfsInputFile(ParsedPath path, long length, DFSFileSystem dfs) {
         this.path = Objects.requireNonNull(path, "path is null");
         this.dfs = Objects.requireNonNull(dfs, "hdfs file system is null");
         this.hadoopPath = path.toHadoopPath();
@@ -126,7 +126,7 @@ public class HdfsInputFile implements DorisInputFile {
      * @return the DorisPath
      */
     @Override
-    public DorisPath path() {
+    public ParsedPath path() {
         return path;
     }
 

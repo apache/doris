@@ -18,7 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -336,7 +336,7 @@ public class S3URI {
         return sb.toString();
     }
 
-    public DorisPath toDorisPath() {
-        return new DorisPath(originLocation);
+    public ParsedPath toDorisPath() {
+        return new ParsedPath(originLocation);
     }
 }

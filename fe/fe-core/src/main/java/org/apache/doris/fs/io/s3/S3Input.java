@@ -18,7 +18,7 @@
 package org.apache.doris.fs.io.s3;
 
 import org.apache.doris.fs.io.DorisInput;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import software.amazon.awssdk.core.exception.AbortedException;
 import software.amazon.awssdk.core.exception.RetryableException;
@@ -40,7 +40,7 @@ import java.util.Objects;
  */
 final class S3Input implements DorisInput {
     // The path to the S3 object being read
-    private final DorisPath path;
+    private final ParsedPath path;
 
     // The S3 client used for making requests to AWS S3
     private final S3Client client;
@@ -58,7 +58,7 @@ final class S3Input implements DorisInput {
      * @param client The S3 client to use for requests
      * @param request The base GET object request
      */
-    public S3Input(DorisPath path, S3Client client, GetObjectRequest request) {
+    public S3Input(ParsedPath path, S3Client client, GetObjectRequest request) {
         this.path = Objects.requireNonNull(path, "path is null");
         this.client = Objects.requireNonNull(client, "client is null");
         this.request = Objects.requireNonNull(request, "request is null");

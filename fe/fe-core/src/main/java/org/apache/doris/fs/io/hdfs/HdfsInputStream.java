@@ -18,7 +18,7 @@
 package org.apache.doris.fs.io.hdfs;
 
 import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
@@ -33,7 +33,7 @@ import java.util.Objects;
  */
 public class HdfsInputStream extends DorisInputStream {
     // The DorisPath representing the file location in HDFS.
-    private final DorisPath path;
+    private final ParsedPath path;
     // The underlying Hadoop FSDataInputStream used for reading.
     private final FSDataInputStream stream;
     // Indicates whether the stream has been closed.
@@ -45,7 +45,7 @@ public class HdfsInputStream extends DorisInputStream {
      * @param path the DorisPath representing the file location
      * @param stream the underlying Hadoop FSDataInputStream
      */
-    HdfsInputStream(DorisPath path, FSDataInputStream stream) {
+    HdfsInputStream(ParsedPath path, FSDataInputStream stream) {
         this.path = Objects.requireNonNull(path, "path is null");
         this.stream = Objects.requireNonNull(stream, "stream is null");
     }

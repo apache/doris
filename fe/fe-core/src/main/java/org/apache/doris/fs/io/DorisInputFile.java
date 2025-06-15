@@ -31,7 +31,7 @@ public interface DorisInputFile {
      *
      * @return the DorisPath representing the file location
      */
-    DorisPath path();
+    ParsedPath path();
 
     /**
      * Returns the length of the file in bytes.

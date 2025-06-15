@@ -26,7 +26,7 @@ import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.io.hdfs.HdfsInputFile;
 import org.apache.doris.fs.io.hdfs.HdfsOutputFile;
 import org.apache.doris.fs.operations.HDFSFileOperations;
@@ -164,7 +164,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                FileSystem fileSystem, Path locatedPath) throws IOException {
+            FileSystem fileSystem, Path locatedPath) throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -268,13 +268,13 @@ public class DFSFileSystem extends RemoteFileSystem {
      * read data from fsDataInputStream.
      *
      * @param fsDataInputStream input stream for read.
-     * @param readOffset        read offset.
-     * @param length            read length.
+     * @param readOffset read offset.
+     * @param length read length.
      * @return ByteBuffer
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-                throws IOException {
+            throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {
@@ -494,8 +494,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     /**
      * get files in remotePath of HDFS.
      *
-     * @param remotePath   hdfs://namenode:port/path.
-     * @param result       files in remotePath.
+     * @param remotePath hdfs://namenode:port/path.
+     * @param result files in remotePath.
      * @param fileNameOnly means get file only in remotePath if true.
      * @return Status.OK if success.
      */
@@ -578,12 +578,12 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     @Override
-    public DorisOutputFile newOutputFile(DorisPath path) {
+    public DorisOutputFile newOutputFile(ParsedPath path) {
         return new HdfsOutputFile(path, this);
     }
 
     @Override
-    public DorisInputFile newInputFile(DorisPath path, long length) {
+    public DorisInputFile newInputFile(ParsedPath path, long length) {
         return new HdfsInputFile(path, length, this);
     }
 }

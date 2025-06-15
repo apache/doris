@@ -19,7 +19,7 @@ package org.apache.doris.fs.io.s3;
 
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -36,10 +36,10 @@ import java.util.concurrent.Executor;
 public class S3OutputFile implements DorisOutputFile {
     // Executor service for handling asynchronous upload operations to S3
     private final Executor uploadExecutor;
-    
+
     // AWS S3 client for interacting with S3 service
     private final S3Client client;
-    
+
     // URI object containing S3 bucket and key information
     private final S3URI s3URI;
 
@@ -89,7 +89,7 @@ public class S3OutputFile implements DorisOutputFile {
      * @return DorisPath object representing the S3 location
      */
     @Override
-    public DorisPath path() {
+    public ParsedPath path() {
         return s3URI.toDorisPath();
     }
 

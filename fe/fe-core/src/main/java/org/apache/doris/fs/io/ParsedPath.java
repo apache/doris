@@ -24,27 +24,27 @@ import org.apache.hadoop.fs.Path;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 
-public class DorisPath {
-    private String path;
+public class ParsedPath {
+    private String origPath;
 
-    public DorisPath(String path) {
-        this.path = path;
+    public ParsedPath(String path) {
+        this.origPath = path;
     }
 
     @Override
     public String toString() {
-        return this.path;
+        return this.origPath;
     }
 
     public Path toHadoopPath() {
-        return new Path(path);
+        return new Path(origPath);
     }
 
     public S3URI toS3URI() {
         try {
-            return S3URI.create(path);
+            return S3URI.create(origPath);
         } catch (Exception e) {
-            throw new UncheckedIOException("Invalid S3 URI: " + path, new IOException(e));
+            throw new UncheckedIOException("Invalid S3 URI: " + origPath, new IOException(e));
         }
     }
 }

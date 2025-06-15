@@ -18,7 +18,7 @@
 package org.apache.doris.fs.io.hdfs;
 
 import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import org.apache.hadoop.fs.Path;
@@ -33,7 +33,7 @@ import java.util.Objects;
  */
 public class HdfsOutputFile implements DorisOutputFile {
     // The DorisPath representing the file location in HDFS.
-    private final DorisPath path;
+    private final ParsedPath path;
     // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
     // The DFSFileSystem used to interact with HDFS.
@@ -45,7 +45,7 @@ public class HdfsOutputFile implements DorisOutputFile {
      * @param path the DorisPath representing the file location
      * @param dfs the DFSFileSystem used to interact with HDFS
      */
-    public HdfsOutputFile(DorisPath path, DFSFileSystem dfs) {
+    public HdfsOutputFile(ParsedPath path, DFSFileSystem dfs) {
         this.path = Objects.requireNonNull(path, "path is null");
         this.hadoopPath = path.toHadoopPath();
         this.dfs = Objects.requireNonNull(dfs, "dfs is null");
@@ -79,7 +79,7 @@ public class HdfsOutputFile implements DorisOutputFile {
      * @return the DorisPath
      */
     @Override
-    public DorisPath path() {
+    public ParsedPath path() {
         return path;
     }
 

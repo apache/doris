@@ -21,7 +21,7 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.fs.io.DorisInput;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.DorisPath;
+import org.apache.doris.fs.io.ParsedPath;
 
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -104,7 +104,7 @@ public class S3InputFile implements DorisInputFile {
     }
 
     @Override
-    public DorisPath path() {
+    public ParsedPath path() {
         return s3Uri.toDorisPath();
     }
 
