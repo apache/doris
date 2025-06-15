@@ -3,7 +3,7 @@
 3
 
 -- !basic_count2 --
-0
+1
 
 -- !basic_count3 --
 1
@@ -27,7 +27,7 @@
 2
 
 -- !basic_count10 --
-4
+3
 
 -- !empty_string --
 0
@@ -41,9 +41,9 @@
 
 -- !table_basic --
 1	2
-2	0
+2	3
 3	2
-4	0
+4	2
 5	0
 6	0
 7	\N
