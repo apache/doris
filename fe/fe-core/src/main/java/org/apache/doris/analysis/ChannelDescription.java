@@ -21,21 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -46,8 +38,7 @@ import java.util.TreeSet;
 //          [PARTITION (p1, p2)]
 //          [(col1, ...)]
 //          [KEEP ORDER]
-public class ChannelDescription implements Writable {
-    private static final Logger LOG = LogManager.getLogger(ChannelDescription.class);
+public class ChannelDescription {
 
     @SerializedName(value = "srcDatabase")
     private final String srcDatabase;
@@ -145,16 +136,5 @@ public class ChannelDescription implements Writable {
 
     public PartitionNames getPartitionNames() {
         return partitionNames;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static ChannelDescription read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ChannelDescription.class);
     }
 }

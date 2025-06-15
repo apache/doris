@@ -17,10 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -90,19 +88,7 @@ public class CreateTableInfo implements Writable, GsonPostProcessable {
     }
 
     public static CreateTableInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            CreateTableInfo createTableInfo = new CreateTableInfo();
-            createTableInfo.readFields(in);
-            return createTableInfo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), CreateTableInfo.class);
-        }
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbName = ClusterNamespace.getNameFromFullName(Text.readString(in));
-        table = Table.read(in);
+        return GsonUtils.GSON.fromJson(Text.readString(in), CreateTableInfo.class);
     }
 
     @Override
