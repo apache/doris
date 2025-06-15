@@ -189,6 +189,7 @@ public:
     }
 };
 
+
 struct ThreeParamTypes {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),

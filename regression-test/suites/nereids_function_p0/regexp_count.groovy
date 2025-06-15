@@ -24,10 +24,10 @@ suite("test_regexp_count") {
     qt_basic_count6 "SELECT regexp_count('Hello World\tJava\nSQL', '\\s');"
     qt_basic_count7 "SELECT regexp_count('Hello, World!', '[\\p{P}\\p{S}]');"
     qt_basic_count8 "SELECT regexp_count('abc123def456', '\\d+');"
-    qt_basic_count9 "SELECT regexp_count('Contact us at user@example.com or info@domain.com', 
-                    '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}');"
-    qt_basic_count10 "SELECT regexp_count('An apple a day keeps the doctor away', 
-                    '\\b[aeiouAEIOU]\\w*\\b');"
+    qt_basic_count9 """SELECT regexp_count('Contact us at user@example.com or info@domain.com', 
+                    '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}');"""
+    qt_basic_count10 """SELECT regexp_count('An apple a day keeps the doctor away', 
+                    '\\b[aeiouAEIOU]\\w*\\b');"""
 
     qt_empty_string "SELECT regexp_count('', 'x');"
     qt_empty_pattern "SELECT regexp_count('abcd', '');"
