@@ -21,8 +21,6 @@ import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.fs.io.DorisInputStream;
 import org.apache.doris.fs.io.ParsedPath;
 
-import static java.lang.Math.max;
-import static java.util.Objects.requireNonNull;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.exception.AbortedException;
 import software.amazon.awssdk.core.exception.SdkException;
@@ -30,12 +28,13 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import static software.amazon.awssdk.utils.IoUtils.drainInputStream;
+import software.amazon.awssdk.utils.IoUtils;
 
 import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.util.Objects;
 
 /**
  * An implementation of DorisInputStream that reads data from Amazon S3.
@@ -75,9 +74,9 @@ public class S3InputStream extends DorisInputStream {
      * @param length The total length of the object, or -1 if unknown
      */
     public S3InputStream(ParsedPath path, S3Client client, GetObjectRequest request, long length) {
-        this.filePath = requireNonNull(path, "path is null");
-        this.s3Client = requireNonNull(client, "client is null");
-        this.baseRequest = requireNonNull(request, "request is null");
+        this.filePath = Objects.requireNonNull(path, "path is null");
+        this.s3Client = Objects.requireNonNull(client, "client is null");
+        this.baseRequest = Objects.requireNonNull(request, "request is null");
         this.objectLength = length;
     }
 
@@ -213,7 +212,7 @@ public class S3InputStream extends DorisInputStream {
 
         if (!forceReset && (inputStream != null) && (nextReadPosition > currentPosition)) {
             long skipDistance = nextReadPosition - currentPosition;
-            if (skipDistance <= max(getAvailableBytes(), MAX_SKIP_BYTES)) {
+            if (skipDistance <= Math.max(getAvailableBytes(), MAX_SKIP_BYTES)) {
                 if (skipStreamBytes(skipDistance) == skipDistance) {
                     currentPosition = nextReadPosition;
                     return;
@@ -256,7 +255,7 @@ public class S3InputStream extends DorisInputStream {
 
         try (var stream = inputStream) {
             if (objectLength != -1 && objectLength - currentPosition <= DEFAULT_TCP_BUFFER_SIZE) {
-                drainInputStream(stream);
+                IoUtils.drainInputStream(stream);
             } else {
                 stream.abort();
                 stream.release();

@@ -20,12 +20,6 @@ package org.apache.doris.fs.io.s3;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.S3URI;
 
-import static java.lang.Math.max;
-import static java.lang.Math.min;
-import static java.lang.System.arraycopy;
-import static java.net.HttpURLConnection.HTTP_PRECON_FAILED;
-import static java.util.concurrent.CompletableFuture.supplyAsync;
-
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -41,6 +35,7 @@ import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.nio.ByteBuffer;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
@@ -48,6 +43,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
@@ -61,40 +57,40 @@ import java.util.concurrent.Future;
 public class S3OutputStream extends OutputStream {
     // List to track completed parts for multi-part upload
     private final List<CompletedPart> completedParts = new ArrayList<>();
-    
+
     // Executor for handling asynchronous upload operations
     private final Executor uploadExecutor;
-    
+
     // S3 client for interacting with Amazon S3
     private final S3Client s3Client;
-    
+
     // URI containing bucket and key information for the S3 object
     private final S3URI s3Uri;
-    
+
     // Size of each part for multi-part upload (5MB)
     private final int partSize;
 
     // Current part number for multi-part upload
     private int currentPartNum;
-    
+
     // Buffer for storing data before upload
     private byte[] dataBuffer = new byte[0];
-    
+
     // Current size of data in buffer
     private int bufferLength;
-    
+
     // Initial size of the buffer
     private int initialBufferLength = 64;
 
     // Flag indicating if the stream is closed
     private boolean isClosed;
-    
+
     // Flag indicating if an upload operation has failed
     private boolean hasFailed;
-    
+
     // Flag indicating if multi-part upload has been initiated
     private boolean isMultipartStarted;
-    
+
     // Future representing the current upload operation
     private Future<CompletedPart> currentUploadFuture;
 
@@ -149,8 +145,8 @@ public class S3OutputStream extends OutputStream {
         while (length > 0) {
             ensureBufferCapacity(length);
 
-            int bytesToCopy = min(dataBuffer.length - bufferLength, length);
-            arraycopy(data, offset, dataBuffer, bufferLength, bytesToCopy);
+            int bytesToCopy = Math.min(dataBuffer.length - bufferLength, length);
+            System.arraycopy(data, offset, dataBuffer, bufferLength, bytesToCopy);
             bufferLength += bytesToCopy;
 
             flushBufferIfNeeded(false);
@@ -218,9 +214,9 @@ public class S3OutputStream extends OutputStream {
      * @param additionalBytes number of additional bytes needed
      */
     private void ensureBufferCapacity(int additionalBytes) {
-        int requiredCapacity = min(partSize, bufferLength + additionalBytes);
+        int requiredCapacity = Math.min(partSize, bufferLength + additionalBytes);
         if (dataBuffer.length < requiredCapacity) {
-            int newCapacity = max(dataBuffer.length, initialBufferLength);
+            int newCapacity = Math.max(dataBuffer.length, initialBufferLength);
             if (newCapacity < requiredCapacity) {
                 newCapacity += newCapacity / 2;
                 newCapacity = (int) IOUtils.clamp(newCapacity, requiredCapacity, partSize);
@@ -268,7 +264,7 @@ public class S3OutputStream extends OutputStream {
             s3Client.putObject(request, RequestBody.fromByteBuffer(byteBuffer));
         } catch (S3Exception e) {
             hasFailed = true;
-            if (e.statusCode() == HTTP_PRECON_FAILED) {
+            if (e.statusCode() == HttpURLConnection.HTTP_PRECON_FAILED) {
                 throw new FileAlreadyExistsException(s3Uri.toString());
             }
             throw new IOException(String.format("Failed to upload to bucket [%s] key [%s]: %s",
@@ -298,7 +294,7 @@ public class S3OutputStream extends OutputStream {
         bufferLength = 0;
         isMultipartStarted = true;
 
-        currentUploadFuture = supplyAsync(() -> uploadPartToS3(partData, partLength), uploadExecutor);
+        currentUploadFuture = CompletableFuture.supplyAsync(() -> uploadPartToS3(partData, partLength), uploadExecutor);
     }
 
     /**
@@ -328,7 +324,7 @@ public class S3OutputStream extends OutputStream {
 
         ByteBuffer byteBuffer = ByteBuffer.wrap(data, 0, length);
         UploadPartResponse response = s3Client.uploadPart(request, RequestBody.fromByteBuffer(byteBuffer));
-        
+
         CompletedPart completedPart = CompletedPart.builder()
                 .partNumber(currentPartNum)
                 .eTag(response.eTag())
@@ -393,10 +389,10 @@ public class S3OutputStream extends OutputStream {
      */
     private void abortMultipartUpload() {
         uploadId.map(id -> AbortMultipartUploadRequest.builder()
-                .bucket(s3Uri.getBucket())
-                .key(s3Uri.getKey())
-                .uploadId(id)
-                .build())
+                        .bucket(s3Uri.getBucket())
+                        .key(s3Uri.getKey())
+                        .uploadId(id)
+                        .build())
                 .ifPresent(s3Client::abortMultipartUpload);
     }
 
