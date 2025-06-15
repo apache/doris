@@ -961,15 +961,6 @@ nonterminal String keyword, ident, ident_or_text, variable_name,
         time_unit, literal_or_ident;
 nonterminal PassVar text_or_password;
 
-// sync job
-nonterminal List<ChannelDescription> channel_desc_list;
-nonterminal ChannelDescription channel_desc;
-nonterminal BinlogDesc binlog_desc;
-nonterminal ResumeSyncJobStmt resume_sync_job_stmt;
-nonterminal PauseSyncJobStmt pause_sync_job_stmt;
-nonterminal StopSyncJobStmt stop_sync_job_stmt;
-nonterminal JobName job_name;
-
 // analyze
 nonterminal Map<String, String> with_analysis_properties;
 nonterminal List<Map<String, String>> opt_with_analysis_properties;
@@ -1201,12 +1192,6 @@ stmt ::=
     | pause_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | resume_routine_load_stmt : stmt
-    {: RESULT = stmt; :}
-    | pause_sync_job_stmt : stmt
-    {: RESULT = stmt; :}
-    | resume_sync_job_stmt : stmt
-    {: RESULT = stmt; :}
-    | stop_sync_job_stmt : stmt
     {: RESULT = stmt; :}
     | stop_routine_load_stmt : stmt
     {: RESULT = stmt; :}
@@ -2041,11 +2026,6 @@ create_stmt ::=
     {:
         RESULT = new CreateEncryptKeyStmt(ifNotExists, keyName, keyString);
     :}
-    /* sync job */
-    | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
-    {:
-        RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
-    :}
     /* sql_block_rule */
     | KW_CREATE KW_SQL_BLOCK_RULE opt_if_not_exists:ifNotExists ident:ruleName opt_properties:properties
     {:
@@ -2059,64 +2039,6 @@ create_stmt ::=
     | KW_CREATE KW_STAGE opt_if_not_exists:ifNotExists ident:stageName KW_PROPERTIES opt_key_value_map:properties
     {:
         RESULT = new CreateStageStmt(ifNotExists, stageName, properties);
-    :}
-    ;
-
-channel_desc_list ::=
-    channel_desc:desc
-    {:
-        RESULT = Lists.newArrayList(desc);
-    :}
-    | channel_desc_list:list COMMA channel_desc:desc
-    {:
-        list.add(desc);
-        RESULT = list;
-    :}
-    ;
-
-channel_desc ::=
-    KW_FROM ident:srcDatabase DOT ident:srcTableName KW_INTO ident:desTableName opt_partition_names:partitionNames opt_col_list:colList
-    {:
-        RESULT = new ChannelDescription(srcDatabase, srcTableName, desTableName, partitionNames, colList);
-    :}
-    ;
-
-binlog_desc ::=
-    KW_FROM KW_BINLOG LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new BinlogDesc(properties);
-    :}
-;
-
-resume_sync_job_stmt ::=
-    KW_RESUME KW_SYNC KW_JOB job_name:jobName
-    {:
-        RESULT = new ResumeSyncJobStmt(jobName);
-    :}
-    ;
-
-pause_sync_job_stmt ::=
-    KW_PAUSE KW_SYNC KW_JOB job_name:jobName
-    {:
-        RESULT = new PauseSyncJobStmt(jobName);
-    :}
-    ;
-
-stop_sync_job_stmt ::=
-    KW_STOP KW_SYNC KW_JOB job_name:jobName
-    {:
-        RESULT = new StopSyncJobStmt(jobName);
-    :}
-    ;
-
-job_name ::=
-    ident:jobName
-    {:
-        RESULT = new JobName("", jobName);
-    :}
-    | ident:db DOT ident:jobName
-    {:
-        RESULT = new JobName(db, jobName);
     :}
     ;
 
@@ -4591,11 +4513,6 @@ show_param ::=
     | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowEncryptKeysStmt(dbName, parser.wild);
-    :}
-    /* Show Sync Job */
-    | KW_SYNC KW_JOB opt_db:dbName
-    {:
-        RESULT = new ShowSyncJobStmt(dbName);
     :}
     /* show table stats */
     | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
