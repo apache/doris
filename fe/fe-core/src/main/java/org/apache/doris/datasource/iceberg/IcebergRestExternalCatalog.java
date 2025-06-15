@@ -34,7 +34,7 @@ import java.util.Map;
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     public IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-                                      String comment) {
+            String comment) {
         super(catalogId, name, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
@@ -67,7 +67,6 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     private Map<String, String> convertToRestCatalogProperties() {
-
         Map<String, String> props = catalogProperty.getProperties();
         Map<String, String> restProperties = new HashMap<>(props);
         restProperties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_REST);

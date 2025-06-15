@@ -127,12 +127,10 @@ public class IcebergMetadataCache {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
         try {
-            return ((ExternalCatalog) key.catalog).getPreExecutionAuthenticator().execute(()
-                    -> ops.loadTable(key.dbName, key.tableName));
+            return ops.loadTable(key.dbName, key.tableName);
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
-
     }
 
     @NotNull
@@ -146,7 +144,7 @@ public class IcebergMetadataCache {
             icebergPartitionInfo = IcebergPartitionInfo.empty();
         } else {
             icebergPartitionInfo = IcebergUtils.loadPartitionInfo(
-                (ExternalCatalog) key.catalog, key.dbName, key.tableName, lastedIcebergSnapshot.getSnapshotId());
+                    (ExternalCatalog) key.catalog, key.dbName, key.tableName, lastedIcebergSnapshot.getSnapshotId());
         }
         return new IcebergSnapshotCacheValue(icebergPartitionInfo, lastedIcebergSnapshot);
     }
@@ -187,7 +185,7 @@ public class IcebergMetadataCache {
 
         snapshotCache.asMap().keySet().stream()
                 .filter(key -> key.catalog.getId() == catalogId && key.dbName.equals(dbName) && key.tableName.equals(
-                    tblName))
+                        tblName))
                 .forEach(snapshotCache::invalidate);
     }
 

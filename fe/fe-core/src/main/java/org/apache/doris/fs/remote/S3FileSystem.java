@@ -19,10 +19,14 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.io.DorisInputFile;
+import org.apache.doris.fs.io.DorisOutputFile;
+import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -33,11 +37,14 @@ import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 
 public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
     private final AbstractS3CompatibleProperties s3Properties;
+    private static final ExecutorService UPLOAD_EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPool(
+            Integer.MAX_VALUE, "s3-upload-pool", false);
 
     public S3FileSystem(AbstractS3CompatibleProperties s3Properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3,
@@ -107,5 +114,15 @@ public class S3FileSystem extends ObjFileSystem {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+    @Override
+    public DorisOutputFile newOutputFile(ParsedPath path) {
+        return objStorage.newOutputFile(path.toS3URI(), UPLOAD_EXECUTOR);
+    }
+
+    @Override
+    public DorisInputFile newInputFile(ParsedPath path, long length) {
+        return objStorage.newInputFile(path.toS3URI(), length, -1);
     }
 }
