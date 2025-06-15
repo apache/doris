@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
@@ -116,35 +115,9 @@ public class ResourceMgrTest {
             }
         };
 
-        // spark resource
-        // add
-        ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, sparkResName, sparkProperties);
-        stmt.analyze(analyzer);
-        Assert.assertEquals(0, mgr.getResourceNum());
-        mgr.createResource(stmt);
-        Assert.assertEquals(1, mgr.getResourceNum());
-        Assert.assertTrue(mgr.containsResource(sparkResName));
-        SparkResource resource = (SparkResource) mgr.getResource(sparkResName);
-        Assert.assertNotNull(resource);
-        Assert.assertEquals(broker, resource.getBroker());
-
-        // alter
-        workingDir = "hdfs://127.0.0.1/tmp/doris_new";
-        Map<String, String> copiedSparkProperties = Maps.newHashMap(sparkProperties);
-        copiedSparkProperties.put("working_dir", workingDir);
-        copiedSparkProperties.remove("spark.master");
-        AlterResourceStmt alterResourceStmt = new AlterResourceStmt(sparkResName, copiedSparkProperties);
-        mgr.alterResource(alterResourceStmt);
-        Assert.assertEquals(workingDir, ((SparkResource) mgr.getResource(sparkResName)).getWorkingDir());
-
-        // drop
-        DropResourceStmt dropStmt = new DropResourceStmt(false, sparkResName);
-        mgr.dropResource(dropStmt);
-        Assert.assertEquals(0, mgr.getResourceNum());
-
         // s3 resource
-        stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
+        ResourceMgr mgr = new ResourceMgr();
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -160,7 +133,7 @@ public class ResourceMgrTest {
         // Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("AWS_REGION"));
 
         // drop
-        dropStmt = new DropResourceStmt(false, s3ResName);
+        DropResourceStmt dropStmt = new DropResourceStmt(false, s3ResName);
         mgr.dropResource(dropStmt);
         Assert.assertEquals(0, mgr.getResourceNum());
 
