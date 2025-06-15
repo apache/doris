@@ -20,12 +20,16 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
+import com.google.common.collect.ImmutableSet;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
 import java.net.URI;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * todo
@@ -45,6 +49,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     protected String secretKey = "";
 
     @ConnectorProperty(names = {"oss.region"},
+            required = false,
             description = "The region of OSS.")
     protected String region;
 
@@ -61,11 +66,23 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     private Map<String, String> backendConfigProperties;
 
+    private static final Pattern ENDPOINT_PATTERN = Pattern
+            .compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com");
+
+    private static final String ENABLE_KEY = "oss.hdfs.enabled";
+
+    private static final Set<String> supportSchema = ImmutableSet.of("oss");
+
     protected OSSHdfsProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
     }
 
     public static boolean guessIsMe(Map<String, String> props) {
+        boolean enable = props.entrySet().stream()
+                .anyMatch(e -> e.getKey().equalsIgnoreCase(ENABLE_KEY) && Boolean.parseBoolean(e.getValue()));
+        if (enable) {
+            return true;
+        }
         String endpoint = props.get(OSS_ENDPOINT_KEY_NAME);
         if (StringUtils.isBlank(endpoint)) {
             return false;
@@ -82,10 +99,27 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
+    Set<String> getSupportedSchemas() {
+        return supportSchema;
+    }
+
+    @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase());
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException("The endpoint is not a valid OSS HDFS endpoint: " + endpoint
+                    + ". It should match the pattern: <region>.oss-dls.aliyuncs.com");
+        }
+        // Extract region from the endpoint, e.g., "cn-shanghai.oss-dls.aliyuncs.com" -> "cn-shanghai"
+        if (StringUtils.isBlank(this.region)) {
+            this.region = matcher.group(1);
+            if (StringUtils.isBlank(this.region)) {
+                throw new IllegalArgumentException("The region extracted from the endpoint is empty. "
+                        + "Please check the endpoint format: {} or set oss.region" + endpoint);
+            }
+        }
         initConfigurationParams();
-
     }
 
     private static final String OSS_HDFS_ENDPOINT_SUFFIX = ".oss-dls.aliyuncs.com";
@@ -113,6 +147,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
         config.put("fs.oss.region", region);
         config.put("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
         config.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.JindoOSS");
+        if (StringUtils.isNotBlank(fsDefaultFS)) {
+            config.put(HDFS_DEFAULT_FS_NAME, fsDefaultFS);
+        }
         config.forEach(conf::set);
         this.backendConfigProperties = config;
         this.configuration = conf;
