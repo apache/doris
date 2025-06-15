@@ -53,7 +53,6 @@ import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
@@ -111,7 +110,6 @@ import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
-import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
@@ -330,17 +328,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_LOAD_START:
-            case OperationType.OP_LOAD_ETL:
-            case OperationType.OP_LOAD_LOADING:
-            case OperationType.OP_LOAD_QUORUM:
-            case OperationType.OP_LOAD_DONE:
-            case OperationType.OP_LOAD_CANCEL: {
-                data = new LoadJob();
-                ((LoadJob) data).readFields(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_EXPORT_CREATE:
                 data = ExportJob.read(in);
                 isRead = true;
@@ -357,11 +344,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_UPDATE_REPLICA:
             case OperationType.OP_DELETE_REPLICA:
-            case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                data = ReplicaPersistInfo.read(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
             case OperationType.OP_MODIFY_BACKEND:

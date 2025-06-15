@@ -19,7 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.CountingDataOutputStream;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.meta.MetaHeader;
 
@@ -130,7 +130,7 @@ public class EnvTest {
         MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = env.getClass().getDeclaredField("load");
         field.setAccessible(true);
-        field.set(env, new Load());
+        field.set(env, new LoadExprTransformUtils());
 
         long checksum1 = env.saveHeader(dos, new Random().nextLong(), 0);
         env.clear();
