@@ -40,13 +40,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class ResourceMgrTest {
-    // spark resource
-    private String master;
-    private String sparkResName;
-    private String sparkRestype;
-    private String workingDir;
-    private String broker;
-    private Map<String, String> sparkProperties;
     // s3 resource
     private String s3ResName;
     private String s3ResType;
@@ -63,18 +56,6 @@ public class ResourceMgrTest {
 
     @Before
     public void setUp() {
-        sparkResName = "spark0";
-        sparkRestype = "spark";
-        master = "spark://127.0.0.1:7077";
-        workingDir = "hdfs://127.0.0.1/tmp/doris";
-        broker = "broker0";
-        sparkProperties = Maps.newHashMap();
-        sparkProperties.put("type", sparkRestype);
-        sparkProperties.put("spark.master", master);
-        sparkProperties.put("spark.submit.deployMode", "cluster");
-        sparkProperties.put("working_dir", workingDir);
-        sparkProperties.put("broker", broker);
-
         s3ResName = "s30";
         s3ResType = "s3";
         s3Endpoint = "aaa";
@@ -102,10 +83,6 @@ public class ResourceMgrTest {
             @Mocked Env env, @Injectable AccessControllerManager accessManager) throws UserException {
         new Expectations() {
             {
-                env.getBrokerMgr();
-                result = brokerMgr;
-                brokerMgr.containsBroker(broker);
-                result = true;
                 env.getEditLog();
                 result = editLog;
                 env.getAccessManager();
@@ -145,10 +122,6 @@ public class ResourceMgrTest {
             throws UserException {
         new Expectations() {
             {
-                env.getBrokerMgr();
-                result = brokerMgr;
-                brokerMgr.containsBroker(broker);
-                result = true;
                 env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
@@ -158,7 +131,7 @@ public class ResourceMgrTest {
 
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, sparkResName, sparkProperties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, s3ResName, s3Properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -173,7 +146,7 @@ public class ResourceMgrTest {
         // drop
         ResourceMgr mgr = new ResourceMgr();
         Assert.assertEquals(0, mgr.getResourceNum());
-        DropResourceStmt stmt = new DropResourceStmt(false, sparkResName);
+        DropResourceStmt stmt = new DropResourceStmt(false, s3ResName);
         mgr.dropResource(stmt);
     }
 }

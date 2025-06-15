@@ -27,7 +27,6 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.task.LoadTaskInfo;
@@ -102,12 +101,6 @@ public class LoadStmtTest {
                 desc.analyzeFullDbName("testDb", (Analyzer) any);
                 minTimes = 0;
                 result = "testDb";
-                env.getResourceMgr();
-                result = resourceMgr;
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkResourcePriv((ConnectContext) any, anyString, PrivPredicate.USAGE);
-                result = true;
             }
         };
 
