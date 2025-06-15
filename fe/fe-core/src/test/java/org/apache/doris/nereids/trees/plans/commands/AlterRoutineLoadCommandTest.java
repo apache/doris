@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -77,13 +76,6 @@ public class AlterRoutineLoadCommandTest {
     @Test
     public void testValidateNormal() throws MetaNotFoundException, IOException {
         runBefore();
-//        new Expectations() {
-//            {
-//                Env.getCurrentEnv().getRoutineLoadManager().getJob("db1", anyString);
-//                minTimes = 0;
-//                result = new KafkaRoutineLoadJob();
-//            }
-//        };
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "100");
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, "200000");
