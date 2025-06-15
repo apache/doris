@@ -139,6 +139,7 @@ if ! OPTS="$(getopt \
     -l 'file-cache-microbench' \
     -l 'index-tool' \
     -l 'benchmark' \
+    -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
     -l 'be-extension-ignore:' \
@@ -223,6 +224,10 @@ else
         --benchmark)
             BUILD_BENCHMARK='ON'
             BUILD_BE=1 # go into BE cmake building, but benchmark instead of doris_be
+            shift
+            ;;
+        --spark-dpp)
+            BUILD_SPARK_DPP=1
             shift
             ;;
         --hive-udf)
