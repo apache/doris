@@ -52,9 +52,9 @@ Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _evaluate_input_timer = ADD_TIMER(profile(), "EvaluateInputDataTime");
-    _get_repeat_data_timer = ADD_TIMER(profile(), "GetRepeatDataTime");
-    _filter_timer = ADD_TIMER(profile(), "FilterTime");
+    _evaluate_input_timer = ADD_TIMER(custom_profile(), "EvaluateInputDataTime");
+    _get_repeat_data_timer = ADD_TIMER(custom_profile(), "GetRepeatDataTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     return Status::OK();
 }
 
