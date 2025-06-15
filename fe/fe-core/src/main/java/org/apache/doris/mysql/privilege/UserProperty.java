@@ -77,9 +77,7 @@ public class UserProperty implements Writable {
     public static final String PROP_USER_INSERT_TIMEOUT = "insert_timeout";
     // advanced properties end
 
-    public static final String PROP_LOAD_CLUSTER = "load_cluster";
     public static final String PROP_QUOTA = "quota";
-    public static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
 
     public static final String PROP_DEFAULT_INIT_CATALOG = "default_init_catalog";
     public static final String PROP_WORKLOAD_GROUP = "default_workload_group";
@@ -130,7 +128,6 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
-        COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_INIT_CATALOG + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));

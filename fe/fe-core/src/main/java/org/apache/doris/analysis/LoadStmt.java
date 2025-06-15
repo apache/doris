@@ -500,7 +500,7 @@ public class LoadStmt extends DdlStmt implements NotFallbackInParser {
         } else if (isMysqlLoad) {
             etlJobType = EtlJobType.LOCAL_FILE;
         } else {
-            throw new AnalysisException("Unknown load job type");
+            etlJobType = EtlJobType.UNKNOWN;
         }
 
         try {
