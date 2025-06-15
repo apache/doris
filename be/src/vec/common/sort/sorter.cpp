@@ -152,7 +152,7 @@ Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized:
     return get_next(state, block, eos);
 }
 
-Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
+Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) {
     size_t num_cols = src_block.columns();
     if (_materialize_sort_exprs) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
@@ -189,18 +189,18 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
         _sort_description[i].nulls_direction =
                 _nulls_first[i] ? -_sort_description[i].direction : _sort_description[i].direction;
+        if (reversed) {
+            _sort_description[i].direction *= -1;
+        }
     }
 
     {
         SCOPED_TIMER(_partial_sort_timer);
-        if (_materialize_sort_exprs) {
-            sort_block(dest_block, dest_block, _sort_description, _offset + _limit);
-        } else {
-            sort_block(src_block, dest_block, _sort_description, _offset + _limit);
-        }
-        src_block.clear_column_data(num_cols);
+        uint64_t limit = reversed ? 0 : (_offset + _limit);
+        sort_block(*result_block, dest_block, _sort_description, limit);
     }
 
+    src_block.clear_column_data(num_cols);
     return Status::OK();
 }
 
@@ -209,7 +209,7 @@ FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t 
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
+          _state(MergeSorterState::create_unique(row_desc, offset)) {}
 
 // check whether the unsorted block can hold more data from input block and no need to alloc new memory
 bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
