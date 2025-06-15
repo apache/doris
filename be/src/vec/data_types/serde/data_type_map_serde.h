@@ -100,6 +100,13 @@ public:
         return {key_serde, value_serde};
     }
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override {
+        return Status::NotSupported("Method write_column_to_jsonb not implemented for type {}",
+                                    column.get_name());
+    }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
