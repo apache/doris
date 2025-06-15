@@ -752,10 +752,13 @@ public class StructInfo {
         queryPlanWithUnionFilter = new LogicalPlanDeepCopier().deepCopy(
                 (LogicalPlan) queryPlanWithUnionFilter, new DeepCopierContext());
         // rbo rewrite after adding filter on origin plan
-        return Pair.of(MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
+        Plan filterAddedPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, context -> {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
-        }, queryPlanWithUnionFilter, queryPlan), true);
+        }, queryPlanWithUnionFilter, queryPlan);
+        // need to collect table partition again
+        MaterializedViewUtils.collectTableUsedPartitions(filterAddedPlan, parentCascadesContext);
+        return Pair.of(filterAddedPlan, true);
     }
 
     /**

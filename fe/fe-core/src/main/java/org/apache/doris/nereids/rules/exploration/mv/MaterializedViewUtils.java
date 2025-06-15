@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.QueryPartitionCollector;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -299,6 +300,16 @@ public class MaterializedViewUtils {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
+    }
+
+    /**
+     * Collect table used partitions, this is used for mv rewrite partition union
+     * can not cumulative, if called multi times, should clean firstly
+     */
+    public static void collectTableUsedPartitions(Plan plan, CascadesContext cascadesContext) {
+        // clean firstly and collect table partition
+        cascadesContext.getStatementContext().getTableUsedPartitionNameMap().clear();
+        plan.accept(new QueryPartitionCollector(), cascadesContext);
     }
 
     /**
