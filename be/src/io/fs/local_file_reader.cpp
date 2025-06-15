@@ -64,6 +64,7 @@ void BeConfDataDirReader::get_data_dir_by_file_path(io::Path* file_path,
 void BeConfDataDirReader::init_be_conf_data_dir(
         const std::vector<doris::StorePath>& store_paths,
         const std::vector<doris::StorePath>& spill_store_paths,
+        const std::vector<doris::StorePath>& materialized_schema_table_paths,
         const std::vector<doris::CachePath>& cache_paths) {
     for (int i = 0; i < store_paths.size(); i++) {
         DataDirInfo data_dir_info;
@@ -80,6 +81,15 @@ void BeConfDataDirReader::init_be_conf_data_dir(
         data_dir_info.storage_medium = spill_store_paths[i].storage_medium;
         data_dir_info.data_dir_type = doris::DataDirType::SPILL_DISK_DIR;
         data_dir_info.metric_name = "spill_data_dir_" + std::to_string(i);
+        be_config_data_dir_list.push_back(data_dir_info);
+    }
+
+    for (int i = 0; i < materialized_schema_table_paths.size(); i++) {
+        doris::DataDirInfo data_dir_info;
+        data_dir_info.path = materialized_schema_table_paths[i].path;
+        data_dir_info.storage_medium = materialized_schema_table_paths[i].storage_medium;
+        data_dir_info.data_dir_type = doris::DataDirType::MATERIALIZED_SCHEMA_TABLE_DIR;
+        data_dir_info.metric_name = "materialized_schema_table_data_dir_" + std::to_string(i);
         be_config_data_dir_list.push_back(data_dir_info);
     }
 

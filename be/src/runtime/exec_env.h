@@ -122,6 +122,7 @@ class HeapProfiler;
 class WalManager;
 class DNSCache;
 struct SyncRowsetStats;
+class MaterializedSchemaTableMgr;
 
 inline bool k_doris_exit = false;
 
@@ -140,6 +141,7 @@ public:
     // Initial exec environment. must call this to init all
     [[nodiscard]] static Status init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                                      const std::vector<StorePath>& spill_store_paths,
+                                     const std::vector<StorePath>& materialized_schema_table_paths,
                                      const std::set<std::string>& broken_paths);
 
     // Stop all threads and delete resources.
@@ -256,6 +258,9 @@ public:
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
+    doris::MaterializedSchemaTableMgr* materialized_schema_table_mgr() {
+        return _materialized_schema_table_mgr;
+    }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
@@ -370,6 +375,7 @@ private:
 
     [[nodiscard]] Status _init(const std::vector<StorePath>& store_paths,
                                const std::vector<StorePath>& spill_store_paths,
+                               const std::vector<StorePath>& materialized_schema_table_paths,
                                const std::set<std::string>& broken_paths);
     void _destroy();
 
@@ -503,6 +509,7 @@ private:
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
     doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+    doris::MaterializedSchemaTableMgr* _materialized_schema_table_mgr = nullptr;
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;

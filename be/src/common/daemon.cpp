@@ -42,6 +42,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "exec/schema_scanner/materialized_schema_table_mgr.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -581,6 +582,24 @@ void Daemon::calculate_workload_group_metrics_thread() {
     }
 }
 
+void Daemon::materialized_backend_active_tasks_thread() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(config::materialized_backend_active_tasks_interval_ms))) {
+        std::unique_ptr<vectorized::Block> block = nullptr;
+        ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_active_be_tasks_block(
+                block.get());
+        auto st = ExecEnv::GetInstance()->materialized_schema_table_mgr()->put_block(
+                TSchemaTableType::SCH_BACKEND_ACTIVE_TASKS_HISTORY, block.get());
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to put block to SCH_BACKEND_ACTIVE_TASKS_HISTORY, status: "
+                         << st.to_string();
+            if (st.code() == ErrorCode::INVALID_ARGUMENT) {
+                break;
+            }
+        }
+    }
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -617,6 +636,11 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "query_runtime_statistics_thread",
             [this]() { this->report_runtime_query_statistics_thread(); }, &_threads.emplace_back());
+    CHECK(st.ok()) << st;
+    st = Thread::create(
+            "Daemon", "materialized_backend_active_tasks",
+            [this]() { this->materialized_backend_active_tasks_thread(); },
+            &_threads.emplace_back());
     CHECK(st.ok()) << st;
 
     if (config::enable_be_proc_monitor) {
