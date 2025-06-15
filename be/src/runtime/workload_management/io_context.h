@@ -49,11 +49,17 @@ public:
         RuntimeProfile::Counter* spill_write_bytes_to_local_storage_counter_;
         RuntimeProfile::Counter* spill_read_bytes_from_local_storage_counter_;
 
+        // for insert/streamload/etc
+        RuntimeProfile::Counter* load_rows_counter_;
+        RuntimeProfile::Counter* load_bytes_counter_;
+
         RuntimeProfile* profile() { return profile_.get(); }
         void init_profile() {
             profile_ = std::make_unique<RuntimeProfile>("MemoryContext");
             scan_rows_counter_ = ADD_COUNTER(profile_, "ScanRows", TUnit::UNIT);
             scan_bytes_counter_ = ADD_COUNTER(profile_, "ScanBytes", TUnit::BYTES);
+            load_rows_counter_ = ADD_COUNTER(profile_, "LoadRows", TUnit::UNIT);
+            load_bytes_counter_ = ADD_COUNTER(profile_, "LoadBytes", TUnit::BYTES);
             scan_bytes_from_local_storage_counter_ =
                     ADD_COUNTER(profile_, "ScanBytesFromLocalStorage", TUnit::BYTES);
             scan_bytes_from_remote_storage_counter_ =
@@ -98,6 +104,9 @@ public:
         return stats_.spill_read_bytes_from_local_storage_counter_->value();
     }
 
+    int64_t load_rows() const { return stats_.load_rows_counter_->value(); }
+    int64_t load_bytes() const { return stats_.load_bytes_counter_->value(); }
+
     void update_scan_rows(int64_t delta) const { stats_.scan_rows_counter_->update(delta); }
     void update_scan_bytes(int64_t delta) const { stats_.scan_bytes_counter_->update(delta); }
     void update_scan_bytes_from_local_storage(int64_t delta) const {
@@ -121,6 +130,9 @@ public:
     void update_spill_read_bytes_from_local_storage(int64_t delta) const {
         stats_.spill_read_bytes_from_local_storage_counter_->update(delta);
     }
+
+    void update_load_rows(int64_t delta) const { stats_.load_rows_counter_->update(delta); }
+    void update_load_bytes(int64_t delta) const { stats_.load_bytes_counter_->update(delta); }
 
     IOThrottle* io_throttle() {
         // TODO: get io throttle from workload group
