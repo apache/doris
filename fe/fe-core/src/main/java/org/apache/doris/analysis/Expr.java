@@ -944,9 +944,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toSqlWithoutTbl() {
+        boolean originalTag = disableTableName;
         setDisableTableName(true);
         String result = toSql();
-        setDisableTableName(false);
+        setDisableTableName(originalTag);
         return result;
     }
 
