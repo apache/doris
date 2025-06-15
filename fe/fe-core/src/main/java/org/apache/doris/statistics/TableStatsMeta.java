@@ -180,17 +180,24 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
                 rowCount = analyzedJob.rowCount;
+                OlapTable olapTable = (OlapTable) tableIf;
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
-                clearStaleIndexRowCount((OlapTable) tableIf);
+                clearStaleIndexRowCount(olapTable);
+                if (analyzedJob.jobColumns.containsAll(
+                        olapTable.getColumnIndexPairs(olapTable.getSchemaAllIndexes(false)
+                                        .stream()
+                                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                        .map(Column::getName).collect(Collectors.toSet()))
+                                .stream()
+                                .filter(c -> StatisticsUtil.canCollectColumn(olapTable.getIndexMetaByIndexId(
+                                        olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                                        olapTable, true, olapTable.getIndexIdByName(c.first)))
+                                .collect(Collectors.toSet()))) {
+                    updatedRows.set(0);
+                    newPartitionLoaded.set(false);
+                }
             }
-            if (analyzedJob.jobColumns.containsAll(
-                    tableIf.getColumnIndexPairs(
-                    tableIf.getSchemaAllIndexes(false).stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .map(Column::getName).collect(Collectors.toSet())))) {
-                updatedRows.set(0);
-                newPartitionLoaded.set(false);
-            }
+            rowCount = analyzedJob.rowCount;
             // Set userInject back to false after manual analyze.
             if (JobType.MANUAL.equals(jobType) && !analyzedJob.userInject) {
                 userInjected = false;

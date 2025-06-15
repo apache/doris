@@ -161,6 +161,7 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    private boolean hintForcePreAggOn = false;
 
     // Map slot to its relation, currently used in SlotReference to find its original
     // Relation for example LogicalOlapScan
@@ -266,6 +267,14 @@ public class StatementContext implements Closeable {
 
     public void setNeedLockTables(boolean needLockTables) {
         this.needLockTables = needLockTables;
+    }
+
+    public void setHintForcePreAggOn(boolean preAggOn) {
+        this.hintForcePreAggOn = preAggOn;
+    }
+
+    public boolean isHintForcePreAggOn() {
+        return hintForcePreAggOn;
     }
 
     /**
