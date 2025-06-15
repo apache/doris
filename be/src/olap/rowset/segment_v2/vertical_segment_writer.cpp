@@ -64,7 +64,6 @@
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -168,6 +167,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
     }
+    meta->set_result_is_nullable(column.get_result_is_nullable());
+    meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -237,7 +239,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
     DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
     DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
     DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
     DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")

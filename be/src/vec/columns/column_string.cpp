@@ -24,15 +24,16 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 
+#include "runtime/primitive_type.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
+#include "util/simd/vstring_function.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -726,6 +727,28 @@ void ColumnStr<T>::erase(size_t start, size_t length) {
 }
 
 template <typename T>
+Field ColumnStr<T>::operator[](size_t n) const {
+    assert(n < size());
+    sanity_check_simple();
+    return Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
+void ColumnStr<T>::get(size_t n, Field& res) const {
+    assert(n < size());
+    sanity_check_simple();
+    if (res.get_type() == PrimitiveType::TYPE_JSONB) {
+        // Handle JsonbField
+        res = Field::create_field<TYPE_JSONB>(
+                JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+        return;
+    }
+    res = Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
 void ColumnStr<T>::insert(const Field& x) {
     StringRef s;
     if (x.get_type() == PrimitiveType::TYPE_JSONB) {
@@ -752,6 +775,11 @@ void ColumnStr<T>::insert(const Field& x) {
     memcpy(chars.data() + old_size, s.data, size_to_append);
     offsets.push_back(new_size);
     sanity_check_simple();
+}
+
+template <typename T>
+bool ColumnStr<T>::is_ascii() const {
+    return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
 }
 
 template class ColumnStr<uint32_t>;

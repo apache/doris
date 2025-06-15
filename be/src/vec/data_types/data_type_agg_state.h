@@ -55,7 +55,7 @@ public:
         // Nothing to do. For this constructor, we only need it to represent a basic primitive type.
     }
 
-    const char* get_family_name() const override { return "AggState"; }
+    const std::string get_family_name() const override { return "AggState"; }
 
     std::string do_get_name() const override {
         return fmt::format(
@@ -150,4 +150,10 @@ private:
     int _be_exec_version;
 };
 
+inline DataTypePtr get_serialized_type(const DataTypePtr& type) {
+    if (const auto* typed = typeid_cast<const DataTypeAggState*>(type.get()); typed) {
+        return typed->get_serialized_type();
+    }
+    return type;
+}
 } // namespace doris::vectorized

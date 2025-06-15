@@ -30,6 +30,7 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "keys.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
@@ -1165,7 +1166,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     // MUST check initiator to let the retried BE commit this schema_change job.
     if (schema_change.id() != recorded_schema_change.id() ||
-        schema_change.initiator() != recorded_schema_change.initiator()) {
+        (schema_change.initiator() != recorded_schema_change.initiator() &&
+         request->action() != FinishTabletJobRequest::ABORT)) {
+        // abort is from FE, so initiator differ from the original one, just skip this check
         SS << "unmatched job id or initiator, recorded_id=" << recorded_schema_change.id()
            << " given_id=" << schema_change.id()
            << " recorded_job=" << proto_to_json(recorded_schema_change)
@@ -1405,6 +1408,11 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         if (!success) {
             return;
         }
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        txn->remove(pending_key);
+        LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
+                  << " tablet_id=" << new_tablet_id << "job_id=" << schema_change.id();
     }
 
     for (size_t i = 0; i < schema_change.txn_ids().size(); ++i) {

@@ -31,7 +31,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -78,8 +77,8 @@ public:
             block.replace_by_position(result, std::move(res_column));
         } else {
             /// Since no element is nullable, return a constant one.
-            block.get_by_position(result).column =
-                    DataTypeUInt8().create_column_const(elem.column->size(), 1u);
+            block.get_by_position(result).column = DataTypeUInt8().create_column_const(
+                    elem.column->size(), Field::create_field<TYPE_BOOLEAN>(1));
         }
         return Status::OK();
     }

@@ -29,41 +29,39 @@
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
+namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionBaseData {
 public:
-    AggregateFunctionBaseData(T init_value) : res_bit(init_value) {}
+    AggregateFunctionBaseData(typename PrimitiveTypeTraits<T>::CppType init_value)
+            : res_bit(init_value) {}
     void write(BufferWritable& buf) const { write_binary(res_bit, buf); }
     void read(BufferReadable& buf) { read_binary(res_bit, buf); }
-    T get() const { return res_bit; }
+    typename PrimitiveTypeTraits<T>::CppType get() const { return res_bit; }
 
 protected:
-    T res_bit = {};
+    typename PrimitiveTypeTraits<T>::CppType res_bit = {};
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionGroupBitOrData : public AggregateFunctionBaseData<T> {
 public:
     static constexpr auto name = "group_bit_or";
     AggregateFunctionGroupBitOrData() : AggregateFunctionBaseData<T>(0) {}
 
-    void add(T value) { AggregateFunctionBaseData<T>::res_bit |= value; }
+    void add(typename PrimitiveTypeTraits<T>::CppType value) {
+        AggregateFunctionBaseData<T>::res_bit |= value;
+    }
 
     void merge(const AggregateFunctionGroupBitOrData<T>& rhs) {
         AggregateFunctionBaseData<T>::res_bit |= rhs.res_bit;
@@ -72,13 +70,15 @@ public:
     void reset() { AggregateFunctionBaseData<T>::res_bit = 0; }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionGroupBitAndData : public AggregateFunctionBaseData<T> {
 public:
     static constexpr auto name = "group_bit_and";
     AggregateFunctionGroupBitAndData() : AggregateFunctionBaseData<T>(-1) {}
 
-    void add(T value) { AggregateFunctionBaseData<T>::res_bit &= value; }
+    void add(typename PrimitiveTypeTraits<T>::CppType value) {
+        AggregateFunctionBaseData<T>::res_bit &= value;
+    }
 
     void merge(const AggregateFunctionGroupBitAndData<T>& rhs) {
         AggregateFunctionBaseData<T>::res_bit &= rhs.res_bit;
@@ -87,12 +87,14 @@ public:
     void reset() { AggregateFunctionBaseData<T>::res_bit = -1; }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionGroupBitXorData : public AggregateFunctionBaseData<T> {
     static constexpr auto name = "group_bit_xor";
     AggregateFunctionGroupBitXorData() : AggregateFunctionBaseData<T>(0) {}
 
-    void add(T value) { AggregateFunctionBaseData<T>::res_bit ^= value; }
+    void add(typename PrimitiveTypeTraits<T>::CppType value) {
+        AggregateFunctionBaseData<T>::res_bit ^= value;
+    }
 
     void merge(const AggregateFunctionGroupBitXorData& rhs) {
         AggregateFunctionBaseData<T>::res_bit ^= rhs.res_bit;
@@ -102,7 +104,7 @@ struct AggregateFunctionGroupBitXorData : public AggregateFunctionBaseData<T> {
 };
 
 /// Counts bitwise operation on numbers.
-template <typename T, typename Data>
+template <PrimitiveType T, typename Data>
 class AggregateFunctionBitwise final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
 public:
@@ -112,12 +114,14 @@ public:
 
     String get_name() const override { return Data::name; }
 
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeNumber<T>>(); }
+    DataTypePtr get_return_type() const override {
+        return std::make_shared<typename PrimitiveTypeTraits<T>::DataType>();
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column =
-                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& column = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                         TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(column.get_data()[row_num]);
     }
 
@@ -138,7 +142,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = assert_cast<ColumnVector<T>&>(to);
+        auto& column = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

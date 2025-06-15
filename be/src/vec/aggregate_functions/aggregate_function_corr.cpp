@@ -46,7 +46,7 @@ AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& n
     }
 
     return creator_without_type::create<
-            AggregateFunctionBinary<StatFunc<double, double, CorrMomentWelford>>>(
+            AggregateFunctionBinary<StatFunc<TYPE_DOUBLE, TYPE_DOUBLE, CorrMomentWelford>>>(
             argument_types, result_is_nullable);
 }
 

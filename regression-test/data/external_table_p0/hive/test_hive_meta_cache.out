@@ -121,3 +121,28 @@ k4	text	Yes	true	\N
 k5	text	Yes	true	\N	
 year	int	Yes	true	\N	
 
+-- !sql_3col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_4col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+k1	text	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_5col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+k1	text	Yes	true	\N	
+k2	text	Yes	true	\N	
+year	int	Yes	true	\N	
+
+-- !sql_5col --
+id	int	Yes	true	\N	
+amount	double	Yes	true	\N	
+k1	text	Yes	true	\N	
+k2	text	Yes	true	\N	
+year	int	Yes	true	\N	
+

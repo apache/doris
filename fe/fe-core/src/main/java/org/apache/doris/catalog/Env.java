@@ -204,15 +204,18 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -367,7 +370,7 @@ public class Env {
     private static final Logger LOG = LogManager.getLogger(Env.class);
     // 0 ~ 9999 used for qe
     public static final long NEXT_ID_INIT_VALUE = 10000;
-    private static final int HTTP_TIMEOUT_SECOND = 5;
+    private static final int HTTP_TIMEOUT_SECOND = Config.sync_image_timeout_second;
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
@@ -3516,10 +3519,6 @@ public class Env {
         return catalogIf.createTable(stmt);
     }
 
-    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
-        getInternalCatalog().createTableLike(stmt);
-    }
-
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
         getInternalCatalog().createTableAsSelect(stmt);
     }
@@ -4386,6 +4385,12 @@ public class Env {
         catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
     }
 
+    public void dropView(String catalogName, String dbName, String tableName, boolean ifExists) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.dropTable(dbName, tableName, true, false, ifExists, false);
+    }
+
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
                                       Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
@@ -4988,6 +4993,21 @@ public class Env {
 
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         this.alter.processDropMaterializedView(stmt);
+    }
+
+    /*
+     * used for handling CancelAlterCommand (for client is the CANCEL ALTER
+     * command). including SchemaChangeHandler and RollupHandler
+     */
+    public void cancelAlter(CancelAlterTableCommand command) throws DdlException {
+        if (command.getAlterType() == CancelAlterTableCommand.AlterType.ROLLUP
+                || command.getAlterType() == CancelAlterTableCommand.AlterType.MV) {
+            this.getMaterializedViewHandler().cancel(command);
+        } else if (command.getAlterType() == CancelAlterTableCommand.AlterType.COLUMN) {
+            this.getSchemaChangeHandler().cancel(command);
+        } else {
+            throw new DdlException("Cancel " + command.getAlterType() + " does not implement yet");
+        }
     }
 
     /*
@@ -6494,6 +6514,14 @@ public class Env {
         LOG.info("uninstall plugin = " + stmt.getPluginName());
     }
 
+    public void uninstallPlugin(UninstallPluginCommand cmd) throws IOException, UserException {
+        PluginInfo info = pluginMgr.uninstallPlugin(cmd.getPluginName());
+        if (null != info) {
+            editLog.logUninstallPlugin(info);
+        }
+        LOG.info("uninstall plugin = " + cmd.getPluginName());
+    }
+
     public void replayUninstallPlugin(PluginInfo pluginInfo) throws MetaNotFoundException {
         try {
             pluginMgr.uninstallPlugin(pluginInfo.getName());
@@ -6620,6 +6648,18 @@ public class Env {
         Long version = stmt.getVersion();
         Long lastSuccessVersion = stmt.getLastSuccessVersion();
         Long lastFailedVersion = stmt.getLastFailedVersion();
+        long updateTime = System.currentTimeMillis();
+        setReplicaVersionInternal(tabletId, backendId, version, lastSuccessVersion, lastFailedVersion,
+                updateTime, false);
+    }
+
+    // Set specified replica's version. If replica does not exist, just ignore it.
+    public void setReplicaVersion(AdminSetReplicaVersionCommand command) throws MetaNotFoundException {
+        long tabletId = command.getTabletId();
+        long backendId = command.getBackendId();
+        Long version = command.getVersion();
+        Long lastSuccessVersion = command.getLastSuccessVersion();
+        Long lastFailedVersion = command.getLastFailedVersion();
         long updateTime = System.currentTimeMillis();
         setReplicaVersionInternal(tabletId, backendId, version, lastSuccessVersion, lastFailedVersion,
                 updateTime, false);

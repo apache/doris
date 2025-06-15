@@ -332,8 +332,10 @@ public class LoadAction extends RestBaseController {
                 redirectAddr = selectRedirectBackend(request, groupCommit, tableId);
             }
 
-            LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
-                    redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+            if (LOG.isDebugEnabled()) {
+                LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
+                        redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+            }
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
@@ -435,7 +437,9 @@ public class LoadAction extends RestBaseController {
         int number = groupCommit ? -1 : 1;
         backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, number, computeGroup.getBackendList());
         if (backendIds.isEmpty()) {
-            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+            throw new LoadException(
+                    SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy + ", compute group is "
+                            + computeGroup.toString());
         }
         if (groupCommit) {
             backend = selectBackendForGroupCommit("", request, tableId);

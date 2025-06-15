@@ -402,28 +402,28 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
         Array a1, a2, a3, a4;
-        a1.push_back(Field("cute"));
-        a1.push_back(Null());
-        a2.push_back(Field("clever"));
-        a1.push_back(Field("hello"));
-        a3.push_back(1);
-        a3.push_back(2);
-        a4.push_back(11);
-        a4.push_back(22);
+        a1.push_back(Field::create_field<TYPE_STRING>("cute"));
+        a1.push_back(Field());
+        a2.push_back(Field::create_field<TYPE_STRING>("clever"));
+        a1.push_back(Field::create_field<TYPE_STRING>("hello"));
+        a3.push_back(Field::create_field<TYPE_INT>(1));
+        a3.push_back(Field::create_field<TYPE_INT>(2));
+        a4.push_back(Field::create_field<TYPE_INT>(11));
+        a4.push_back(Field::create_field<TYPE_INT>(22));
 
         Array k1, v1;
-        k1.push_back(a1);
-        k1.push_back(a2);
-        v1.push_back(a3);
-        v1.push_back(a4);
+        k1.push_back(Field::create_field<TYPE_ARRAY>(a1));
+        k1.push_back(Field::create_field<TYPE_ARRAY>(a2));
+        v1.push_back(Field::create_field<TYPE_ARRAY>(a3));
+        v1.push_back(Field::create_field<TYPE_ARRAY>(a4));
 
         Map m1;
-        m1.push_back(k1);
-        m1.push_back(v1);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
-        map_column->insert(m1);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
@@ -440,28 +440,28 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
         Tuple t1, t2, t3, t4;
-        t1.push_back(Field("clever"));
-        t1.push_back(__int128_t(37));
-        t1.push_back(true);
-        t2.push_back("null");
-        t2.push_back(__int128_t(26));
-        t2.push_back(false);
-        t3.push_back(Field("cute"));
-        t4.push_back("null");
+        t1.push_back(Field::create_field<TYPE_STRING>("clever"));
+        t1.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        t1.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        t2.push_back(Field::create_field<TYPE_STRING>("null"));
+        t2.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        t2.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+        t3.push_back(Field::create_field<TYPE_STRING>("cute"));
+        t4.push_back(Field::create_field<TYPE_STRING>("null"));
 
         Array k1, v1;
-        k1.push_back(t1);
-        k1.push_back(t2);
-        v1.push_back(t3);
-        v1.push_back(t4);
+        k1.push_back(Field::create_field<TYPE_STRUCT>(t1));
+        k1.push_back(Field::create_field<TYPE_STRUCT>(t2));
+        v1.push_back(Field::create_field<TYPE_STRUCT>(t3));
+        v1.push_back(Field::create_field<TYPE_STRUCT>(t4));
 
         Map m1;
-        m1.push_back(k1);
-        m1.push_back(v1);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(v1));
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
-        map_column->insert(m1);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }
@@ -476,46 +476,46 @@ TEST_F(DataTypeMapTest, SerdeNestedTypeArrowTest) {
         DataTypePtr ma = std::make_shared<DataTypeMap>(dt1, dt2);
 
         Array k1, k2, k3, k4, v1, v2, v3, v4;
-        k1.push_back(1);
-        k1.push_back(2);
-        k2.push_back(11);
-        k2.push_back(22);
-        v1.push_back(Field("map"));
-        v1.push_back(Null());
-        v2.push_back(Field("clever map"));
-        v2.push_back(Field("hello map"));
-        k3.push_back(__int128_t(37));
-        k3.push_back(__int128_t(26));
-        k4.push_back(__int128_t(1111));
-        k4.push_back(__int128_t(432535423));
-        v3.push_back(true);
-        v3.push_back(false);
-        v4.push_back(false);
-        v4.push_back(true);
+        k1.push_back(Field::create_field<TYPE_INT>(1));
+        k1.push_back(Field::create_field<TYPE_INT>(2));
+        k2.push_back(Field::create_field<TYPE_INT>(11));
+        k2.push_back(Field::create_field<TYPE_INT>(22));
+        v1.push_back(Field::create_field<TYPE_STRING>("map"));
+        v1.push_back(Field());
+        v2.push_back(Field::create_field<TYPE_STRING>("clever map"));
+        v2.push_back(Field::create_field<TYPE_STRING>("hello map"));
+        k3.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(37)));
+        k3.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(26)));
+        k4.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(1111)));
+        k4.push_back(Field::create_field<TYPE_LARGEINT>(__int128_t(432535423)));
+        v3.push_back(Field::create_field<TYPE_BOOLEAN>(true));
+        v3.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+        v4.push_back(Field::create_field<TYPE_BOOLEAN>(false));
+        v4.push_back(Field::create_field<TYPE_BOOLEAN>(true));
 
         Map m11, m12, m21, m22;
-        m11.push_back(k1);
-        m11.push_back(v1);
-        m12.push_back(k2);
-        m12.push_back(v2);
-        m21.push_back(k3);
-        m21.push_back(v3);
-        m22.push_back(k4);
-        m22.push_back(v4);
+        m11.push_back(Field::create_field<TYPE_ARRAY>(k1));
+        m11.push_back(Field::create_field<TYPE_ARRAY>(v1));
+        m12.push_back(Field::create_field<TYPE_ARRAY>(k2));
+        m12.push_back(Field::create_field<TYPE_ARRAY>(v2));
+        m21.push_back(Field::create_field<TYPE_ARRAY>(k3));
+        m21.push_back(Field::create_field<TYPE_ARRAY>(v3));
+        m22.push_back(Field::create_field<TYPE_ARRAY>(k4));
+        m22.push_back(Field::create_field<TYPE_ARRAY>(v4));
 
         Array kk1, vv1;
-        kk1.push_back(m11);
-        kk1.push_back(m12);
-        vv1.push_back(m21);
-        vv1.push_back(m22);
+        kk1.push_back(Field::create_field<TYPE_MAP>(m11));
+        kk1.push_back(Field::create_field<TYPE_MAP>(m12));
+        vv1.push_back(Field::create_field<TYPE_MAP>(m21));
+        vv1.push_back(Field::create_field<TYPE_MAP>(m22));
 
         Map m1;
-        m1.push_back(kk1);
-        m1.push_back(vv1);
+        m1.push_back(Field::create_field<TYPE_ARRAY>(kk1));
+        m1.push_back(Field::create_field<TYPE_ARRAY>(vv1));
 
         MutableColumnPtr map_column = ma->create_column();
         map_column->reserve(1);
-        map_column->insert(m1);
+        map_column->insert(Field::create_field<TYPE_MAP>(m1));
         vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), ma, col_name);
         block->insert(type_and_name);
     }

@@ -34,7 +34,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/field.h"
@@ -251,7 +250,7 @@ MutableColumnPtr DataTypeNullable::create_column() const {
 }
 
 Field DataTypeNullable::get_default() const {
-    return Null();
+    return Field();
 }
 
 bool DataTypeNullable::equals(const IDataType& rhs) const {

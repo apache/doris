@@ -27,7 +27,6 @@
 #include <stdexcept>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -359,7 +358,7 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
                 .is_value_unambiguously_represented_in_contiguous_memory_region =
                         nested_type
                                 ->is_value_unambiguously_represented_in_contiguous_memory_region(),
-                .default_field = a,
+                .default_field = Field::create_field<TYPE_ARRAY>(a),
         };
         DataTypePtr arr = remove_nullable(type);
         meta_info_assert(arr, arr_meta_info_to_assert);
@@ -372,59 +371,59 @@ TEST_F(DataTypeArrayTest, CreateColumnTest) {
     for (int i = 0; i < 13; i++) {
         auto type = remove_nullable(array_types[i]);
         // any different nested type in arr with same default array ?
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 51); // 17 * 3
     }
     {
         auto type = remove_nullable(array_types[13]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 59); // add addtional sizeof(8)
     }
     // for decimal32/64/128/256 here uncompressed size is 16
     // one scalar type
     for (int i = 14; i < 18; i++) {
         auto type = remove_nullable(array_types[i]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 51);
     }
     // for array-array-scala
     for (int i = 18; i < 31; i++) {
         auto type = remove_nullable(array_types[i]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 85); // 17 * 5
     }
     {
         // string type
         auto type = remove_nullable(array_types[31]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 93); // add addtional sizeof(8)
     }
     for (int i = 32; i < 36; i++) {
         auto type = remove_nullable(array_types[i]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 85); // 17 * 5
     }
     // for array-map
     {
         auto type = remove_nullable(array_types[36]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 127); // 17 * 7 + 8 add addtional sizeof(8)
         type = remove_nullable(array_types[39]);
-        default_field_array = Array();
+        default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 127);
     }
     {
         auto type = remove_nullable(array_types[37]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 119);
         type = remove_nullable(array_types[38]);
-        default_field_array = Array();
+        default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 119); // 17 * 7
     }
     // for array-struct
     {
         auto type = remove_nullable(array_types[40]);
-        Field default_field_array = Array();
+        Field default_field_array = Field::create_field<TYPE_ARRAY>(Array());
         create_column_assert(type, default_field_array, 297); // 17 * 17
     }
 }

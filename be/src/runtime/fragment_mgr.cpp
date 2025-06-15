@@ -320,9 +320,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 
     s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
-                .set_min_threads(config::fragment_mgr_asynic_work_pool_thread_num_min)
-                .set_max_threads(config::fragment_mgr_asynic_work_pool_thread_num_max)
-                .set_max_queue_size(config::fragment_mgr_asynic_work_pool_queue_size)
+                .set_min_threads(config::fragment_mgr_async_work_pool_thread_num_min)
+                .set_max_threads(config::fragment_mgr_async_work_pool_thread_num_max)
+                .set_max_queue_size(config::fragment_mgr_async_work_pool_queue_size)
                 .build(&_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
@@ -699,16 +699,13 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                     [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map)
                             -> Status {
                         WorkloadGroupPtr workload_group_ptr = nullptr;
-                        std::string wg_info_str = "Workload Group not set";
+                        std::vector<uint64_t> wg_id_set;
                         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                            uint64_t wg_id = params.workload_groups[0].id;
-                            workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id);
-                            if (workload_group_ptr != nullptr) {
-                                wg_info_str = workload_group_ptr->debug_string();
-                            } else {
-                                wg_info_str = "set wg but not find it in be";
+                            for (auto& wg : params.workload_groups) {
+                                wg_id_set.push_back(wg.id);
                             }
                         }
+                        workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id_set);
 
                         // First time a fragment of a query arrived. print logs.
                         LOG(INFO) << "query_id: " << print_id(query_id)
@@ -718,7 +715,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                   << ", fe process uuid: " << params.query_options.fe_process_uuid
                                   << ", query type: " << params.query_options.query_type
                                   << ", report audit fe:" << params.current_connect_fe
-                                  << ", use wg:" << wg_info_str;
+                                  << ", use wg:" << workload_group_ptr->id() << ","
+                                  << workload_group_ptr->name();
 
                         // This may be a first fragment request of the query.
                         // Create the query fragments context.
@@ -743,14 +741,7 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
 
                         _set_scan_concurrency(params, query_ctx.get());
 
-                        if (workload_group_ptr != nullptr) {
-                            RETURN_IF_ERROR(workload_group_ptr->add_resource_ctx(
-                                    query_id, query_ctx->resource_ctx()));
-                            query_ctx->set_workload_group(workload_group_ptr);
-                        } else {
-                            auto dummy_wg = _exec_env->workload_group_mgr()->dummy_workload_group();
-                            query_ctx->set_workload_group(dummy_wg);
-                        }
+                        RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
 
                         if (parent.__isset.runtime_filter_info) {
                             auto info = parent.runtime_filter_info;

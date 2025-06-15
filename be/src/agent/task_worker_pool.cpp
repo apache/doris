@@ -1884,8 +1884,9 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
+                        int32_t max_version_config = tablet->max_version_config();
                         if (tablet->exceed_version_limit(
-                                    config::max_tablet_version_num *
+                                    max_version_config *
                                     config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
@@ -2067,12 +2068,17 @@ void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
     } else {
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
-                .tag("tablet_id", clone_req.tablet_id);
+                .tag("tablet_id", clone_req.tablet_id)
+                .tag("copy_size", engine_task.get_copy_size())
+                .tag("copy_time_ms", engine_task.get_copy_time_ms());
+
         if (engine_task.is_new_tablet()) {
             increase_report_version();
             finish_task_request.__set_report_version(s_report_version);
         }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
+        finish_task_request.__set_copy_size(engine_task.get_copy_size());
+        finish_task_request.__set_copy_time_ms(engine_task.get_copy_time_ms());
     }
 
     finish_task(finish_task_request);

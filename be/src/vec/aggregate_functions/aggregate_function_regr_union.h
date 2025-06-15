@@ -38,9 +38,9 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionRegrData {
-    using Type = T;
+    static constexpr PrimitiveType Type = T;
     UInt64 count = 0;
     Float64 sum_x {};
     Float64 sum_y {};
@@ -82,7 +82,8 @@ struct AggregateFunctionRegrData {
         count += rhs.count;
     }
 
-    void add(T value_y, T value_x) {
+    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value_y,
+             typename PrimitiveTypeTraits<T>::ColumnItemType value_x) {
         sum_x += (double)value_x;
         sum_y += (double)value_y;
         sum_of_x_mul_y += (double)value_x * (double)value_y;
@@ -100,14 +101,14 @@ struct AggregateFunctionRegrData {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct RegrSlopeFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_slope";
 
     Float64 get_result() const { return this->get_slope(); }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
     static constexpr const char* name = "regr_intercept";
 
@@ -127,10 +128,9 @@ class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
                   RegrFunc, AggregateFunctionRegrSimple<RegrFunc, y_nullable, x_nullable>> {
 public:
-    using Type = typename RegrFunc::Type;
-    using XInputCol = ColumnVector<Type>;
-    using YInputCol = ColumnVector<Type>;
-    using ResultCol = ColumnVector<Float64>;
+    using XInputCol = typename PrimitiveTypeTraits<RegrFunc::Type>::ColumnType;
+    using YInputCol = XInputCol;
+    using ResultCol = ColumnFloat64;
 
     explicit AggregateFunctionRegrSimple(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
@@ -178,10 +178,8 @@ public:
             return;
         }
 
-        Type y_value = y_nested_column->get_data()[row_num];
-        Type x_value = x_nested_column->get_data()[row_num];
-
-        this->data(place).add(y_value, x_value);
+        this->data(place).add(y_nested_column->get_data()[row_num],
+                              x_nested_column->get_data()[row_num]);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }

@@ -34,24 +34,21 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/serde/data_type_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
 class DataTypeQuantileState : public IDataType {
 public:
     DataTypeQuantileState() = default;
     ~DataTypeQuantileState() override = default;
     using ColumnType = ColumnQuantileState;
     using FieldType = QuantileState;
+    static constexpr PrimitiveType PType = TYPE_QUANTILE_STATE;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "QuantileState"; }
+    const std::string get_family_name() const override { return "QuantileState"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_QUANTILE_STATE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -82,12 +79,13 @@ public:
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    Field get_default() const override { return QuantileState(); }
+    Field get_default() const override {
+        return Field::create_field<TYPE_QUANTILE_STATE>(QuantileState());
+    }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for quantile state");
-        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);

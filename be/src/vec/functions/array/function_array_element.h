@@ -31,14 +31,15 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -144,7 +145,7 @@ private:
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
         size_t rows = offsets.size();
         // prepare return data
-        auto matched_indices = ColumnVector<MapIndiceDataType::FieldType>::create();
+        auto matched_indices = ColumnVector<MapIndiceDataType::PType>::create();
         matched_indices->reserve(rows);
 
         for (size_t i = 0; i < rows; i++) {

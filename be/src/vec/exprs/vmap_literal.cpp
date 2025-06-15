@@ -44,9 +44,9 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
     // map-field should contain two vector field for keys and values
-    Field map = Map();
-    Field keys = Array();
-    Field values = Array();
+    Field map = Field::create_field<TYPE_MAP>(Map());
+    Field keys = Field::create_field<TYPE_ARRAY>(Array());
+    Field values = Field::create_field<TYPE_ARRAY>(Array());
     // each child is slot with key1, value1, key2, value2...
     for (int idx = 0; idx < _children.size() && idx + 1 < _children.size(); idx += 2) {
         Field kf, vf;

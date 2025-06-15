@@ -24,18 +24,14 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "util/jsonb_parser_simd.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
-
-#ifdef __AVX2__
-#include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris {
 
@@ -106,9 +102,9 @@ void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbW
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
                                variant.dump_structure());
     }
-    JsonbParser json_parser;
+    JsonBinaryValue jsonb_value;
     // encode as jsonb
-    bool succ = json_parser.parse(value_str.data(), value_str.size());
+    bool succ = jsonb_value.from_json_string(value_str.data(), value_str.size()).ok();
     if (!succ) {
         // not a valid json insert raw text
         result.writeStartString();
@@ -117,8 +113,7 @@ void DataTypeVariantSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbW
     } else {
         // write a json binary
         result.writeStartBinary();
-        result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
-                           json_parser.getWriter().getOutput()->getSize());
+        result.writeBinary(jsonb_value.value(), jsonb_value.size());
         result.writeEndBinary();
     }
 }
@@ -128,11 +123,11 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
     Field field;
     if (arg->isBinary()) {
         const auto* blob = static_cast<const JsonbBlobVal*>(arg);
-        field = JsonbField(blob->getBlob(), blob->getBlobLen());
+        field = Field::create_field<TYPE_JSONB>(JsonbField(blob->getBlob(), blob->getBlobLen()));
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
         const auto* str = static_cast<const JsonbStringVal*>(arg);
-        field = Field(String(str->getBlob(), str->getBlobLen()));
+        field = Field::create_field<TYPE_STRING>(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
     }
@@ -149,26 +144,29 @@ Status DataTypeVariantSerDe::serialize_one_cell_to_json(const IColumn& column, i
     return Status::OK();
 }
 
-void DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                 arrow::ArrayBuilder* array_builder, int64_t start,
-                                                 int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                             array_builder->type()->name()));
         } else {
             std::string serialized_value;
             if (!var->serialize_one_row_to_string(i, &serialized_value)) {
-                throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
-                                       var->dump_structure());
+                return Status::Error(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
+                                     var->dump_structure());
             }
-            checkArrowStatus(builder.Append(serialized_value.data(),
-                                            static_cast<int>(serialized_value.size())),
-                             column.get_name(), array_builder->type()->name());
+            RETURN_IF_ERROR(
+                    checkArrowStatus(builder.Append(serialized_value.data(),
+                                                    static_cast<int>(serialized_value.size())),
+                                     column.get_name(), array_builder->type()->name()));
         }
     }
+    return Status::OK();
 }
 
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

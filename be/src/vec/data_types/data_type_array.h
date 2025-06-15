@@ -54,6 +54,7 @@ private:
     DataTypePtr nested;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_ARRAY;
     static constexpr bool is_parametric = true;
 
     DataTypeArray(const DataTypePtr& nested_);
@@ -66,7 +67,7 @@ public:
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Array"; }
+    const std::string get_family_name() const override { return "Array"; }
 
     MutableColumnPtr create_column() const override;
 
@@ -75,7 +76,6 @@ public:
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Unimplemented get_field for array");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

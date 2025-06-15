@@ -18,7 +18,6 @@
 import org.junit.Assert;
 
 suite("test_recreate_table_mtmv","mtmv") {
-    String dbName = context.config.getDbNameByFile(context.file)
     String suiteName = "test_recreate_table_mtmv"
     String tableName1 = "${suiteName}_table1"
     String tableName2 = "${suiteName}_table2"
@@ -64,14 +63,7 @@ suite("test_recreate_table_mtmv","mtmv") {
         ) AS (SELECT * FROM ${tableName1} );
     """
     waitingMTMVTaskFinishedByMvName(mvName1);
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_mv1 "SELECT * FROM ${mvName1}"
-        }
-    })
+    order_qt_mv1 "SELECT * FROM ${mvName1}"
     sql """
         CREATE MATERIALIZED VIEW IF NOT EXISTS ${mvName2} BUILD IMMEDIATE REFRESH AUTO ON COMMIT DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES (
@@ -79,14 +71,7 @@ suite("test_recreate_table_mtmv","mtmv") {
         ) AS (SELECT first_name,count(last_name) FROM ${mvName1} GROUP BY first_name);
         """
     waitingMTMVTaskFinishedByMvName(mvName2);
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_mv2 "SELECT * FROM ${mvName2}"
-        }
-    })
+    order_qt_mv2 "SELECT * FROM ${mvName2}"
     sql """drop materialized view if exists ${mvName1};"""
     sql """
             CREATE MATERIALIZED VIEW IF NOT EXISTS ${mvName1} BUILD IMMEDIATE REFRESH AUTO ON COMMIT DISTRIBUTED BY RANDOM BUCKETS 2
@@ -95,26 +80,12 @@ suite("test_recreate_table_mtmv","mtmv") {
             ) AS (SELECT * FROM ${tableName2} );
         """
     waitingMTMVTaskFinishedByMvName(mvName1);
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_mv1_recreate "SELECT * FROM ${mvName1}"
-        }
-    })
+    order_qt_mv1_recreate "SELECT * FROM ${mvName1}"
      sql """
             REFRESH MATERIALIZED VIEW ${mvName2} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName2);
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_mv2_recreate "SELECT * FROM ${mvName2}"
-        }
-    })
+    order_qt_mv2_recreate "SELECT * FROM ${mvName2}"
 
     sql """drop table if exists `${tableName1}`"""
     sql """drop table if exists `${tableName2}`"""

@@ -55,6 +55,7 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_MAP;
 
     DataTypeMap(const DataTypePtr& key_type_, const DataTypePtr& value_type_);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_MAP; }
@@ -65,14 +66,13 @@ public:
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
     }
-    const char* get_family_name() const override { return "Map"; }
+    const std::string get_family_name() const override { return "Map"; }
 
     MutableColumnPtr create_column() const override;
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for map");
-        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

@@ -76,13 +76,12 @@ TEST_F(PartitionTransformersTest, test_decimal32_truncate_transform) {
     const std::vector<int32_t> values({1065});
     auto column = ColumnDecimal32::create(0, 2);
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
-    ColumnWithTypeAndName test_decimal32(column->get_ptr(),
-                                         std::make_shared<DataTypeDecimal<Decimal32>>(4, 2),
-                                         "test_decimal32");
+    ColumnWithTypeAndName test_decimal32(
+            column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
     Block block({test_decimal32});
     auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
-    DecimalTruncatePartitionColumnTransform<Decimal32> transform(source_type, 50);
+    DecimalTruncatePartitionColumnTransform<TYPE_DECIMAL32> transform(source_type, 50);
 
     auto result = transform.apply(block, 0);
 
@@ -163,13 +162,12 @@ TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
     const std::vector<int32_t> values({1420}); // -500754589
     auto column = ColumnDecimal32::create(0, 2);
     column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
-    ColumnWithTypeAndName test_decimal32(column->get_ptr(),
-                                         std::make_shared<DataTypeDecimal<Decimal32>>(4, 2),
-                                         "test_decimal32");
+    ColumnWithTypeAndName test_decimal32(
+            column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
     Block block({test_decimal32});
     auto source_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL32, false, 4, 2);
-    DecimalBucketPartitionColumnTransform<Decimal32> transform(source_type, 16);
+    DecimalBucketPartitionColumnTransform<TYPE_DECIMAL32> transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
 
@@ -484,12 +482,12 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
                     ->get_data();
     const auto& null_map_column = result_column->get_null_map_column();
 
-    EXPECT_EQ(1, null_map_column[0]);
-    EXPECT_EQ(0, null_map_column[1]);
-    EXPECT_EQ(0, null_map_column[2]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(1), null_map_column[0]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), null_map_column[1]);
+    EXPECT_EQ(Field::create_field<TYPE_BOOLEAN>(0), null_map_column[2]);
 
     for (size_t i = 0, j = 0; i < result_column->size(); ++i) {
-        if (null_map_column[i] == 0) {
+        if (null_map_column[i] == Field::create_field<TYPE_BOOLEAN>(0)) {
             EXPECT_EQ(expected_data[j], result_data[i]);
             EXPECT_EQ(expected_human_string[j],
                       transform.to_human_string(transform.get_result_type(), result_data[i]));
