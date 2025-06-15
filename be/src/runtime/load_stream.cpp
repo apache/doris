@@ -453,7 +453,12 @@ LoadStream::~LoadStream() {
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
     _total_streams = static_cast<int32_t>(request->total_streams());
-    _is_incremental = (_total_streams == 0);
+    bool auto_partition_one_step_close = request->has_auto_partition_one_step_close()
+                                                 ? request->auto_partition_one_step_close()
+                                                 : false;
+    if (!auto_partition_one_step_close) {
+        _is_incremental = (_total_streams == 0);
+    }
 
     _schema = std::make_shared<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request->schema()));
