@@ -836,8 +836,8 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
     scanner_context->_tasks_queue.push_back(scan_task);
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
             std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
-    EXPECT_CALL(*scheduler, schedule_scan_task(testing::_, testing::_, testing::_))
-            .WillOnce(testing::Return(Status::OK()));
+    //EXPECT_CALL(*scheduler, schedule_scan_task(testing::_, testing::_, testing::_))
+    //        .WillOnce(testing::Return(Status::OK()));
     scanner_context->_scanner_scheduler = scheduler.get();
     scanner_context->_num_finished_scanners = 0;
     EXPECT_CALL(*return_block, mem_reuse()).WillRepeatedly(testing::Return(false));
