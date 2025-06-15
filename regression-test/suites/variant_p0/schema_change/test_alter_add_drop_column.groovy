@@ -25,7 +25,7 @@ suite("regression_test_variant_add_drop_column", "variant_type"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1",  "bloom_filter_columns" = "v");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}')"""
 
@@ -34,20 +34,28 @@ suite("regression_test_variant_add_drop_column", "variant_type"){
     sql "alter table variant_add_drop_column add column t2 datetime default null"
     sql """insert into variant_add_drop_column values (1, '{"a" : 12345234567,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", "2021-01-01 01:01:01")"""
     sql "alter table variant_add_drop_column add column i1 int default null"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", "2021-01-01 01:01:01", 12345)"""
+    sql """insert into variant_add_drop_column values (2, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", "2021-01-01 01:01:01", 12345)"""
     sql "alter table variant_add_drop_column drop column t1"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", 12345)"""
+    sql """insert into variant_add_drop_column values (3, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', "2021-01-01 01:01:01", 12345)"""
     sql "alter table variant_add_drop_column drop column t2"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', 12345)"""
+    sql """insert into variant_add_drop_column values (4, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}', 12345)"""
     sql "alter table variant_add_drop_column drop column i1"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}')"""
+    sql """insert into variant_add_drop_column values (5, '{"a" : 12345,"b" : 2}', '{"xxx" : 1}')"""
     sql "alter table variant_add_drop_column drop column v"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (6, '{"a" : 12345,"b" : 2}')"""
     sql "alter table variant_add_drop_column add column v variant default null"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (7, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}')"""
     sql "alter table variant_add_drop_column add column v3 variant default null"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (8, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 2}')"""
     sql "alter table variant_add_drop_column drop column v"
     sql "alter table variant_add_drop_column drop column v2"
-    sql """insert into variant_add_drop_column values (1, '{"a" : 12345,"b" : 2}')"""
+    sql """insert into variant_add_drop_column values (9, '{"a" : 12345,"b" : 2}')"""
+
+    // trigger compactions for all tablets in ${tableName}
+    def tablets = sql_return_maparray """ show tablets from ${table_name}; """
+
+    // trigger compactions for all tablets in ${tableName}
+    trigger_and_wait_compaction(table_name, "cumulative")
+
+    qt_sql "select * from variant_add_drop_column order by k limit 10"
 }

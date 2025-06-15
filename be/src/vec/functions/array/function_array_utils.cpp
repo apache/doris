@@ -57,7 +57,7 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     if (data.output_as_variant &&
         data.nested_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
         // set variant root column/type to from column/type
-        auto variant = ColumnVariant::create(true /*always nullable*/);
+        auto variant = ColumnVariant::create(0);
         variant->create_root(data.nested_type, make_nullable(data.nested_col)->assume_mutable());
         data.nested_col = variant->get_ptr();
     }
