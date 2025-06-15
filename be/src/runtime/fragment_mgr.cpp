@@ -1382,4 +1382,13 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
     return Status::OK();
 }
 
+Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats) {
+    if (query_stats == nullptr) {
+        return Status::InvalidArgument("query_stats is nullptr");
+    }
+
+    return ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_query_statistics(
+            print_id(query_id), query_stats);
+}
+
 } // namespace doris
