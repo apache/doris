@@ -660,7 +660,6 @@ public class Alter {
     }
 
     public void processAlterTable(AlterTableCommand command) throws UserException {
-        // TODO mmc
         TableNameInfo dbTableName = command.getTbl();
         String ctlName = dbTableName.getCtl();
         String dbName = dbTableName.getDb();
