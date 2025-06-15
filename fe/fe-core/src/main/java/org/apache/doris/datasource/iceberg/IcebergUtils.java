@@ -631,25 +631,23 @@ public class IcebergUtils {
      */
     public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name, long schemaId) {
         try {
-            return catalog.getPreExecutionAuthenticator().execute(() -> {
-                org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
-                Schema schema;
-                if (schemaId == NEWEST_SCHEMA_ID || icebergTable.currentSnapshot() == null) {
-                    schema = icebergTable.schema();
-                } else {
-                    schema = icebergTable.schemas().get((int) schemaId);
-                }
-                Preconditions.checkNotNull(schema,
-                        "Schema for table " + catalog.getName() + "." + dbName + "." + name + " is null");
-                List<Types.NestedField> columns = schema.columns();
-                List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-                for (Types.NestedField field : columns) {
-                    tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
-                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                            schema.caseInsensitiveFindField(field.name()).fieldId()));
-                }
-                return tmpSchema;
-            });
+            org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
+            Schema schema;
+            if (schemaId == NEWEST_SCHEMA_ID || icebergTable.currentSnapshot() == null) {
+                schema = icebergTable.schema();
+            } else {
+                schema = icebergTable.schemas().get((int) schemaId);
+            }
+            Preconditions.checkNotNull(schema,
+                    "Schema for table " + catalog.getName() + "." + dbName + "." + name + " is null");
+            List<Types.NestedField> columns = schema.columns();
+            List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
+            for (Types.NestedField field : columns) {
+                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
+                        IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                        schema.caseInsensitiveFindField(field.name()).fieldId()));
+            }
+            return tmpSchema;
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }
@@ -761,9 +759,9 @@ public class IcebergUtils {
 
     // Retrieve the manifest files that match the query based on partitions in filter
     public static CloseableIterable<ManifestFile> getMatchingManifest(
-                List<ManifestFile> dataManifests,
-                Map<Integer, PartitionSpec> specsById,
-                Expression dataFilter) {
+            List<ManifestFile> dataManifests,
+            Map<Integer, PartitionSpec> specsById,
+            Expression dataFilter) {
         LoadingCache<Integer, ManifestEvaluator> evalCache = Caffeine.newBuilder()
                 .build(
                         specId -> {
@@ -823,9 +821,9 @@ public class IcebergUtils {
                 }
             }
             return new IcebergTableQueryInfo(
-                snapshotRef.snapshotId(),
-                refName,
-                SnapshotUtil.schemaFor(table, refName).schemaId());
+                    snapshotRef.snapshotId(),
+                    refName,
+                    SnapshotUtil.schemaFor(table, refName).schemaId());
         }
 
         // solve version/time as of
@@ -839,9 +837,9 @@ public class IcebergUtils {
                     throw new UserException("Table " + table.name() + " does not have snapshotId " + value);
                 }
                 return new IcebergTableQueryInfo(
-                    snapshotId,
-                    null,
-                    snapshot.schemaId()
+                        snapshotId,
+                        null,
+                        snapshot.schemaId()
                 );
             }
 
@@ -849,9 +847,9 @@ public class IcebergUtils {
                 throw new UserException("Table " + table.name() + " does not have tag or branch named " + value);
             }
             return new IcebergTableQueryInfo(
-                table.refs().get(value).snapshotId(),
-                value,
-                SnapshotUtil.schemaFor(table, value).schemaId()
+                    table.refs().get(value).snapshotId(),
+                    value,
+                    SnapshotUtil.schemaFor(table, value).schemaId()
             );
         } else {
             long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
@@ -860,10 +858,10 @@ public class IcebergUtils {
             }
             long snapshotId = SnapshotUtil.snapshotIdAsOfTime(table, timestamp);
             return new IcebergTableQueryInfo(
-                snapshotId,
-                null,
-                table.snapshot(snapshotId).schemaId()
-                );
+                    snapshotId,
+                    null,
+                    table.snapshot(snapshotId).schemaId()
+            );
         }
     }
 
@@ -895,10 +893,10 @@ public class IcebergUtils {
             ExternalCatalog catalog, String dbName, String name, long schemaId) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-            new IcebergSchemaCacheKey(dbName, name, schemaId));
+                new IcebergSchemaCacheKey(dbName, name, schemaId));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                null, catalog.getName(), dbName, name, schemaId);
+                    null, catalog.getName(), dbName, name, schemaId);
         }
         return (IcebergSchemaCacheValue) schemaCacheValue.get();
     }
@@ -999,7 +997,7 @@ public class IcebergUtils {
         long lastUpdateTime = row.get(9, Long.class);
         long lastUpdateSnapShotId = row.get(10, Long.class);
         return new IcebergPartition(partitionName, specId, recordCount, fileSizeInBytes, fileCount,
-            lastUpdateTime, lastUpdateSnapShotId, partitionValues, transforms);
+                lastUpdateTime, lastUpdateSnapShotId, partitionValues, transforms);
     }
 
     @VisibleForTesting
@@ -1021,7 +1019,7 @@ public class IcebergUtils {
             case HOUR:
                 target = epoch.plusHours(longValue);
                 lower = LocalDateTime.of(target.getYear(), target.getMonth(), target.getDayOfMonth(),
-                    target.getHour(), 0, 0);
+                        target.getHour(), 0, 0);
                 upper = lower.plusHours(1);
                 break;
             case DAY:
@@ -1051,7 +1049,7 @@ public class IcebergUtils {
         PartitionValue lowerValue = new PartitionValue(lower.format(formatter));
         PartitionValue upperValue = new PartitionValue(upper.format(formatter));
         PartitionKey lowKey = PartitionKey.createPartitionKey(Lists.newArrayList(lowerValue), partitionColumns);
-        PartitionKey upperKey =  PartitionKey.createPartitionKey(Lists.newArrayList(upperValue), partitionColumns);
+        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(upperValue), partitionColumns);
         return Range.closedOpen(lowKey, upperKey);
     }
 
@@ -1092,15 +1090,15 @@ public class IcebergUtils {
      * Sort the given map entries by PartitionItem Range(LOW, HIGH)
      * When comparing two ranges, the one with smaller LOW value is smaller than the other one.
      * If two ranges have same values of LOW, the one with larger HIGH value is smaller.
-     *
+     * <p>
      * For now, we only support year, month, day and hour,
      * so it is impossible to have two partially intersect partitions.
      * One range is either enclosed by another or has no intersection at all with another.
-     *
-     *
+     * <p>
+     * <p>
      * For example, we have these 4 ranges:
      * [10, 20), [30, 40), [0, 30), [10, 15)
-     *
+     * <p>
      * After sort, they become:
      * [0, 30), [10, 20), [10, 15), [30, 40)
      */
@@ -1191,8 +1189,8 @@ public class IcebergUtils {
         IcebergSnapshotCacheValue cacheValue =
                 IcebergUtils.getOrFetchSnapshotCacheValue(snapshotFromContext, catalog, dbName, tbName);
         return IcebergUtils.getSchemaCacheValue(
-                catalog, dbName, tbName, cacheValue.getSnapshot().getSchemaId())
-            .getSchema();
+                        catalog, dbName, tbName, cacheValue.getSnapshot().getSchemaId())
+                .getSchema();
     }
 
     public static IcebergSnapshotCacheValue getOrFetchSnapshotCacheValue(
@@ -1204,7 +1202,7 @@ public class IcebergUtils {
             return ((IcebergMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
         } else {
             return IcebergUtils.getIcebergSnapshotCacheValue(
-                Optional.empty(), catalog, dbName, tbName, Optional.empty());
+                    Optional.empty(), catalog, dbName, tbName, Optional.empty());
         }
     }
 }

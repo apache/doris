@@ -206,7 +206,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
         try {
-            return preExecutionAuthenticator.execute(() -> doGetSplits(numBackends));
+            doGetSplits(numBackends);
         } catch (Exception e) {
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
@@ -220,10 +220,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public void startSplit(int numBackends) throws UserException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                doStartSplit();
-                return null;
-            });
+            doStartSplit();
         } catch (Exception e) {
             throw new UserException(e.getMessage(), e);
         }
@@ -385,23 +382,21 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         try {
-            return preExecutionAuthenticator.execute(() -> {
-                try (CloseableIterator<ManifestFile> matchingManifest =
-                        IcebergUtils.getMatchingManifest(
-                                createTableScan().snapshot().dataManifests(icebergTable.io()),
-                                icebergTable.specs(),
-                                createTableScan().filter()).iterator()) {
-                    int cnt = 0;
-                    while (matchingManifest.hasNext()) {
-                        ManifestFile next = matchingManifest.next();
-                        cnt += next.addedFilesCount() + next.existingFilesCount();
-                        if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
-                            return true;
-                        }
+            try (CloseableIterator<ManifestFile> matchingManifest =
+                    IcebergUtils.getMatchingManifest(
+                            createTableScan().snapshot().dataManifests(icebergTable.io()),
+                            icebergTable.specs(),
+                            createTableScan().filter()).iterator()) {
+                int cnt = 0;
+                while (matchingManifest.hasNext()) {
+                    ManifestFile next = matchingManifest.next();
+                    cnt += next.addedFilesCount() + next.existingFilesCount();
+                    if (cnt >= sessionVariable.getNumFilesInBatchMode()) {
+                        return true;
                     }
                 }
-                return false;
-            });
+            }
+            return false;
         } catch (Exception e) {
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
@@ -418,9 +413,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         Optional<TableScanParams> params = Optional.ofNullable(scanParams);
         if (tableSnapshot != null || IcebergUtils.isIcebergBranchOrTag(params)) {
             return IcebergUtils.getQuerySpecSnapshot(
-                icebergTable,
-                Optional.ofNullable(tableSnapshot),
-                params);
+                    icebergTable,
+                    Optional.ofNullable(tableSnapshot),
+                    params);
         }
         return null;
     }
@@ -586,7 +581,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         */
             LOG.warn("Iceberg TableScanUtil.splitFiles throw NullPointerException. Cause : ", e);
             return Optional.of(
-                new NotSupportedException("Unable to read Iceberg table with dropped old partition column."));
+                    new NotSupportedException("Unable to read Iceberg table with dropped old partition column."));
         }
         return Optional.empty();
     }

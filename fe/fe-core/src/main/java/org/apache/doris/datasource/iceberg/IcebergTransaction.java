@@ -92,17 +92,14 @@ public class IcebergTransaction implements Transaction {
             LOG.info("iceberg table {} insert table finished!", tableInfo);
         }
         try {
-            ops.getPreExecutionAuthenticator().execute(() -> {
-                //create and start the iceberg transaction
-                TUpdateMode updateMode = TUpdateMode.APPEND;
-                if (insertCtx.isPresent()) {
-                    updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite()
-                            ? TUpdateMode.OVERWRITE
-                            : TUpdateMode.APPEND;
-                }
-                updateManifestAfterInsert(updateMode);
-                return null;
-            });
+            //create and start the iceberg transaction
+            TUpdateMode updateMode = TUpdateMode.APPEND;
+            if (insertCtx.isPresent()) {
+                updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite()
+                        ? TUpdateMode.OVERWRITE
+                        : TUpdateMode.APPEND;
+            }
+            updateManifestAfterInsert(updateMode);
         } catch (Exception e) {
             LOG.warn("Failed to finish insert for iceberg table {}.", tableInfo, e);
             throw new RuntimeException(e);
