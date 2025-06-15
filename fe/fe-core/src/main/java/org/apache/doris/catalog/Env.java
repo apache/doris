@@ -169,7 +169,6 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -395,7 +394,6 @@ public class Env {
 
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
-    private Load load;
     protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
@@ -725,7 +723,6 @@ public class Env {
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
     public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
-        this.load = new Load();
         this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
@@ -2843,7 +2840,6 @@ public class Env {
         labelCleaner = new MasterDaemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
             @Override
             protected void runAfterCatalogReady() {
-                load.removeOldLoadJobs();
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
                 deleteHandler.removeOldDeleteInfos();
@@ -4670,10 +4666,6 @@ public class Env {
         return this.deleteHandler;
     }
 
-    public Load getLoadInstance() {
-        return this.load;
-    }
-
     public LoadManager getLoadManager() {
         return loadManager;
     }
@@ -5931,10 +5923,6 @@ public class Env {
     // for test only
     public void clear() {
         getInternalCatalog().clearDbs();
-        if (load.getIdToLoadJob() != null) {
-            load.getIdToLoadJob().clear();
-            // load = null;
-        }
         System.gc();
     }
 
@@ -6098,7 +6086,6 @@ public class Env {
             }
             LOG.info("acquired all the tables' read lock.");
 
-            load.readLock();
             LOG.info("acquired all jobs' read lock.");
             long journalId = getMaxJournalId();
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
@@ -6115,7 +6102,6 @@ public class Env {
             }
         } finally {
             // unlock all
-            load.readUnlock();
             for (int i = databases.size() - 1; i >= 0; i--) {
                 MetaLockUtils.readUnlockTables(tableLists.get(i));
             }
@@ -6707,9 +6693,6 @@ public class Env {
     }
 
     public void eraseDatabase(long dbId, boolean needEditLog) {
-        // remove jobs
-        Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
-
         // remove database transaction manager
         Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
 

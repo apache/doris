@@ -36,18 +36,13 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.load.DppConfig;
-import org.apache.doris.load.Load;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 
-import com.google.common.collect.Maps;
 import org.junit.Assert;
 
 import java.lang.reflect.Method;
@@ -166,20 +161,4 @@ public class UnitTestUtil {
         }
         return innerClass;
     }
-
-    public static void initDppConfig() {
-        Map<String, String> defaultConfigs = Maps.newHashMap();
-        defaultConfigs.put("hadoop_palo_path", "/user/palo2");
-        defaultConfigs.put("hadoop_http_port", "1234");
-        defaultConfigs.put("hadoop_configs",
-                "mapred.job.tracker=host:111;fs.default.name=hdfs://host:112;hadoop.job.ugi=user,password");
-
-        try {
-            Load.dppDefaultConfig = DppConfig.create(defaultConfigs);
-            Load.clusterToDppConfig.put(Config.dpp_default_cluster, Load.dppDefaultConfig.getCopiedDppConfig());
-        } catch (LoadException e) {
-            e.printStackTrace();
-        }
-    }
-
 }
