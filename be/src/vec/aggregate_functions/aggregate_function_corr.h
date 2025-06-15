@@ -14,11 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <functional>
+
+#include "common/cast_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_binary.h"
 #include "vec/core/types.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType Type>
 struct CorrMoment {
@@ -101,8 +106,8 @@ struct CorrMomentWelford {
         ++count;
         double deltaX = x - meanX;
         double deltaY = y - meanY;
-        meanX += deltaX / count;
-        meanY += deltaY / count;
+        meanX += safe_divide(deltaX, count);
+        meanY += safe_divide(deltaY, count);
         c2 += deltaX * (y - meanY);
         m2X += deltaX * (x - meanX);
         m2Y += deltaY * (y - meanY);
@@ -119,12 +124,17 @@ struct CorrMomentWelford {
         double deltaY = rhs.meanY - meanY;
         int64_t total_count = count + rhs.count;
 
-        meanX = (meanX * count + rhs.meanX * rhs.count) / total_count;
-        meanY = (meanY * count + rhs.meanY * rhs.count) / total_count;
+        meanX = (safe_multiply(meanX, count) + safe_multiply(rhs.meanX, rhs.count)) /
+                cast_set<double>(total_count);
+        meanY = (safe_multiply(meanY, count) + safe_multiply(rhs.meanY, rhs.count)) /
+                cast_set<double>(total_count);
 
-        c2 += rhs.c2 + deltaX * deltaY * count * rhs.count / total_count;
-        m2X += rhs.m2X + deltaX * deltaX * count * rhs.count / total_count;
-        m2Y += rhs.m2Y + deltaY * deltaY * count * rhs.count / total_count;
+        c2 += rhs.c2 +
+              safe_multiply(deltaX, deltaY, count, rhs.count) / cast_set<double>(total_count);
+        m2X += rhs.m2X +
+               safe_multiply(deltaX, deltaX, count, rhs.count) / cast_set<double>(total_count);
+        m2Y += rhs.m2Y +
+               safe_multiply(deltaY, deltaY, count, rhs.count) / cast_set<double>(total_count);
 
         count = total_count;
     }
@@ -165,4 +175,5 @@ struct CorrMomentWelford {
         count = 0;
     }
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
