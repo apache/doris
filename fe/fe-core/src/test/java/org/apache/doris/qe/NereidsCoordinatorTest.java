@@ -19,9 +19,9 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.UUIDUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,7 +29,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.util.UUID;
 
 public class NereidsCoordinatorTest extends TestWithFeService {
     @BeforeAll
@@ -64,9 +63,7 @@ public class NereidsCoordinatorTest extends TestWithFeService {
         ConnectContext connectContext = createDefaultCtx();
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
         connectContext.setThreadLocalInfo();
-
-        UUID uuid = UUID.randomUUID();
-        connectContext.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
+        connectContext.setQueryId(UUIDUtil.genTUniqueId());
         NereidsPlanner planner = PlanChecker.from(connectContext).plan(sql);
         return planner;
     }
