@@ -450,6 +450,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
+    public boolean isTable() {
+        return true;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
