@@ -151,6 +151,7 @@ public class InsertTask extends AbstractTask {
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
+        ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
         TUniqueId queryId = generateQueryId();
         ctx.setQueryId(queryId);
