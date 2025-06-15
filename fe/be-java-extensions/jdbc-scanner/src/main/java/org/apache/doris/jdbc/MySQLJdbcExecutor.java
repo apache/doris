@@ -77,7 +77,6 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
             stmt.setFetchSize(Integer.MIN_VALUE);  // MySQL: signal streaming results with Integer.MIN_VALUE
             batchSizeNum = config.getBatchSize();
         } else {
-            LOG.info("Insert SQL: " + sql);
             preparedStatement = conn.prepareStatement(sql);
         }
     }
