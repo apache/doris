@@ -567,6 +567,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
@@ -5846,6 +5847,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAdminSetReplicaVersion(DorisParser.AdminSetReplicaVersionContext ctx) {
         return new AdminSetReplicaVersionCommand(visitPropertyItemList(ctx.propertyItemList()));
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetFrontendConfig(DorisParser.AdminSetFrontendConfigContext ctx) {
+        Map<String, String> configs = visitPropertyItemList(ctx.propertyItemList());
+        boolean applyToAll = !ctx.ALL().isEmpty();
+
+        return new AdminSetFrontendConfigCommand(
+            NodeType.FRONTEND,
+            configs,
+            applyToAll);
     }
 
     @Override

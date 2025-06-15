@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
@@ -1300,6 +1301,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitGrantResourcePrivilegeCommand(GrantResourcePrivilegeCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
+    default R visitAdminSetFrontendConfigCommand(AdminSetFrontendConfigCommand command, C context) {
         return visitCommand(command, context);
     }
 
