@@ -341,7 +341,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status exists(String remotePath) {
         try {
             URI pathUri = URI.create(remotePath);
-            Path inputFilePath = new Path(pathUri.getPath());
+            Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
             boolean isPathExist = authenticator.doAs(() -> fileSystem.exists(inputFilePath));
             if (!isPathExist) {
@@ -477,7 +477,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status delete(String remotePath) {
         try {
             URI pathUri = URI.create(remotePath);
-            Path inputFilePath = new Path(pathUri.getPath());
+            Path inputFilePath = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(inputFilePath);
             authenticator.doAs(() -> fileSystem.delete(inputFilePath, true));
         } catch (UserException e) {
@@ -503,7 +503,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
             URI pathUri = URI.create(remotePath);
-            Path pathPattern = new Path(pathUri.getPath());
+            Path pathPattern = new Path(pathUri.getLocation());
             FileSystem fileSystem = nativeFileSystem(pathPattern);
             FileStatus[] files = authenticator.doAs(() -> fileSystem.globStatus(pathPattern));
             if (files == null) {

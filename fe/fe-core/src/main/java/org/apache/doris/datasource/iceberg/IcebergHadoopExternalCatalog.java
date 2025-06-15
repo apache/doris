@@ -19,7 +19,6 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.google.common.base.Preconditions;
@@ -73,15 +72,13 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
                     "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
         }
 
-        if (catalogProperties.containsKey(HMSExternalCatalog.GET_SCHEMA_FROM_TABLE)) {
-            try {
-                this.catalog = preExecutionAuthenticator.execute(() -> {
-                    hadoopCatalog.initialize(getName(), catalogProperties);
-                    return hadoopCatalog;
-                });
-            } catch (Exception e) {
-                throw new RuntimeException("Hadoop catalog init error!", e);
-            }
+        try {
+            this.catalog = preExecutionAuthenticator.execute(() -> {
+                hadoopCatalog.initialize(getName(), catalogProperties);
+                return hadoopCatalog;
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Hadoop catalog init error!", e);
         }
     }
 }
