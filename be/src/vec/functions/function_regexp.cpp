@@ -85,8 +85,9 @@ struct RegexpCountImpl {
             re = scoped_re.get();
         }
         const auto& test_col = pattern_col->get_data_at(index_now);
-        for(int i = 0; i < 10; i++){
-            LOG(INFO) << "jianhao pattern value = -----------------!  " << test_col.to_string() << "\n";
+        for (int i = 0; i < 10; i++) {
+            LOG(INFO) << "jianhao pattern value = -----------------!  " << test_col.to_string()
+                      << "\n";
         }
         const auto& str = str_col->get_data_at(index_now);
 
