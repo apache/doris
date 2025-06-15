@@ -293,12 +293,10 @@ static Status cancel_channel_and_check_intolerable_failure(Status status,
 
 Status IndexChannel::close_wait(
         RuntimeState* state, WriterStats* writer_stats,
-        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map) {
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+        std::unordered_set<int64_t> unfinished_node_channel_ids,
+        bool need_wait_after_quorum_success) {
     Status status = Status::OK();
-    std::unordered_set<int64_t> unfinished_node_channel_ids;
-    for (auto& it : _node_channels) {
-        unfinished_node_channel_ids.insert(it.first);
-    }
     // wait quorum success
     while (true) {
         status = check_each_node_channel_close(&unfinished_node_channel_ids,
@@ -318,7 +316,7 @@ Status IndexChannel::close_wait(
     // if wait time is more than max_wait_time_seconds,
     // or remaining time is less than load_timeout_remaining_seconds,
     // cancel unfinished node channel.
-    if (status.ok() && !unfinished_node_channel_ids.empty()) {
+    if (status.ok() && !unfinished_node_channel_ids.empty() && need_wait_after_quorum_success) {
         int64_t max_wait_time_ms = _max_wait_time_ms(unfinished_node_channel_ids);
         while (true) {
             status = check_each_node_channel_close(
@@ -1637,20 +1635,9 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                 if (!status.ok()) {
                     break;
                 }
-                std::unordered_set<int64_t> unfinished_node_channel_ids;
-                for (auto& it : index_channel->_node_channels) {
-                    if (!it.second->is_incremental()) {
-                        unfinished_node_channel_ids.insert(it.first);
-                    }
-                }
-                while (true) {
-                    status = index_channel->check_each_node_channel_close(
-                            &unfinished_node_channel_ids, nullptr, nullptr, status);
-                    if (!status.ok() || unfinished_node_channel_ids.empty()) {
-                        break;
-                    }
-                    bthread_usleep(1000 * 10);
-                }
+
+                status = index_channel->close_wait(_state, nullptr, nullptr,
+                                                   index_channel->init_node_channel_ids(), false);
                 if (!status.ok()) {
                     break;
                 }
@@ -1724,7 +1711,8 @@ Status VTabletWriter::close(Status exec_status) {
             }
             int64_t add_batch_exec_time = 0;
             int64_t wait_exec_time = 0;
-            status = index_channel->close_wait(_state, &writer_stats, &node_add_batch_counter_map);
+            status = index_channel->close_wait(_state, &writer_stats, &node_add_batch_counter_map,
+                                               index_channel->each_node_channel_ids(), true);
 
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
             // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding

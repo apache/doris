@@ -469,6 +469,34 @@ public:
         }
     }
 
+    std::unordered_set<int64_t> init_node_channel_ids() {
+        std::unordered_set<int64_t> node_channel_ids;
+        for (auto& it : _node_channels) {
+            if (!it.second->is_incremental()) {
+                node_channel_ids.insert(it.first);
+            }
+        }
+        return node_channel_ids;
+    }
+
+    std::unordered_set<int64_t> inc_node_channel_ids() {
+        std::unordered_set<int64_t> node_channel_ids;
+        for (auto& it : _node_channels) {
+            if (it.second->is_incremental()) {
+                node_channel_ids.insert(it.first);
+            }
+        }
+        return node_channel_ids;
+    }
+
+    std::unordered_set<int64_t> each_node_channel_ids() {
+        std::unordered_set<int64_t> node_channel_ids;
+        for (auto& it : _node_channels) {
+            node_channel_ids.insert(it.first);
+        }
+        return node_channel_ids;
+    }
+
     bool has_incremental_node_channel() const { return _has_inc_node; }
 
     void mark_as_failed(const VNodeChannel* node_channel, const std::string& err,
@@ -476,7 +504,9 @@ public:
     Status check_intolerable_failure();
 
     Status close_wait(RuntimeState* state, WriterStats* writer_stats,
-                      std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map);
+                      std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+                      std::unordered_set<int64_t> unfinished_node_channel_ids,
+                      bool need_wait_after_quorum_success);
 
     Status check_each_node_channel_close(
             std::unordered_set<int64_t>* unfinished_node_channel_ids,
