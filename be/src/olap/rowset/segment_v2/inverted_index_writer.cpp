@@ -471,7 +471,7 @@ public:
                                 })
                         if (st != Status::OK()) {
                             LOG(ERROR) << "create field "
-                                       << string(_field_name.begin(), _field_name.end())
+                                       << std::string(_field_name.begin(), _field_name.end())
                                        << " error:" << st;
                             return st;
                         }
@@ -529,9 +529,9 @@ public:
                                         "debug point: add_array_values_create_field_error_2");
                             })
                     if (st != Status::OK()) {
-                        LOG(ERROR)
-                                << "create field " << string(_field_name.begin(), _field_name.end())
-                                << " error:" << st;
+                        LOG(ERROR) << "create field "
+                                   << std::string(_field_name.begin(), _field_name.end())
+                                   << " error:" << st;
                         return st;
                     }
                     _doc->add(*new_field);
