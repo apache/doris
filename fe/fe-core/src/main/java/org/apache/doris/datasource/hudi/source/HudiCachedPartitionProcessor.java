@@ -143,10 +143,6 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
 
             partitionValues.writeLock().lock();
             try {
-                long lastUpdateTimestamp = partitionValues.getLastUpdateTimestamp();
-                if (lastTimestamp <= lastUpdateTimestamp) {
-                    return partitionValues;
-                }
                 HMSExternalCatalog catalog = (HMSExternalCatalog) table.getCatalog();
                 List<String> partitionNames;
                 if (useHiveSyncPartition) {
