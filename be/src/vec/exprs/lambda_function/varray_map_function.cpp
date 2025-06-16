@@ -224,7 +224,7 @@ public:
             return Status::OK();
         }
 
-        MutableColumnPtr result_col = nullptr;
+        ColumnPtr result_col = nullptr;
         DataTypePtr res_type;
         std::string res_name;
 
