@@ -77,4 +77,22 @@ suite("test_alter_vault_type", "nonConcurrent") {
             );
         """
     }, "is not hdfs storage vault")
+
+    user  = "alter_vault_no_pri";
+    pass = "12345"
+    sql """create user ${user} identified by '${pass}'"""
+
+    try {
+        result = connect(user, pass, context.config.jdbcUrl) {
+            sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="s3",
+                "VAULT_NAME" = "${s3VaultName}_rename"
+            );
+        """
+        }
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user"), e.getMessage())
+    }
 }
