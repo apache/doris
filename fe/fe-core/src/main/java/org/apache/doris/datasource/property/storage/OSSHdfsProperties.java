@@ -34,31 +34,50 @@ import java.util.regex.Pattern;
 /**
  * todo
  * Should consider using the same class as DLF Properties.
+ * Configuration properties for OSS-HDFS.
+ *
+ * <p><strong>Important:</strong> It is recommended to use the "oss.hdfs" prefix for all OSS-related
+ * configuration properties instead of the standalone "oss" prefix.
+ * This is because when both "oss" and "oss.hdfs" prefixed parameters are provided simultaneously,
+ * the system cannot distinguish which parameter belongs to which prefix, leading to ambiguity and confusion.
+ * To prevent such conflicts, the standalone "oss" prefix is planned to be fully deprecated in the future.
+ *
+ * <p>Users should migrate their configurations to use the "oss.hdfs" prefix to ensure clarity
+ * and future compatibility.
  */
 public class OSSHdfsProperties extends HdfsCompatibleProperties {
 
     @Setter
-    @ConnectorProperty(names = {"oss.endpoint"},
+    @ConnectorProperty(names = {"oss.hdfs.endpoint",
+            "oss.endpoint"},
             description = "The endpoint of OSS.")
     protected String endpoint = "";
 
-    @ConnectorProperty(names = {"oss.access_key"}, description = "The access key of OSS.")
+    @ConnectorProperty(names = {"oss.hdfs.access_key", "oss.access_key"}, description = "The access key of OSS.")
     protected String accessKey = "";
 
-    @ConnectorProperty(names = {"oss.secret_key"}, description = "The secret key of OSS.")
+    @ConnectorProperty(names = {"oss.hdfs.secret_key", "oss.secret_key"}, description = "The secret key of OSS.")
     protected String secretKey = "";
 
-    @ConnectorProperty(names = {"oss.region"},
+    @ConnectorProperty(names = {"oss.hdfs.region", "oss.region"},
             required = false,
             description = "The region of OSS.")
     protected String region;
+
+    @ConnectorProperty(names = {"oss.hdfs.fs.defaultFS"}, required = false, description = "")
+    protected String fsDefaultFS = "";
+
+    @ConnectorProperty(names = {"oss.hdfs.hadoop.config.resources"},
+            required = false,
+            description = "The xml files of Hadoop configuration.")
+    protected String hadoopConfigResources = "";
 
     /**
      * TODO: Do not expose to users for now.
      * Mutual exclusivity between parameters should be validated at the framework level
      * to prevent messy, repetitive checks in application code.
      */
-    @ConnectorProperty(names = {"oss.security_token"}, required = false,
+    @ConnectorProperty(names = {"oss.hdfs.security_token", "oss.security_token"}, required = false,
             description = "The security token of OSS.")
     protected String securityToken = "";
 
@@ -69,17 +88,17 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     private static final Pattern ENDPOINT_PATTERN = Pattern
             .compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com");
 
-    private static final String ENABLE_KEY = "oss.hdfs.enabled";
-
-    private static final Set<String> supportSchema = ImmutableSet.of("oss");
+    private static final Set<String> supportSchema = ImmutableSet.of("oss", "hdfs");
 
     protected OSSHdfsProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
     }
 
+    private static final String OSS_HDFS_PREFIX_KEY = "oss.hdfs.";
+
     public static boolean guessIsMe(Map<String, String> props) {
         boolean enable = props.entrySet().stream()
-                .anyMatch(e -> e.getKey().equalsIgnoreCase(ENABLE_KEY) && Boolean.parseBoolean(e.getValue()));
+                .anyMatch(e -> e.getKey().equalsIgnoreCase(OSS_HDFS_PREFIX_KEY) && Boolean.parseBoolean(e.getValue()));
         if (enable) {
             return true;
         }
@@ -99,11 +118,6 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     @Override
-    Set<String> getSupportedSchemas() {
-        return supportSchema;
-    }
-
-    @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         Matcher matcher = ENDPOINT_PATTERN.matcher(endpoint.toLowerCase());
@@ -118,6 +132,9 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
                 throw new IllegalArgumentException("The region extracted from the endpoint is empty. "
                         + "Please check the endpoint format: {} or set oss.region" + endpoint);
             }
+        }
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
         }
         initConfigurationParams();
     }
@@ -136,11 +153,11 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     }
 
     private void initConfigurationParams() {
-        Configuration conf = new Configuration(true);
+        Configuration conf = new Configuration();
         // TODO: Currently we load all config parameters and pass them to the BE directly.
         // In the future, we should pass the path to the configuration directory instead,
         // and let the BE load the config file on its own.
-        Map<String, String> config = loadConfigFromFile(getResourceConfigPropName());
+        Map<String, String> config = loadConfigFromFile(hadoopConfigResources);
         config.put("fs.oss.endpoint", endpoint);
         config.put("fs.oss.accessKeyId", accessKey);
         config.put("fs.oss.accessKeySecret", secretKey);
@@ -178,11 +195,6 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
             throw new UserException("The uri scheme is not oss.");
         }
         return uriObj.toString();
-    }
-
-    @Override
-    public Configuration getHadoopConfiguration() {
-        return configuration;
     }
 
     @Override

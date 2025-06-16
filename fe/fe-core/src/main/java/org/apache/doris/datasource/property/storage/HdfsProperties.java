@@ -65,6 +65,15 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             description = "Whether to allow fallback to simple authentication.")
     private String allowFallbackToSimpleAuth = "";
 
+
+    @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
+    protected String fsDefaultFS = "";
+
+    @ConnectorProperty(names = {"hadoop.config.resources"},
+            required = false,
+            description = "The xml files of Hadoop configuration.")
+    protected String hadoopConfigResources = "";
+
     private Map<String, String> backendConfigProperties;
 
     private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
@@ -79,8 +88,9 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     private Map<String, String> userOverriddenHdfsConfig;
 
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
-            "hadoop.security.authentication", "hadoop.username",
-            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices");
+            "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
+            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices",
+            "hdfs.config.resources");
 
     public HdfsProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
@@ -96,22 +106,15 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
             return true;
         }
-        // This logic is somewhat hacky due to the shared usage of base parameters
-        // between native HDFS and HDFS-compatible implementations (such as OSS_HDFS).
-        // Since both may contain keys defined in HDFS_COMPATIBLE_PROPERTIES_KEYS,
-        // we cannot reliably determine whether the configuration belongs to native HDFS
-        // based on the presence of those keys alone.
-        // To work around this, we explicitly exclude OSS_HDFS by checking
-        // !OSSHdfsProperties.guessIsMe(props).
-        // This is currently the most practical way to differentiate native HDFS
-        // from HDFS-compatible systems using shared configuration.
-        return HDFS_COMPATIBLE_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)
-                && (!OSSHdfsProperties.guessIsMe(props));
+        return false;
     }
 
     @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
+        }
         extractUserOverriddenHdfsConfig(origProps);
         initHadoopConfiguration();
         initBackendConfigProperties();
@@ -141,7 +144,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private void initHadoopConfiguration() {
         Configuration conf = new Configuration(true);
-        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        Map<String, String> allProps = loadConfigFromFile(hadoopConfigResources);
         allProps.forEach(conf::set);
         if (MapUtils.isNotEmpty(userOverriddenHdfsConfig)) {
             userOverriddenHdfsConfig.forEach(conf::set);
@@ -197,10 +200,5 @@ public class HdfsProperties extends HdfsCompatibleProperties {
     @Override
     public String getStorageName() {
         return "HDFS";
-    }
-
-    @Override
-    Set<String> getSupportedSchemas() {
-        return supportSchema;
     }
 }

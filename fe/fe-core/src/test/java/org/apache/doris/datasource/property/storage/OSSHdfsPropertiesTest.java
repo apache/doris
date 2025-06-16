@@ -60,10 +60,10 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.secret_key", "testSecretKey");
         origProps.put("oss.region", "cn-shanghai");
         origProps.put("uri", "thrit://my-bucket/path,thrift://my-bucket/path");
-        origProps.put("hadoop.config.resources", "hdfs-site.xml,core-site.xml");
+        origProps.put("oss.hdfs.hadoop.config.resources", "hdfs-site.xml,core-site.xml");
         URL hdfsFileUrl = OSSHdfsPropertiesTest.class.getClassLoader().getResource("plugins");
         Config.hadoop_config_dir = hdfsFileUrl.getPath().toString() + "/hadoop_conf/";
-        origProps.put("hadoop.config.resources", "osshdfs1/core-site.xml");
+        origProps.put("oss.hdfs.hadoop.config.resources", "osshdfs1/core-site.xml");
         StorageProperties props = StorageProperties.createPrimary(origProps);
         Assertions.assertInstanceOf(OSSHdfsProperties.class, props);
         Configuration conf = ((OSSHdfsProperties) props).getHadoopConfiguration();
@@ -144,13 +144,13 @@ public class OSSHdfsPropertiesTest {
         origProps.put("oss.endpoint", "cn-shanghai.oss-dls.aliyuncs.com");
         origProps.put("oss.access_key", "testAccessKey");
         origProps.put("oss.secret_key", "testSecretKey");
-        origProps.put("fs.defaultFS", "oss://my-bucket");
+        origProps.put("oss.hdfs.fs.defaultFS", "oss://my-bucket");
         OSSHdfsProperties props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("oss://my-bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
         origProps.put("uri", "oss://bucket/");
         props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("oss://my-bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
-        origProps.remove("fs.defaultFS");
+        origProps.remove("oss.hdfs.fs.defaultFS");
         props = (OSSHdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("oss://bucket", props.getBackendConfigProperties().get("fs.defaultFS"));
     }
