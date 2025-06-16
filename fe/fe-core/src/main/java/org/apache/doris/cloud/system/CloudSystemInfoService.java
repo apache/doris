@@ -782,7 +782,8 @@ public class CloudSystemInfoService extends SystemInfoService {
                     return acgName;
                 } else {
                     if (acg.getUnavailableSince() <= 0) {
-                        acg.setUnavailableSince(System.currentTimeMillis());
+                        acg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(acgName) * Config.heartbeat_interval_second * 1000);
                     }
                 }
             }
@@ -804,7 +805,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                     }
                     return scgName;
                 } else {
-                    scg.setUnavailableSince(System.currentTimeMillis());
+                    if (scg.getUnavailableSince() <= 0) {
+                        scg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(scgName) * Config.heartbeat_interval_second * 1000);
+                    }
                 }
             }
         }
@@ -833,6 +837,26 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
 
         return true;
+    }
+
+    public int computeGroupFailureCount(String cg) {
+        List<Backend> bes = getBackendsByClusterName(cg);
+        if (bes == null || bes.isEmpty()) {
+            return 0;
+        }
+
+        int failureCount = 0;
+        for (Backend be : bes) {
+            if (!be.isAlive()) {
+                if (failureCount == 0) {
+                    failureCount = be.getHeartbeatFailureCounter();
+                } else {
+                    failureCount = Math.min(be.getHeartbeatFailureCounter(), failureCount);
+                }
+            }
+        }
+
+        return failureCount;
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
