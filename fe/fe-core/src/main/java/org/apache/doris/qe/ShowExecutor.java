@@ -98,7 +98,6 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
-import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
@@ -307,8 +306,6 @@ public class ShowExecutor {
             handleHelp();
         } else if (stmt instanceof ShowDbIdStmt) {
             handleShowDbId();
-        } else if (stmt instanceof ShowTableStmt) {
-            handleShowTable();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
         } else if (stmt instanceof DescribeStmt) {
@@ -898,57 +895,6 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show table statement.
-    private void handleShowTable() throws AnalysisException {
-        ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(showTableStmt.getCatalog())
-                .getDbOrAnalysisException(showTableStmt.getDb());
-        PatternMatcher matcher = null;
-        if (showTableStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(), isShowTablesCaseSensitive());
-        }
-        for (TableIf tbl : db.getTables()) {
-            if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
-                continue;
-            }
-            if (showTableStmt.getType() != null && tbl.getType() != showTableStmt.getType()) {
-                continue;
-            }
-            if (tbl.isTemporary()) {
-                continue;
-            }
-            if (matcher != null && !matcher.match(tbl.getName())) {
-                continue;
-            }
-            // check tbl privs
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), showTableStmt.getCatalog(), db.getFullName(), tbl.getName(),
-                            PrivPredicate.SHOW)) {
-                continue;
-            }
-            if (showTableStmt.isVerbose()) {
-                String storageFormat = "NONE";
-                String invertedIndexFileStorageFormat = "NONE";
-                if (tbl instanceof OlapTable) {
-                    storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
-                }
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexFileStorageFormat));
-            } else {
-                rows.add(Lists.newArrayList(tbl.getName()));
-            }
-        }
-        // sort by table name
-        rows.sort((x, y) -> {
-            return x.get(0).compareTo(y.get(0));
-        });
-
-        resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
     }
 
     public boolean isShowTablesCaseSensitive() {
