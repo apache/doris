@@ -19,6 +19,13 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import java.util.Optional;
 
+/**
+ * Represents the options available for managing tags in Iceberg through Doris.
+ * This class encapsulates optional parameters that can be specified when creating or manipulating tags.
+ *
+ * <p>{@code TagOptions} is typically used in conjunction with commands that interact with Iceberg tables,
+ * such as creating a tag or specifying retention policies.</p>
+ */
 public class TagOptions {
     public static final TagOptions EMPTY = new TagOptions(Optional.empty(), Optional.empty());
 
