@@ -275,8 +275,8 @@ public:
                                           DeleteBitmapPtr& new_delete_bitmap,
                                           std::map<std::string, int64_t>& pre_rowset_to_versions);
 
-    bool need_remove_pre_rowset_delete_bitmap();
-    void remove_pre_rowset_delete_bitmap();
+    bool need_remove_unused_rowsets();
+    void remove_unused_rowsets();
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -340,8 +340,8 @@ private:
 
     // unused_rowsets, [start_version, end_version]
     std::mutex _gc_mutex;
-    std::vector<std::pair<std::vector<RowsetSharedPtr>, DeleteBitmapKeyRanges>>
-            _unused_delete_bitmap;
+    std::unordered_map<RowsetId, RowsetSharedPtr> _unused_rowsets;
+    std::vector<std::pair<std::vector<RowsetId>, DeleteBitmapKeyRanges>> _unused_delete_bitmap;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

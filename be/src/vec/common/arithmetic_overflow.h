@@ -117,13 +117,7 @@ inline bool mul_overflow(long long x, long long y, long long& res) {
 
 template <>
 inline bool mul_overflow(__int128 x, __int128 y, __int128& res) {
-    res = static_cast<unsigned __int128>(x) *
-          static_cast<unsigned __int128>(y); /// Avoid signed integer overflow.
-    if (!x || !y) return false;
-
-    unsigned __int128 a = (x > 0) ? x : -x;
-    unsigned __int128 b = (y > 0) ? y : -y;
-    return ((a * b) / b != a) || (x > 0 && y > 0 && res < 0) || (x < 0 && y < 0 && res < 0);
+    return __builtin_mul_overflow(x, y, &res);
 }
 
 template <>

@@ -53,6 +53,7 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
         auto decimal_str = value.to_string(scale);
         bw.write(decimal_str.data(), decimal_str.size());
     } else {
+        char buf[FieldType::max_string_length()];
         auto length = col.get_element(row_num).to_string(buf, scale, scale_multiplier);
         bw.write(buf, length);
     }
@@ -255,6 +256,7 @@ Status DataTypeDecimalSerDe<T>::_write_column_to_mysql(const IColumn& column,
             return Status::InternalError("pack mysql buffer failed.");
         }
     } else {
+        char buf[FieldType::max_string_length()];
         auto length = data[col_index].to_string(buf, scale, scale_multiplier);
         if (UNLIKELY(0 != result.push_string(buf, length))) {
             return Status::InternalError("pack mysql buffer failed.");

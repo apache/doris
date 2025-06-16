@@ -21,21 +21,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.httpv2.util.streamresponse.JsonStreamResponse;
 import org.apache.doris.httpv2.util.streamresponse.StreamResponseInf;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.hdfs.server.diskbalancer.command.QueryCommand;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -51,12 +45,19 @@ import javax.servlet.http.HttpServletResponse;
  * This is a simple stmt submitter for submitting a statement to the local FE.
  * It uses a fixed-size thread pool to receive query requests,
  * so it is only suitable for a small number of low-frequency request scenarios.
- * Now it support submitting the following type of stmt:
- *      QueryStmt
- *      ShowStmt
- *      InsertStmt
- *      DdlStmt
- *      ExportStmt
+ * <p>
+ * This submitter can execute any SQL statement without pre-analysis or type checking.
+ * It dynamically determines how to handle the results based on whether the statement
+ * returns a ResultSet or not:
+ *   - Statements with ResultSet (SELECT, SHOW, etc.): processed as query results
+ *   - Statements without ResultSet (DDL, DML, etc.): processed as execution status
+ * <p>
+ * Supported statement types include but are not limited to:
+ *   - Query statements (SELECT, SHOW, DESCRIBE, etc.)
+ *   - Data manipulation (INSERT, UPDATE, DELETE, COPY, etc.)
+ *   - Data definition (CREATE, DROP, ALTER, etc.)
+ *   - Session management (SET, USE, etc.)
+ *   - Export statements
  */
 public class StatementSubmitter {
     private static final Logger LOG = LogManager.getLogger(StatementSubmitter.class);
@@ -98,8 +99,6 @@ public class StatementSubmitter {
 
         @Override
         public ExecutionResultSet call() throws Exception {
-            LogicalPlan stmtBase = analyzeStmt(queryCtx.stmt);
-
             Connection conn = null;
             Statement stmt = null;
             String dbUrl = String.format(DB_URL_PATTERN, Config.query_port, ctx.getDatabase());
@@ -107,30 +106,31 @@ public class StatementSubmitter {
                 Class.forName(JDBC_DRIVER);
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
-                if (stmtBase instanceof QueryCommand || stmtBase instanceof ShowCommand
-                        || stmtBase instanceof CopyIntoCommand) {
-                    if (!queryCtx.clusterName.isEmpty()) {
-                        Statement useStmt = conn.createStatement();
-                        useStmt.execute("use @" + queryCtx.clusterName);
-                    }
-                    stmt = conn.prepareStatement(
-                            queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-                    // set fetch size to 1 to enable streaming result set to avoid OOM.
-                    stmt.setFetchSize(1000);
-                    ResultSet rs = ((PreparedStatement) stmt).executeQuery();
+
+                if (!queryCtx.clusterName.isEmpty()) {
+                    Statement useStmt = conn.createStatement();
+                    useStmt.execute("use @" + queryCtx.clusterName);
+                    useStmt.close();
+                }
+
+                stmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                stmt.setFetchSize(1000);
+
+                boolean hasResultSet = stmt.execute(queryCtx.stmt);
+
+                if (hasResultSet) {
+                    ResultSet rs = stmt.getResultSet();
                     if (queryCtx.isStream) {
                         StreamResponseInf streamResponse = new JsonStreamResponse(queryCtx.response);
                         streamResponse.handleQueryAndShow(rs, startTime);
                         rs.close();
                         return new ExecutionResultSet(null);
                     }
-                    ExecutionResultSet resultSet = generateResultSet(rs, startTime,
-                            stmtBase instanceof CopyIntoCommand);
+                    boolean isCopyStmt = isCopyStatement(rs);
+                    ExecutionResultSet resultSet = generateResultSet(rs, startTime, isCopyStmt);
                     rs.close();
                     return resultSet;
                 } else {
-                    stmt = conn.createStatement();
-                    stmt.execute(queryCtx.stmt);
                     if (queryCtx.isStream) {
                         StreamResponseInf streamResponse = new JsonStreamResponse(queryCtx.response);
                         streamResponse.handleDdlAndExport(startTime);
@@ -154,6 +154,28 @@ public class StatementSubmitter {
                     LOG.warn("failed to close connection", se);
                 }
             }
+        }
+
+        private boolean isCopyStatement(ResultSet rs) throws SQLException {
+            if (rs == null) {
+                return false;
+            }
+
+            ResultSetMetaData metaData = rs.getMetaData();
+            int colNum = metaData.getColumnCount();
+
+            if (colNum != copyResult.length) {
+                return false;
+            }
+
+            for (int i = 1; i <= colNum; i++) {
+                String columnName = metaData.getColumnName(i);
+                if (!copyResult[i - 1].equalsIgnoreCase(columnName)) {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /**
@@ -240,11 +262,6 @@ public class StatementSubmitter {
             result.put("time", (System.currentTimeMillis() - startTime));
             return new ExecutionResultSet(result);
         }
-    }
-
-    public static LogicalPlan analyzeStmt(String stmtStr) throws Exception {
-        NereidsParser nereidsParser = new NereidsParser();
-        return nereidsParser.parseSingle(stmtStr);
     }
 
     public static class StmtContext {

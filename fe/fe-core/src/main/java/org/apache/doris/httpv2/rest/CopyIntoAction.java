@@ -35,6 +35,7 @@ import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.httpv2.util.ExecutionResultSet;
 import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CopyIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -234,7 +235,7 @@ public class CopyIntoAction extends RestBaseController {
             }
 
             String clusterName = (String) jsonObject.getOrDefault("cluster", "");
-            LogicalPlan logicalPlan = StatementSubmitter.analyzeStmt(copyIntoSql);
+            LogicalPlan logicalPlan = analyzeStmt(copyIntoSql);
             if (!(logicalPlan instanceof CopyIntoCommand)) {
                 return ResponseEntityBuilder.badRequest("just support copy into sql: " + copyIntoSql);
             }
@@ -281,5 +282,10 @@ public class CopyIntoAction extends RestBaseController {
             LOG.warn("failed to execute stmt {}", copyIntoStmt, e);
             return ResponseEntityBuilder.okWithCommonError("Failed to execute sql: " + e.getMessage());
         }
+    }
+
+    public static LogicalPlan analyzeStmt(String stmtStr) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        return nereidsParser.parseSingle(stmtStr);
     }
 }
