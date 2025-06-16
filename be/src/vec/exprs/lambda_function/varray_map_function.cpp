@@ -139,6 +139,36 @@ public:
             lambda_block.insert(std::move(data_column));
         }
 
+        ColumnWithTypeAndName result_arr;
+        if (std::any_of(lambda_block.begin(), lambda_block.end(), [](const auto& v) {
+                DCHECK(v.column != nullptr);
+                return v.column->empty();
+            })) {
+            DataTypePtr nested_type;
+            bool is_nullable = result_type->is_nullable();
+            if (is_nullable) {
+                nested_type =
+                        assert_cast<const DataTypeNullable*>(result_type.get())->get_nested_type();
+            } else {
+                nested_type = result_type;
+            }
+            auto empty_nested_column = assert_cast<const DataTypeArray*>(nested_type.get())
+                                               ->get_nested_type()
+                                               ->create_column();
+            auto result_array_column = ColumnArray::create(std::move(empty_nested_column),
+                                                           std::move(array_column_offset));
+            if (is_nullable) {
+                result_arr = {ColumnNullable::create(std::move(result_array_column),
+                                                     std::move(outside_null_map)),
+                              result_type, "Result"};
+            } else {
+                result_arr = {std::move(result_array_column), result_type, "Result"};
+            }
+
+            block->insert(std::move(result_arr));
+            *result_column_id = block->columns() - 1;
+            return Status::OK();
+        }
         //3. child[0]->execute(new_block)
         RETURN_IF_ERROR(children[0]->execute(context, &lambda_block, result_column_id));
 
@@ -148,7 +178,7 @@ public:
         auto res_name = lambda_block.get_by_position(*result_column_id).name;
 
         //4. get the result column after execution, reassemble it into a new array column, and return.
-        ColumnWithTypeAndName result_arr;
+
         if (result_type->is_nullable()) {
             if (res_type->is_nullable()) {
                 result_arr = {ColumnNullable::create(
