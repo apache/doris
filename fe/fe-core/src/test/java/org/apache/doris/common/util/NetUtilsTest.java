@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.net.InetAddresses;
 import org.junit.Assert;
 import org.junit.Test;
 
