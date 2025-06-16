@@ -62,7 +62,7 @@ std::shared_ptr<Block> create_block(std::vector<int64_t> data) {
 }
 
 TEST_F(MergeSorterStateTest, test1) {
-    state.reset(new MergeSorterState(*row_desc, 0, -1, &_state, &_profile));
+    state.reset(new MergeSorterState(*row_desc, 0));
     state->add_sorted_block(create_block({1, 2, 3}));
     state->add_sorted_block(create_block({4, 5, 6}));
     state->add_sorted_block(create_block({}));
