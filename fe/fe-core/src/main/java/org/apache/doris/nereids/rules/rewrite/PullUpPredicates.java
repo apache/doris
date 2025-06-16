@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
@@ -316,7 +317,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                             Expression genPredicates = TypeCoercionUtils.processComparisonPredicate(
                                      (ComparisonPredicate) cmp.withChildren(slot, cmp.right()));
                             genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
-                            pullPredicates.add(genPredicates);
+                            pullPredicates.add(new Or(new IsNull(slot), genPredicates));
                         }
                     }
                 }
