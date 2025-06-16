@@ -485,21 +485,8 @@ public class Profile {
 
         if (this.executionProfiles.size() == 1) {
             builder.append("MergedProfile:\n");
-            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
             if (mergedProfile != null) {
                 mergedProfile.prettyPrint(builder, "     ");
-                planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
-                planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
-                // TODO: failed sql supporting rely on profile's extension.
-                boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
-                if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
-                    // publish to hbo manager, currently only support healthy sql.
-                    // NOTE: all statements which no need to collect profile have been excluded.
-                    String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
-                    publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
-                }
-                builder.append("\nHBOStatics \n");
-                builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
             } else {
                 builder.append("build merged simple profile failed");
             }
@@ -517,6 +504,21 @@ public class Profile {
         }
 
         builder.append("\nAppendix:\n");
+        if (mergedProfile != null) {
+            List<TPlanNodeRuntimeStatsItem> planNodeRuntimeStatsItems = null;
+            planNodeRuntimeStatsItems = RuntimeProfile.toTPlanNodeRuntimeStatsItem(mergedProfile, null);
+            planNodeRuntimeStatsItems = RuntimeProfile.mergeTPlanNodeRuntimeStatsItem(planNodeRuntimeStatsItems);
+            // TODO: failed sql supporting rely on profile's extension.
+            boolean isEnableHboInfoCollection = StatisticsUtil.isEnableHboInfoCollection();
+            if (isEnableHboInfoCollection && isHealthyForHbo() && isSlowQueryForHbo()) {
+                // publish to hbo manager, currently only support healthy sql.
+                // NOTE: all statements which no need to collect profile have been excluded.
+                String queryId = DebugUtil.printId(this.executionProfiles.get(0).getQueryId());
+                publishHboPlanStatistics(queryId, planNodeRuntimeStatsItems);
+            }
+            builder.append("\nHBOStatics \n");
+            builder.append(DebugUtil.prettyPrintPlanNodeRuntimeStatsItems(planNodeRuntimeStatsItems));
+        }
         if (physicalPlan != null) {
             builder.append("\nPhysicalPlan:\n");
             StringBuilder physcialPlanBuilder = new StringBuilder();
