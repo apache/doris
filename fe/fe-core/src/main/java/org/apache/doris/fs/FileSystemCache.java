@@ -21,6 +21,7 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -47,7 +48,7 @@ public class FileSystemCache {
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) throws UserException {
-        return FileSystemFactory.get(key.type, key.getFsProperties(), key.bindBrokerName);
+        return FileSystemFactory.get(key.type, key.properties, key.bindBrokerName);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
@@ -58,34 +59,21 @@ public class FileSystemCache {
         private final FileSystemType type;
         // eg: hdfs://nameservices1
         private final String fsIdent;
-        private final Map<String, String> properties;
+        private final StorageProperties properties;
         private final String bindBrokerName;
-        // only for creating new file system
-        private final Configuration conf;
 
         public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                Map<String, String> properties,
-                String bindBrokerName,
-                Configuration conf) {
+                StorageProperties properties,
+                String bindBrokerName) {
             this.type = fs.first;
             this.fsIdent = fs.second;
             this.properties = properties;
             this.bindBrokerName = bindBrokerName;
-            this.conf = conf;
         }
 
         public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                Map<String, String> properties, String bindBrokerName) {
-            this(fs, properties, bindBrokerName, null);
-        }
-
-        public Map<String, String> getFsProperties() {
-            if (conf == null) {
-                return properties;
-            }
-            Map<String, String> result = new HashMap<>();
-            conf.iterator().forEachRemaining(e -> result.put(e.getKey(), e.getValue()));
-            return result;
+                                  StorageProperties properties, String bindBrokerName) {
+            this(fs, properties, bindBrokerName);
         }
 
         @Override
@@ -97,6 +85,7 @@ public class FileSystemCache {
                 return false;
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
+            //fixme 需要重写吗
             boolean equalsWithoutBroker = type.equals(o.type)
                     && fsIdent.equals(o.fsIdent)
                     && properties.equals(o.properties);

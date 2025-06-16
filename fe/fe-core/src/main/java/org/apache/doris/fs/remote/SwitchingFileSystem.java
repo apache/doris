@@ -20,6 +20,7 @@ package org.apache.doris.fs.remote;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemCache;
 
@@ -33,17 +34,17 @@ public class SwitchingFileSystem implements FileSystem {
 
     private final String bindBrokerName;
 
-    private final Map<String, String> properties;
+    private final List<StorageProperties> properties;
 
     public SwitchingFileSystem(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-                               Map<String, String> properties) {
+                               List<StorageProperties> properties) {
         this.extMetaCacheMgr = extMetaCacheMgr;
         this.bindBrokerName = bindBrokerName;
         this.properties = properties;
     }
 
     @Override
-    public Map<String, String> getProperties() {
+    public List<StorageProperties> getStoragePropertiesList() {
         return properties;
     }
 
