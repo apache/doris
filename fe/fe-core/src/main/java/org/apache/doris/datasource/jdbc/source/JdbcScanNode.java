@@ -39,6 +39,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
@@ -131,7 +132,8 @@ public class JdbcScanNode extends ExternalScanNode {
 
         ArrayList<Expr> conjunctsList = Expr.cloneList(conjuncts, sMap);
         List<String> errors = Lists.newArrayList();
-        List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors);
+        List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors,
+                tbl.getExternalFunctionRules());
 
         for (Expr individualConjunct : pushDownConjuncts) {
             String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
@@ -140,13 +142,15 @@ public class JdbcScanNode extends ExternalScanNode {
         }
     }
 
-    private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors) {
+    private List<Expr> collectConjunctsToPushDown(List<Expr> conjunctsList, List<String> errors,
+            ExternalFunctionRules functionRules) {
         List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
             if (shouldPushDownConjunct(jdbcType, p)) {
                 List<Expr> individualConjuncts = p.getConjuncts();
                 for (Expr individualConjunct : individualConjuncts) {
-                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors);
+                    Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors,
+                            functionRules);
                     if (!errors.isEmpty()) {
                         errors.clear();
                         continue;
