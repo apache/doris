@@ -615,14 +615,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
 
-                for (Partition partition : olapTbl.getPartitions()) {
-                    if (!env.getLoadInstance().checkPartitionLoadFinished(partition.getId(), null)) {
-                        status = new Status(ErrCode.COMMON_ERROR,
-                                "Table " + tbl.getName() + "'s has unfinished load job");
-                        return;
-                    }
-                }
-
                 olapTbl.setState(OlapTableState.RESTORE);
                 // set restore status for partitions
                 BackupOlapTableInfo tblInfo = jobInfo.backupOlapTableObjects.get(tableName);

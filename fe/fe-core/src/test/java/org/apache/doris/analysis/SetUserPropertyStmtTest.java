@@ -49,7 +49,6 @@ public class SetUserPropertyStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
         List<SetVar> propertyVarList = Lists.newArrayList();
-        propertyVarList.add(new SetUserPropertyVar("load_cluster.palo-dpp", ""));
         propertyVarList.add(new SetUserPropertyVar("quota.normal", "100"));
 
         SetUserPropertyStmt stmt = new SetUserPropertyStmt("testUser", propertyVarList);

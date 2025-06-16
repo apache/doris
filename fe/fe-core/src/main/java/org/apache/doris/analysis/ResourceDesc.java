@@ -82,7 +82,7 @@ public class ResourceDesc {
             throw new AnalysisException("Resource does not exist. name: " + getName());
         }
         if (resource.getType() == Resource.ResourceType.SPARK) {
-            etlJobType = EtlJobType.SPARK;
+            throw new AnalysisException("Spark Resource is no longer supported");
         }
     }
 

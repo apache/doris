@@ -502,11 +502,6 @@ public class EditLog {
                     env.getConsistencyChecker().replayFinishConsistencyCheck(info, env);
                     break;
                 }
-                case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
-                    env.getLoadInstance().replayClearRollupInfo(info, env);
-                    break;
-                }
                 case OperationType.OP_RENAME_ROLLUP: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameRollup(info);
