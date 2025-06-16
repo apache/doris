@@ -755,6 +755,16 @@ public class IcebergUtils {
         String metastoreUris = catalogProperties.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
 
+        // TODO: This is a temporary solution to support Iceberg with Kerberos authentication.
+        // Because currently, DelegateFileIO only support hdfs file operation,
+        // and all we want to solve is to use the hdfs file operation in Iceberg to support Kerberos authentication.
+        // Later, we should always set FILE_IO_IMPL to DelegateFileIO for all kinds of storages.
+        if (catalogProperties.getOrDefault("hdfs.authentication.type", "").equalsIgnoreCase("kerberos")
+                || catalogProperties.getOrDefault("hadoop.security.authentication", "").equalsIgnoreCase("kerberos")) {
+            catalogProperties.put(CatalogProperties.FILE_IO_IMPL,
+                    "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+        }
+
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
     }

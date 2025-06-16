@@ -61,6 +61,17 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         HadoopCatalog hadoopCatalog = new HadoopCatalog();
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
+
+        // TODO: This is a temporary solution to support Iceberg with Kerberos authentication.
+        // Because currently, DelegateFileIO only support hdfs file operation,
+        // and all we want to solve is to use the hdfs file operation in Iceberg to support Kerberos authentication.
+        // Later, we should always set FILE_IO_IMPL to DelegateFileIO for all kinds of storages.
+        if (catalogProperties.getOrDefault("hdfs.authentication.type", "").equalsIgnoreCase("kerberos")
+                || catalogProperties.getOrDefault("hadoop.security.authentication", "").equalsIgnoreCase("kerberos")) {
+            catalogProperties.put(CatalogProperties.FILE_IO_IMPL,
+                    "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+        }
+
         try {
             this.catalog = preExecutionAuthenticator.execute(() -> {
                 hadoopCatalog.initialize(getName(), catalogProperties);
