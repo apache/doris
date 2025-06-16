@@ -51,6 +51,9 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     String hivePrefix = "hive3"
     setHivePrefix(hivePrefix)
 
+    hive_docker """ set hive.stats.column.autogather = false; """
+    hive_docker """ set hive.stats.column.autogather = true; """
+
     String tableName1 = """${suiteName}_tb1"""
     String tableName2 = """${suiteName}_tb2"""
     String tableName3 = """${suiteName}_tb3"""
