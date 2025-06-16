@@ -18,11 +18,22 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -51,11 +62,13 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Getter
     @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
+            required = false,
             description = "The access key of S3.")
     protected String accessKey = "";
 
     @Getter
     @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
+            required = false,
             description = "The secret key of S3.")
     protected String secretKey = "";
 
@@ -90,14 +103,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             description = "The sts region of S3.")
     protected String s3StsRegion = "";
 
-    @ConnectorProperty(names = {"s3.iam_role"},
-            supported = false,
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN"},
             required = false,
             description = "The iam role of S3.")
     protected String s3IAMRole = "";
 
-    @ConnectorProperty(names = {"s3.external_id"},
-            supported = false,
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID"},
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
@@ -122,6 +133,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         super(Type.S3, origProps);
     }
 
+    @Override
+    protected void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        if (StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey)) {
+            return;
+        }
+        if (StringUtils.isNotBlank(s3ExternalId) && StringUtils.isNotBlank(s3IAMRole)) {
+            return;
+        }
+        throw new StoragePropertiesException("Please set s3.access_key and s3.secret_key or s3.role_arn and "
+                + "s3.external_id");
+    }
 
     /**
      * Guess if the storage properties is for this storage type.
@@ -195,7 +218,42 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     @Override
     public Map<String, String> getBackendConfigProperties() {
-        return generateBackendS3Configuration(s3ConnectionMaximum,
+        Map<String, String> backendProperties = generateBackendS3Configuration(s3ConnectionMaximum,
                 s3ConnectionRequestTimeoutS, s3ConnectionTimeoutS, String.valueOf(usePathStyle));
+
+        if (StringUtils.isNotBlank(s3ExternalId)
+                && StringUtils.isNotBlank(s3IAMRole)) {
+            backendProperties.put("AWS_ROLE_ARN", s3IAMRole);
+            backendProperties.put("AWS_EXTERNAL_ID", s3ExternalId);
+        }
+        return backendProperties;
     }
+
+    @Override
+    public AwsCredentialsProvider getAwsCredentialsProvider() {
+        AwsCredentialsProvider credentialsProvider = super.getAwsCredentialsProvider();
+        if (credentialsProvider != null) {
+            return credentialsProvider;
+        }
+        if (StringUtils.isNotBlank(s3IAMRole)) {
+            StsClient stsClient = StsClient.builder()
+                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
+                    .build();
+
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(builder -> {
+                        builder.roleArn(s3IAMRole).roleSessionName("aws-sdk-java-v2-fe");
+                        if (!Strings.isNullOrEmpty(s3ExternalId)) {
+                            builder.externalId(s3ExternalId);
+                        }
+                    }).build();
+        }
+        return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
+                EnvironmentVariableCredentialsProvider.create(),
+                WebIdentityTokenFileCredentialsProvider.create(),
+                ProfileCredentialsProvider.create(),
+                InstanceProfileCredentialsProvider.create());
+    }
+
 }

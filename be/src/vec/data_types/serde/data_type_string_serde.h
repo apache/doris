@@ -41,10 +41,10 @@ class IColumn;
 class Arena;
 #include "common/compile_check_begin.h"
 
-inline void escape_string(const char* src, size_t& len, char escape_char) {
+inline void escape_string(const char* src, size_t* len, char escape_char) {
     const char* start = src;
     char* dest_ptr = const_cast<char*>(src);
-    const char* end = src + len;
+    const char* end = src + *len;
     bool escape_next_char = false;
 
     while (src < end) {
@@ -61,7 +61,32 @@ inline void escape_string(const char* src, size_t& len, char escape_char) {
         }
     }
 
-    len = dest_ptr - start;
+    *len = dest_ptr - start;
+}
+
+// specially escape quote with double quote
+inline void escape_string_for_csv(const char* src, size_t* len, char escape_char, char quote_char) {
+    const char* start = src;
+    char* dest_ptr = const_cast<char*>(src);
+    const char* end = src + *len;
+    bool escape_next_char = false;
+
+    while (src < end) {
+        if ((src < end - 1 && *src == quote_char && *(src + 1) == quote_char) ||
+            *src == escape_char) {
+            escape_next_char = !escape_next_char;
+        } else {
+            escape_next_char = false;
+        }
+
+        if (escape_next_char) {
+            ++src;
+        } else {
+            *dest_ptr++ = *src++;
+        }
+    }
+
+    *len = dest_ptr - start;
 }
 
 template <typename ColumnType>
@@ -183,7 +208,16 @@ public:
             slice.trim_quote();
         }
         if (options.escape_char != 0) {
-            escape_string(slice.data, slice.size, options.escape_char);
+            escape_string(slice.data, &slice.size, options.escape_char);
+        }
+        assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
+        return Status::OK();
+    }
+
+    Status deserialize_one_cell_from_csv(IColumn& column, Slice& slice,
+                                         const FormatOptions& options) const override {
+        if (options.escape_char != 0) {
+            escape_string_for_csv(slice.data, &slice.size, options.escape_char, options.quote_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();
@@ -193,7 +227,7 @@ public:
             IColumn& column, Slice& slice, const FormatOptions& options,
             int hive_text_complex_type_delimiter_level = 1) const override {
         if (options.escape_char != 0) {
-            escape_string(slice.data, slice.size, options.escape_char);
+            escape_string(slice.data, &slice.size, options.escape_char);
         }
         assert_cast<ColumnType&>(column).insert_data(slice.data, slice.size);
         return Status::OK();
@@ -271,25 +305,41 @@ public:
         assert_cast<ColumnType&>(column).insert_data(blob->getBlob(), blob->getBlobLen());
     }
 
-    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                               const cctz::time_zone& ctz) const override {
+    template <typename BuilderType>
+    Status write_column_to_arrow_impl(const IColumn& column, const NullMap* null_map,
+                                      BuilderType& builder, int64_t start, int64_t end) const {
         const auto& string_column = assert_cast<const ColumnType&>(column);
-        auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t string_i = start; string_i < end; ++string_i) {
             if (null_map && (*null_map)[string_i]) {
-                checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                 array_builder->type()->name());
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
+                                                 builder.type()->name()));
                 continue;
             }
             auto string_ref = string_column.get_data_at(string_i);
-            checkArrowStatus(
+            RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(string_ref.data, cast_set<int, size_t, false>(string_ref.size)),
-                    column.get_name(), array_builder->type()->name());
+                    column.get_name(), builder.type()->name()));
+        }
+        return Status::OK();
+    }
+
+    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                 arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                 const cctz::time_zone& ctz) const override {
+        if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
+            auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
+            return write_column_to_arrow_impl(column, null_map, builder, start, end);
+        } else if (array_builder->type()->id() == arrow::Type::STRING) {
+            auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+            return write_column_to_arrow_impl(column, null_map, builder, start, end);
+        } else {
+            return Status::InvalidArgument("Unsupported arrow type for string column: {}",
+                                           array_builder->type()->name());
         }
     }
-    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                int64_t end, const cctz::time_zone& ctz) const override {
+
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override {
         if (arrow_array->type_id() == arrow::Type::STRING ||
             arrow_array->type_id() == arrow::Type::BINARY) {
             const auto* concrete_array = dynamic_cast<const arrow::BinaryArray*>(arrow_array);
@@ -318,7 +368,25 @@ public:
                     assert_cast<ColumnType&>(column).insert_default();
                 }
             }
+        } else if (arrow_array->type_id() == arrow::Type::LARGE_STRING ||
+                   arrow_array->type_id() == arrow::Type::LARGE_BINARY) {
+            const auto* concrete_array = dynamic_cast<const arrow::LargeBinaryArray*>(arrow_array);
+            std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+
+            for (auto offset_i = start; offset_i < end; ++offset_i) {
+                if (!concrete_array->IsNull(offset_i)) {
+                    const auto* raw_data = buffer->data() + concrete_array->value_offset(offset_i);
+                    assert_cast<ColumnType&>(column).insert_data(
+                            (char*)raw_data, concrete_array->value_length(offset_i));
+                } else {
+                    assert_cast<ColumnType&>(column).insert_default();
+                }
+            }
+        } else {
+            return Status::InvalidArgument("Unsupported arrow type for string column: {}",
+                                           arrow_array->type_id());
         }
+        return Status::OK();
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,

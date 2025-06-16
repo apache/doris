@@ -34,7 +34,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -54,24 +53,33 @@ class FunctionContext;
 namespace doris::vectorized {
 
 struct ArrayContainsAction {
-    using ResultType = UInt8;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BOOLEAN;
     static constexpr auto name = "array_contains";
     static constexpr const bool resume_execution = false;
-    static constexpr void apply(ResultType& current, size_t) noexcept { current = 1; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t) noexcept {
+        current = 1;
+    }
 };
 
 struct ArrayPositionAction {
-    using ResultType = Int64;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "array_position";
     static constexpr const bool resume_execution = false;
-    static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t j) noexcept {
+        current = j + 1;
+    }
 };
 
 struct ArrayCountEqual {
-    using ResultType = Int64;
+    static constexpr auto ResultType = PrimitiveType::TYPE_BIGINT;
     static constexpr auto name = "countequal";
     static constexpr const bool resume_execution = true;
-    static constexpr void apply(ResultType& current, size_t j) noexcept { ++current; }
+    static constexpr void apply(typename PrimitiveTypeTraits<ResultType>::CppType& current,
+                                size_t j) noexcept {
+        ++current;
+    }
 };
 
 struct ParamValue {
@@ -82,7 +90,7 @@ struct ParamValue {
 template <typename ConcreteAction>
 class FunctionArrayIndex : public IFunction {
 public:
-    using ResultType = typename ConcreteAction::ResultType;
+    static constexpr auto ResultType = ConcreteAction::ResultType;
 
     static constexpr auto name = ConcreteAction::name;
     static FunctionPtr create() { return std::make_shared<FunctionArrayIndex>(); }
@@ -184,9 +192,10 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (arguments[0]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeNumber<ResultType>>());
+            return make_nullable(
+                    std::make_shared<typename PrimitiveTypeTraits<ResultType>::DataType>());
         } else {
-            return std::make_shared<DataTypeNumber<ResultType>>();
+            return std::make_shared<typename PrimitiveTypeTraits<ResultType>::DataType>();
         }
     }
 
@@ -217,7 +226,7 @@ private:
         const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
@@ -229,7 +238,7 @@ private:
                 continue;
             }
             dst_null_data[row] = false;
-            ResultType res = 0;
+            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
 
@@ -286,7 +295,7 @@ private:
         const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
         auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
@@ -298,7 +307,7 @@ private:
                 continue;
             }
             dst_null_data[row] = false;
-            ResultType res = 0;
+            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             for (size_t pos = 0; pos < len; ++pos) {

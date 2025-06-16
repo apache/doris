@@ -42,18 +42,19 @@ class IColumn;
 
 namespace doris::vectorized {
 
-class DataTypeIPv6 final : public DataTypeNumberBase<IPv6> {
+class DataTypeIPv6 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV6> {
 public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_IPV6; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_IPV6;
     }
-    const char* get_family_name() const override { return "IPv6"; }
+    const std::string get_family_name() const override { return "IPv6"; }
     std::string do_get_name() const override { return "IPv6"; }
 
     bool equals(const IDataType& rhs) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<IPv6>::template to_string_batch_impl<DataTypeIPv6>(column, column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_IPV6>::template to_string_batch_impl<DataTypeIPv6>(
+                column, column_to);
     }
 
     size_t number_length() const;

@@ -864,8 +864,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         }
     } else {
         const IColumn::Filter& filter =
-                assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
-                        .get_data();
+                assert_cast<const doris::vectorized::ColumnUInt8&>(*filter_column).get_data();
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 

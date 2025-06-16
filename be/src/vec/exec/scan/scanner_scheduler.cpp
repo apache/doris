@@ -64,32 +64,10 @@ void ScannerScheduler::stop() {
     _limited_scan_thread_pool->shutdown();
     _limited_scan_thread_pool->wait();
 
-    _local_scan_thread_pool->stop();
-    _remote_scan_thread_pool->stop();
-
     LOG(INFO) << "ScannerScheduler stopped";
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
-    // 1. local scan thread pool
-    _local_scan_thread_pool =
-            std::make_unique<vectorized::SimplifiedScanScheduler>("local_scan", nullptr);
-    Status ret1 = _local_scan_thread_pool->start(config::doris_scanner_thread_pool_thread_num,
-                                                 config::doris_scanner_thread_pool_thread_num,
-                                                 config::doris_scanner_thread_pool_queue_size);
-    RETURN_IF_ERROR(ret1);
-
-    // 2. remote scan thread pool
-    _remote_thread_pool_max_thread_num = ScannerScheduler::get_remote_scan_thread_num();
-    int remote_scan_pool_queue_size = ScannerScheduler::get_remote_scan_thread_queue_size();
-    _remote_scan_thread_pool =
-            std::make_unique<vectorized::SimplifiedScanScheduler>("RemoteScanThreadPool", nullptr);
-    Status ret2 = _remote_scan_thread_pool->start(_remote_thread_pool_max_thread_num,
-                                                  config::doris_scanner_min_thread_pool_thread_num,
-                                                  remote_scan_pool_queue_size);
-    RETURN_IF_ERROR(ret2);
-
-    // 3. limited scan thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("LimitedScanThreadPool")
                             .set_min_threads(config::doris_scanner_thread_pool_thread_num)
                             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
@@ -402,11 +380,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 }
 
 int ScannerScheduler::get_remote_scan_thread_num() {
-    int remote_max_thread_num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
-                                        ? config::doris_max_remote_scanner_thread_pool_thread_num
-                                        : std::max(512, CpuInfo::num_cores() * 10);
-    remote_max_thread_num =
-            std::max(remote_max_thread_num, config::doris_scanner_thread_pool_thread_num);
+    static int remote_max_thread_num = []() {
+        int num = config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                          ? config::doris_max_remote_scanner_thread_pool_thread_num
+                          : std::max(512, CpuInfo::num_cores() * 10);
+        return std::max(num, config::doris_scanner_thread_pool_thread_num);
+    }();
     return remote_max_thread_num;
 }
 

@@ -67,8 +67,10 @@ import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -914,6 +916,16 @@ public class Auth implements Writable {
         }
     }
 
+    // revoke table
+    public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
+        if (command.getTablePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getTablePattern(), privs, command.getColPrivileges(),
+                    true /* err on non exist */, false /* is replay */);
+        }
+    }
+
     public void replayRevoke(PrivInfo info) {
         try {
             PrivBitSet privs = info.getPrivs();
@@ -1091,6 +1103,10 @@ public class Auth implements Writable {
 
     public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
         ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
+    }
+
+    public void refreshLdap(RefreshLdapCommand command) {
+        ldapManager.refresh(command.getIsAll(), command.getUser());
     }
 
     // create role

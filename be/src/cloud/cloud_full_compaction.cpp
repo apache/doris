@@ -182,7 +182,9 @@ Status CloudFullCompaction::execute_compact() {
             .tag("output_segments", _output_rowset->num_segments())
             .tag("output_rowset_data_size", _output_rowset->data_disk_size())
             .tag("output_rowset_index_size", _output_rowset->index_disk_size())
-            .tag("output_rowset_total_size", _output_rowset->total_disk_size());
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size())
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     _state = CompactionState::SUCCESS;
 
@@ -234,7 +236,6 @@ Status CloudFullCompaction::modify_rowsets() {
 
     DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.block", DBUG_BLOCK);
 
-    DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(this->initiator()));
@@ -268,9 +269,6 @@ Status CloudFullCompaction::modify_rowsets() {
         cloud_tablet()->add_rowsets({_output_rowset}, false, wrlock);
         cloud_tablet()->set_base_compaction_cnt(stats.base_compaction_cnt());
         cloud_tablet()->set_cumulative_layer_point(stats.cumulative_point());
-        if (output_rowset_delete_bitmap) {
-            _tablet->tablet_meta()->delete_bitmap().merge(*output_rowset_delete_bitmap);
-        }
         if (stats.cumulative_compaction_cnt() >= cloud_tablet()->cumulative_compaction_cnt()) {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                                     stats.num_rows(), stats.data_size());

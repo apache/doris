@@ -594,6 +594,8 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         // So dont need to sync it.
         if (options.sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
+            DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.sync_tablet_delete_bitmap.block",
+                            DBUG_BLOCK);
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
@@ -906,7 +908,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     return Status::OK();
 }
 
-Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
+Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -918,6 +920,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
+    req.set_tablet_job_id(job_id);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -935,7 +938,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
+Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -948,6 +951,7 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
+    req.set_tablet_job_id(job_id);
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -1302,10 +1306,12 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
-Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                             DeleteBitmap* delete_bitmap) {
-    LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
-              << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
+Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(
+        const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
+        std::map<std::string, int64_t>& rowset_to_versions, int64_t pre_rowset_agg_start_version,
+        int64_t pre_rowset_agg_end_version) {
+    LOG(INFO) << "cloud_update_delete_bitmap_without_lock, tablet_id: " << tablet.tablet_id()
+              << ", delete_bitmap size: " << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1314,16 +1320,29 @@ Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& 
     req.set_tablet_id(tablet.tablet_id());
     // use a fake lock id to resolve compatibility issues
     req.set_lock_id(-3);
-    req.set_unlock(true);
+    req.set_without_lock(true);
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
         req.add_versions(std::get<2>(key));
+        if (pre_rowset_agg_end_version > 0) {
+            DCHECK(rowset_to_versions.find(std::get<0>(key).to_string()) !=
+                   rowset_to_versions.end())
+                    << "rowset_to_versions not found for key=" << std::get<0>(key).to_string();
+            req.add_pre_rowset_versions(rowset_to_versions[std::get<0>(key).to_string()]);
+        }
+        DCHECK(pre_rowset_agg_end_version <= 0 || pre_rowset_agg_end_version == std::get<2>(key))
+                << "pre_rowset_agg_end_version=" << pre_rowset_agg_end_version
+                << " not equal to version=" << std::get<2>(key);
         // To save space, convert array and bitmap containers to run containers
         bitmap.runOptimize();
         std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
         bitmap.write(bitmap_data.data());
         *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    }
+    if (pre_rowset_agg_start_version > 0 && pre_rowset_agg_end_version > 0) {
+        req.set_pre_rowset_agg_start_version(pre_rowset_agg_start_version);
+        req.set_pre_rowset_agg_end_version(pre_rowset_agg_end_version);
     }
     return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
 }
@@ -1415,24 +1434,6 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
                      << ",tablet_id=" << tablet_id << ",lock_id=" << lock_id
                      << ",st=" << st.to_string();
     }
-}
-
-Status CloudMetaMgr::remove_old_version_delete_bitmap(
-        int64_t tablet_id,
-        const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete) {
-    LOG(INFO) << "remove_old_version_delete_bitmap , tablet_id: " << tablet_id;
-    RemoveDeleteBitmapRequest req;
-    RemoveDeleteBitmapResponse res;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_tablet_id(tablet_id);
-    for (auto& value : to_delete) {
-        req.add_rowset_ids(std::get<0>(value));
-        req.add_begin_versions(std::get<1>(value));
-        req.add_end_versions(std::get<2>(value));
-    }
-    auto st = retry_rpc("remove old delete bitmap", req, &res,
-                        &MetaService_Stub::remove_delete_bitmap);
-    return st;
 }
 
 void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {

@@ -33,7 +33,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -230,18 +229,17 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
     return Status::OK();
 }
 
-template <typename A, typename Op>
+template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
-    using ResultType = typename Op::ResultType;
     using ArrayA = typename ColumnVector<A>::Container;
-    using ArrayC = typename ColumnVector<ResultType>::Container;
+    using ArrayC = typename ColumnVector<Op::ResultType>::Container;
 
     static void NO_INLINE vector(const ArrayA& a, ArrayC& c) {
         std::transform(a.cbegin(), a.cend(), c.begin(), [](const auto x) { return Op::apply(x); });
     }
 };
 
-template <template <typename> class Impl, typename Name>
+template <template <PrimitiveType> class Impl, typename Name>
 DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
         const DataTypes& arguments) const {
     if (!is_native_number(arguments[0]->get_primitive_type())) {
@@ -253,7 +251,7 @@ DataTypePtr FunctionUnaryLogical<Impl, Name>::get_return_type_impl(
     return std::make_shared<DataTypeUInt8>();
 }
 
-template <template <typename> class Impl, typename T>
+template <template <PrimitiveType> class Impl, PrimitiveType T>
 bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size_t result) {
     if (auto col = check_and_get_column<ColumnVector<T>>(
                 block.get_by_position(arguments[0]).column.get())) {
@@ -270,12 +268,12 @@ bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size
     return false;
 }
 
-template <template <typename> class Impl, typename Name>
+template <template <PrimitiveType> class Impl, typename Name>
 Status FunctionUnaryLogical<Impl, Name>::execute_impl(FunctionContext* context, Block& block,
                                                       const ColumnNumbers& arguments,
                                                       uint32_t result,
                                                       size_t /*input_rows_count*/) const {
-    if (!functionUnaryExecuteType<Impl, UInt8>(block, arguments, result)) {
+    if (!functionUnaryExecuteType<Impl, TYPE_BOOLEAN>(block, arguments, result)) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                "Illegal column {} of argument of function {}",
                                block.get_by_position(arguments[0]).column->get_name(), get_name());

@@ -318,12 +318,6 @@ private:
             for (auto cid = 0; cid < num_keys; cid++) {
                 auto* field = key.schema()->column(cid);
                 _short_key[cid] = Schema::get_column_by_field(*field);
-
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                    _short_key[cid]->set_date_type();
-                } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                    _short_key[cid]->set_datetime_type();
-                }
             }
         } else {
             for (int i = 0; i < num_keys; i++) {

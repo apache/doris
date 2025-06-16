@@ -28,6 +28,8 @@
 #include <vector>
 
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/id_manager.h"
+#include "olap/utils.h"
 #include "vec/columns/column.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vec/exprs/vexpr_fwd.h"
@@ -158,10 +160,20 @@ public:
     Status next_batch(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     int64_t lazy_read_filtered_rows() const { return _lazy_read_filtered_rows; }
     int64_t predicate_filter_time() const { return _predicate_filter_time; }
+    int64_t dict_filter_rewrite_time() const { return _dict_filter_rewrite_time; }
 
     ParquetColumnReader::Statistics statistics();
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
     int64_t get_remaining_rows() { return _remaining_rows; }
+
+    void set_row_id_column_iterator(
+            const std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int>& iterator_pair) {
+        _row_id_column_iterator_pair = iterator_pair;
+    }
+
+    void set_current_row_group_idx(RowGroupIndex row_group_idx) {
+        _current_row_group_idx = row_group_idx;
+    }
 
 protected:
     void _collect_profile_before_close() override {
@@ -172,7 +184,8 @@ protected:
 
 private:
     void _merge_read_ranges(std::vector<RowRange>& row_ranges);
-    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
+    Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
+                             bool* modify_row_ids);
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
                              FilterMap& filter_map);
@@ -198,6 +211,9 @@ private:
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
     void _convert_dict_cols_to_string_cols(Block* block);
 
+    Status _get_current_batch_row_id(size_t read_rows);
+    Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
+
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
     const std::vector<std::string>& _read_columns;
@@ -213,6 +229,7 @@ private:
     const LazyReadContext& _lazy_read_ctx;
     int64_t _lazy_read_filtered_rows = 0;
     int64_t _predicate_filter_time = 0;
+    int64_t _dict_filter_rewrite_time = 0;
     // If continuous batches are skipped, we can cache them to skip a whole page
     size_t _cached_filtered_rows = 0;
     std::unique_ptr<IColumn::Filter> _pos_delete_filter_ptr;
@@ -228,6 +245,11 @@ private:
     RuntimeState* _state = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
     bool _is_row_group_filtered = false;
+
+    RowGroupIndex _current_row_group_idx {0, 0, 0};
+    std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
+                                                                                           -1};
+    std::vector<rowid_t> _current_batch_row_ids;
 };
 #include "common/compile_check_end.h"
 

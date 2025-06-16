@@ -28,7 +28,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::pipeline {
@@ -173,7 +172,7 @@ typename HashTableType::State ProcessHashTableProbe<JoinOpType>::_init_probe_sid
 
     if (!_parent->_ready_probe) {
         _parent->_ready_probe = true;
-        hash_table_ctx.reset();
+        hash_table_ctx.arena.clear();
         // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
         if (_parent->_probe_columns.size() == 1 && null_map) {
             _parent->_probe_columns[0]->assume_mutable()->replace_column_null_data(null_map);
@@ -336,9 +335,8 @@ Status ProcessHashTableProbe<JoinOpType>::finalize_block_with_filter(
     }
 
     auto do_lazy_materialize = [&](const std::vector<bool>& output_slot_flags,
-                                   vectorized::ColumnVector<unsigned int>& row_indexs,
-                                   int column_offset, vectorized::Block* source_block,
-                                   bool try_all_match_one) {
+                                   vectorized::ColumnOffset32& row_indexs, int column_offset,
+                                   vectorized::Block* source_block, bool try_all_match_one) {
         std::vector<int> column_ids;
         for (int i = 0; i < output_slot_flags.size(); ++i) {
             if (output_slot_flags[i] &&

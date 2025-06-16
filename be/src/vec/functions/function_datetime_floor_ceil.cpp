@@ -87,7 +87,8 @@ class FunctionDateTimeFloorCeil : public IFunction {
 public:
     using DateValueType = date_cast::TypeToValueTypeV<DateType>;
     using NativeType = DateType::FieldType;
-    using DeltaDataType = DataTypeNumber<Int32>;
+    static constexpr PrimitiveType PType = DateType::PType;
+    using DeltaDataType = DataTypeInt32;
     // return date type = DateType
     static constexpr auto name = Flag::name;
 
@@ -123,11 +124,10 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (const auto* sources =
-                    check_and_get_column<ColumnVector<NativeType>>(source_col.get())) {
-            auto col_to = ColumnVector<NativeType>::create();
+        if (const auto* sources = check_and_get_column<ColumnVector<PType>>(source_col.get())) {
+            auto col_to = ColumnVector<PType>::create();
             col_to->resize(input_rows_count);
-            auto null_map = ColumnVector<UInt8>::create();
+            auto null_map = ColumnUInt8::create();
             null_map->get_data().resize_fill(input_rows_count, false);
 
             if constexpr (ArgNum == 1) {
@@ -150,13 +150,13 @@ public:
                     }
                 } else {
                     if (const auto* delta_vec_column0 =
-                                check_and_get_column<ColumnVector<NativeType>>(delta_column)) {
+                                check_and_get_column<ColumnVector<PType>>(delta_column)) {
                         // time_round(datetime, origin)
                         vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
                                              col_to->get_data(), null_map->get_data());
                     } else {
                         const auto* delta_vec_column1 =
-                                check_and_get_column<ColumnVector<Int32>>(delta_column);
+                                check_and_get_column<ColumnInt32>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         // time_round(datetime, period)
                         vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
@@ -181,8 +181,7 @@ public:
                 } else if (arg1_const && !arg2_const) {
                     Field arg1;
                     arg1_col->get(0, arg1);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     // time_round(datetime, const(period), origin)
                     vector_const_vector(sources->get_data(), arg1.get<Int32>(),
                                         arg2_column->get_data(), col_to->get_data(),
@@ -190,15 +189,14 @@ public:
                 } else if (!arg1_const && arg2_const) {
                     Field arg2;
                     arg2_col->get(0, arg2);
-                    const auto* arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
                     // time_round(datetime, period, const(origin))
                     vector_vector_const(sources->get_data(), arg1_column->get_data(),
                                         arg2.get<NativeType>(), col_to->get_data(),
                                         null_map->get_data());
                 } else {
-                    const auto* arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     DCHECK(arg1_column != nullptr);
                     DCHECK(arg2_column != nullptr);
                     // time_round(datetime, period, origin)
