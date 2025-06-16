@@ -77,6 +77,7 @@ PipelineTaskSPtr PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
     if (task) {
         task->update_queue_level(level);
         _total_task_size--;
+        DorisMetrics::instance()->pipeline_task_queue_size->increment(-1);
     }
     return task;
 }
@@ -126,6 +127,7 @@ Status PriorityTaskQueue::push(PipelineTaskSPtr task) {
 
     _sub_queues[level].push_back(task);
     _total_task_size++;
+    DorisMetrics::instance()->pipeline_task_queue_size->increment(1);
     _wait_task.notify_one();
     return Status::OK();
 }

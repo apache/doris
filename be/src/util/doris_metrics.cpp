@@ -227,6 +227,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_ctx_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_ctx_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(scanner_task_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(pipeline_task_queue_size, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_num, MetricUnit::NOUNIT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(runtime_filter_consumer_ready_num, MetricUnit::NOUNIT);
@@ -390,6 +391,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_time_ms);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_remote_tablet_slow_cnt);
+
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, pipeline_task_queue_size);
 }
 
 void DorisMetrics::initialize(bool init_system_metrics, const std::set<std::string>& disk_devices,
