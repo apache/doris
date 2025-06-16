@@ -117,8 +117,8 @@ suite("test_ttl_lru_evict") {
 
     def show_be_config = { String ip, String port /*param */ ->
         def url = String.format("http://%s:%s/api/show_config", ip, port)
-        // Use Http.GET with authentication parameters
-        def result = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
+        // Use Http.GET with authentication parameters to get raw JSON string response
+        def result = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
         return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
     }
 

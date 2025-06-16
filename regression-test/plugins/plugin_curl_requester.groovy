@@ -165,16 +165,18 @@ logger.info("Added 'curl' function to Suite")
 
 Suite.metaClass.show_be_config = { String ip, String port /*param */ ->
     def url = String.format("http://%s:%s/api/show_config", ip, port)
-    // Use httpGet method which handles authentication automatically
-    return httpGet(url, true)
+    // Use Http.GET with authentication parameters to get raw response
+    def result = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 logger.info("Added 'show_be_config' function to Suite")
 
 Suite.metaClass.update_be_config = { String ip, String port, String key, String value /*param */ ->
     def url = String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value)
-    // Use httpPost method which handles authentication automatically
-    return httpPost(url, null, true)
+    // Use Http.POST with authentication parameters to get raw response
+    def result = Http.POST(url, null, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 logger.info("Added 'update_be_config' function to Suite")
