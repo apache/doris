@@ -101,6 +101,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     private MetaCache<T> metaCache;
 
+    private volatile boolean isInitializing = false;
+
     /**
      * Create external database.
      *
@@ -154,39 +156,49 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public final synchronized void makeSureInitialized() {
-        extCatalog.makeSureInitialized();
-        if (!initialized) {
-            if (extCatalog.getUseMetaCache().get()) {
-                if (metaCache == null) {
-                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                            name,
-                            OptionalLong.of(86400L),
-                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_meta_object_cache_num,
-                            ignored -> listTableNames(),
-                            localTableName -> Optional.ofNullable(
-                                    buildTableForInit(null, localTableName,
-                                            Util.genIdByName(extCatalog.getName(), name, localTableName), extCatalog,
-                                            this, true)),
-                            (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
-                }
-                setLastUpdateTime(System.currentTimeMillis());
-            } else {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                    try {
-                        remoteExecutor.forward(extCatalog.getId(), id);
-                    } catch (Exception e) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("failed to forward init external db %s operation to master", name), e);
+        if (isInitializing) {
+            return;
+        }
+        isInitializing = true;
+        try {
+            extCatalog.makeSureInitialized();
+            if (!initialized) {
+                if (extCatalog.getUseMetaCache().get()) {
+                    if (metaCache == null) {
+                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                                name,
+                                OptionalLong.of(86400L),
+                                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                                Config.max_meta_object_cache_num,
+                                ignored -> listTableNames(),
+                                localTableName -> Optional.ofNullable(
+                                        buildTableForInit(null, localTableName,
+                                                Util.genIdByName(extCatalog.getName(), name, localTableName),
+                                                extCatalog,
+                                                this, true)),
+                                (key, value, cause) -> value.ifPresent(ExternalTable::unsetObjectCreated));
                     }
-                    return;
+                    setLastUpdateTime(System.currentTimeMillis());
+                } else {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        // Forward to master and wait the journal to replay.
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
+                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                        try {
+                            remoteExecutor.forward(extCatalog.getId(), id);
+                        } catch (Exception e) {
+                            Util.logAndThrowRuntimeException(LOG,
+                                    String.format("failed to forward init external db %s operation to master", name),
+                                    e);
+                        }
+                        return;
+                    }
+                    init();
                 }
-                init();
+                initialized = true;
             }
-            initialized = true;
+        } finally {
+            isInitializing = false;
         }
     }
 
