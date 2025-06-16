@@ -308,6 +308,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 }
             }
             Set<Expression> pullPredicates = new LinkedHashSet<>(childPredicates);
+            boolean isScalar = aggregate.getGroupByExpressions().isEmpty();
             for (Expression childPredicate : childPredicates) {
                 if (childPredicate instanceof ComparisonPredicate) {
                     ComparisonPredicate cmp = (ComparisonPredicate) childPredicate;
@@ -317,7 +318,12 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                             Expression genPredicates = TypeCoercionUtils.processComparisonPredicate(
                                      (ComparisonPredicate) cmp.withChildren(slot, cmp.right()));
                             genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
-                            pullPredicates.add(new Or(new IsNull(slot), genPredicates));
+                            if (isScalar) {
+                                // Aggregation will return null if there are no matching rows
+                                pullPredicates.add(new Or(new IsNull(slot), genPredicates));
+                            } else {
+                                pullPredicates.add(genPredicates);
+                            }
                         }
                     }
                 }

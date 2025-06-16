@@ -38,7 +38,8 @@ PhysicalResultSink
 ----------hashAgg[LOCAL]
 ------------filter((test_pull_up_agg_t1.a <= 10) and (test_pull_up_agg_t1.c < 200))
 --------------PhysicalOlapScan[test_pull_up_agg_t1]
---------PhysicalOlapScan[test_pull_up_agg_t2]
+--------filter((t2.a <= 10) and (t2.c < 200))
+----------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !max_less_less_equal_without_group_by_shape --
 PhysicalResultSink
