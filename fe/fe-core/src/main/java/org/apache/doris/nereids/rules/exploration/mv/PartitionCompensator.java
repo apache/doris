@@ -182,7 +182,6 @@ public class PartitionCompensator {
         tableLoop:
         for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
-            Set<String> customRelationIdSetUsedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
                     tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
             if (!tableUsedPartitions.isEmpty()) {
@@ -191,19 +190,23 @@ public class PartitionCompensator {
                     continue;
                 }
                 for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
-                    if (customRelationIdSet.get(partitionPair.key().asInt())) {
-                        customRelationIdSetUsedPartitionSet.addAll(partitionPair.value());
+                    if (!customRelationIdSet.isEmpty()) {
+                        if (ALL_PARTITIONS.equals(partitionPair)) {
+                            continue;
+                        }
+                        if (customRelationIdSet.get(partitionPair.key().asInt())) {
+                            usedPartitionSet.addAll(partitionPair.value());
+                        }
+                    } else {
+                        if (ALL_PARTITIONS.equals(partitionPair)) {
+                            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
+                            continue tableLoop;
+                        }
+                        usedPartitionSet.addAll(partitionPair.value());
                     }
-                    if (ALL_PARTITIONS.equals(partitionPair)) {
-                        queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                        continue tableLoop;
-                    }
-                    usedPartitionSet.addAll(partitionPair.value());
                 }
             }
-            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(),
-                    customRelationIdSetUsedPartitionSet.isEmpty()
-                            ? usedPartitionSet : customRelationIdSetUsedPartitionSet);
+            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);
         }
         return queryUsedRelatedTablePartitionsMap;
     }
