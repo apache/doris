@@ -104,7 +104,7 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         if (_has_remote_target) {
             return Status::InternalError("bitmap filter do not support remote target");
         }
-        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_OBJECT) {
+        if (build_ctx->root()->data_type()->get_primitive_type() != PrimitiveType::TYPE_BITMAP) {
             return Status::InternalError("Unexpected src expr type:{} for bitmap filter.",
                                          build_ctx->root()->data_type()->get_name());
         }

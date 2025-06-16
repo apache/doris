@@ -114,8 +114,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::HLL:
         return TYPE_HLL;
 
-    case TPrimitiveType::OBJECT:
-        return TYPE_OBJECT;
+    case TPrimitiveType::BITMAP:
+        return TYPE_BITMAP;
 
     case TPrimitiveType::QUANTILE_STATE:
         return TYPE_QUANTILE_STATE;
@@ -233,8 +233,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_HLL:
         return TPrimitiveType::HLL;
 
-    case TYPE_OBJECT:
-        return TPrimitiveType::OBJECT;
+    case TYPE_BITMAP:
+        return TPrimitiveType::BITMAP;
 
     case TYPE_QUANTILE_STATE:
         return TPrimitiveType::QUANTILE_STATE;
@@ -343,8 +343,8 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_HLL:
         return "HLL";
 
-    case TYPE_OBJECT:
-        return "OBJECT";
+    case TYPE_BITMAP:
+        return "BITMAP";
 
     case TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";

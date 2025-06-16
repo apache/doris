@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"

@@ -136,7 +136,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private boolean currentInLambda;
     private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
@@ -211,17 +210,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return expr;
     }
 
-    @Override
-    public Expression visitLambda(Lambda lambda, ExpressionRewriteContext context) {
-        boolean originInLambda = currentInLambda;
-        try {
-            currentInLambda = true;
-            return super.visitLambda(lambda, context);
-        } finally {
-            currentInLambda = originInLambda;
-        }
-    }
-
     /* ********************************************************************************************
      * bind slot
      * ******************************************************************************************** */
@@ -281,13 +269,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<? extends Expression> bounded = boundedOpt.get();
         switch (bounded.size()) {
             case 0:
-                if (!currentInLambda) {
-                    String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
-                    if (tableName.isEmpty()) {
-                        tableName = "table list";
-                    }
-                    couldNotFoundColumn(unboundSlot, tableName);
+                String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
+                if (tableName.isEmpty()) {
+                    tableName = "table list";
                 }
+                couldNotFoundColumn(unboundSlot, tableName);
                 return unboundSlot;
             case 1:
                 Expression firstBound = bounded.get(0);

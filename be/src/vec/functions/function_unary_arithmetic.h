@@ -30,10 +30,10 @@
 
 namespace doris::vectorized {
 
-template <typename A, typename Op>
+template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
     static constexpr PrimitiveType ResultType = Op::ResultType;
-    using ColVecA = std::conditional_t<IsDecimalNumber<A>, ColumnDecimal<A>, ColumnVector<A>>;
+    using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
     using ColVecC = typename PrimitiveTypeTraits<ResultType>::ColumnType;
     using ArrayA = typename ColVecA::Container;
     using ArrayC = typename ColVecC::Container;
@@ -43,7 +43,8 @@ struct UnaryOperationImpl {
         for (size_t i = 0; i < size; ++i) c[i] = Op::apply(a[i]);
     }
 
-    static void constant(A a, typename PrimitiveTypeTraits<ResultType>::CppType& c) {
+    static void constant(typename PrimitiveTypeTraits<A>::ColumnItemType a,
+                         typename PrimitiveTypeTraits<ResultType>::CppType& c) {
         c = Op::apply(a);
     }
 };
@@ -68,9 +69,9 @@ class FunctionUnaryArithmetic : public IFunction {
     static bool cast_type(const IDataType* type, F&& f) {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
                                    DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
-                                   DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128V2>, DataTypeDecimal<Decimal128V3>,
-                                   DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
+                                   DataTypeDecimal32, DataTypeDecimal64, DataTypeDecimalV2,
+                                   DataTypeDecimal128, DataTypeDecimal256>(type,
+                                                                           std::forward<F>(f));
     }
 
 public:
@@ -113,26 +114,28 @@ public:
 
                     if constexpr (IsDataTypeDecimal<DataType>) {
                         if constexpr (allow_decimal) {
-                            if (auto col = check_and_get_column<ColumnDecimal<T0>>(
+                            if (auto col = check_and_get_column<ColumnDecimal<DataType::PType>>(
                                         block.get_by_position(arguments[0]).column.get())) {
                                 auto col_res =
                                         PrimitiveTypeTraits<Op<T0>::ResultType>::ColumnType::create(
                                                 0, type.get_scale());
                                 auto& vec_res = col_res->get_data();
                                 vec_res.resize(col->get_data().size());
-                                UnaryOperationImpl<T0, Op<T0>>::vector(col->get_data(), vec_res);
+                                UnaryOperationImpl<DataType::PType, Op<T0>>::vector(col->get_data(),
+                                                                                    vec_res);
                                 block.replace_by_position(result, std::move(col_res));
                                 return true;
                             }
                         }
                     } else {
-                        if (auto col = check_and_get_column<ColumnVector<T0>>(
+                        if (auto col = check_and_get_column<ColumnVector<DataType::PType>>(
                                     block.get_by_position(arguments[0]).column.get())) {
                             auto col_res =
                                     PrimitiveTypeTraits<Op<T0>::ResultType>::ColumnType::create();
                             auto& vec_res = col_res->get_data();
                             vec_res.resize(col->get_data().size());
-                            UnaryOperationImpl<T0, Op<T0>>::vector(col->get_data(), vec_res);
+                            UnaryOperationImpl<DataType::PType, Op<T0>>::vector(col->get_data(),
+                                                                                vec_res);
                             block.replace_by_position(result, std::move(col_res));
                             return true;
                         }

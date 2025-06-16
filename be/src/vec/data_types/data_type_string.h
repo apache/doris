@@ -45,9 +45,10 @@ class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
+    static constexpr PrimitiveType PType = TYPE_STRING;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "String"; }
+    const std::string get_family_name() const override { return "String"; }
 
     DataTypeString(int len = -1, PrimitiveType primitive_type = PrimitiveType::TYPE_STRING)
             : _len(len), _primitive_type(primitive_type) {

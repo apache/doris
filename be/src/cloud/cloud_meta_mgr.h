@@ -69,10 +69,10 @@ public:
             CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
             const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta,
+    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta,
+    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -116,10 +116,6 @@ public:
 
     void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
                                           int64_t tablet_id);
-
-    Status remove_old_version_delete_bitmap(
-            int64_t tablet_id,
-            const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete);
 
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,

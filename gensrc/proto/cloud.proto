@@ -189,6 +189,7 @@ message ObjectStoreInfoPB {
         BOS     = 4;
         GCP     = 5;
         AZURE   = 6;
+        TOS     = 7;
     }
     optional int64 ctime = 1;
     optional int64 mtime = 2;
@@ -385,6 +386,7 @@ message TxnLabelPB {
 // txn_id -> db_id
 message TxnIndexPB {
     optional TabletIndexPB tablet_index = 1;
+    optional int64 parent_txn_id = 2;
 }
 
 message TxnInfoPB {
@@ -876,6 +878,7 @@ message AlterObjStoreInfoRequest {
         UPDATE_AK_SK    = 1;
         ADD_OBJ_INFO    = 2;
         LEGACY_UPDATE_AK_SK = 3;
+        ALTER_OBJ_INFO = 4;
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
@@ -974,6 +977,7 @@ message CreateRowsetRequest {
     optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
     optional int64 txn_id = 4;
+    optional string tablet_job_id = 5;
 }
 
 message CreateRowsetResponse {
@@ -1374,6 +1378,7 @@ enum MetaServiceCode {
     VERSION_NOT_FOUND = 2010;
     TABLET_NOT_FOUND = 2011;
     STALE_TABLET_CACHE = 2012;
+    STALE_PREPARE_ROWSET = 2013;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;

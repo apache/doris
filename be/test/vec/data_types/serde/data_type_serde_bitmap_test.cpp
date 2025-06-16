@@ -110,7 +110,6 @@ TEST(BitmapSerdeTest, serializeOneCellToJson) {
     column_bitmap->insert_value(BitmapValue(123));
     ASSERT_EQ(column_bitmap->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = bitmap_serde->serialize_one_cell_to_json(*column_bitmap, 0, buffer_writer,
@@ -153,7 +152,6 @@ TEST(BitmapSerdeTest, serializeColumnToJson) {
     column_bitmap->insert_value(BitmapValue(123));
     ASSERT_EQ(column_bitmap->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = bitmap_serde->serialize_column_to_json(*column_bitmap, 0, 2, buffer_writer,

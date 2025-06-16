@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <iterator>
 #include <random>
+#include <shared_mutex>
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
@@ -31,6 +32,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/calc_delete_bitmap_executor.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/delete_bitmap_calculator.h"
 #include "olap/iterators.h"
 #include "olap/memtable.h"
@@ -48,6 +50,7 @@
 #include "util/crc32c.h"
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
+#include "util/key_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -199,6 +202,7 @@ Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_
 }
 
 uint32_t BaseTablet::get_real_compaction_score() const {
+    std::shared_lock l(_meta_lock);
     const auto& rs_metas = _tablet_meta->all_rs_metas();
     return std::accumulate(rs_metas.begin(), rs_metas.end(), 0,
                            [](uint32_t score, const RowsetMetaSharedPtr& rs_meta) {
@@ -481,13 +485,14 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             delete_bitmap == nullptr ? _tablet_meta->delete_bitmap_ptr() : delete_bitmap;
     for (size_t i = 0; i < specified_rowsets.size(); i++) {
         const auto& rs = specified_rowsets[i];
-        const auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
+        std::vector<KeyBoundsPB> segments_key_bounds;
+        rs->rowset_meta()->get_segments_key_bounds(&segments_key_bounds);
         int num_segments = cast_set<int>(rs->num_segments());
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
-            if (key_without_seq.compare(segments_key_bounds[j].max_key()) > 0 ||
-                key_without_seq.compare(segments_key_bounds[j].min_key()) < 0) {
+            if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
+                                      rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
             picked_segments.emplace_back(j);
@@ -921,8 +926,8 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
         default_values[i] = tablet_column.default_value();
         serdes[i] = type->get_serde();
     }
-    vectorized::JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx, block,
-                                                   default_values, {});
+    RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+            serdes, *string_column, col_uid_to_idx, block, default_values, {}));
     return Status::OK();
 }
 
@@ -1829,6 +1834,8 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
             remove_delete_bitmap_key_ranges.emplace_back(start_key, end_key);
         }
     }
+    DBUG_EXECUTE_IF("BaseTablet.agg_delete_bitmap_for_stale_rowsets.merge_delete_bitmap.block",
+                    DBUG_BLOCK);
     tablet_meta()->delete_bitmap().merge(*new_delete_bitmap);
 }
 
@@ -2092,6 +2099,13 @@ void BaseTablet::get_base_rowset_delete_bitmap_count(
             LOG(WARNING) << "can not found base rowset for tablet " << tablet_id();
         }
     }
+}
+
+int32_t BaseTablet::max_version_config() {
+    int32_t max_version = tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
+                                  ? config::time_series_max_tablet_version_num
+                                  : config::max_tablet_version_num;
+    return max_version;
 }
 
 } // namespace doris

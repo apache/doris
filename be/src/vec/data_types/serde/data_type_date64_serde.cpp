@@ -42,24 +42,12 @@ Status DataTypeDate64SerDe<T>::serialize_one_cell_to_json(
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         bw.write('"');
     }
-    Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
-    if (options.date_olap_format) {
-        tm time_tm;
-        memset(&time_tm, 0, sizeof(time_tm));
-        time_tm.tm_mday = static_cast<int>(int_val & 31);
-        time_tm.tm_mon = static_cast<int>(int_val >> 5 & 15) - 1;
-        time_tm.tm_year = static_cast<int>(int_val >> 9) - 1900;
-        char buf[20] = {'\0'};
-        strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
-        std::string s = std::string(buf);
-        bw.write(s.c_str(), s.length());
-    } else {
-        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
+    Int64 int_val = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
-        char buf[64];
-        char* pos = value.to_string(buf);
-        bw.write(buf, pos - buf - 1);
-    }
+    char buf[64];
+    char* pos = value.to_string(buf);
+    bw.write(buf, pos - buf - 1);
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         bw.write('"');
     }
@@ -78,21 +66,12 @@ template <PrimitiveType T>
 Status DataTypeDate64SerDe<T>::deserialize_one_cell_from_json(
         IColumn& column, Slice& slice,
         const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnInt64&>(column);
+    auto& column_data = assert_cast<ColumnVector<T>&>(column);
     if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
         slice.trim_quote();
     }
     Int64 val = 0;
-    if (options.date_olap_format) {
-        tm time_tm;
-        char* res = strptime(slice.data, "%Y-%m-%d", &time_tm);
-        if (nullptr != res) {
-            val = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
-        } else {
-            // 1400 - 01 - 01
-            val = 716833;
-        }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
+    if (ReadBuffer rb(slice.data, slice.size); !read_date_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -112,29 +91,12 @@ Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, 
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
-    if (options.date_olap_format) {
-        tm time_tm;
-        int64 part1 = (int_val / 1000000L);
-        int64 part2 = (int_val - part1 * 1000000L);
-        time_tm.tm_year = static_cast<int>((part1 / 10000L) % 10000) - 1900;
-        time_tm.tm_mon = static_cast<int>((part1 / 100) % 100) - 1;
-        time_tm.tm_mday = static_cast<int>(part1 % 100);
+    Int64 int_val = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
+    doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
 
-        time_tm.tm_hour = static_cast<int>((part2 / 10000L) % 10000);
-        time_tm.tm_min = static_cast<int>((part2 / 100) % 100);
-        time_tm.tm_sec = static_cast<int>(part2 % 100);
-        char buf[20] = {'\0'};
-        strftime(buf, 20, "%Y-%m-%d %H:%M:%S", &time_tm);
-        std::string s = std::string(buf);
-        bw.write(s.c_str(), s.length());
-    } else {
-        doris::VecDateTimeValue value = binary_cast<Int64, doris::VecDateTimeValue>(int_val);
-
-        char buf[64];
-        char* pos = value.to_string(buf);
-        bw.write(buf, pos - buf - 1);
-    }
+    char buf[64];
+    char* pos = value.to_string(buf);
+    bw.write(buf, pos - buf - 1);
     return Status::OK();
 }
 
@@ -147,21 +109,9 @@ Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
 
 Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                              const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnInt64&>(column);
+    auto& column_data = assert_cast<ColumnDateTime&>(column);
     Int64 val = 0;
-    if (options.date_olap_format) {
-        tm time_tm;
-        char* res = strptime(slice.data, "%Y-%m-%d %H:%M:%S", &time_tm);
-        if (nullptr != res) {
-            val = ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L +
-                   time_tm.tm_mday) *
-                          1000000L +
-                  time_tm.tm_hour * 10000L + time_tm.tm_min * 100L + time_tm.tm_sec;
-        } else {
-            // 1400 - 01 - 01
-            val = 14000101000000L;
-        }
-    } else if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
+    if (ReadBuffer rb(slice.data, slice.size); !read_datetime_text_impl<Int64>(val, rb)) {
         return Status::InvalidArgument("parse datetime fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -181,7 +131,7 @@ Status DataTypeDate64SerDe<T>::write_column_to_arrow(const IColumn& column, cons
                                                      arrow::ArrayBuilder* array_builder,
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<const ColumnVector<T>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
@@ -224,7 +174,7 @@ Status DataTypeDate64SerDe<T>::_read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
     if (arrow_array->type()->id() == arrow::Type::DATE64) {
@@ -292,7 +242,7 @@ template <bool is_binary_format>
 Status DataTypeDate64SerDe<T>::_write_column_to_mysql(
         const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int64_t row_idx,
         bool col_const, const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
-    const auto& data = assert_cast<const ColumnVector<Int64>&>(column).get_data();
+    const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     auto time_num = data[col_index];
     VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
@@ -334,7 +284,7 @@ Status DataTypeDate64SerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end,
                                                    std::vector<StringRef>& buffer_list) const {
-    const auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
     auto& BUFFER_UNIT_SIZE = DataTypeNumberSerDe<T>::BUFFER_UNIT_SIZE;

@@ -49,7 +49,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/sip_hash.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -89,8 +88,8 @@ void block_to_pb(
 }
 
 void fill_block_with_array_int(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
-    auto data_column = vectorized::ColumnVector<int32_t>::create();
+    auto off_column = vectorized::ColumnOffset64::create();
+    auto data_column = vectorized::ColumnInt32::create();
     // init column array with [[1,2,3],[],[4],[5,6]]
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 3, 3, 4, 6};
     std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
@@ -111,7 +110,7 @@ void fill_block_with_array_int(vectorized::Block& block) {
 }
 
 void fill_block_with_array_string(vectorized::Block& block) {
-    auto off_column = vectorized::ColumnVector<vectorized::ColumnArray::Offset64>::create();
+    auto off_column = vectorized::ColumnOffset64::create();
     auto data_column = vectorized::ColumnString::create();
     // init column array with [["abc","de"],["fg"],[], [""]];
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
@@ -135,7 +134,7 @@ void fill_block_with_array_string(vectorized::Block& block) {
 void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_type) {
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -180,9 +179,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
         auto decimal_column = decimal_data_type->create_column();
-        auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                              decimal_column.get())
-                             ->get_data();
+        auto& data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
             data.push_back(value);
@@ -274,7 +271,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     }
     // int with 4096 batch size
     {
-        auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
+        auto column_vector_int32 = vectorized::ColumnInt32::create();
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
         auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
         for (int i = 0; i < 4096; i++) {
@@ -317,7 +314,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
 void serialize_and_deserialize_test_one() {
     // const int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         data.push_back(111);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 1);
@@ -342,7 +339,7 @@ void serialize_and_deserialize_test_one() {
 void serialize_and_deserialize_test_int() {
     // const int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         data.push_back(111);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
@@ -365,7 +362,7 @@ void serialize_and_deserialize_test_int() {
 
     // int
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -389,7 +386,7 @@ void serialize_and_deserialize_test_int() {
 void serialize_and_deserialize_test_long() {
     // const long
     {
-        auto vec = vectorized::ColumnVector<int64>::create();
+        auto vec = vectorized::ColumnInt64::create();
         auto& data = vec->get_data();
         data.push_back(111);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
@@ -412,7 +409,7 @@ void serialize_and_deserialize_test_long() {
 
     // long
     {
-        auto vec = vectorized::ColumnVector<int64>::create();
+        auto vec = vectorized::ColumnInt64::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -485,7 +482,7 @@ void serialize_and_deserialize_test_string() {
 void serialize_and_deserialize_test_nullable() {
     // nullable(const int)
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         data.push_back(111);
         auto nullable_column = vectorized::make_nullable(vec->get_ptr());
@@ -510,7 +507,7 @@ void serialize_and_deserialize_test_nullable() {
 
     // nullable(int)
     {
-        auto vec = vectorized::ColumnVector<Int32>::create();
+        auto vec = vectorized::ColumnInt32::create();
         auto& data = vec->get_data();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
@@ -585,8 +582,7 @@ void serialize_and_deserialize_test_decimal() {
         vectorized::Decimal<int> value = 111234;
         vec->insert_value(value);
         auto const_column = vectorized::ColumnConst::create(vec->get_ptr(), 10);
-        vectorized::DataTypePtr data_type(
-                std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6, 3));
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDecimal32>(6, 3));
         vectorized::ColumnWithTypeAndName type_and_name(const_column->get_ptr(), data_type,
                                                         "test_int");
         vectorized::Block block({type_and_name});
@@ -610,8 +606,7 @@ void serialize_and_deserialize_test_decimal() {
             vectorized::Decimal<int> value = 111000 + i;
             vec->insert_value(value);
         }
-        vectorized::DataTypePtr data_type(
-                std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(6, 3));
+        vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeDecimal32>(6, 3));
         vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, "test_int");
         vectorized::Block block({type_and_name});
         PBlock pblock;
@@ -722,7 +717,7 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
 }
 
 TEST(BlockTest, dump_data) {
-    auto vec = vectorized::ColumnVector<Int32>::create();
+    auto vec = vectorized::ColumnInt32::create();
     auto& int32_data = vec->get_data();
     for (int i = 0; i < 1024; ++i) {
         int32_data.push_back(i);
@@ -740,9 +735,7 @@ TEST(BlockTest, dump_data) {
 
     vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9, true));
     auto decimal_column = decimal_data_type->create_column();
-    auto& decimal_data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                                  decimal_column.get())
-                                 ->get_data();
+    auto& decimal_data = ((vectorized::ColumnDecimal128V2*)decimal_column.get())->get_data();
     for (int i = 0; i < 1024; ++i) {
         __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
         decimal_data.push_back(value);
@@ -750,7 +743,7 @@ TEST(BlockTest, dump_data) {
     vectorized::ColumnWithTypeAndName test_decimal(decimal_column->get_ptr(), decimal_data_type,
                                                    "test_decimal");
 
-    auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
+    auto column_vector_int32 = vectorized::ColumnInt32::create();
     auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
     for (int i = 0; i < 4096; i++) {
@@ -761,7 +754,7 @@ TEST(BlockTest, dump_data) {
     vectorized::ColumnWithTypeAndName test_nullable_int32(mutable_nullable_vector->get_ptr(),
                                                           nint32_type, "test_nullable_int32");
 
-    auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
+    auto column_vector_date = vectorized::ColumnDate::create();
     auto& date_data = column_vector_date->get_data();
     for (int i = 0; i < 1024; ++i) {
         VecDateTimeValue value;
@@ -772,7 +765,7 @@ TEST(BlockTest, dump_data) {
     vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
                                                 "test_date");
 
-    auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
+    auto column_vector_datetime = vectorized::ColumnDateTime::create();
     auto& datetime_data = column_vector_datetime->get_data();
     for (int i = 0; i < 1024; ++i) {
         VecDateTimeValue value;
@@ -783,7 +776,7 @@ TEST(BlockTest, dump_data) {
     vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
                                                     datetime_type, "test_datetime");
 
-    auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
+    auto column_vector_date_v2 = vectorized::ColumnDateV2::create();
     auto& date_v2_data = column_vector_date_v2->get_data();
     for (int i = 0; i < 1024; ++i) {
         DateV2Value<DateV2ValueType> value;
@@ -815,7 +808,7 @@ TEST(BlockTest, dump_data) {
 }
 
 TEST(BlockTest, merge_with_shared_columns) {
-    auto vec = vectorized::ColumnVector<Int32>::create();
+    auto vec = vectorized::ColumnInt32::create();
     auto& int32_data = vec->get_data();
     for (int i = 0; i < 1024; ++i) {
         int32_data.push_back(i);
@@ -835,7 +828,7 @@ TEST(BlockTest, merge_with_shared_columns) {
 
     vectorized::Block src_block({test_k1, test_v1, test_v2});
 
-    auto vec_temp = vectorized::ColumnVector<Int32>::create();
+    auto vec_temp = vectorized::ColumnInt32::create();
     auto& int32_data_temp = vec_temp->get_data();
     for (int i = 0; i < 10; ++i) {
         int32_data_temp.push_back(i);
@@ -988,7 +981,7 @@ TEST(BlockTest, same_bit) {
 TEST(BlockTest, dump) {
     auto block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>({});
     auto types = block.dump_types();
-    ASSERT_TRUE(types.find("Int32") != std::string::npos);
+    ASSERT_TRUE(types.find("INT") != std::string::npos);
 
     block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeString>({}));
     types = block.dump_types();
@@ -997,7 +990,7 @@ TEST(BlockTest, dump) {
     block.insert(
             vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeFloat64>({}));
     types = block.dump_types();
-    ASSERT_TRUE(types.find("Float64") != std::string::npos);
+    ASSERT_TRUE(types.find("DOUBLE") != std::string::npos);
 
     auto names = block.get_names();
     for (const auto& name : names) {
