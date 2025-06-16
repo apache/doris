@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.common.util;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.common.net.InetAddresses;
+import org.junit.Assert;
+import org.junit.Test;
 
-public class SyncDataReceiver extends SyncLifeCycle {
-    private static Logger logger = LogManager.getLogger(SyncDataReceiver.class);
+import java.net.Inet4Address;
+import java.net.InetAddress;
 
-    protected int readBatchSize;
+public class NetUtilsTest {
 
-    public SyncDataReceiver(int readBatchSize) {
-        this.readBatchSize = readBatchSize;
+    @Test
+    public void testConvertIp() throws Exception {
+        long ipValue = 3232235786L;
+        InetAddress ip = InetAddress.getByName("192.168.1.10");
+        Assert.assertTrue(ip instanceof Inet4Address);
+        Assert.assertEquals(ipValue, NetUtils.inet4AddressToLong((Inet4Address) ip));
+        Inet4Address convertIp = NetUtils.longToInet4Address(ipValue);
+        Assert.assertEquals(ip, convertIp);
+        System.out.println(InetAddresses.forString("192.168.1.10").toString());
     }
-
-    @Override
-    public void process() {
-    }
-
 }
