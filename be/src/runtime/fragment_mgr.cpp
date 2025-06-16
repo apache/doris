@@ -646,9 +646,9 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         LOG_INFO("Query {} start execution", print_id(query_id));
     } else {
         return Status::InternalError(
-                "Failed to get query fragments context. Query may be "
+                "Failed to get query fragments context. Query {} may be "
                 "timeout or be cancelled. host: {}",
-                BackendOptions::get_localhost());
+                print_id(query_id), BackendOptions::get_localhost());
     }
     return Status::OK();
 }
