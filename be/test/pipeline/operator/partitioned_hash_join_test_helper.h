@@ -79,7 +79,8 @@ public:
             : HashJoinBuildSinkLocalState(parent, state) {
         _runtime_filter_producer_helper = std::make_shared<MockRuntimeFilterProducerHelper>();
         _operator_profile = state->obj_pool()->add(new RuntimeProfile("OperatorProfile"));
-        _common_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
+        _common_profile = state->obj_pool()->add(new RuntimeProfile("CommonCounters"));
+        _custom_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
         _memory_used_counter =
                 _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
 
