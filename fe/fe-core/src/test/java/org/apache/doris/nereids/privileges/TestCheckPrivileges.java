@@ -113,10 +113,8 @@ public class TestCheckPrivileges extends TestWithFeService implements GeneratedM
                 + ")");
 
         createDatabase("internal_db");
-        String internalDb = "internal_db";
         String table1 = "test_tbl1";
         String table2 = "test_tbl2";
-        String table3 = "test_tbl3";
         String table4 = "test_tbl4";
 
         String user = "test_nereids_privilege_user";
