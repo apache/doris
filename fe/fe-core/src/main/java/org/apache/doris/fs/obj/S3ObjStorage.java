@@ -92,11 +92,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         this.s3Properties = properties;
         isUsePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
         forceParsingByStandardUri = Boolean.parseBoolean(s3Properties.getForceParsingByStandardUrl());
-
     }
 
     @Override
-    public S3Client getClient() throws UserException {
+    public S3Client getClient() {
         if (client == null) {
             String endpointStr = s3Properties.getEndpoint();
             if (!endpointStr.contains("://")) {
