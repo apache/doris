@@ -38,7 +38,8 @@ public class AnnIndexPropertiesChecker {
                 case "metric_type":
                     metric = properties.get(key);
                     if (!metric.equals("l2_distance") && !metric.equals("inner_product")) {
-                        throw new AnalysisException("only support ann index with metric l2_distance or inner_product, got: " + metric);
+                        throw new AnalysisException(
+                                "only support ann index with metric l2_distance or inner_product, got: " + metric);
                     }
                     break;
                 case "dim":

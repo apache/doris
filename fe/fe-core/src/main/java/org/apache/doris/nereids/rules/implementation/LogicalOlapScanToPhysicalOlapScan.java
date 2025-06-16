@@ -120,7 +120,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         // determined. As a result, some bucket fields are lost in the query execution plan.
                         // So here we use the column name to avoid this problem
                         if (((SlotReference) slot).getOriginalColumn().isPresent()
-                            && ((SlotReference) slot).getOriginalColumn().get().getName().equalsIgnoreCase(column.getName())) {
+                                && ((SlotReference) slot).getOriginalColumn().get().getName()
+                                .equalsIgnoreCase(column.getName())) {
                             hashColumns.add(slot.getExprId());
                         }
                     }

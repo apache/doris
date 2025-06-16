@@ -2656,17 +2656,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = HNSW_EF_SEARCH, needForward = true,
             description = {"HNSW索引的EF搜索参数，控制搜索的精度和速度",
-                    "HNSW index EF search parameter, controls the precision and speed of the search"})  
+                    "HNSW index EF search parameter, controls the precision and speed of the search"})
     public int hnswEFSearch = 16;
 
     @VariableMgr.VarAttr(name = HNSW_CHECK_RELATIVE_DISTANCE, needForward = true,
             description = {"是否启用相对距离检查机制，以提升HNSW搜索的准确性",
-                       "Enable relative distance checking to improve HNSW search accuracy"})
+                    "Enable relative distance checking to improve HNSW search accuracy"})
     public boolean hnswCheckRelativeDistance = true;
 
     @VariableMgr.VarAttr(name = HNSW_BOUNDED_QUEUE, needForward = true,
             description = {"是否使用有界优先队列来优化HNSW的搜索性能",
-                       "Whether to use a bounded priority queue to optimize HNSW search performance"})
+                    "Whether to use a bounded priority queue to optimize HNSW search performance"})
     public boolean hnswBoundedQueue = true;
 
 

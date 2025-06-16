@@ -120,7 +120,6 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
-
     public PlanTranslatorContext(CascadesContext ctx) {
         this.connectContext = ctx.getConnectContext();
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -348,7 +347,6 @@ public class PlanTranslatorContext {
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
     }
-
 
     public boolean isTopMaterializeNode() {
         return isTopMaterializeNode;

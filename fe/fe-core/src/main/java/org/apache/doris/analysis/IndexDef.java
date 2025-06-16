@@ -24,7 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -242,7 +241,8 @@ public class IndexDef {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.ANN) {
             if (column.isAllowNull()) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException("ANN index must be built on a column that is not nullable");
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "ANN index must be built on a column that is not nullable");
             }
 
             String indexColName = column.getName();
@@ -254,7 +254,8 @@ public class IndexDef {
             Type columnType = column.getType();
             Type itemType = ((ArrayType) columnType).getItemType();
             if (!itemType.isFloatingPointType()) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException("ANN index column item type must be float type");
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "ANN index column item type must be float type");
             }
             return;
         }

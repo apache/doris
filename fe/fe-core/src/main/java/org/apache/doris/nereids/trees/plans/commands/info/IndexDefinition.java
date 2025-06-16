@@ -153,7 +153,7 @@ public class IndexDefinition {
             }
             return;
         }
-                    
+
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();

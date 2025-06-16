@@ -278,8 +278,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNul
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbValid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L1Distance;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;

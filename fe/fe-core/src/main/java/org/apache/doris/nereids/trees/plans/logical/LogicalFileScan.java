@@ -25,8 +25,8 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -57,10 +57,10 @@ public class LogicalFileScan extends LogicalCatalogRelation {
                            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
                            Optional<TableScanParams> scanParams) {
         this(id, table, qualifier,
-            table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
-            operativeSlots, ImmutableList.of(),
-            tableSample, tableSnapshot,
-            scanParams, Optional.empty(), Optional.empty());
+                table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
+                operativeSlots, ImmutableList.of(),
+                tableSample, tableSnapshot,
+                scanParams, Optional.empty(), Optional.empty());
     }
 
     /**
@@ -205,8 +205,8 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     @Override
     public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                selectedPartitions, operativeSlots, virtualColumns,tableSample, tableSnapshot,
-            scanParams, groupExpression, Optional.of(getLogicalProperties()));
+                selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
+                scanParams, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override

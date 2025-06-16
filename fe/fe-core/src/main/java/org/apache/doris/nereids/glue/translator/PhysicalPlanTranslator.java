@@ -809,11 +809,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
-        return computePhysicalOlapScan(olapScan, false, context);
+        return computePhysicalOlapScan(olapScan, context);
     }
 
-    private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan,
-            boolean lazyMaterialize, PlanTranslatorContext context) {
+    private PlanFragment computePhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
         List<Slot> slots = olapScan.getOutput();
         OlapTable olapTable = olapScan.getTable();
         // generate real output tuple
@@ -905,17 +904,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(olapScanNode::init);
         // TODO: process collect scan node in one place
         context.addScanNode(olapScanNode, olapScan);
-        if (!lazyMaterialize) {
-            // TODO: process translate runtime filter in one place
-            //   use real plan node to present rf apply and rf generator
-            context.getRuntimeTranslator().ifPresent(
-                    runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(olapScan)
-                            .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
-                                    expr, olapScanNode, context)
-                            )
-            );
-            context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
-        }
+        // TODO: process translate runtime filter in one place
+        //   use real plan node to present rf apply and rf generator
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(olapScan)
+                        .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
+                                expr, olapScanNode, context)
+                        )
+        );
+        context.getTopnFilterContext().translateTarget(olapScan, olapScanNode, context);
         olapScanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(olapScan.getRelationId()));
         // Create PlanFragment
         // TODO: use a util function to convert distribution to DataPartition
@@ -2628,25 +2625,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan,
             PlanTranslatorContext context) {
-        PlanFragment planFragment = computePhysicalOlapScan(lazyScan.getScan(), true, context);
-        TupleDescriptor outputTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getScan().getTable(), context);
+        PlanFragment planFragment = computePhysicalOlapScan(lazyScan.getScan(), context);
         OlapScanNode olapScanNode = (OlapScanNode) planFragment.getPlanRoot();
-        olapScanNode.setDesc(outputTuple);
+        // set lazy materialized context
         olapScanNode.setIsTopnLazyMaterialize(true);
         olapScanNode.setGlobalRowIdColumn(lazyScan.getRowId().getOriginalColumn().get());
+        Set<SlotId> scanIds = lazyScan.getOutput().stream().map(NamedExpression::getExprId)
+                .map(context::findSlotRef).filter(Objects::nonNull).map(SlotRef::getSlotId)
+                .collect(Collectors.toSet());
+        context.createSlotDesc(olapScanNode.getTupleDesc(), lazyScan.getRowId(), lazyScan.getTable());
+        for (SlotDescriptor slot : olapScanNode.getTupleDesc().getSlots()) {
+            if (!scanIds.contains(slot.getId())) {
+                slot.setIsMaterialized(false);
+            }
+        }
         for (Slot slot : lazyScan.getOutput()) {
             if (((SlotReference) slot).getOriginalColumn().isPresent()) {
                 olapScanNode.addTopnLazyMaterializeOutputColumns(((SlotReference) slot).getOriginalColumn().get());
             }
         }
-        planFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(outputTuple.getId()));
-        // translate rf on outputTuple
-        context.getRuntimeTranslator().ifPresent(
-                runtimeFilterTranslator -> runtimeFilterTranslator.getContext().getTargetListByScan(lazyScan)
-                        .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
-                                expr, olapScanNode, context)
-                        )
-        );
         context.getTopnFilterContext().translateTarget(lazyScan, olapScanNode, context);
 
         return planFragment;
