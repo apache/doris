@@ -60,6 +60,7 @@ suite("query_on_specific_partition") {
 
     qt_sql """select * from t_p temporary partition tp1;"""
 
+    sql """ DROP TABLE IF EXISTS test_iot """
     sql """
         CREATE TABLE IF NOT EXISTS test_iot (
                 `test_int` int NOT NULL,

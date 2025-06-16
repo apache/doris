@@ -22,6 +22,11 @@ include "Types.thrift"
 include "Exprs.thrift"
 include "Partitions.thrift"
 
+enum TPatternType {
+  MATCH_NAME = 1,
+  MATCH_NAME_GLOB = 2
+}
+
 struct TColumn {
     1: required string column_name
     2: required Types.TColumnType column_type
@@ -43,6 +48,7 @@ struct TColumn {
     18: optional bool is_auto_increment = false;
     19: optional i32 cluster_key_id = -1
     20: optional i32 be_exec_version = -1
+    21: optional TPatternType pattern_type
 }
 
 struct TSlotDescriptor {
