@@ -111,7 +111,7 @@ OlapBlockDataConvertor::create_agg_state_convertor(const TabletColumn& column) {
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
     } else if (type == PrimitiveType::TYPE_BITMAP) {
         return std::make_unique<OlapColumnDataConvertorBitMap>();
-    } else if (type == PrimitiveType::INVALID_TYPE) {
+    } else if (type == PrimitiveType::TYPE_FIXED_LENGTH_OBJECT) {
         // INVALID_TYPE means function's serialized type is fixed object
         return std::make_unique<OlapColumnDataConvertorAggState>();
     } else if (type == PrimitiveType::TYPE_MAP) {

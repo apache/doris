@@ -73,8 +73,7 @@ statementBase
     ;
 
 unsupportedStatement
-    : unsupportedUseStatement
-    | unsupportedStatsStatement
+    : unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
@@ -338,7 +337,6 @@ supportedShowStatement
     | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
@@ -421,6 +419,9 @@ supportedShowStatement
         whereClause? sortClause? limitClause?                                       #showCopy
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
+    | SHOW (KEY | KEYS | INDEX | INDEXES)
+        (FROM |IN) tableName=multipartIdentifier
+        ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     ;
 
@@ -433,13 +434,6 @@ supportedLoadStatement
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
     | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
     | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
-    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
-    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
-    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
-    | CREATE SYNC label=multipartIdentifier
-          LEFT_PAREN channelDescriptions RIGHT_PAREN
-          FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
-          properties=propertyClause?                                                #createDataSyncJob
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | (LIKE STRING_LITERAL)?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     ;
@@ -455,15 +449,15 @@ supportedOtherStatement
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+    | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
+        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
+        properties=propertyClause?                                                  #backup
     ;
 
 unsupportedOtherStatement
     : WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
         ((CLUSTER | COMPUTE GROUP) source=identifier |
             (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
-    | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
-        ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
-        properties=propertyClause?                                                  #backup
     | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
@@ -483,9 +477,6 @@ unsupportedShowStatement
     : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
         wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
-    | SHOW (KEY | KEYS | INDEX | INDEXES)
-        (FROM |IN) tableName=multipartIdentifier
-        ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
@@ -537,15 +528,6 @@ importColumnsStatement
 importColumnDesc
     : name=identifier (EQ booleanExpression)?
     | LEFT_PAREN name=identifier (EQ booleanExpression)? RIGHT_PAREN
-    ;
-
-channelDescriptions
-    : channelDescription (COMMA channelDescription)*
-    ;
-
-channelDescription
-    : FROM source=multipartIdentifier INTO destination=multipartIdentifier
-        partitionSpec? columnList=identifierList?
     ;
 
 supportedRefreshStatement
@@ -885,12 +867,9 @@ supportedUnsetStatement
     ;
 
 supportedUseStatement
-     : SWITCH catalog=identifier                                                      #switchCatalog
-     | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    ;
-
-unsupportedUseStatement
-    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+     : SWITCH catalog=identifier                                                        #switchCatalog
+     | USE (catalog=identifier DOT)? database=identifier                                #useDatabase
+     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier   #useCloudCluster
     ;
 
 stageAndPattern

@@ -27,7 +27,6 @@ import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.ShowCatalogStmt;
-import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -42,9 +41,10 @@ import org.apache.doris.mysql.privilege.CatalogAccessController;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -227,13 +227,11 @@ public class ColumnPrivTest extends TestWithFeService {
                 "grant select_priv on test2.*.* to show_table_status;", root);
         auth.grant(grant);
 
+        // show table status from test2.db1 LIKE "%tbl%
         UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("show_table_status", "%");
         ConnectContext userCtx = createCtx(user, "127.0.0.1");
-
-        ShowTableStatusStmt stmt = (ShowTableStatusStmt) parseAndAnalyzeStmt(
-                "show table status from test2.db1 LIKE \"%tbl%\";");
-        ShowExecutor executor = new ShowExecutor(userCtx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        ShowTableStatusCommand command = new ShowTableStatusCommand("db1", "test2", "%tbl%", null);
+        ShowResultSet resultSet = command.doRun(userCtx, new StmtExecutor(userCtx, ""));
         Assert.assertEquals(2, resultSet.getResultRows().size());
     }
 

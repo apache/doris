@@ -99,7 +99,8 @@ enum TPrimitiveType {
   IPV4,
   IPV6,
   UINT32, // only used in BE to represent offsets
-  UINT64  // only used in BE to represent offsets
+  UINT64,  // only used in BE to represent offsets
+  FIXED_LENGTH_OBJECT // only used in BE to represent fixed-length object
 }
 
 enum TTypeNodeType {

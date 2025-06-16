@@ -105,7 +105,7 @@ private:
 void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     for (const auto& path : exec_env->store_paths()) {
         try {
-            string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
+            std::string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
             std::filesystem::path dpp_download_path(dpp_download_path_str);
             if (std::filesystem::exists(dpp_download_path)) {
                 std::filesystem::remove_all(dpp_download_path);

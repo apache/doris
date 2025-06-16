@@ -34,7 +34,6 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <gutil/macros.h>
 
 #include <boost/stacktrace.hpp>
 #include <csignal>

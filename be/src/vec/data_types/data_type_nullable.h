@@ -106,9 +106,6 @@ public:
         return 1 + nested_data_type->get_size_of_value_in_memory();
     }
     bool is_nullable() const override { return true; }
-    bool is_fixed_length_object() const override {
-        return nested_data_type->is_fixed_length_object();
-    }
     bool can_be_inside_low_cardinality() const override {
         return nested_data_type->can_be_inside_low_cardinality();
     }

@@ -78,7 +78,6 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -779,13 +778,9 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_SYNC_JOB: {
-                    SyncJob syncJob = (SyncJob) journal.getData();
-                    env.getSyncJobManager().replayAddSyncJob(syncJob);
                     break;
                 }
                 case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                    SyncJob.SyncJobUpdateStateInfo info = (SyncJob.SyncJobUpdateStateInfo) journal.getData();
-                    env.getSyncJobManager().replayUpdateSyncJobState(info);
                     break;
                 }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
@@ -1863,14 +1858,6 @@ public class EditLog {
 
     public void logUpdateLoadJob(LoadJobStateUpdateInfo info) {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
-    }
-
-    public void logCreateSyncJob(SyncJob syncJob) {
-        logEdit(OperationType.OP_CREATE_SYNC_JOB, syncJob);
-    }
-
-    public void logUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
-        logEdit(OperationType.OP_UPDATE_SYNC_JOB_STATE, info);
     }
 
     public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {

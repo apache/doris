@@ -19,10 +19,11 @@
 
 #include <aws/core/http/HttpResponse.h>
 #include <bvar/reducer.h>
+#include <glog/logging.h>
 
 namespace doris {
 
-bvar::Adder<int64_t> s3_too_many_request_retry_cnt("s3_too_many_request_retry_cnt");
+bvar::Adder<int64_t> object_request_retry_count("object_request_retry_count");
 
 S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
 
@@ -35,33 +36,42 @@ bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client:
     }
 
     if (Aws::Http::IsRetryableHttpResponseCode(error.GetResponseCode()) || error.ShouldRetry()) {
-        s3_too_many_request_retry_cnt << 1;
+        object_request_retry_count << 1;
+        LOG(INFO) << "retry due to error: " << error << ", attempt: " << attemptedRetries + 1 << "/"
+                  << m_maxRetries;
         return true;
     }
 
     return false;
 }
 #ifdef USE_AZURE
-AzureRetryRecordPolicy::AzureRetryRecordPolicy(int retry_cnt) : retry_cnt(retry_cnt) {}
-
-AzureRetryRecordPolicy::~AzureRetryRecordPolicy() = default;
 
 std::unique_ptr<Azure::Core::Http::RawResponse> AzureRetryRecordPolicy::Send(
         Azure::Core::Http::Request& request, Azure::Core::Http::Policies::NextHttpPolicy nextPolicy,
         Azure::Core::Context const& context) const {
-    auto resp = nextPolicy.Send(request, context);
-    if (retry_cnt != 0 &&
-        resp->GetStatusCode() == Azure::Core::Http::HttpStatusCode::TooManyRequests) {
-        retry_cnt--;
-        s3_too_many_request_retry_cnt << 1;
+    // https://learn.microsoft.com/en-us/azure/developer/cpp/sdk/fundamentals/http-pipelines-and-retries
+
+    std::unique_ptr<Azure::Core::Http::RawResponse> response = nextPolicy.Send(request, context);
+    int32_t retry_count =
+            Azure::Core::Http::Policies::_internal::RetryPolicy::GetRetryCount(context);
+
+    if (static_cast<int>(response->GetStatusCode()) > 299 ||
+        static_cast<int>(response->GetStatusCode()) < 200) {
+        if (retry_count > 0) {
+            object_request_retry_count << 1;
+        }
+
+        // If the response is not successful, we log the retry attempt and status code.
+        LOG(INFO) << "azure retry retry_count: " << retry_count
+                  << ", status code: " << static_cast<int>(response->GetStatusCode())
+                  << ", reason: " << response->GetReasonPhrase();
     }
-    return resp;
+
+    return response;
 }
 
 std::unique_ptr<AzureRetryRecordPolicy::HttpPolicy> AzureRetryRecordPolicy::Clone() const {
-    auto ret = std::make_unique<AzureRetryRecordPolicy>(*this);
-    ret->retry_cnt = 0;
-    return ret;
+    return std::make_unique<AzureRetryRecordPolicy>(*this);
 }
 #endif
 } // namespace doris

@@ -96,7 +96,7 @@ Status VRowDistribution::automatic_create_partition() {
     SCOPED_TIMER(_add_partition_request_timer);
     TCreatePartitionRequest request;
     TCreatePartitionResult result;
-    string be_endpoint = BackendOptions::get_be_endpoint();
+    std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_txn_id(_txn_id);
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
@@ -176,7 +176,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
 
     request.__set_partition_ids(request_part_ids);
 
-    string be_endpoint = BackendOptions::get_be_endpoint();
+    std::string be_endpoint = BackendOptions::get_be_endpoint();
     request.__set_be_endpoint(be_endpoint);
 
     VLOG_NOTICE << "auto detect replace partition request: " << request;

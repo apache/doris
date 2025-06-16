@@ -1272,9 +1272,9 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 
     LOG(INFO) << "get snapshot task. signature=" << req.signature;
 
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false; // not used
-    std::vector<string> snapshot_files;
+    std::vector<std::string> snapshot_files;
     Status status = engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
                                                          &allow_incremental_clone);
     if (status.ok() && snapshot_request.__isset.list_files) {
@@ -1323,7 +1323,7 @@ void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& r
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    const string& snapshot_path = release_snapshot_request.snapshot_path;
+    const std::string& snapshot_path = release_snapshot_request.snapshot_path;
     Status status = engine.snapshot_mgr()->release_snapshot(snapshot_path);
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")

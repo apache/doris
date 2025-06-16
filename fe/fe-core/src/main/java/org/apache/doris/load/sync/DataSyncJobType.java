@@ -17,16 +17,8 @@
 
 package org.apache.doris.load.sync;
 
+@Deprecated
 public enum DataSyncJobType {
     CANAL,
     UNKNOWN;
-
-    public static DataSyncJobType fromString(String dataSyncJobType) {
-        for (DataSyncJobType type : DataSyncJobType.values()) {
-            if (type.name().equalsIgnoreCase(dataSyncJobType)) {
-                return type;
-            }
-        }
-        return UNKNOWN;
-    }
 }

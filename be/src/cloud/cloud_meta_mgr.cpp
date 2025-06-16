@@ -139,11 +139,6 @@ bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stat
 
 class MetaServiceProxy {
 public:
-    static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
-        return get_pooled_client(stub, nullptr);
-    }
-
     static Status get_proxy(MetaServiceProxy** proxy) {
         // The 'stub' is a useless parameter, added only to reuse the `get_pooled_client` function.
         std::shared_ptr<MetaService_Stub> stub;
@@ -908,7 +903,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     return Status::OK();
 }
 
-Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
+Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -920,6 +915,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
+    req.set_tablet_job_id(job_id);
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -937,7 +933,7 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
     return st;
 }
 
-Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
+Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
@@ -950,6 +946,7 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_txn_id(rs_meta.txn_id());
+    req.set_tablet_job_id(job_id);
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -1206,33 +1203,6 @@ Status CloudMetaMgr::lease_tablet_job(const TabletJobInfoPB& job) {
     req.set_action(FinishTabletJobRequest::LEASE);
     req.set_cloud_unique_id(config::cloud_unique_id);
     return retry_rpc("lease tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
-}
-
-Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema) {
-    VLOG_DEBUG << "send UpdateTabletSchemaRequest, tablet_id: " << tablet_id;
-
-    std::shared_ptr<MetaService_Stub> stub;
-    RETURN_IF_ERROR(MetaServiceProxy::get_client(&stub));
-
-    brpc::Controller cntl;
-    cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
-    UpdateTabletSchemaRequest req;
-    UpdateTabletSchemaResponse resp;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_tablet_id(tablet_id);
-
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema.to_schema_pb(&tablet_schema_pb);
-    doris_tablet_schema_to_cloud(req.mutable_tablet_schema(), std::move(tablet_schema_pb));
-    stub->update_tablet_schema(&cntl, &req, &resp, nullptr);
-    if (cntl.Failed()) {
-        return Status::RpcError("failed to update tablet schema: {}", cntl.ErrorText());
-    }
-    if (resp.status().code() != MetaServiceCode::OK) {
-        return Status::InternalError("failed to update tablet schema: {}", resp.status().msg());
-    }
-    VLOG_DEBUG << "succeed to update tablet schema, tablet_id: " << tablet_id;
-    return Status::OK();
 }
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,
