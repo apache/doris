@@ -739,6 +739,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
@@ -4912,6 +4913,40 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return new ShowLoadProfileCommand(loadIdPath, limit);
+    }
+
+    @Override
+    public LogicalPlan visitShowLoadWarings(DorisParser.ShowLoadWaringsContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        String url = null;
+        if (ctx.url != null) {
+            url = stripQuotes(ctx.url.getText());
+        }
+
+        return new ShowLoadWarningsCommand(dbName, wildWhere, limit, offset, url);
     }
 
     @Override

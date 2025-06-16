@@ -191,6 +191,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
@@ -856,6 +857,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowLoadProfileCommand(ShowLoadProfileCommand showLoadProfileCommand, C context) {
         return visitCommand(showLoadProfileCommand, context);
+    }
+
+    default R visitShowLoadWarningsCommand(ShowLoadWarningsCommand showLoadWarningsCommand, C context) {
+        return visitCommand(showLoadWarningsCommand, context);
     }
 
     default R visitAlterStoragePolicyCommand(AlterStoragePolicyCommand alterStoragePolicyCommand, C context) {
