@@ -232,9 +232,9 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
-    // create sync job
+    @Deprecated
     public static final short OP_CREATE_SYNC_JOB = 234;
-    // update sync job state
+    @Deprecated
     public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
