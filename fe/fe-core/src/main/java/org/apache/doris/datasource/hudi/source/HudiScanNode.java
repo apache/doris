@@ -277,7 +277,9 @@ public class HudiScanNode extends HiveScanNode {
                         new File(hudiSplit.getPath().get()).getName()));
                 InternalSchema internalSchema = hudiSchemaCacheValue
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
-                putHistorySchemaInfo(internalSchema); //for schema change. (native reader)
+                params.history_schema_info.computeIfAbsent(
+                        internalSchema.schemaId(),
+                        k -> HudiUtils.getSchemaInfo(internalSchema)); //for schema change. (native reader)
                 fileDesc.setSchemaId(internalSchema.schemaId());
             } else {
                 try {
