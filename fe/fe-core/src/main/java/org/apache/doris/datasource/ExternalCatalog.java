@@ -228,14 +228,13 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * set some default properties when creating catalog
+     * Lists all database names in this catalog.
      *
      * @return list of database names in this catalog
      */
     protected List<String> listDatabaseNames() {
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Unsupported operation: "
-                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+            throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
         } else {
             return metadataOps.listDatabaseNames();
         }
@@ -1004,8 +1003,7 @@ public abstract class ExternalCatalog
     public void createDb(CreateDbStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createDb not implemented");
-            return;
+            throw new DdlException("Create database is not supported for catalog: " + getName());
         }
         try {
             metadataOps.createDb(stmt);
@@ -1021,8 +1019,7 @@ public abstract class ExternalCatalog
     public void createDb(CreateDatabaseCommand command) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createDb not implemented");
-            return;
+            throw new DdlException("Create database is not supported for catalog: " + getName());
         }
         try {
             metadataOps.createDb(command);
@@ -1044,8 +1041,7 @@ public abstract class ExternalCatalog
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("dropDb not implemented");
-            return;
+            throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
             metadataOps.dropDb(getName(), dbName, ifExists, force);
@@ -1067,8 +1063,7 @@ public abstract class ExternalCatalog
     public boolean createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createTable not implemented");
-            return false;
+            throw new DdlException("Create table is not supported for catalog: " + getName());
         }
         try {
             boolean res = metadataOps.createTable(stmt);
@@ -1104,8 +1099,7 @@ public abstract class ExternalCatalog
                           boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("dropTable not implemented");
-            return;
+            throw new DdlException("Drop table is not supported for catalog: " + getName());
         }
         try {
             metadataOps.dropTable(dbName, tableName, ifExists);
@@ -1210,7 +1204,7 @@ public abstract class ExternalCatalog
     public void truncateTable(TruncateTableStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+            throw new DdlException("Truncate table is not supported for catalog: " + getName());
         }
         try {
             TableRef tableRef = stmt.getTblRef();
@@ -1235,7 +1229,7 @@ public abstract class ExternalCatalog
     public void truncateTable(TruncateTableCommand command) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+            throw new DdlException("Truncate table is not supported for catalog: " + getName());
         }
         try {
             String db = command.getTableNameInfo().getDb();
@@ -1303,5 +1297,9 @@ public abstract class ExternalCatalog
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
         }
+    }
+
+    public ThreadPoolExecutor getThreadPoolExecutor() {
+        return threadPoolWithPreAuth;
     }
 }

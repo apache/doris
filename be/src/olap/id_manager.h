@@ -40,6 +40,7 @@
 #include "olap/olap_common.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "runtime/query_context.h"
 
 namespace doris {
 
@@ -196,11 +197,34 @@ public:
 
     int64_t get_delayed_expired_timestamp() { return delayed_expired_timestamp; }
 
+    void set_external_scan_params(QueryContext* query_ctx) {
+        std::call_once(once_flag_for_external, [&] {
+            DCHECK(query_ctx != nullptr);
+            _query_global = query_ctx->get_query_globals();
+            _query_options = query_ctx->get_query_options();
+            _file_scan_range_params_map = query_ctx->file_scan_range_params_map;
+        });
+    }
+
+    const TQueryGlobals& get_query_globals() const { return _query_global; }
+
+    const TQueryOptions& get_query_options() const { return _query_options; }
+
+    const std::map<int, TFileScanRangeParams>& get_external_scan_params() const {
+        return _file_scan_range_params_map;
+    }
+
 private:
     std::shared_mutex _mtx;
     uint32_t _init_id = 0;
     std::unordered_map<std::string, uint32_t> _mapping_to_id;
     std::unordered_map<uint32_t, std::shared_ptr<FileMapping>> _id_map;
+
+    // use in scan external table
+    TQueryGlobals _query_global;
+    TQueryOptions _query_options;
+    std::map<int, TFileScanRangeParams> _file_scan_range_params_map;
+    std::once_flag once_flag_for_external;
 
     // use in Doris Format to keep temp rowsets, preventing them from being deleted by compaction
     std::unordered_map<std::pair<int64_t, RowsetId>, RowsetSharedPtr> _temp_rowset_maps;

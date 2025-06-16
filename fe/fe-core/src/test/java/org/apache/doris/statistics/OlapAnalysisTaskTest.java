@@ -377,7 +377,7 @@ public class OlapAnalysisTaskTest {
         task.getSampleParams(params, 1000);
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
-        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) + SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`column_key`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`column_key` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`column_key` is not null, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
         Assertions.assertEquals("SUM(t1.count) * 4", params.get("dataSizeFunction"));
         Assertions.assertEquals("`${colName}`", params.get("subStringColName"));
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));

@@ -70,7 +70,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     void from_string_test_func() {
         using T = typename PrimitiveTypeTraits<PT>::CppType;
         std::cout << fmt::format("===================test cast string to {}({}, {})",
-                                 TypeName<T>::get(), Precision, Scale);
+                                 type_to_string(PT), Precision, Scale);
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         auto decimal_ctor = get_decimal_ctor<T>();
@@ -121,7 +121,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         DataTypeDecimal<PT> dt(Precision, Scale);
         auto only_int_part_test_func = [&](bool is_negative, bool with_trailing_dot) {
             std::string dbg_str = fmt::format("test cast string to {}({}, {}), only int part: ",
-                                              TypeName<T>::get(), Precision, Scale);
+                                              type_to_string(PT), Precision, Scale);
             DataSet data_set;
             // only integral part
             for (const auto& i : integral_part) {
@@ -162,7 +162,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
 
         auto only_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
             std::string dbg_str = fmt::format(
-                    "test cast string to {}({}, {}), only fraction part: ", TypeName<T>::get(),
+                    "test cast string to {}({}, {}), only fraction part: ", type_to_string(PT),
                     Precision, Scale);
             DataSet data_set;
             // only integral part
@@ -249,7 +249,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         auto both_int_and_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
             std::string dbg_str0 =
                     fmt::format("test cast string to {}({}, {}), both int and fraction part: ",
-                                TypeName<T>::get(), Precision, Scale);
+                                type_to_string(PT), Precision, Scale);
             for (const auto& i : integral_part) {
                 DataSet data_set;
                 std::string dbg_str = dbg_str0;
@@ -497,7 +497,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         DataTypeNumber<FromPT> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         std::cout << fmt::format("test cast {} to {}({}, {}), both int and fraction part\n",
-                                 TypeName<FromT>::get(), TypeName<T>::get(), Precision, Scale);
+                                 type_to_string(FromPT), type_to_string(PT), Precision, Scale);
 
         constexpr auto max_integral =
                 decimal_scale_multiplier<typename T::NativeType>(Precision - Scale) - 1;
@@ -550,7 +550,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             std::string dbg_str0 = fmt::format(
                     "test cast {} to {}({}, {}), both int and fraction part, with "
                     "rounding: {}: ",
-                    TypeName<FromT>::get(), TypeName<T>::get(), Precision, Scale, test_rounding);
+                    type_to_string(FromPT), type_to_string(PT), Precision, Scale, test_rounding);
             for (const auto& i : integral_part) {
                 DataSet data_set;
                 std::string dbg_str = dbg_str0;
@@ -612,8 +612,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         static_assert(IsDecimalNumber<FromT> && IsDecimalNumber<ToT>,
                       "FromT and ToT must be a decimal type");
         std::string dbg_str0 = fmt::format(
-                "===============test cast {}({}, {}) to {}({}, {}): ", TypeName<FromT>::get(),
-                FromPrecision, FromScale, TypeName<ToT>::get(), ToPrecision, ToScale);
+                "===============test cast {}({}, {}) to {}({}, {}): ", type_to_string(FromPT),
+                FromPrecision, FromScale, type_to_string(ToPT), ToPrecision, ToScale);
         std::cout << dbg_str0 << std::endl;
         static_assert(
                 FromPrecision <= max_decimal_precision<FromPT>() && FromScale <= FromPrecision,

@@ -19,7 +19,7 @@
 
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
-#include <glog/logging.h> // IWYU pragma: export
+#include <glog/logging.h>
 
 class DorisAWSLogger final : public Aws::Utils::Logging::LogSystemInterface {
 public:

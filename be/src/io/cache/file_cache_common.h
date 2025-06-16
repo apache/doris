@@ -128,13 +128,13 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {
-        if (io_context->is_index_data) {
+        if (io_context->expiration_time != 0) {
+            cache_type = FileCacheType::TTL;
+            expiration_time = io_context->expiration_time;
+        } else if (io_context->is_index_data) {
             cache_type = FileCacheType::INDEX;
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
-        } else if (io_context->expiration_time != 0) {
-            cache_type = FileCacheType::TTL;
-            expiration_time = io_context->expiration_time;
         } else {
             cache_type = FileCacheType::NORMAL;
         }

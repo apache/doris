@@ -71,9 +71,9 @@ import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
-import org.apache.doris.fsv2.DirectoryLister;
-import org.apache.doris.fsv2.FileSystemDirectoryLister;
-import org.apache.doris.fsv2.TransactionScopeCachingDirectoryListerFactory;
+import org.apache.doris.fs.DirectoryLister;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+import org.apache.doris.fs.TransactionScopeCachingDirectoryListerFactory;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
@@ -645,8 +645,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
-        if (fileScan.getTableSnapshot().isPresent() && scanNode instanceof FileQueryScanNode) {
-            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
+        if (scanNode instanceof FileQueryScanNode) {
+            FileQueryScanNode fileQueryScanNode = (FileQueryScanNode) scanNode;
+            fileScan.getTableSnapshot().ifPresent(fileQueryScanNode::setQueryTableSnapshot);
+            fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }

@@ -119,6 +119,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/format/text/text_reader.h"
 #include "vec/functions/dictionary_factory.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -847,6 +848,8 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
+        // file_slots is no use, but the lifetime should be longer than reader
+        std::vector<SlotDescriptor*> file_slots;
         switch (params.format_type) {
         case TFileFormatType::FORMAT_CSV_PLAIN:
         case TFileFormatType::FORMAT_CSV_GZ:
@@ -856,10 +859,13 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
-            reader = vectorized::CsvReader::create_unique(profile.get(), params, range, file_slots,
-                                                          &io_ctx);
+            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                          range, file_slots, &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_TEXT: {
+            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
+                                                           range, file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
@@ -871,14 +877,11 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            // file_slots is no use
-            std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
             st = ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
@@ -2090,7 +2093,9 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                                         const PMultiGetRequestV2* request,
                                         PMultiGetResponseV2* response,
                                         google::protobuf::Closure* done) {
-    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(request->wg_id());
+    std::vector<uint64_t> id_set;
+    id_set.push_back(request->wg_id());
+    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
     Status st = Status::OK();
 
     if (!wg) [[unlikely]] {
@@ -2119,6 +2124,10 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                 Status st = RowIdStorageReader::read_by_rowids(*request, response);
                 st.to_protobuf(response->mutable_status());
                 LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+                LOG(INFO) << "query_id: " << print_id(request->query_id())
+                          << " backend id: " << BackendOptions::get_backend_id()
+                          << " response status:" << st.to_string()
+                          << " return block size:" << response->blocks_size();
             },
             nullptr));
 
