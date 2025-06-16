@@ -154,7 +154,7 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
             }
             // If writer status is not ok, then we should not change its status to avoid lost the actual error status.
             if (ExecEnv::GetInstance()->fragment_mgr()->shutting_down() && _writer_status.ok()) {
-                _writer_status.update(Status::Error("FragmentMgr is shutting down"));
+                _writer_status.update(Status::InternalError<false>("FragmentMgr is shutting down"));
             }
 
             //check if eos or writer error
