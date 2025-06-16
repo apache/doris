@@ -18,6 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/data_types/data_type_agg_state.h"
 #include "vec/data_types/data_type_number.h"

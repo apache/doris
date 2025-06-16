@@ -24,6 +24,7 @@
 
 #include "util/bitmap_value.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"

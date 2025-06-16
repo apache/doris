@@ -27,6 +27,7 @@
 #include "arrow/array/builder_binary.h"
 #include "olap/hll.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"

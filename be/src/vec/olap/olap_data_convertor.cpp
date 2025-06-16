@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/decimalv2_value.h"
 #include "util/bitmap_value.h"
+#include "util/jsonb_document.h"
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"

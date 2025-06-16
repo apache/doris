@@ -30,6 +30,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/jsonb_value.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_parser_simd.h"

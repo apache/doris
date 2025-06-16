@@ -44,6 +44,7 @@
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
+#include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"

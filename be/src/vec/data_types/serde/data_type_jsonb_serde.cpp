@@ -168,7 +168,7 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
                                 rapidjson::Document::AllocatorType& allocator) {
     // convert type of jsonb to rapidjson::Value
-    switch (val.type()) {
+    switch (val.type) {
     case JsonbType::T_True:
         target.SetBool(true);
         break;
@@ -227,7 +227,7 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         break;
     }
     default:
-        CHECK(false) << "unkown type " << static_cast<int>(val.type());
+        CHECK(false) << "unkown type " << static_cast<int>(val.type);
         break;
     }
 }

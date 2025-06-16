@@ -69,14 +69,25 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
+#include "vec/core/types.h"
 
 // #include "util/string_parser.hpp"
+
+// Concept to check for supported decimal types
+template <typename T>
+concept JsonbDecimalType = std::same_as<T, doris::vectorized::Decimal256> ||
+                           std::same_as<T, doris::vectorized::Decimal64> ||
+                           std::same_as<T, doris::vectorized::Decimal128V3> ||
+                           std::same_as<T, doris::vectorized::Decimal32>;
 
 namespace doris {
 #if defined(__clang__)
@@ -98,6 +109,11 @@ const int MaxNestingLevel = 100;
 /*
  * JsonbType defines 10 primitive types and 2 container types, as described
  * below.
+ * NOTE: Do NOT modify the existing values or their order in this enum.
+ *      You may only append new entries at the end before `NUM_TYPES`.
+ *      This enum will be used in serialized data and/or persisted data.
+ *      Changing existing values may break backward compatibility
+ *      with previously stored or transmitted data.
  *
  * primitive_value ::=
  *   0x00        //null value (0 byte)
@@ -130,10 +146,10 @@ enum class JsonbType : char {
     T_Array = 0x0B,
     T_Int128 = 0x0C,
     T_Float = 0x0D,
-    T_Decimal = 0x0E,  // DecimalV3 only
-    T_Date = 0x0F,     // v2 only
-    T_DateTime = 0x10, // v2 only
-    T_Time = 0x11,     // v2 only
+    T_Decimal32 = 0x0E,  // DecimalV3 only
+    T_Decimal64 = 0x0F,  // DecimalV3 only
+    T_Decimal128 = 0x10, // DecimalV3 only
+    T_Decimal256 = 0x11, // DecimalV3 only
     NUM_TYPES,
 };
 
@@ -464,7 +480,7 @@ using JsonbTypeUnder = std::underlying_type_t<JsonbType>;
  *
  * JsonbKeyValue can be either an id mapping to the key string in an external
  * dictionary, or it is the original key string. Whether to read an id or a
- * string is decided by the first byte (size_).
+ * string is decided by the first byte (size).
  *
  * Note: a key object must be followed by a value object. Therefore, a key
  * object implicitly refers to a key-value pair, and you can get the value
@@ -487,15 +503,15 @@ public:
     static const uint8_t sMaxKeyLen = 64;
 
     // size of the key. 0 indicates it is stored as id
-    uint8_t klen() const { return size_; }
+    uint8_t klen() const { return size; }
 
     // get the key string. Note the string may not be null terminated.
-    const char* getKeyStr() const { return key_.str_; }
+    const char* getKeyStr() const { return key.str_; }
 
-    keyid_type getKeyId() const { return key_.id_; }
+    keyid_type getKeyId() const { return key.id_; }
 
     unsigned int keyPackedBytes() const {
-        return size_ ? (sizeof(size_) + size_) : (sizeof(size_) + sizeof(keyid_type));
+        return size ? (sizeof(size) + size) : (sizeof(size) + sizeof(keyid_type));
     }
 
     JsonbValue* value() const { return (JsonbValue*)(((char*)this) + keyPackedBytes()); }
@@ -503,13 +519,12 @@ public:
     // size of the total packed bytes (key+value)
     unsigned int numPackedBytes() const;
 
-private:
-    uint8_t size_;
+    uint8_t size;
 
     union key_ {
         keyid_type id_;
         char str_[1];
-    } key_;
+    } key;
 };
 
 /*
@@ -521,26 +536,32 @@ class JsonbValue {
 public:
     static const uint32_t sMaxValueLen = 1 << 24; // 16M
 
-    bool isNull() const { return (type_ == JsonbType::T_Null); }
-    bool isTrue() const { return (type_ == JsonbType::T_True); }
-    bool isFalse() const { return (type_ == JsonbType::T_False); }
+    bool isNull() const { return (type == JsonbType::T_Null); }
+    bool isTrue() const { return (type == JsonbType::T_True); }
+    bool isFalse() const { return (type == JsonbType::T_False); }
     bool isInt() const { return isInt8() || isInt16() || isInt32() || isInt64() || isInt128(); }
-    bool isInt8() const { return (type_ == JsonbType::T_Int8); }
-    bool isInt16() const { return (type_ == JsonbType::T_Int16); }
-    bool isInt32() const { return (type_ == JsonbType::T_Int32); }
-    bool isInt64() const { return (type_ == JsonbType::T_Int64); }
-    bool isDouble() const { return (type_ == JsonbType::T_Double); }
-    bool isFloat() const { return (type_ == JsonbType::T_Float); }
-    bool isString() const { return (type_ == JsonbType::T_String); }
-    bool isBinary() const { return (type_ == JsonbType::T_Binary); }
-    bool isObject() const { return (type_ == JsonbType::T_Object); }
-    bool isArray() const { return (type_ == JsonbType::T_Array); }
-    bool isInt128() const { return (type_ == JsonbType::T_Int128); }
-
-    JsonbType type() const { return type_; }
+    bool isInt8() const { return (type == JsonbType::T_Int8); }
+    bool isInt16() const { return (type == JsonbType::T_Int16); }
+    bool isInt32() const { return (type == JsonbType::T_Int32); }
+    bool isInt64() const { return (type == JsonbType::T_Int64); }
+    bool isDouble() const { return (type == JsonbType::T_Double); }
+    bool isFloat() const { return (type == JsonbType::T_Float); }
+    bool isString() const { return (type == JsonbType::T_String); }
+    bool isBinary() const { return (type == JsonbType::T_Binary); }
+    bool isObject() const { return (type == JsonbType::T_Object); }
+    bool isArray() const { return (type == JsonbType::T_Array); }
+    bool isInt128() const { return (type == JsonbType::T_Int128); }
+    bool isDecimal() const {
+        return (type == JsonbType::T_Decimal32 || type == JsonbType::T_Decimal64 ||
+                type == JsonbType::T_Decimal128 || type == JsonbType::T_Decimal256);
+    }
+    bool isDecimal32() const { return (type == JsonbType::T_Decimal32); }
+    bool isDecimal64() const { return (type == JsonbType::T_Decimal64); }
+    bool isDecimal128() const { return (type == JsonbType::T_Decimal128); }
+    bool isDecimal256() const { return (type == JsonbType::T_Decimal256); }
 
     const char* typeName() const {
-        switch (type_) {
+        switch (type) {
         case JsonbType::T_Null:
             return "null";
         case JsonbType::T_True:
@@ -566,6 +587,14 @@ public:
             return "object";
         case JsonbType::T_Array:
             return "array";
+        case JsonbType::T_Decimal32:
+            return "Decimal32";
+        case JsonbType::T_Decimal64:
+            return "Decimal64";
+        case JsonbType::T_Decimal128:
+            return "Decimal128";
+        case JsonbType::T_Decimal256:
+            return "Decimal256";
         default:
             return "unknown";
         }
@@ -583,37 +612,31 @@ public:
     //Whether to include the jsonbvalue rhs
     bool contains(JsonbValue* rhs) const;
 
-    // get the raw byte array of the value
-    const char* getValuePtr() const;
-
     // find the JSONB value by JsonbPath
     JsonbValue* findValue(JsonbPath& path, hDictFind handler);
     friend class JsonbDocument;
 
-protected:
-    JsonbType type_; // type info
+    JsonbType type; // type info
 
-    JsonbValue();
+    JsonbValue() = delete;
 };
 
 /*
  * NumerValT is the template class (derived from JsonbValue) of all number
  * types (integers and double).
  */
-template <class T>
+template <typename T>
 class NumberValT : public JsonbValue {
 public:
-    T val() const { return num_; }
+    NumberValT() = delete;
+    T val() const { return num; }
 
     unsigned int numPackedBytes() const { return sizeof(JsonbValue) + sizeof(T); }
 
     // catch all unknow specialization of the template class
     bool setVal(T value) { return false; }
 
-private:
-    T num_;
-
-    NumberValT();
+    T num;
 };
 
 using JsonbInt8Val = NumberValT<int8_t>;
@@ -625,7 +648,7 @@ inline bool JsonbInt8Val::setVal(int8_t value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 
@@ -638,7 +661,7 @@ inline bool JsonbInt16Val::setVal(int16_t value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 using JsonbInt32Val = NumberValT<int32_t>;
@@ -650,7 +673,7 @@ inline bool JsonbInt32Val::setVal(int32_t value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 
@@ -663,7 +686,7 @@ inline bool JsonbInt64Val::setVal(int64_t value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 
@@ -676,7 +699,7 @@ inline bool JsonbInt128Val::setVal(int128_t value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 
@@ -689,7 +712,7 @@ inline bool JsonbDoubleVal::setVal(double value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 
@@ -702,7 +725,7 @@ inline bool JsonbFloatVal::setVal(float value) {
         return false;
     }
 
-    num_ = value;
+    num = value;
     return true;
 }
 
@@ -710,7 +733,7 @@ inline bool JsonbFloatVal::setVal(float value) {
 class JsonbIntVal : public JsonbValue {
 public:
     int128_t val() const {
-        switch (type_) {
+        switch (type) {
         case JsonbType::T_Int8:
             return ((JsonbInt8Val*)this)->val();
         case JsonbType::T_Int16:
@@ -722,11 +745,12 @@ public:
         case JsonbType::T_Int128:
             return ((JsonbInt128Val*)this)->val();
         default:
-            return 0;
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                            static_cast<JsonbTypeUnder>(type));
         }
     }
     bool setVal(int128_t val) {
-        switch (type_) {
+        switch (type) {
         case JsonbType::T_Int8:
             if (val < std::numeric_limits<int8_t>::min() ||
                 val > std::numeric_limits<int8_t>::max()) {
@@ -750,43 +774,78 @@ public:
         case JsonbType::T_Int128:
             return ((JsonbInt128Val*)this)->setVal(val);
         default:
-            return false;
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                            static_cast<JsonbTypeUnder>(type));
         }
     }
 };
 
+template <JsonbDecimalType T>
+class JsonbDecimalVal : public JsonbValue {
+public:
+    using NativeType = typename T::NativeType;
+    JsonbDecimalVal() = delete;
+
+    // get the decimal value
+    T val() const { return T(value); }
+
+    static constexpr int numPackedBytes() {
+        return sizeof(JsonbValue) + sizeof(precision) + sizeof(scale) + sizeof(value);
+    }
+
+    // set the decimal value
+    bool setVal(const T& decimal, uint32_t precision_, uint32_t scale_) {
+        if (!isDecimal()) {
+            return false;
+        }
+
+        precision = precision_;
+        scale = scale_;
+        value = decimal.value;
+        return true;
+    }
+
+    uint32_t precision;
+    uint32_t scale;
+    NativeType value;
+};
+
+using JsonbDecimal256 = JsonbDecimalVal<vectorized::Decimal256>;
+using JsonbDecimal128 = JsonbDecimalVal<vectorized::Decimal128V3>;
+using JsonbDecimal64 = JsonbDecimalVal<vectorized::Decimal64>;
+using JsonbDecimal32 = JsonbDecimalVal<vectorized::Decimal32>;
+
 /*
  * BlobVal is the base class (derived from JsonbValue) for string and binary
- * types. The size_ indicates the total bytes of the payload_.
+ * types. The size indicates the total bytes of the payload.
  */
 class JsonbBlobVal : public JsonbValue {
 public:
     // size of the blob payload only
-    unsigned int getBlobLen() const { return size_; }
+    unsigned int getBlobLen() const { return size; }
 
     // return the blob as byte array
-    const char* getBlob() const { return payload_; }
+    const char* getBlob() const { return payload; }
 
     // size of the total packed bytes
-    unsigned int numPackedBytes() const { return sizeof(JsonbValue) + sizeof(size_) + size_; }
+    unsigned int numPackedBytes() const { return sizeof(JsonbValue) + sizeof(size) + size; }
     friend class JsonbDocument;
 
-protected:
-    uint32_t size_;
-    char payload_[0];
+    uint32_t size;
+    char payload[0];
 
     // set new blob bytes
     bool internalSetVal(const char* blob, uint32_t blobSize) {
         // if we cannot fit the new blob, fail the operation
-        if (blobSize > size_) {
+        if (blobSize > size) {
             return false;
         }
 
-        memcpy(payload_, blob, blobSize);
+        memcpy(payload, blob, blobSize);
 
-        // Set the reset of the bytes to 0.  Note we cannot change the size_ of the
+        // Set the reset of the bytes to 0.  Note we cannot change the size of the
         // current payload, as all values are packed.
-        memset(payload_ + blobSize, 0, size_ - blobSize);
+        memset(payload + blobSize, 0, size - blobSize);
 
         return true;
     }
@@ -799,6 +858,7 @@ protected:
  */
 class JsonbBinaryVal : public JsonbBlobVal {
 public:
+    JsonbBinaryVal() = delete;
     bool setVal(const char* blob, uint32_t blobSize) {
         if (!isBinary()) {
             return false;
@@ -806,9 +866,6 @@ public:
 
         return internalSetVal(blob, blobSize);
     }
-
-private:
-    JsonbBinaryVal();
 };
 
 /*
@@ -817,6 +874,7 @@ private:
  */
 class JsonbStringVal : public JsonbBlobVal {
 public:
+    JsonbStringVal() = delete;
     bool setVal(const char* str, uint32_t blobSize) {
         if (!isString()) {
             return false;
@@ -827,61 +885,57 @@ public:
     /*
     This function return the actual size of a string. Since for
     a string, it can be null-terminated with null paddings or it
-    can take all the space in the payload_ without null in the end.
+    can take all the space in the payload without null in the end.
     So we need to check it to get the true actual length of a string.
   */
     size_t length() {
         // It's an empty string
-        if (0 == size_) {
-            return size_;
+        if (0 == size) {
+            return size;
         }
-        // The string stored takes all the spaces in payload_
-        if (payload_[size_ - 1] != 0) {
-            return size_;
+        // The string stored takes all the spaces in payload
+        if (payload[size - 1] != 0) {
+            return size;
         }
-        // It's shorter than the size of payload_
-        return strnlen(payload_, size_);
+        // It's shorter than the size of payload
+        return strnlen(payload, size);
     }
     // convert the string (case insensitive) to a boolean value
     // "false": 0
     // "true": 1
     // all other strings: -1
     int getBoolVal() {
-        if (size_ == 4 && tolower(payload_[0]) == 't' && tolower(payload_[1]) == 'r' &&
-            tolower(payload_[2]) == 'u' && tolower(payload_[3]) == 'e') {
+        if (size == 4 && tolower(payload[0]) == 't' && tolower(payload[1]) == 'r' &&
+            tolower(payload[2]) == 'u' && tolower(payload[3]) == 'e') {
             return 1;
-        } else if (size_ == 5 && tolower(payload_[0]) == 'f' && tolower(payload_[1]) == 'a' &&
-                   tolower(payload_[2]) == 'l' && tolower(payload_[3]) == 's' &&
-                   tolower(payload_[4]) == 'e') {
+        } else if (size == 5 && tolower(payload[0]) == 'f' && tolower(payload[1]) == 'a' &&
+                   tolower(payload[2]) == 'l' && tolower(payload[3]) == 's' &&
+                   tolower(payload[4]) == 'e') {
             return 0;
         } else {
             return -1;
         }
     }
-
-private:
-    JsonbStringVal();
 };
 
 /*
  * ContainerVal is the base class (derived from JsonbValue) for object and
- * array types. The size_ indicates the total bytes of the payload_.
+ * array types. The size indicates the total bytes of the payload.
  */
 class ContainerVal : public JsonbValue {
 public:
     // size of the container payload only
-    unsigned int getContainerSize() const { return size_; }
+    unsigned int getContainerSize() const { return size; }
 
     // return the container payload as byte array
-    const char* getPayload() const { return payload_; }
+    const char* getPayload() const { return payload; }
 
     // size of the total packed bytes
-    unsigned int numPackedBytes() const { return sizeof(JsonbValue) + sizeof(size_) + size_; }
+    unsigned int numPackedBytes() const { return sizeof(JsonbValue) + sizeof(size) + size; }
     friend class JsonbDocument;
 
-protected:
-    uint32_t size_;
-    char payload_[0];
+    uint32_t size;
+    char payload[0];
 
     ContainerVal();
 };
@@ -896,6 +950,8 @@ public:
     using const_pointer = const value_type*;
     using iterator = JsonbFwdIteratorT<pointer, ObjectVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ObjectVal>;
+
+    ObjectVal() = delete;
 
     const_iterator search(const char* key, hDictFind handler = nullptr) const {
         return const_cast<ObjectVal*>(this)->search(key, handler);
@@ -930,8 +986,8 @@ public:
             return end();
         }
 
-        const char* pch = payload_;
-        const char* fence = payload_ + size_;
+        const char* pch = payload;
+        const char* fence = payload + size;
 
         while (pch < fence) {
             auto* pkey = (JsonbKeyValue*)(pch);
@@ -947,8 +1003,8 @@ public:
 
     // Get number of elements in object
     int numElem() const {
-        const char* pch = payload_;
-        const char* fence = payload_ + size_;
+        const char* pch = payload;
+        const char* fence = payload + size;
 
         unsigned int num = 0;
         while (pch < fence) {
@@ -963,8 +1019,8 @@ public:
     }
 
     JsonbKeyValue* getJsonbKeyValue(unsigned int i) const {
-        const char* pch = payload_;
-        const char* fence = payload_ + size_;
+        const char* pch = payload;
+        const char* fence = payload + size;
 
         unsigned int num = 0;
         while (pch < fence) {
@@ -1016,18 +1072,18 @@ public:
         return kv->value();
     }
 
-    iterator begin() { return iterator((pointer)payload_); }
+    iterator begin() { return iterator((pointer)payload); }
 
-    const_iterator begin() const { return const_iterator((pointer)payload_); }
+    const_iterator begin() const { return const_iterator((pointer)payload); }
 
-    iterator end() { return iterator((pointer)(payload_ + size_)); }
+    iterator end() { return iterator((pointer)(payload + size)); }
 
-    const_iterator end() const { return const_iterator((pointer)(payload_ + size_)); }
+    const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 
 private:
     iterator internalSearch(const char* key, unsigned int klen) {
-        const char* pch = payload_;
-        const char* fence = payload_ + size_;
+        const char* pch = payload;
+        const char* fence = payload + size;
 
         while (pch < fence) {
             auto* pkey = (JsonbKeyValue*)(pch);
@@ -1041,9 +1097,6 @@ private:
 
         return end();
     }
-
-private:
-    ObjectVal();
 };
 
 /*
@@ -1057,14 +1110,15 @@ public:
     using iterator = JsonbFwdIteratorT<pointer, ArrayVal>;
     using const_iterator = JsonbFwdIteratorT<const_pointer, ArrayVal>;
 
+    ArrayVal() = delete;
     // get the JSONB value at index
     JsonbValue* get(int idx) const {
         if (idx < 0) {
             return nullptr;
         }
 
-        const char* pch = payload_;
-        const char* fence = payload_ + size_;
+        const char* pch = payload;
+        const char* fence = payload + size;
 
         while (pch < fence && idx-- > 0) {
             pch += ((JsonbValue*)pch)->numPackedBytes();
@@ -1078,8 +1132,8 @@ public:
 
     // Get number of elements in array
     int numElem() const {
-        const char* pch = payload_;
-        const char* fence = payload_ + size_;
+        const char* pch = payload;
+        const char* fence = payload + size;
 
         unsigned int num = 0;
         while (pch < fence) {
@@ -1092,16 +1146,13 @@ public:
         return num;
     }
 
-    iterator begin() { return iterator((pointer)payload_); }
+    iterator begin() { return iterator((pointer)payload); }
 
-    const_iterator begin() const { return const_iterator((pointer)payload_); }
+    const_iterator begin() const { return const_iterator((pointer)payload); }
 
-    iterator end() { return iterator((pointer)(payload_ + size_)); }
+    iterator end() { return iterator((pointer)(payload + size)); }
 
-    const_iterator end() const { return const_iterator((pointer)(payload_ + size_)); }
-
-private:
-    ArrayVal();
+    const_iterator end() const { return const_iterator((pointer)(payload + size)); }
 };
 
 inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
@@ -1119,10 +1170,10 @@ inline Status JsonbDocument::checkAndCreateDocument(const char* pb, size_t size,
     }
 
     auto* val = (JsonbValue*)doc_ptr->payload_;
-    if (val->type() < JsonbType::T_Null || val->type() >= JsonbType::NUM_TYPES ||
+    if (val->type < JsonbType::T_Null || val->type >= JsonbType::NUM_TYPES ||
         size != sizeof(JsonbHeader) + val->numPackedBytes()) {
         return Status::InvalidArgument("Invalid JSONB document: invalid type({}) or size({})",
-                                       static_cast<JsonbTypeUnder>(val->type()), size);
+                                       static_cast<JsonbTypeUnder>(val->type), size);
     }
 
     *doc = doc_ptr;
@@ -1162,33 +1213,33 @@ inline unsigned int JsonbKeyValue::numPackedBytes() const {
 
 // Poor man's "virtual" function JsonbValue::numPackedBytes
 inline unsigned int JsonbValue::numPackedBytes() const {
-    switch (type_) {
+    switch (type) {
     case JsonbType::T_Null:
     case JsonbType::T_True:
     case JsonbType::T_False: {
-        return sizeof(type_);
+        return sizeof(type);
     }
 
     case JsonbType::T_Int8: {
-        return sizeof(type_) + sizeof(int8_t);
+        return sizeof(type) + sizeof(int8_t);
     }
     case JsonbType::T_Int16: {
-        return sizeof(type_) + sizeof(int16_t);
+        return sizeof(type) + sizeof(int16_t);
     }
     case JsonbType::T_Int32: {
-        return sizeof(type_) + sizeof(int32_t);
+        return sizeof(type) + sizeof(int32_t);
     }
     case JsonbType::T_Int64: {
-        return sizeof(type_) + sizeof(int64_t);
+        return sizeof(type) + sizeof(int64_t);
     }
     case JsonbType::T_Double: {
-        return sizeof(type_) + sizeof(double);
+        return sizeof(type) + sizeof(double);
     }
     case JsonbType::T_Float: {
-        return sizeof(type_) + sizeof(float);
+        return sizeof(type) + sizeof(float);
     }
     case JsonbType::T_Int128: {
-        return sizeof(type_) + sizeof(int128_t);
+        return sizeof(type) + sizeof(int128_t);
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
@@ -1199,53 +1250,26 @@ inline unsigned int JsonbValue::numPackedBytes() const {
     case JsonbType::T_Array: {
         return ((ContainerVal*)(this))->numPackedBytes();
     }
+    case JsonbType::T_Decimal32: {
+        return JsonbDecimal32::numPackedBytes();
+    }
+    case JsonbType::T_Decimal64: {
+        return JsonbDecimal64::numPackedBytes();
+    }
+    case JsonbType::T_Decimal128: {
+        return JsonbDecimal128::numPackedBytes();
+    }
+    case JsonbType::T_Decimal256: {
+        return JsonbDecimal256::numPackedBytes();
+    }
     default:
-        return 0;
-    }
-}
-
-inline unsigned int JsonbValue::size() const {
-    switch (type_) {
-    case JsonbType::T_Int8: {
-        return sizeof(int8_t);
-    }
-    case JsonbType::T_Int16: {
-        return sizeof(int16_t);
-    }
-    case JsonbType::T_Int32: {
-        return sizeof(int32_t);
-    }
-    case JsonbType::T_Int64: {
-        return sizeof(int64_t);
-    }
-    case JsonbType::T_Double: {
-        return sizeof(double);
-    }
-    case JsonbType::T_Float: {
-        return sizeof(float);
-    }
-    case JsonbType::T_Int128: {
-        return sizeof(int128_t);
-    }
-    case JsonbType::T_String:
-    case JsonbType::T_Binary: {
-        return ((JsonbBlobVal*)(this))->getBlobLen();
-    }
-
-    case JsonbType::T_Object:
-    case JsonbType::T_Array: {
-        return ((ContainerVal*)(this))->getContainerSize();
-    }
-    case JsonbType::T_Null:
-    case JsonbType::T_True:
-    case JsonbType::T_False:
-    default:
-        return 0;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                        static_cast<JsonbTypeUnder>(type));
     }
 }
 
 inline int JsonbValue::numElements() const {
-    switch (type_) {
+    switch (type) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
     case JsonbType::T_Int32:
@@ -1257,7 +1281,11 @@ inline int JsonbValue::numElements() const {
     case JsonbType::T_Binary:
     case JsonbType::T_Null:
     case JsonbType::T_True:
-    case JsonbType::T_False: {
+    case JsonbType::T_False:
+    case JsonbType::T_Decimal32:
+    case JsonbType::T_Decimal64:
+    case JsonbType::T_Decimal128:
+    case JsonbType::T_Decimal256: {
         return 1;
     }
     case JsonbType::T_Object: {
@@ -1267,12 +1295,13 @@ inline int JsonbValue::numElements() const {
         return ((ArrayVal*)this)->numElem();
     }
     default:
-        return 0;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                        static_cast<JsonbTypeUnder>(type));
     }
 }
 
 inline bool JsonbValue::contains(JsonbValue* rhs) const {
-    switch (type_) {
+    switch (type) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
     case JsonbType::T_Int32:
@@ -1352,35 +1381,41 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     case JsonbType::T_False: {
         return rhs->isFalse();
     }
-    default:
+    case JsonbType::T_Decimal32: {
+        if (rhs->isDecimal32()) {
+            return ((JsonbDecimal32*)(this))->val() == ((JsonbDecimal32*)(rhs))->val() &&
+                   ((JsonbDecimal32*)(this))->precision == ((JsonbDecimal32*)(rhs))->precision &&
+                   ((JsonbDecimal32*)(this))->scale == ((JsonbDecimal32*)(rhs))->scale;
+        }
         return false;
     }
-}
-
-inline const char* JsonbValue::getValuePtr() const {
-    switch (type_) {
-    case JsonbType::T_Int8:
-    case JsonbType::T_Int16:
-    case JsonbType::T_Int32:
-    case JsonbType::T_Int64:
-    case JsonbType::T_Double:
-    case JsonbType::T_Float:
-    case JsonbType::T_Int128:
-        return ((char*)this) + sizeof(JsonbType);
-
-    case JsonbType::T_String:
-    case JsonbType::T_Binary:
-        return ((JsonbBlobVal*)(this))->getBlob();
-
-    case JsonbType::T_Object:
-    case JsonbType::T_Array:
-        return ((ContainerVal*)(this))->getPayload();
-
-    case JsonbType::T_Null:
-    case JsonbType::T_True:
-    case JsonbType::T_False:
+    case JsonbType::T_Decimal64: {
+        if (rhs->isDecimal64()) {
+            return ((JsonbDecimal64*)(this))->val() == ((JsonbDecimal64*)(rhs))->val() &&
+                   ((JsonbDecimal64*)(this))->precision == ((JsonbDecimal64*)(rhs))->precision &&
+                   ((JsonbDecimal64*)(this))->scale == ((JsonbDecimal64*)(rhs))->scale;
+        }
+        return false;
+    }
+    case JsonbType::T_Decimal128: {
+        if (rhs->isDecimal128()) {
+            return ((JsonbDecimal128*)(this))->val() == ((JsonbDecimal128*)(rhs))->val() &&
+                   ((JsonbDecimal128*)(this))->precision == ((JsonbDecimal128*)(rhs))->precision &&
+                   ((JsonbDecimal128*)(this))->scale == ((JsonbDecimal128*)(rhs))->scale;
+        }
+        return false;
+    }
+    case JsonbType::T_Decimal256: {
+        if (rhs->isDecimal256()) {
+            return ((JsonbDecimal256*)(this))->val() == ((JsonbDecimal256*)(rhs))->val() &&
+                   ((JsonbDecimal256*)(this))->precision == ((JsonbDecimal256*)(rhs))->precision &&
+                   ((JsonbDecimal256*)(this))->scale == ((JsonbDecimal256*)(rhs))->scale;
+        }
+        return false;
+    }
     default:
-        return nullptr;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                        static_cast<JsonbTypeUnder>(type));
     }
 }
 
@@ -1414,7 +1449,7 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
     for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
         switch (path.get_leg_from_leg_vector(i)->type) {
         case MEMBER_CODE: {
-            if (LIKELY(pval->type_ == JsonbType::T_Object)) {
+            if (LIKELY(pval->type == JsonbType::T_Object)) {
                 if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
                     *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
                     continue;
@@ -1435,19 +1470,19 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
         case ARRAY_CODE: {
             if (path.get_leg_from_leg_vector(i)->leg_len == 1 &&
                 *path.get_leg_from_leg_vector(i)->leg_ptr == WILDCARD) {
-                if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                if (LIKELY(pval->type == JsonbType::T_Array)) {
                     continue;
                 } else {
                     return nullptr;
                 }
             }
 
-            if (pval->type_ == JsonbType::T_Object &&
+            if (pval->type == JsonbType::T_Object &&
                 path.get_leg_from_leg_vector(i)->array_index == 0) {
                 continue;
             }
 
-            if (pval->type_ != JsonbType::T_Array ||
+            if (pval->type != JsonbType::T_Array ||
                 path.get_leg_from_leg_vector(i)->leg_ptr != nullptr ||
                 path.get_leg_from_leg_vector(i)->leg_len != 0) {
                 return nullptr;
@@ -1641,6 +1676,36 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
 
     return true;
 }
+
+static_assert(std::is_standard_layout_v<JsonbDocument> && std::is_trivial_v<JsonbDocument>,
+              "JsonbDocument must be standard layout and trivial");
+
+static_assert(std::is_standard_layout_v<JsonbValue> && std::is_trivial_v<JsonbValue>,
+              "JsonbValue must be standard layout and trivial");
+
+#define ASSERT_DECIMAL_LAYOUT(type)                \
+    static_assert(offsetof(type, precision) == 1); \
+    static_assert(offsetof(type, scale) == 5);     \
+    static_assert(offsetof(type, value) == 9);
+
+ASSERT_DECIMAL_LAYOUT(JsonbDecimal32)
+ASSERT_DECIMAL_LAYOUT(JsonbDecimal64)
+ASSERT_DECIMAL_LAYOUT(JsonbDecimal128)
+ASSERT_DECIMAL_LAYOUT(JsonbDecimal256)
+
+#define ASSERT_NUMERIC_LAYOUT(type) static_assert(offsetof(type, num) == 1);
+
+ASSERT_NUMERIC_LAYOUT(JsonbInt8Val)
+ASSERT_NUMERIC_LAYOUT(JsonbInt32Val)
+ASSERT_NUMERIC_LAYOUT(JsonbInt64Val)
+ASSERT_NUMERIC_LAYOUT(JsonbInt128Val)
+ASSERT_NUMERIC_LAYOUT(JsonbDoubleVal)
+
+static_assert(offsetof(JsonbBlobVal, size) == 1);
+static_assert(offsetof(JsonbBlobVal, payload) == 5);
+
+static_assert(offsetof(ContainerVal, size) == 1);
+static_assert(offsetof(ContainerVal, payload) == 5);
 
 #pragma pack(pop)
 #if defined(__clang__)

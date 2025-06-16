@@ -23,7 +23,6 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 #include "vec/io/reader_buffer.h"
 
 namespace doris {

@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <string>
 
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"

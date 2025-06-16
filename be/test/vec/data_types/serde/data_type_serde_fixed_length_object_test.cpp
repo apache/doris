@@ -18,8 +18,7 @@
 #include <arrow/array/builder_base.h>
 #include <gtest/gtest.h>
 
-#include <string>
-
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/columns/column_fixed_length_object.h"
 #include "vec/data_types/serde/data_type_string_serde.h"

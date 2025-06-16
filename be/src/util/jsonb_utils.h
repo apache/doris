@@ -21,10 +21,9 @@
 #ifndef JSONB_JSONBUTIL_H
 #define JSONB_JSONBUTIL_H
 
-#include "common/exception.h"
+#include "common/status.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
-#include "jsonb_writer.h"
 
 namespace doris {
 
@@ -40,10 +39,7 @@ public:
     // get json string
     std::string to_json_string(const char* data, size_t size) {
         JsonbDocument* pdoc;
-        auto st = doris::JsonbDocument::checkAndCreateDocument(data, size, &pdoc);
-        if (!st.ok()) {
-            throw Exception(st);
-        }
+        THROW_IF_ERROR(doris::JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
         return to_json_string(pdoc->getValue());
     }
 
@@ -69,7 +65,7 @@ public:
 private:
     // recursively convert JsonbValue
     void intern_json(const JsonbValue* val) {
-        switch (val->type()) {
+        switch (val->type) {
         case JsonbType::T_Null: {
             os_.write("null", 4);
             break;
@@ -126,6 +122,26 @@ private:
         }
         case JsonbType::T_Array: {
             array_to_json((ArrayVal*)val);
+            break;
+        }
+        case JsonbType::T_Decimal32: {
+            const auto* decimal_val = static_cast<const JsonbDecimal32*>(val);
+            decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
+            break;
+        }
+        case JsonbType::T_Decimal64: {
+            const auto* decimal_val = static_cast<const JsonbDecimal64*>(val);
+            decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
+            break;
+        }
+        case JsonbType::T_Decimal128: {
+            const auto* decimal_val = static_cast<const JsonbDecimal128*>(val);
+            decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
+            break;
+        }
+        case JsonbType::T_Decimal256: {
+            const auto* decimal_val = static_cast<const JsonbDecimal256*>(val);
+            decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
             break;
         }
         default:
@@ -235,65 +251,13 @@ private:
         os_.put(']');
     }
 
+    template <JsonbDecimalType T>
+    void decimal_to_json(const T& value, const uint32_t precision, const uint32_t scale);
+
     JsonbOutStream os_;
     char buffer_[OUT_BUF_SIZE];
 };
 
-// This class is a utility to create a JsonbValue.
-template <class OS_TYPE>
-class JsonbValueCreaterT {
-public:
-    JsonbValue* operator()(int32_t val) { return operator()((int64_t)val); }
-
-    JsonbValue* operator()(int64_t val) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeInt(val);
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()(double val) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeDouble(val);
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()(const char* str) { return operator()(str, (unsigned int)strlen(str)); }
-    JsonbValue* operator()(const char* str, unsigned int str_len) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeStartString();
-        writer_.writeString(str, str_len);
-        writer_.writeEndString();
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()(bool val) {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeBool(val);
-        writer_.writeEndArray();
-        return extractValue();
-    }
-    JsonbValue* operator()() {
-        writer_.reset();
-        writer_.writeStartArray();
-        writer_.writeNull();
-        writer_.writeEndArray();
-        return extractValue();
-    }
-
-private:
-    JsonbValue* extractValue() {
-        return static_cast<ArrayVal*>(
-                       JsonbDocument::createValue(writer_.getOutput()->getBuffer(),
-                                                  (int)writer_.getOutput()->getSize()))
-                ->get(0);
-    }
-    JsonbWriterT<OS_TYPE> writer_;
-};
-using JsonbValueCreater = JsonbValueCreaterT<JsonbOutStream>;
 } // namespace doris
 
 #endif // JSONB_JSONBUTIL_H
