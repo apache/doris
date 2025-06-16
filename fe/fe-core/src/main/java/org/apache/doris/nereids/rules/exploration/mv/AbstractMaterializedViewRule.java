@@ -298,7 +298,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 MTMV mtmv = ((AsyncMaterializationContext) materializationContext).getMtmv();
                 BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
                 Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                        cascadesContext.getConnectContext().getStatementContext());
+                        cascadesContext.getStatementContext(), queryStructInfo.getRelationIdBitSet());
                 Set<String> relateTableUsedPartitions = queryUsedPartitions.get(relatedTableInfo.toList());
                 if (relateTableUsedPartitions == null) {
                     materializationContext.recordFailReason(queryStructInfo,

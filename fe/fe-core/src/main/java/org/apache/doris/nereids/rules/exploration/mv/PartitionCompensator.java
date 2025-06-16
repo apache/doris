@@ -40,6 +40,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -164,8 +165,12 @@ public class PartitionCompensator {
     /**
      * Get query used partitions
      * this is calculated from tableUsedPartitionNameMap and tables in statementContext
-     * */
-    public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext) {
+     *
+     * @param customRelationIdSet if union compensate occurs, the new query used partitions is changed,
+     *         so need to get used partitions by relation id set
+     */
+    public static Map<List<String>, Set<String>> getQueryUsedPartitions(StatementContext statementContext,
+            BitSet customRelationIdSet) {
         // get table used partitions
         // if table is not in statementContext().getTables() which means the table is partition prune as empty relation
         Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap = statementContext
@@ -174,9 +179,10 @@ public class PartitionCompensator {
         // if value is null, means query all partitions
         // if value is not empty, means query some partitions
         Map<List<String>, Set<String>> queryUsedRelatedTablePartitionsMap = new HashMap<>();
-        outer:
+        tableLoop:
         for (Map.Entry<List<String>, TableIf> queryUsedTableEntry : statementContext.getTables().entrySet()) {
             Set<String> usedPartitionSet = new HashSet<>();
+            Set<String> customRelationIdSetUsedPartitionSet = new HashSet<>();
             Collection<Pair<RelationId, Set<String>>> tableUsedPartitions =
                     tableUsedPartitionNameMap.get(queryUsedTableEntry.getKey());
             if (!tableUsedPartitions.isEmpty()) {
@@ -185,14 +191,19 @@ public class PartitionCompensator {
                     continue;
                 }
                 for (Pair<RelationId, Set<String>> partitionPair : tableUsedPartitions) {
+                    if (customRelationIdSet.get(partitionPair.key().asInt())) {
+                        customRelationIdSetUsedPartitionSet.addAll(partitionPair.value());
+                    }
                     if (ALL_PARTITIONS.equals(partitionPair)) {
                         queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), null);
-                        continue outer;
+                        continue tableLoop;
                     }
                     usedPartitionSet.addAll(partitionPair.value());
                 }
             }
-            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(), usedPartitionSet);
+            queryUsedRelatedTablePartitionsMap.put(queryUsedTableEntry.getKey(),
+                    customRelationIdSetUsedPartitionSet.isEmpty()
+                            ? usedPartitionSet : customRelationIdSetUsedPartitionSet);
         }
         return queryUsedRelatedTablePartitionsMap;
     }
