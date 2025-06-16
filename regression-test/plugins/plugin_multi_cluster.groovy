@@ -17,6 +17,8 @@
 
 import org.apache.doris.regression.suite.Suite
 
+enum CompareSQLPattern { Skip, OrderByGroovy, OrderBySQL }
+
 /*
  * After running all regression-tests, check all db and tables
  * have same data in multi cluster deploy on cloud.
@@ -38,8 +40,6 @@ Suite.metaClass.check_multi_cluster_result = { clusterNames ->
         "regression_test_variant_p0_rqg": ["table_100_undef_partitions2_keys3_properties4_distributed_by53", CompareSQLPattern.Skip],
         "regression_test_variant_p0_with_index": ["test_variant_index_parser_empty" : CompareSQLPattern.Skip],
     ]
-    enum CompareSQLPattern { Skip, OrderByGroovy, OrderBySQL }
-    
     /*
      * return true if column type is a complex type.
      * type maybe like Map<int, String>, etc.
@@ -146,3 +146,5 @@ Suite.metaClass.check_multi_cluster_result = { clusterNames ->
         throw new Exception(""" There are ${nErrors} met in assertSameResult """)
     }
 }
+
+logger.info("Added 'check_multi_cluster_result' function to Suite")

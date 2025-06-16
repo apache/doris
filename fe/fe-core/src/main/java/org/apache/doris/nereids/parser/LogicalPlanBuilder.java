@@ -459,6 +459,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPreAggOnHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
@@ -1460,12 +1461,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return selectPlan;
             }
             List<ParserRuleContext> selectHintContexts = Lists.newArrayList();
+            List<ParserRuleContext> preAggOnHintContexts = Lists.newArrayList();
             for (Integer key : selectHintMap.keySet()) {
                 if (key > selectCtx.getStart().getStopIndex() && key < selectCtx.getStop().getStartIndex()) {
                     selectHintContexts.add(selectHintMap.get(key));
+                } else {
+                    preAggOnHintContexts.add(selectHintMap.get(key));
                 }
             }
-            return withSelectHint(selectPlan, selectHintContexts);
+            return withHints(selectPlan, selectHintContexts, preAggOnHintContexts);
         });
     }
 
@@ -3274,73 +3278,93 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return last;
     }
 
-    private LogicalPlan withSelectHint(LogicalPlan logicalPlan, List<ParserRuleContext> hintContexts) {
-        if (hintContexts.isEmpty()) {
+    private LogicalPlan withHints(LogicalPlan logicalPlan, List<ParserRuleContext> selectHintContexts,
+            List<ParserRuleContext> preAggOnHintContexts) {
+        if (selectHintContexts.isEmpty() && preAggOnHintContexts.isEmpty()) {
             return logicalPlan;
         }
-        Map<String, SelectHint> hints = Maps.newLinkedHashMap();
-        for (ParserRuleContext hintContext : hintContexts) {
-            SelectHintContext selectHintContext = (SelectHintContext) hintContext;
-            for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
-                String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
-                switch (hintName) {
-                    case "set_var":
-                        Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            if (kv.key != null) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                Optional<String> value = Optional.empty();
-                                if (kv.constantValue != null) {
-                                    Literal literal = (Literal) visit(kv.constantValue);
-                                    value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
-                                } else if (kv.identifierValue != null) {
-                                    // maybe we should throw exception when the identifierValue is quoted identifier
-                                    value = Optional.ofNullable(kv.identifierValue.getText());
+        LogicalPlan newPlan = logicalPlan;
+        if (!selectHintContexts.isEmpty()) {
+            Map<String, SelectHint> hints = Maps.newLinkedHashMap();
+            for (ParserRuleContext hintContext : selectHintContexts) {
+                SelectHintContext selectHintContext = (SelectHintContext) hintContext;
+                for (HintStatementContext hintStatement : selectHintContext.hintStatements) {
+                    String hintName = hintStatement.hintName.getText().toLowerCase(Locale.ROOT);
+                    switch (hintName) {
+                        case "set_var":
+                            Map<String, Optional<String>> parameters = Maps.newLinkedHashMap();
+                            for (HintAssignmentContext kv : hintStatement.parameters) {
+                                if (kv.key != null) {
+                                    String parameterName = visitIdentifierOrText(kv.key);
+                                    Optional<String> value = Optional.empty();
+                                    if (kv.constantValue != null) {
+                                        Literal literal = (Literal) visit(kv.constantValue);
+                                        value = Optional.ofNullable(literal.toLegacyLiteral().getStringValue());
+                                    } else if (kv.identifierValue != null) {
+                                        // maybe we should throw exception when the identifierValue is quoted identifier
+                                        value = Optional.ofNullable(kv.identifierValue.getText());
+                                    }
+                                    parameters.put(parameterName, value);
                                 }
-                                parameters.put(parameterName, value);
                             }
-                        }
-                        hints.put(hintName, new SelectHintSetVar(hintName, parameters));
-                        break;
-                    case "leading":
-                        List<String> leadingParameters = new ArrayList<>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            if (kv.key != null) {
+                            hints.put(hintName, new SelectHintSetVar(hintName, parameters));
+                            break;
+                        case "leading":
+                            List<String> leadingParameters = new ArrayList<>();
+                            for (HintAssignmentContext kv : hintStatement.parameters) {
+                                if (kv.key != null) {
+                                    String parameterName = visitIdentifierOrText(kv.key);
+                                    leadingParameters.add(parameterName);
+                                }
+                            }
+                            hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
+                            break;
+                        case "ordered":
+                            hints.put(hintName, new SelectHintOrdered(hintName));
+                            break;
+                        case "use_cbo_rule":
+                            List<String> useRuleParameters = new ArrayList<>();
+                            for (HintAssignmentContext kv : hintStatement.parameters) {
+                                if (kv.key != null) {
+                                    String parameterName = visitIdentifierOrText(kv.key);
+                                    useRuleParameters.add(parameterName);
+                                }
+                            }
+                            hints.put(hintName, new SelectHintUseCboRule(hintName, useRuleParameters, false));
+                            break;
+                        case "no_use_cbo_rule":
+                            List<String> noUseRuleParameters = new ArrayList<>();
+                            for (HintAssignmentContext kv : hintStatement.parameters) {
                                 String parameterName = visitIdentifierOrText(kv.key);
-                                leadingParameters.add(parameterName);
+                                if (kv.key != null) {
+                                    noUseRuleParameters.add(parameterName);
+                                }
                             }
+                            hints.put(hintName, new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            newPlan = new LogicalSelectHint<>(hints, newPlan);
+        }
+        if (!preAggOnHintContexts.isEmpty()) {
+            for (ParserRuleContext hintContext : preAggOnHintContexts) {
+                if (hintContext instanceof SelectHintContext) {
+                    SelectHintContext preAggOnHintContext = (SelectHintContext) hintContext;
+                    if (preAggOnHintContext.hintStatement != null
+                            && preAggOnHintContext.hintStatement.hintName != null) {
+                        String text = preAggOnHintContext.hintStatement.hintName.getText();
+                        if (text.equalsIgnoreCase("PREAGGOPEN")) {
+                            newPlan = new LogicalPreAggOnHint<>(newPlan);
+                            break;
                         }
-                        hints.put(hintName, new SelectHintLeading(hintName, leadingParameters));
-                        break;
-                    case "ordered":
-                        hints.put(hintName, new SelectHintOrdered(hintName));
-                        break;
-                    case "use_cbo_rule":
-                        List<String> useRuleParameters = new ArrayList<>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            if (kv.key != null) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                useRuleParameters.add(parameterName);
-                            }
-                        }
-                        hints.put(hintName, new SelectHintUseCboRule(hintName, useRuleParameters, false));
-                        break;
-                    case "no_use_cbo_rule":
-                        List<String> noUseRuleParameters = new ArrayList<>();
-                        for (HintAssignmentContext kv : hintStatement.parameters) {
-                            String parameterName = visitIdentifierOrText(kv.key);
-                            if (kv.key != null) {
-                                noUseRuleParameters.add(parameterName);
-                            }
-                        }
-                        hints.put(hintName, new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
-                        break;
-                    default:
-                        break;
+                    }
                 }
             }
         }
-        return new LogicalSelectHint<>(hints, logicalPlan);
+        return newPlan;
     }
 
     @Override
