@@ -52,7 +52,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     setHivePrefix(hivePrefix)
 
     hive_docker """ set hive.stats.column.autogather = false; """
-    hive_docker """ set hive.stats.column.autogather = true; """
+
 
     String tableName1 = """${suiteName}_tb1"""
     String tableName2 = """${suiteName}_tb2"""
@@ -257,6 +257,8 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """
         insert into ${dbName}.${tableName10} values (1,1),(2,2),(3,3),(4,4),(5,5),(6,6),(7,7),(8,8),(9,9),(10,10),(11,11),(12,12);
         """
+
+    hive_docker """ set hive.stats.column.autogather = true; """
 
     sql """drop catalog if exists ${ctlName}"""
     sql """create catalog if not exists ${ctlName} properties (
