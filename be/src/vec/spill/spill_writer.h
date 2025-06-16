@@ -43,6 +43,7 @@ public:
         // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id/0
         file_path_ = dir + "/0";
         RuntimeProfile* common_profile = profile->get_child("CommonCounters");
+        DCHECK(common_profile != nullptr);
         _memory_used_counter = common_profile->get_counter("MemoryUsage");
     }
 
