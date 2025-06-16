@@ -469,17 +469,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showWarnErrorCountCommand, context);
     }
 
-<<<<<<< HEAD
-=======
     default R visitShowLoadWarningsCommand(ShowLoadWarningsCommand showLoadWarningsCommand, C context) {
         return visitCommand(showLoadWarningsCommand, context);
     }
 
-    default R visitShowSyncJobCommand(ShowSyncJobCommand showSyncJobCommand, C context) {
-        return visitCommand(showSyncJobCommand, context);
-    }
-
->>>>>>> 50d8c417b6 ([Enhancement] (nereids)implement showLoadWaringsCommand in nereids)
     default R visitCreateProcedureCommand(CreateProcedureCommand createProcedureCommand, C context) {
         return visitCommand(createProcedureCommand, context);
     }
