@@ -211,9 +211,16 @@ TEST_F(JsonbParserTest, ParseJsonWithEscapedCharactersInString) {
               Status::OK());
 }
 
-TEST_F(JsonbParserTest, ParseJsonWithLongInt) {
+TEST_F(JsonbParserTest, ParseJsonWithLongInt1) {
     std::string_view json_with_long_int = R"({"long_int":19389892839283982938923})";
-    EXPECT_FALSE(parse_json_and_check(json_with_long_int, json_with_long_int));
+    std::string_view expected_json_with_long_int = R"({"long_int":19389892839283982938923})";
+    EXPECT_EQ(parse_json_and_check(json_with_long_int, expected_json_with_long_int), Status::OK());
+}
+
+TEST_F(JsonbParserTest, ParseJsonWithLongInt2) {
+    std::string_view json_with_long_int = R"(19389892839283982938923)";
+    std::string_view expected_json_with_long_int = R"(19389892839283982938923)";
+    EXPECT_EQ(parse_json_and_check(json_with_long_int, expected_json_with_long_int), Status::OK());
 }
 
 TEST_F(JsonbParserTest, ParseInvalidJsonFormat) {
