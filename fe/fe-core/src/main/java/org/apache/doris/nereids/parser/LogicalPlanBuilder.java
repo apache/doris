@@ -1115,10 +1115,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private StageAndPattern getStageAndPattern(DorisParser.StageAndPatternContext ctx) {
+        String stage = ctx.stage == null ? "~" : stripQuotes(ctx.stage.getText());
         if (ctx.pattern != null) {
-            return new StageAndPattern(stripQuotes(ctx.stage.getText()), stripQuotes(ctx.pattern.getText()));
+            return new StageAndPattern(stage, stripQuotes(ctx.pattern.getText()));
         } else {
-            return new StageAndPattern(stripQuotes(ctx.stage.getText()), null);
+            return new StageAndPattern(stage, null);
         }
     }
 
