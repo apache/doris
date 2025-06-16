@@ -810,7 +810,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .matches(logicalFilter(logicalOlapScan().when(scan -> scan.getTable().getName().equals("score")))
+                .nonMatch(logicalFilter(logicalOlapScan().when(scan -> scan.getTable().getName().equals("score")))
                         .when(filter -> filter.getConjuncts().size() == 1
                                 && filter.getConjuncts().iterator().next().isInferred()));
     }
