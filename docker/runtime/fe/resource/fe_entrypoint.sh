@@ -453,7 +453,8 @@ mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 # if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
-if [[ -f "$DORIS_META_DIR/image/ROLE" ]]; then
+doris_meta_dir=$(eval "echo \"$DORIS_META_DIR\"")
+if [[ -f "$doris_meta_dir/image/ROLE" ]]; then
     log_stderr "start fe with exist meta."
     ./doris-debug --component fe
     print_vlsn
