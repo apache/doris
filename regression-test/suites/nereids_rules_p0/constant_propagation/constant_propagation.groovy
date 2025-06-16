@@ -33,6 +33,7 @@ suite('constant_propagation') {
         SET detail_shape_nodes='PhysicalProject,PhysicalHashAggregate,PhysicalQuickSort';
         SET ignore_shape_nodes='PhysicalDistribute';
         SET enable_project_shape_position_order=true;
+        SET runtime_filter_type=2;
         """
 
     sql 'drop table if exists t1'

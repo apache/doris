@@ -188,11 +188,11 @@ PhysicalResultSink
 
 -- !join_9_shape --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->[x];RF1 a->[x]
+--hashJoin[INNER_JOIN] hashCondition=((t2.x = t3.a)) otherCondition=() build RFs:RF0 a->[x]
 ----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalProject[t2.x]
 --------filter(((t2.x * 10) = 10))
-----------PhysicalOlapScan[t2] apply RFs: RF0 RF1
+----------PhysicalOlapScan[t2] apply RFs: RF0
 ------PhysicalProject[t1.a]
 --------filter((t1.a = 10))
 ----------PhysicalOlapScan[t1]
