@@ -35,7 +35,6 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -202,10 +201,7 @@ public class ShowLoadCommand extends ShowCommand {
         Env env = ctx.getEnv();
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
         long dbId = db.getId();
-        List<List<Comparable>> loadInfos;
-        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
-        Load load = env.getLoadInstance();
-        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), labelValue, isAccurateMatch, getStates());
+        List<List<Comparable>> loadInfos = Lists.newArrayList();
         Set<String> statesValue = getStates() == null ? null : getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
