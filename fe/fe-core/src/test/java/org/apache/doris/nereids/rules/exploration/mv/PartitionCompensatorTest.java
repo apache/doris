@@ -109,6 +109,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
                                 + "left outer join orders_list_partition\n"
                                 + "on l1.l_shipdate = o_orderdate\n",
                         nereidsPlanner -> {
+                            MaterializedViewUtils.collectTableUsedPartitions(nereidsPlanner.getRewrittenPlan(),
+                                    nereidsPlanner.getCascadesContext());
                             Map<List<String>, Set<String>> queryUsedPartitions
                                     = PartitionCompensator.getQueryUsedPartitions(
                                             nereidsPlanner.getCascadesContext().getStatementContext(), new BitSet());
@@ -133,6 +135,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
                                 + "left outer join orders_list_partition\n"
                                 + "on l1.l_shipdate = o_orderdate\n",
                         nereidsPlanner -> {
+                            MaterializedViewUtils.collectTableUsedPartitions(nereidsPlanner.getRewrittenPlan(),
+                                    nereidsPlanner.getCascadesContext());
                             List<String> qualifier = ImmutableList.of(
                                     "internal", "partition_compensate_test", "lineitem_list_partition");
 
@@ -142,7 +146,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
 
                             Map<List<String>, Set<String>> queryUsedPartitions
                                     = PartitionCompensator.getQueryUsedPartitions(
-                                            nereidsPlanner.getCascadesContext().getStatementContext(), new BitSet());
+                                    nereidsPlanner.getCascadesContext().getStatementContext(), new BitSet());
                             Set<String> queryTableUsedPartition = queryUsedPartitions.get(qualifier);
                             // if tableUsedPartitionNameMap contain any PartitionCompensator.ALL_PARTITIONS
                             // consider query all partitions from table
@@ -163,6 +167,8 @@ public class PartitionCompensatorTest extends TestWithFeService {
                                 + "left outer join orders_list_partition\n"
                                 + "on l1.l_shipdate = o_orderdate\n",
                         nereidsPlanner -> {
+                            MaterializedViewUtils.collectTableUsedPartitions(nereidsPlanner.getRewrittenPlan(),
+                                    nereidsPlanner.getCascadesContext());
                             List<String> qualifier = ImmutableList.of(
                                     "internal", "partition_compensate_test", "lineitem_list_partition");
 

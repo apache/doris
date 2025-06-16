@@ -770,8 +770,6 @@ public class StructInfo {
             Rewriter.getWholeTreeRewriter(context).execute();
             return context.getRewritePlan();
         }, queryPlanWithUnionFilter, queryPlan);
-        // need to collect table partition again
-        MaterializedViewUtils.collectTableUsedPartitions(filterAddedPlan, parentCascadesContext);
         return Pair.of(filterAddedPlan, true);
     }
 

@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -64,6 +65,15 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     @Override
     public void afterRewrite(NereidsPlanner planner) {
+        CascadesContext cascadesContext = planner.getCascadesContext();
+        // collect partitions table used, this is for query rewrite by materialized view
+        // this is needed before init hook, because compare partition version in init hook would use this
+        MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsCollectTablePartitionFinishTime();
+        }
         initMaterializationContext(planner.getCascadesContext());
     }
 

@@ -420,6 +420,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 logicalProperties, queryPlan.getLogicalProperties()));
                 continue;
             }
+            // need to collect table partition again, because the rewritten plan would contain new relation
+            // and the rewritten plan would part in rewritten later , the table used partition info is needed
+            // for later rewrite
+            MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
