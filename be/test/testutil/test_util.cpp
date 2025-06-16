@@ -118,7 +118,7 @@ char rand_rng_char() {
     return (rand_rng_int(0, 1) ? 'a' : 'A') + rand_rng_int(0, 25);
 }
 std::string rand_rng_string(size_t length) {
-    string s;
+    std::string s;
     while (length--) {
         s += rand_rng_char();
     }

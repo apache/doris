@@ -41,7 +41,7 @@
 
 namespace doris {
 
-const static string INTERNAL_NORMAL_WG_NAME = "normal";
+const static std::string INTERNAL_NORMAL_WG_NAME = "normal";
 const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
 PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double cache_ratio,

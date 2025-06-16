@@ -191,7 +191,7 @@ public:
         _table_col_to_file_col = table_col_to_file_col;
     }
 
-    void set_position_delete_rowids(vector<int64_t>* delete_rows) {
+    void set_position_delete_rowids(std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
     }
     void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
