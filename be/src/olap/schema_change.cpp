@@ -726,7 +726,7 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     return rowset;
 }
 
-Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
+Status VBaseSchemaChangeWithSorting::_external_sorting(std::vector<RowsetSharedPtr>& src_rowsets,
                                                        RowsetWriter* rowset_writer,
                                                        BaseTabletSPtr new_tablet,
                                                        TabletSchemaSPtr new_tablet_schema) {

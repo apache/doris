@@ -331,14 +331,7 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    std::string get_name() const override {
-        // TODO(gabriel)
-        // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
-        if (T == TYPE_IPV4) {
-            return "IPv4";
-        }
-        return TypeName<value_type>::get();
-    }
+    std::string get_name() const override { return type_to_string(T); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 

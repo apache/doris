@@ -650,9 +650,9 @@ DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
 DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
-DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_min);
-DECLARE_Int32(fragment_mgr_asynic_work_pool_thread_num_max);
-DECLARE_Int32(fragment_mgr_asynic_work_pool_queue_size);
+DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_min);
+DECLARE_Int32(fragment_mgr_async_work_pool_thread_num_max);
+DECLARE_Int32(fragment_mgr_async_work_pool_queue_size);
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
@@ -797,10 +797,6 @@ DECLARE_Int32(high_priority_flush_thread_num_per_store);
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_Int32(max_flush_thread_num_per_cpu);
 
-// workload group flush pool params
-DECLARE_mInt32(wg_flush_thread_num_per_store);
-DECLARE_mInt32(wg_flush_thread_num_per_cpu);
-
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
 DECLARE_mInt32(tablet_meta_checkpoint_min_interval_secs);
@@ -876,6 +872,13 @@ DECLARE_mInt32(zone_map_row_num_threshold);
 //    Debug = 5,
 //    Trace = 6
 DECLARE_Int32(aws_log_level);
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DECLARE_Int32(azure_log_level);
 
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
@@ -953,6 +956,9 @@ DECLARE_mString(kafka_debug);
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 DECLARE_mInt32(routine_load_consumer_pool_size);
+
+// the timeout of condition variable wait in blocking_get and blocking_put
+DECLARE_mInt32(blocking_queue_cv_wait_timeout_ms);
 
 // Used in single-stream-multi-table load. When receive a batch of messages from kafka,
 // if the size of batch is more than this threshold, we will request plans for all related tables.
@@ -1546,7 +1552,6 @@ DECLARE_mInt32(check_score_rounds_num);
 DECLARE_Int32(query_cache_size);
 DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
-DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
 // Enable sleep 5s between delete cumulative compaction.
@@ -1573,6 +1578,12 @@ DECLARE_mBool(enable_compaction_pause_on_high_memory);
 DECLARE_mBool(enable_calc_delete_bitmap_between_segments_concurrently);
 
 DECLARE_mBool(enable_update_delete_bitmap_kv_check_core);
+
+// the max length of segments key bounds, in bytes
+// ATTENTION: as long as this conf has ever been enabled, cluster downgrade and backup recovery will no longer be supported.
+DECLARE_mInt32(segments_key_bounds_truncation_threshold);
+// ATTENTION: for test only, use random segments key bounds truncation threshold every time
+DECLARE_mBool(random_segments_key_bounds_truncation);
 
 #ifdef BE_TEST
 // test s3

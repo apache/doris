@@ -245,7 +245,8 @@ struct ArrayAggregateImpl {
             execute_type<TYPE_DATE>(res, type, data, offsets) ||
             execute_type<TYPE_DATETIME>(res, type, data, offsets) ||
             execute_type<TYPE_DATEV2>(res, type, data, offsets) ||
-            execute_type<TYPE_DATETIMEV2>(res, type, data, offsets)) {
+            execute_type<TYPE_DATETIMEV2>(res, type, data, offsets) ||
+            execute_type<TYPE_STRING>(res, type, data, offsets)) {
             block.replace_by_position(result, std::move(res));
             return Status::OK();
         } else {
@@ -253,30 +254,22 @@ struct ArrayAggregateImpl {
         }
     }
 
-    template <PrimitiveType Element>
-    static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets64& offsets) {
-        using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
-        static constexpr PrimitiveType ResultType =
-                ArrayAggregateResultImpl<Element, operation, enable_decimal256>::Result;
-        using ColVecResultType = typename PrimitiveTypeTraits<ResultType>::ColumnType;
+    template <typename ColumnType, typename CreateColumnFunc>
+    static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                                  const ColumnArray::Offsets64& offsets,
+                                  CreateColumnFunc create_column_func) {
         using Function = AggregateFunction<AggregateFunctionImpl<operation, enable_decimal256>>;
 
-        const ColVecType* column =
+        const ColumnType* column =
                 data->is_nullable()
-                        ? check_and_get_column<ColVecType>(
+                        ? check_and_get_column<ColumnType>(
                                   static_cast<const ColumnNullable*>(data)->get_nested_column())
-                        : check_and_get_column<ColVecType>(&*data);
+                        : check_and_get_column<ColumnType>(&*data);
         if (!column) {
             return false;
         }
 
-        ColumnPtr res_column;
-        if constexpr (is_decimal(Element)) {
-            res_column = ColVecResultType::create(0, column->get_scale());
-        } else {
-            res_column = ColVecResultType::create();
-        }
+        ColumnPtr res_column = create_column_func(column);
         res_column = make_nullable(res_column);
         static_cast<ColumnNullable&>(res_column->assume_mutable_ref()).reserve(offsets.size());
 
@@ -300,7 +293,41 @@ struct ArrayAggregateImpl {
         }
         res_ptr = std::move(res_column);
         return true;
-    };
+    }
+
+    template <PrimitiveType Element>
+    static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
+                             const ColumnArray::Offsets64& offsets) {
+        if constexpr (is_string_type(Element)) {
+            if (operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
+                operation == AggregateOperation::AVERAGE) {
+                return false;
+            }
+
+            auto create_column = [](const ColumnString*) -> ColumnPtr {
+                return ColumnString::create();
+            };
+
+            return execute_type_impl<ColumnString, decltype(create_column)>(res_ptr, type, data,
+                                                                            offsets, create_column);
+        } else {
+            using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
+            static constexpr PrimitiveType ResultType =
+                    ArrayAggregateResultImpl<Element, operation, enable_decimal256>::Result;
+            using ColVecResultType = typename PrimitiveTypeTraits<ResultType>::ColumnType;
+
+            auto create_column = [](const ColVecType* column) -> ColumnPtr {
+                if constexpr (is_decimal(Element)) {
+                    return ColVecResultType::create(0, column->get_scale());
+                } else {
+                    return ColVecResultType::create();
+                }
+            };
+
+            return execute_type_impl<ColVecType, decltype(create_column)>(res_ptr, type, data,
+                                                                          offsets, create_column);
+        }
+    }
 };
 
 struct NameArrayMin {

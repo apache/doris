@@ -70,7 +70,6 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        bool parquet_disable_dictionary = false;
         TParquetCompressionType::type parquet_compression_type;
         switch (_hive_compress_type) {
         case TFileCompressType::PLAIN: {
@@ -90,10 +89,11 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* profile) 
                                          to_string(_hive_compress_type));
         }
         }
+        ParquetFileOptions parquet_options = {parquet_compression_type,
+                                              TParquetVersion::PARQUET_1_0, false, true};
         _file_format_transformer = std::make_unique<VParquetTransformer>(
-                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
-                parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false);
+                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
+                parquet_options);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {

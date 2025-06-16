@@ -215,7 +215,7 @@ public class ColStatsDataTest {
         data = new ColStatsData(row);
         Assertions.assertFalse(data.isValid());
 
-        // Set max to null, min/max is not null
+        // Set max to null, min/max are all null
         values.set(11, null);
         row = new ResultRow(values);
         data = new ColStatsData(row);

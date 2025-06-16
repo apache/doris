@@ -47,7 +47,7 @@ class IColumn;
 class DataTypeNothing final : public IDataType {
 public:
     static constexpr PrimitiveType PType = INVALID_TYPE;
-    const char* get_family_name() const override { return "Nothing"; }
+    const std::string get_family_name() const override { return "Nothing"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::INVALID_TYPE; }
 
     doris::FieldType get_storage_field_type() const override {

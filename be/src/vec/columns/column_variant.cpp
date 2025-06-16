@@ -55,7 +55,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
@@ -1564,20 +1563,11 @@ Status ColumnVariant::merge_sparse_to_root_column() {
         compact_null_values(root, doc_structure->GetAllocator());
         // parse as jsonb value and put back to rootnode
         // TODO, we could convert to jsonb directly from rapidjson::Value for better performance, instead of parsing
-        JsonbParser parser;
+        JsonBinaryValue jsonb_value;
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
-        bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        if (!res) {
-            return Status::InvalidArgument(
-                    "parse json failed, doc: {}"
-                    ", row_num:{}"
-                    ", error:{}",
-                    std::string(buffer.GetString(), buffer.GetSize()), i,
-                    JsonbErrMsg::getErrMsg(parser.getErrorCode()));
-        }
-        result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                       parser.getWriter().getOutput()->getSize());
+        RETURN_IF_ERROR(jsonb_value.from_json_string(buffer.GetString(), buffer.GetSize()));
+        result_column_ptr->insert_data(jsonb_value.value(), jsonb_value.size());
         result_column_nullable->get_null_map_data().push_back(0);
     }
     subcolumns.get_mutable_root()->data.get_finalized_column().clear();

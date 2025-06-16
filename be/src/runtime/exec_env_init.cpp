@@ -268,9 +268,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
-    RETURN_IF_ERROR(init_pipeline_task_scheduler());
+    _init_runtime_filter_timer_queue();
+
     _workload_group_manager = new WorkloadGroupMgr();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
+
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
@@ -361,6 +363,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
 
+    // create internal workload group should be after storage_engin->open()
+    RETURN_IF_ERROR(_create_internal_workload_group());
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
 
@@ -372,21 +376,18 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     return Status::OK();
 }
 
-Status ExecEnv::init_pipeline_task_scheduler() {
-    auto executors_size = config::pipeline_executor_size;
-    if (executors_size <= 0) {
-        executors_size = CpuInfo::num_cores();
-    }
+// when user not sepcify a workload group in FE, then query could
+// use dummy workload group.
+Status ExecEnv::_create_internal_workload_group() {
+    LOG(INFO) << "begin create internal workload group.";
 
-    LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
-    // TODO pipeline workload group combie two blocked schedulers.
-    _without_group_task_scheduler =
-            new pipeline::TaskScheduler(executors_size, "PipeNoGSchePool", nullptr);
-    RETURN_IF_ERROR(_without_group_task_scheduler->start());
+    RETURN_IF_ERROR(_workload_group_manager->create_internal_wg());
+    return Status::OK();
+}
 
+void ExecEnv::_init_runtime_filter_timer_queue() {
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
-    return Status::OK();
 }
 
 void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
@@ -704,8 +705,6 @@ void ExecEnv::destroy() {
     SAFE_STOP(_routine_load_task_executor);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
-    // stop pipline step 1, non-cgroup execution
-    SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
     SAFE_STOP(_workload_group_manager);
 
@@ -819,10 +818,8 @@ void ExecEnv::destroy() {
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     SAFE_DELETE(_runtime_query_statistics_mgr);
 
-    // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
-    SAFE_DELETE(_without_group_task_scheduler);
-
     SAFE_DELETE(_arrow_memory_pool);
+
     SAFE_DELETE(_orc_memory_pool);
 
     // dns cache is a global instance and need to be released at last

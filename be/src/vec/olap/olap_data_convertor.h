@@ -60,7 +60,7 @@ class Block;
 class ColumnArray;
 class ColumnMap;
 class DataTypeMap;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 
 class IOlapColumnDataAccessor {

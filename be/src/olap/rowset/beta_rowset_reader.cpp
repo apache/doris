@@ -167,11 +167,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _read_options.delete_bitmap.emplace(seg_id, std::move(d));
             }
         }
-        if (config::enable_mow_verbose_log) {
-            LOG_INFO("get aggregated delete bitmap for rowset={}, tablet={}, cost={}ns",
-                     rowset()->rowset_id().to_string(), rowset()->rowset_meta()->tablet_id(),
-                     _stats->delete_bitmap_get_agg_ns);
-        }
     }
 
     if (_should_push_down_value_predicates()) {

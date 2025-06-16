@@ -27,6 +27,8 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/runtime_profile.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -73,7 +75,7 @@ private:
     size_t block_count_ = 0;
     size_t read_block_index_ = 0;
     size_t max_sub_block_size_ = 0;
-    std::unique_ptr<char[]> read_buff_;
+    PaddedPODArray<char> read_buff_;
     std::vector<size_t> block_start_offsets_;
 
     PBlock pb_block_;
