@@ -116,7 +116,10 @@ suite("test_ttl_lru_evict") {
     }
 
     def show_be_config = { String ip, String port /*param */ ->
-        return curl("GET", String.format("http://%s:%s/api/show_config", ip, port))
+        def url = String.format("http://%s:%s/api/show_config", ip, port)
+        // Use Http.GET with authentication parameters
+        def result = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
+        return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
     }
 
     def get_be_param = { paramName ->
@@ -138,7 +141,9 @@ suite("test_ttl_lru_evict") {
         for (String id in backendIdToBackendIP.keySet()) {
             def beIp = backendIdToBackendIP.get(id)
             def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
+            def url = String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue)
+            def out = Http.POST(url, null, false, context.config.feHttpUser, context.config.feHttpPassword)
+            def code = 0  // Http.POST will throw exception on failure
             assertTrue(out.contains("OK"))
         }
     }
@@ -147,7 +152,9 @@ suite("test_ttl_lru_evict") {
         for (String id in backendIdToBackendIP.keySet()) {
             def beIp = backendIdToBackendIP.get(id)
             def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/enable", beIp, bePort))
+            def url = String.format("http://%s:%s/api/injection_point/enable", beIp, bePort)
+            def out = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+            def code = 0  // Http.GET will throw exception on failure
             assertTrue(out.contains("OK"))
         }
     }
@@ -156,7 +163,9 @@ suite("test_ttl_lru_evict") {
         for (String id in backendIdToBackendIP.keySet()) {
             def beIp = backendIdToBackendIP.get(id)
             def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/clear", beIp, bePort))
+            def url = String.format("http://%s:%s/api/injection_point/clear", beIp, bePort)
+            def out = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+            def code = 0  // Http.GET will throw exception on failure
             assertTrue(out.contains("OK"))
         }
     }
@@ -165,7 +174,9 @@ suite("test_ttl_lru_evict") {
         for (String id in backendIdToBackendIP.keySet()) {
             def beIp = backendIdToBackendIP.get(id)
             def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/disable", beIp, bePort))
+            def url = String.format("http://%s:%s/api/injection_point/disable", beIp, bePort)
+            def out = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+            def code = 0  // Http.GET will throw exception on failure
             assertTrue(out.contains("OK"))
         }
     }
@@ -174,7 +185,9 @@ suite("test_ttl_lru_evict") {
         for (String id in backendIdToBackendIP.keySet()) {
             def beIp = backendIdToBackendIP.get(id)
             def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/apply_suite?name=test_ttl_lru_evict", beIp, bePort))
+            def url = String.format("http://%s:%s/api/injection_point/apply_suite?name=test_ttl_lru_evict", beIp, bePort)
+            def out = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+            def code = 0  // Http.GET will throw exception on failure
             assertTrue(out.contains("OK"))
         }
     }
