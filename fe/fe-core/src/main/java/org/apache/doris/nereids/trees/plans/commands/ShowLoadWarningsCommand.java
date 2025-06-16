@@ -78,9 +78,9 @@ public class ShowLoadWarningsCommand extends ShowCommand {
     private static final Logger LOG = LogManager.getLogger(ShowLoadWarningsCommand.class);
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
-                .addColumn(new Column("Label", ScalarType.createVarchar(15)))
-                .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
+                .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
+                .addColumn(new Column("Label", ScalarType.createVarchar(128)))
+                .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(200)))
                 .build();
     private static final String LABEL = "label";
     private static final String LOAD_JOB_ID = "load_job_id";
