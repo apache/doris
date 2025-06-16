@@ -483,7 +483,8 @@ public class SparkLoadPendingTask extends LoadTask {
                 continue;
             }
             // the left must be column expr
-            columnMappings.put(columnDesc.getColumnName(), new EtlColumnMapping(columnDesc.getExpr().toSql()));
+            columnMappings.put(columnDesc.getColumnName(),
+                    new EtlColumnMapping(columnDesc.getExpr().toSqlWithoutTbl()));
         }
 
         // partition ids

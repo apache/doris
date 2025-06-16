@@ -422,7 +422,8 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
 
             if (!mvColumnItem.getDefineExpr().equals(orderByElement)) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSql() + " vs "
+                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSqlWithoutTbl()
+                        + " vs "
                         + orderByElement.toSql());
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
