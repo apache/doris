@@ -290,7 +290,7 @@ TEST_F(ParquetReadLinesTest, test2) {
     std::vector<TPrimitiveType::type> types = {TPrimitiveType::DOUBLE, TPrimitiveType::INT,
                                                TPrimitiveType::FLOAT};
     std::list<int64_t> read_lines {1, 4, 9};
-    string block_dump =
+    std::string block_dump =
             "+----------------------------+----------------------+--------------------------+\n"
             "|double_col(Nullable(DOUBLE))|int_col(Nullable(INT))|float_col(Nullable(FLOAT))|\n"
             "+----------------------------+----------------------+--------------------------+\n"

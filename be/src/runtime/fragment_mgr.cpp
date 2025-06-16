@@ -336,10 +336,10 @@ void FragmentMgr::stop() {
         _cancel_thread->join();
     }
 
+    _thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
     _pipeline_map.clear();
-    _thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {

@@ -110,7 +110,7 @@ void PlainCsvTextFieldSplitter::_split_field_multi_char(const Slice& line,
     //      curpos     curpos
 
     //kmp
-    vector<int> next(_value_sep_len);
+    std::vector<int> next(_value_sep_len);
     next[0] = -1;
     for (int i = 1, j = -1; i < _value_sep_len; i++) {
         while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {

@@ -424,11 +424,11 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     DCHECK(token);
 
     std::unique_lock<std::mutex> l(_lock);
-    if (PREDICT_FALSE(!_pool_status.ok())) {
+    if (!_pool_status.ok()) [[unlikely]] {
         return _pool_status;
     }
 
-    if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
+    if (!token->may_submit_new_tasks()) [[unlikely]] {
         return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
     }
 

@@ -90,7 +90,7 @@ protected:
             DataTypeSerDeSPtrs serde = {dt_jsonb->get_serde()};
             std::string test_data_dir_json =
                     std::string(getenv("ROOT")) + "/regression-test/data/nereids_function_p0/";
-            std::vector<string> json_files = {
+            std::vector<std::string> json_files = {
                     test_data_dir_json + "json_variant/boolean_boundary.jsonl",
                     test_data_dir_json + "json_variant/null_boundary.jsonl",
                     test_data_dir_json + "json_variant/number_boundary.jsonl",
