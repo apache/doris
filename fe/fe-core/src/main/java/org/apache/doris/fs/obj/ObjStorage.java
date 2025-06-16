@@ -20,15 +20,20 @@ package org.apache.doris.fs.obj;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.S3URI;
+import org.apache.doris.fs.io.DorisInputFile;
+import org.apache.doris.fs.io.DorisOutputFile;
 
 import org.apache.commons.lang3.tuple.Triple;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.InputStream;
+import java.util.concurrent.Executor;
 
 /**
  * It is just used for reading remote object storage on cloud.
+ *
  * @param <C> cloud SDK Client
  */
 public interface ObjStorage<C> extends AutoCloseable {
@@ -65,5 +70,13 @@ public interface ObjStorage<C> extends AutoCloseable {
                     "List a object whose key: " + key + " does not start with object prefix: " + expectedPrefix);
         }
         return key.substring(expectedPrefix.length());
+    }
+
+    default DorisOutputFile newOutputFile(S3URI s3URI, Executor executor) {
+        throw new UnsupportedOperationException("Output file creation is not supported for this storage type.");
+    }
+
+    default DorisInputFile newInputFile(S3URI s3URI, long length, long modifiedTime) {
+        throw new UnsupportedOperationException("Input file creation is not supported for this storage type.");
     }
 }

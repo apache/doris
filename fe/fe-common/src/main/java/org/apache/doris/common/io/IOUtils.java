@@ -270,4 +270,9 @@ public class IOUtils {
         }
         return null;
     }
+
+    // Same as Math.clamp in JDK 21
+    public static long clamp(long value, long min, long max) {
+        return Math.max(min, Math.min(max, value));
+    }
 }
