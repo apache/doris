@@ -94,9 +94,9 @@ Status CloudDeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpReque
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
-    auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
-    auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();
-    auto size = tablet->tablet_meta()->delete_bitmap().get_size();
+    auto count = tablet->tablet_meta()->delete_bitmap()->get_delete_bitmap_count();
+    auto cardinality = tablet->tablet_meta()->delete_bitmap()->cardinality();
+    auto size = tablet->tablet_meta()->delete_bitmap()->get_size();
     LOG(INFO) << "show_local_delete_bitmap_count,tablet_id=" << tablet_id << ",count=" << count
               << ",cardinality=" << cardinality << ",size=" << size;
 
@@ -136,9 +136,9 @@ Status CloudDeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest*
         LOG(WARNING) << "failed to sync tablet=" << tablet_id << ", st=" << st;
         return st;
     }
-    auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
-    auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();
-    auto size = tablet->tablet_meta()->delete_bitmap().get_size();
+    auto count = tablet->tablet_meta()->delete_bitmap()->get_delete_bitmap_count();
+    auto cardinality = tablet->tablet_meta()->delete_bitmap()->cardinality();
+    auto size = tablet->tablet_meta()->delete_bitmap()->get_size();
     LOG(INFO) << "show_ms_delete_bitmap_count,tablet_id=" << tablet_id << ",count=" << count
               << ",cardinality=" << cardinality << ",size=" << size;
 

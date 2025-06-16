@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <memory>
 #include <random>
+#include <ranges>
 #include <set>
 #include <utility>
 
@@ -693,7 +694,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
             auto ver = tablet_meta_pb.delete_bitmap().versions(i);
             auto bitmap = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i).data();
-            delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
+            delete_bitmap()->delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
         }
     }
 
@@ -777,7 +778,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             stale_rs_ids.insert(rowset->rowset_id());
         }
         DeleteBitmapPB* delete_bitmap_pb = tablet_meta_pb->mutable_delete_bitmap();
-        for (auto& [id, bitmap] : delete_bitmap().snapshot().delete_bitmap) {
+        for (auto& [id, bitmap] : delete_bitmap()->snapshot().delete_bitmap) {
             auto& [rowset_id, segment_id, ver] = id;
             if (stale_rs_ids.count(rowset_id) != 0) {
                 continue;
@@ -949,8 +950,8 @@ void TabletMeta::delete_stale_rs_meta_by_version(const Version& version) {
         if ((*it)->version() == version) {
             if (_enable_unique_key_merge_on_write) {
                 // remove rowset delete bitmap
-                delete_bitmap().remove({(*it)->rowset_id(), 0, 0},
-                                       {(*it)->rowset_id(), UINT32_MAX, 0});
+                delete_bitmap()->remove({(*it)->rowset_id(), 0, 0},
+                                        {(*it)->rowset_id(), UINT32_MAX, 0});
                 rowset_cache_version_size =
                         delete_bitmap().remove_rowset_cache_version((*it)->rowset_id());
                 if (config::enable_mow_verbose_log) {
@@ -1121,6 +1122,35 @@ DeleteBitmap& DeleteBitmap::operator=(DeleteBitmap&& o) {
     delete_bitmap = std::move(o.delete_bitmap);
     _tablet_id = o._tablet_id;
     return *this;
+}
+
+DeleteBitmap DeleteBitmap::from_pb(const DeleteBitmapPB& pb, int64_t tablet_id) {
+    size_t len = pb.rowset_ids().size();
+    DCHECK_EQ(len, pb.segment_ids().size());
+    DCHECK_EQ(len, pb.versions().size());
+    DeleteBitmap delete_bitmap(tablet_id);
+    for (int32_t i = 0; i < len; ++i) {
+        RowsetId rs_id;
+        rs_id.init(pb.rowset_ids(i));
+        BitmapKey key = {rs_id, pb.segment_ids(i), pb.versions(i)};
+        delete_bitmap.delete_bitmap[key] =
+                roaring::Roaring::read(pb.segment_delete_bitmaps(i).data());
+    }
+    return delete_bitmap;
+}
+
+DeleteBitmapPB DeleteBitmap::to_pb() {
+    std::shared_lock l(lock);
+    DeleteBitmapPB ret;
+    for (const auto& [k, v] : delete_bitmap) {
+        ret.mutable_rowset_ids()->Add(std::get<0>(k).to_string());
+        ret.mutable_segment_ids()->Add(std::get<1>(k));
+        ret.mutable_versions()->Add(std::get<2>(k));
+        std::string bitmap_data(v.getSizeInBytes(), '\0');
+        v.write(bitmap_data.data());
+        ret.mutable_segment_delete_bitmaps()->Add(std::move(bitmap_data));
+    }
+    return ret;
 }
 
 DeleteBitmap DeleteBitmap::snapshot() const {
@@ -1508,6 +1538,22 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg_without_cache(const Bitm
         *bitmap |= bm;
     }
     return bitmap;
+}
+
+DeleteBitmap DeleteBitmap::diffset(const std::set<BitmapKey>& key_set) const {
+    std::shared_lock l(lock);
+    auto diff_key_set_view =
+            delete_bitmap | std::ranges::views::transform([](const auto& kv) { return kv.first; }) |
+            std::ranges::views::filter(
+                    [&key_set](const auto& key) { return !key_set.contains(key); });
+
+    DeleteBitmap dbm(_tablet_id);
+    for (const auto& key : diff_key_set_view) {
+        const auto* bitmap = get(key);
+        DCHECK_NE(bitmap, nullptr);
+        dbm.delete_bitmap[key] = *bitmap;
+    }
+    return dbm;
 }
 
 std::atomic<DeleteBitmap::AggCachePolicy*> DeleteBitmap::AggCache::s_repr {nullptr};

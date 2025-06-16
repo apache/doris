@@ -571,7 +571,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                         .error(st);
                 return st;
             }
-            tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+            tablet->tablet_meta()->delete_bitmap()->merge(delete_bitmap);
         }
         DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);

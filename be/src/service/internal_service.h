@@ -240,6 +240,11 @@ public:
                          const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
                          google::protobuf::Closure* done) override;
 
+    void get_tablet_rowsets(google::protobuf::RpcController* controller,
+                            const PGetTabletRowsetsRequest* request,
+                            PGetTabletRowsetsResponse* response,
+                            google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,

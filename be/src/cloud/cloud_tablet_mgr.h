@@ -46,7 +46,8 @@ public:
     // sync rowsets after, and download segment data in background if `warmup_data` is true.
     Result<std::shared_ptr<CloudTablet>> get_tablet(int64_t tablet_id, bool warmup_data = false,
                                                     bool sync_delete_bitmap = true,
-                                                    SyncRowsetStats* sync_stats = nullptr);
+                                                    SyncRowsetStats* sync_stats = nullptr,
+                                                    bool local_only = false);
 
     void erase_tablet(int64_t tablet_id);
 

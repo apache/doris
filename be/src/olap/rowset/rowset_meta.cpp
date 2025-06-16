@@ -18,6 +18,7 @@
 #include "olap/rowset/rowset_meta.h"
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <memory>
 
@@ -141,6 +142,11 @@ void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema) const 
             // For cloud, separate tablet schema from rowset meta to reduce persistent size.
             _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
         }
+    }
+    if (!_rowset_meta_pb.load_id().has_hi() || !_rowset_meta_pb.load_id().has_lo()) {
+        // avoid [E2002]Missing required fields in response: rowsets[0].load_id.hi, rowsets[0].load_id.lo
+        rs_meta_pb->mutable_load_id()->set_hi(0);
+        rs_meta_pb->mutable_load_id()->set_lo(0);
     }
     rs_meta_pb->set_has_variant_type_in_schema(has_variant_type_in_schema());
 }
