@@ -391,7 +391,7 @@ public class Column implements GsonPostProcessable {
         if (defineExpr == null) {
             return getNameWithoutMvPrefix();
         } else {
-            return MaterializedIndexMeta.normalizeName(defineExpr.toSqlWithoutTbl());
+            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
     }
 
