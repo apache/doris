@@ -547,7 +547,7 @@ public class InsertUtils {
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
         List<String> tableQualifier = getTargetTableQualified(plan, ctx);
-        return RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        return RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
     }
 
     /**
