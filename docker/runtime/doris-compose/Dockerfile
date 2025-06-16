@@ -74,7 +74,8 @@ RUN sed -i -e s@/deb.debian.org/@/mirrors.aliyun.com/@g -e s@/security.debian.or
     && dpkg-reconfigure -f noninteractive tzdata \
     && apt-get clean
 
-RUN mkdir -p /opt/apache-doris/{fdb,coverage}
+RUN mkdir -p /opt/apache-doris/fdb \
+    && mkdir -p /opt/apache-doris/coverage
 
 RUN curl -f https://repo1.maven.org/maven2/org/jacoco/jacoco/${JACOCO_VERSION}/jacoco-${JACOCO_VERSION}.zip -o jacoco.zip \
     && mkdir /jacoco \
