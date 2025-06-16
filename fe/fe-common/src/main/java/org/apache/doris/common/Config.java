@@ -705,14 +705,14 @@ public class Config extends ConfigBase {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
             "Maximum concurrent running txn num including prepare, commit txns under a single db.",
             "Txn manager will reject coming txns."})
-    public static int max_running_txn_num_per_db = 1000;
+    public static int max_running_txn_num_per_db = 10000;
 
     @ConfField(masterOnly = true, description = {"pending load task 执行线程数。这个配置可以限制当前等待的导入作业数。"
-            + "并且应小于 `max_running_txn_num_per_db`。",
+            + "并且应小于 `async_pending_load_task_pool_size`。",
             "The pending load task executor pool size. "
                     + "This pool size limits the max running pending load tasks.",
             "Currently, it only limits the pending load task of broker load and spark load.",
-            "It should be less than `max_running_txn_num_per_db`"})
+            "It should be less than `async_pending_load_task_pool_size`"})
     public static int async_pending_load_task_pool_size = 10;
 
     @ConfField(masterOnly = true, description = {"loading load task 执行线程数。这个配置可以限制当前正在导入的作业数。",
