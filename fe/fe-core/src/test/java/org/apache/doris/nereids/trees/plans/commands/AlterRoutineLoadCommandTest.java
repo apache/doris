@@ -20,18 +20,15 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -39,43 +36,17 @@ import java.io.IOException;
 import java.util.Map;
 
 public class AlterRoutineLoadCommandTest {
-    private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-    @Mocked
-    private Env env;
-    @Mocked
-    private AccessControllerManager accessControllerManager;
-    @Mocked
-    private ConnectContext connectContext;
-
-    public void runBefore() throws IOException {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessControllerManager;
-
-                ConnectContext.get();
-                minTimes = 0;
-                result = connectContext;
-
-                connectContext.isSkipAuth();
-                minTimes = 0;
-                result = true;
-
-                accessControllerManager.checkGlobalPriv(connectContext, PrivPredicate.LOAD);
-                minTimes = 0;
-                result = true;
-            }
-        };
-    }
 
     @Test
     public void testValidateNormal() throws MetaNotFoundException, IOException {
-        runBefore();
+        new Expectations() {
+            {
+                Env.getCurrentEnv().getRoutineLoadManager().getJob(anyString, anyString);
+                minTimes = 0;
+                result = new KafkaRoutineLoadJob();
+            }
+        };
+        ConnectContext connectContext = new ConnectContext();
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "100");
         jobProperties.put(CreateRoutineLoadInfo.MAX_BATCH_ROWS_PROPERTY, "200000");
