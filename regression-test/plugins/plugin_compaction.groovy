@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.Suite
+import org.apache.doris.regression.util.Http
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility;
 
