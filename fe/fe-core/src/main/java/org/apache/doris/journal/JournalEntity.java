@@ -110,6 +110,7 @@ import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetPartitionVersionOperationLog;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
@@ -343,7 +344,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_UPDATE_REPLICA:
-            case OperationType.OP_DELETE_REPLICA:
+            case OperationType.OP_DELETE_REPLICA: {
+                data = ReplicaPersistInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
             case OperationType.OP_MODIFY_BACKEND:
