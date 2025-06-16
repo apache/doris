@@ -26,6 +26,7 @@
 #include "vec/common/demangle.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -60,6 +61,9 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_DATE:
         return visitor.template apply<PrimitiveType::TYPE_DATE>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_DATE>::NearestFieldType>());
+    case PrimitiveType::TYPE_DATEV2:
+        return visitor.template apply<PrimitiveType::TYPE_DATEV2>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_DATEV2>::NearestFieldType>());
     case PrimitiveType::TYPE_BIGINT:
         return visitor.template apply<PrimitiveType::TYPE_BIGINT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_BIGINT>::NearestFieldType>());
@@ -107,6 +111,12 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_JSONB:
         return visitor.template apply<PrimitiveType::TYPE_JSONB>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_JSONB>::NearestFieldType>());
+    case PrimitiveType::TYPE_IPV6:
+        return visitor.template apply<PrimitiveType::TYPE_IPV6>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV6>::NearestFieldType>());
+    case PrimitiveType::TYPE_IPV4:
+        return visitor.template apply<PrimitiveType::TYPE_IPV4>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_IPV4>::NearestFieldType>());
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Bad type of Field {}",
                                static_cast<int>(field.get_type()));

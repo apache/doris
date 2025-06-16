@@ -35,6 +35,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 class JsonbOutStream;
@@ -103,10 +104,9 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
-    Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                  rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
+
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
-    Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
 
 private:
     template <bool is_binary_format>
@@ -312,64 +312,6 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     }
 }
 
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
-                                                      rapidjson::Value& result,
-                                                      rapidjson::Document::AllocatorType& allocator,
-                                                      Arena& mem_pool, int64_t row_num) const {
-    const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
-    if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT) {
-        result.SetInt(data[row_num]);
-    } else if constexpr (T == TYPE_BOOLEAN || T == TYPE_DATEV2 || T == TYPE_IPV4) {
-        result.SetUint(data[row_num]);
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
-        result.SetInt64(data[row_num]);
-    } else if constexpr (T == TYPE_DATETIMEV2) {
-        result.SetUint64(data[row_num]);
-    } else if constexpr (T == TYPE_FLOAT) {
-        result.SetFloat(data[row_num]);
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
-        result.SetDouble(data[row_num]);
-    } else {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "unknown column type {} for writing to jsonb " + column.get_name());
-        __builtin_unreachable();
-    }
-    return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
-                                                       const rapidjson::Value& value) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
-    switch (value.GetType()) {
-    case rapidjson::Type::kNumberType:
-        if (value.IsUint()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetUint());
-        } else if (value.IsInt()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetInt());
-        } else if (value.IsUint64()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetUint64());
-        } else if (value.IsInt64()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetInt64());
-        } else if (value.IsFloat() || value.IsDouble()) {
-            col.insert_value(typename PrimitiveTypeTraits<T>::ColumnItemType(value.GetDouble()));
-        } else {
-            CHECK(false) << "Improssible";
-        }
-        break;
-    case rapidjson::Type::kFalseType:
-        col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)0);
-        break;
-    case rapidjson::Type::kTrueType:
-        col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)1);
-        break;
-    default:
-        col.insert_default();
-        break;
-    }
-    return Status::OK();
-}
 #include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris
