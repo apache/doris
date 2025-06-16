@@ -157,6 +157,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     sql """switch internal;"""
     // mtmv2: add partition
     sql """insert into ${ctlName}.${dbName}.${tableName2} values(13,13,"2018-01-15");"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2018-01-15') values (13,13)"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
     def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
 
