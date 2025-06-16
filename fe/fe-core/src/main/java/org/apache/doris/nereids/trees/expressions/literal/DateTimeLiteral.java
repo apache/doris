@@ -345,8 +345,10 @@ public class DateTimeLiteral extends DateLiteral {
             } else if (targetType.isLargeIntType()) {
                 return new LargeIntLiteral(new BigInteger(String.valueOf(getValue())));
             }
+        } else if (targetType.isDateV2Type()) {
+            return new DateV2Literal(year, month, day);
         } else if (targetType.isDateType()) {
-            return new DateV2Literal(this.toString());
+            return new DateLiteral(year, month, day);
         } else if (targetType.isFloatType()) {
             if (strictCast) {
                 throw new AnalysisException("DateTimeType can't cast to FloatType in strict mode.");
