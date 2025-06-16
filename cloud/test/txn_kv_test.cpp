@@ -277,7 +277,7 @@ TEST(TxnKvTest, CompatibleGetTest) {
     // Check remove
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(TxnKvTest, PutLargeValueTest) {
@@ -313,7 +313,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     ValueBuf val_buf;
     doris::TabletSchemaCloudPB saved_schema;
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_OK);
-    TxnErrorCode err = doris::cloud::get(txn.get(), key, &val_buf);
+    TxnErrorCode err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
     EXPECT_EQ(val_buf.ver, 1);
@@ -329,7 +329,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
         auto* limit = doris::try_any_cast<int*>(args[0]);
         *limit = 100;
     });
-    err = doris::cloud::get(txn.get(), key, &val_buf);
+    err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
     EXPECT_EQ(val_buf.ver, 1);
@@ -364,7 +364,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     // Check remove
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(TxnKvTest, RangeGetIteratorContinue) {
