@@ -606,7 +606,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
         for (SelectListItem selectListItem : selectList.getItems()) {
             Expr selectListItemExpr = selectListItem.getExpr();
             Expr expr = selectListItemExpr;
-            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
+            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
