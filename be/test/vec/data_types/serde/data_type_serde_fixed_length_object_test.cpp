@@ -115,7 +115,6 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToJson) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = fixed_length_serde->serialize_one_cell_to_json(*column_fixed_length, 0, buffer_writer,
@@ -155,7 +154,6 @@ TEST(FixedLengthObjectSerdeTest, serializeColumnToJson) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = fixed_length_serde->serialize_column_to_json(*column_fixed_length, 0, 2,
@@ -192,7 +190,6 @@ TEST(FixedLengthObjectSerdeTest, serializeOneCellToHiveText) {
     *((int64_t*)&(column_fixed_length->get_data()[column_fixed_length->item_size()])) = 22;
     ASSERT_EQ(column_fixed_length->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = fixed_length_serde->serialize_one_cell_to_hive_text(*column_fixed_length, 0,

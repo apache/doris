@@ -2093,7 +2093,9 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                                         const PMultiGetRequestV2* request,
                                         PMultiGetResponseV2* response,
                                         google::protobuf::Closure* done) {
-    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(request->wg_id());
+    std::vector<uint64_t> id_set;
+    id_set.push_back(request->wg_id());
+    auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
     Status st = Status::OK();
 
     if (!wg) [[unlikely]] {
@@ -2122,6 +2124,10 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                 Status st = RowIdStorageReader::read_by_rowids(*request, response);
                 st.to_protobuf(response->mutable_status());
                 LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+                LOG(INFO) << "query_id: " << print_id(request->query_id())
+                          << " backend id: " << BackendOptions::get_backend_id()
+                          << " response status:" << st.to_string()
+                          << " return block size:" << response->blocks_size();
             },
             nullptr));
 

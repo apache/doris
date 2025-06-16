@@ -23,8 +23,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
-import org.apache.doris.fsv2.remote.AzureFileSystem;
-import org.apache.doris.fsv2.remote.S3FileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
