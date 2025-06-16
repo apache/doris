@@ -154,9 +154,45 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     hive_docker """ set hive.stats.column.autogather = false; """
 
-    sql """switch internal;"""
+
+    // mtmv5: normal situation, the base table and mtmv remain unchanged
+    // success
+    def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+    def test_sql5 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id"""
+    if (step == 1 || step == 2 || step == 3) {
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+    } else if (step == 4) {
+        assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv5[0][2] == false)
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql5, mtmvName5)
+
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql5, mtmvName5)
+        }
+
+    }
+
+
     // mtmv2: add partition
-    sql """insert into ${ctlName}.${dbName}.${tableName2} values(13,13,"2018-01-15");"""
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2018-01-15') values (13,13)"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
     def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
@@ -276,5 +312,130 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         }
 
     }
+
+
+    // mtmv3: insert data
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-01-15') values (20,20)"""
+    def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    def test_sql3 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"""
+
+    if (step == 1 || step == 2 || step == 3) {
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == true)
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+    } else if (step == 4) {
+        assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv3[0][2] == false)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql3, mtmvName3)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql3, mtmvName3)
+        }
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
+        waitingMTMVTaskFinishedByMvName(mtmvName3)
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == true)
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
+            compare_res(test_sql3 + " order by 1,2,3")
+        }
+    }
+
+
+    // mtmv1: drop table of primary table
+    hive_docker """ drop table if exists ${dbName}.${tableName1} """
+    def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    def test_sql1 = """SELECT * FROM ${ctlName}.${dbName}.${tableName10}"""
+
+    assertTrue(state_mtmv1[0][0] == "NORMAL")
+    assertTrue(state_mtmv1[0][2] == true)
+
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_not_part_in(test_sql1, mtmvName1)
+    }
+
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_not_part_in(test_sql1, mtmvName1)
+    }
+
+    // After deleting the table, you can create a new MTMV
+    def cur_mtmvName3 = mtmvName3 + UUID.randomUUID().toString().replaceAll("-", "")
+    sql """
+        CREATE MATERIALIZED VIEW ${cur_mtmvName3}
+            REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT user_id, age FROM ${ctlName}.${dbName}.${tableName10};
+        """
+    waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
+
+
+    // mtmv6: drop table of dependent table
+    hive_docker """ drop table if exists ${dbName}.${tableName7} """
+    def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    def test_sql6 = """SELECT * FROM ${ctlName}.${dbName}.${tableName6}"""
+    assertTrue(state_mtmv6[0][0] == "NORMAL")
+    assertTrue(state_mtmv6[0][2] == true)
+    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_not_part_in(test_sql6, mtmvName6)
+    }
+
+    connect('root', context.config.jdbcPassword, master_jdbc_url) {
+        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+        sql """use ${dbName}"""
+        mv_not_part_in(test_sql6, mtmvName6)
+    }
+
+    // After deleting the table, you can create a new MTMV
+    def cur_mtmvName6 = mtmvName6 + UUID.randomUUID().toString().replaceAll("-", "")
+    sql """
+        CREATE MATERIALIZED VIEW ${cur_mtmvName6}
+            REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT user_id, date, num FROM ${ctlName}.${dbName}.${tableName6};
+        """
+    waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
+
+
+
+
 
 }
