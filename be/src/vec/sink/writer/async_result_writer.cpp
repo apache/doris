@@ -95,7 +95,7 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     DCHECK(_operator_profile->get_child("CommonCounters") != nullptr);
     _memory_used_counter =
             _operator_profile->get_child("CommonCounters")->get_counter("MemoryUsage");
-
+    DCHECK(_memory_used_counter != nullptr);
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
@@ -103,12 +103,13 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // not deconstructed before the thread exit.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
-            [this, state, task_ctx]() {
+            [this, state, operator_profile, task_ctx]() {
+                SCOPED_ATTACH_TASK(state);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
-                this->process_block(state, this->_operator_profile);
+                this->process_block(state, operator_profile);
                 task_lock.reset();
             }));
     return Status::OK();
