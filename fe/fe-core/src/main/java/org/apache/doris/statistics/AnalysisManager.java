@@ -354,7 +354,13 @@ public class AnalysisManager implements Writable {
 
         long periodTimeInMs = stmt.getPeriodTimeInMs();
         infoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        List<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        List<Pair<String, String>> jobColumns = table.getColumnIndexPairs(columnNames).stream()
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
+                .collect(Collectors.toList());
         infoBuilder.setJobColumns(jobColumns);
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
         for (Pair<String, String> pair : jobColumns) {

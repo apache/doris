@@ -145,13 +145,21 @@ public class StatisticsAutoCollector extends MasterDaemon {
             }
             return;
         }
+        boolean isSampleAnalyze = analysisMethod.equals(AnalysisMethod.SAMPLE);
+        OlapTable olapTable = table instanceof OlapTable ? (OlapTable) table : null;
         List<Pair<String, String>> needRunColumns = table.getColumnIndexPairs(
                 table.getSchemaAllIndexes(false)
                         .stream()
                         .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                         .map(Column::getName)
-                        .collect(Collectors.toSet()));
-        if (needRunColumns == null || needRunColumns.isEmpty()) {
+                        .collect(Collectors.toSet()))
+                .stream()
+                .filter(c -> olapTable == null || StatisticsUtil.canCollectColumn(
+                        olapTable.getIndexMetaByIndexId(olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                        table, isSampleAnalyze, olapTable.getIndexIdByName(c.first)))
+                .collect(Collectors.toList());
+
+        if (needRunColumns.isEmpty()) {
             return;
         }
         StringJoiner stringJoiner = new StringJoiner(",", "[", "]");
@@ -176,7 +184,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected AnalysisInfo createAnalysisInfo(TableIf table, AnalysisMethod analysisMethod, long rowCount,
             String colNames, List<Pair<String, String>> needRunColumns, JobPriority priority) {
-        AnalysisInfo jobInfo = new AnalysisInfoBuilder()
+        return new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(table.getDatabase().getCatalog().getId())
                 .setDBId(table.getDatabase().getId())
@@ -200,7 +208,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 .setPriority(priority)
                 .setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0)
                 .build();
-        return jobInfo;
     }
 
     // Analysis job created by the system
