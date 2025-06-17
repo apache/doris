@@ -82,7 +82,6 @@ import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
@@ -95,7 +94,6 @@ import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropStageStmt;
-import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
@@ -374,8 +372,6 @@ public class DdlExecutor {
             }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
-        } else if (ddlStmt instanceof DropStatsStmt) {
-            env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof KillAnalysisJobStmt) {
             env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanQueryStatsStmt) {
@@ -398,9 +394,6 @@ public class DdlExecutor {
                     throw new DdlException("Unknown scope: " + stmt.getScope());
             }
             env.cleanQueryStats(cleanQueryStatsInfo);
-        } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
-            DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
-            Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
