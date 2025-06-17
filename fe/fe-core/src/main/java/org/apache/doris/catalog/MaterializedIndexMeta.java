@@ -21,14 +21,21 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.thrift.TStorageType;
@@ -343,6 +350,46 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         if (defineStmt == null) {
             return;
         }
+        try {
+            NereidsParser nereidsParser = new NereidsParser();
+            CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
+                    defineStmt.originStmt);
+            ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(dbName == null ? "__internal_schema" : dbName);
+            StatementContext statementContext = new StatementContext();
+            statementContext.setConnectContext(ctx);
+            ctx.setStatementContext(statementContext);
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            ctx.setThreadLocalInfo();
+
+            command.validate(ctx);
+            if (command.getWhereClauseItem() != null) {
+                setWhereClause(command.getWhereClauseItem().getDefineExpr());
+            }
+            try {
+                List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
+                Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
+                for (MVColumnItem item : mvColumnItemList) {
+                    columnNameToDefineExpr.put(item.getName(), item.getDefineExpr());
+                }
+                setColumnsDefineExpr(columnNameToDefineExpr);
+            } catch (Exception e) {
+                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
+            }
+            parseStmt1(analyzer);
+        } catch (Exception e) {
+            throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
+        }
+    }
+
+    public void parseStmt1(Analyzer analyzer) throws IOException {
+        // analyze define stmt
+        if (defineStmt == null) {
+            return;
+        }
         // parse the define stmt to schema
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(defineStmt.originStmt),
                 SqlModeHelper.MODE_DEFAULT));
@@ -359,11 +406,13 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 }
             }
 
-            setWhereClause(stmt.getWhereClause());
+            // setWhereClause(stmt.getWhereClause());
+            System.out.println(stmt.getWhereClause());
             stmt.rewriteToBitmapWithCheck();
             try {
                 Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
-                setColumnsDefineExpr(columnNameToDefineExpr);
+                System.out.println(columnNameToDefineExpr);
+                // setColumnsDefineExpr(columnNameToDefineExpr);
             } catch (Exception e) {
                 LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
             }
