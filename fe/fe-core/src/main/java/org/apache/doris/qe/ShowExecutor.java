@@ -43,7 +43,6 @@ import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
-import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
@@ -102,7 +101,6 @@ import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -211,8 +209,6 @@ public class ShowExecutor {
             handleShowIndex();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
-        } else if (stmt instanceof ShowTableStatsStmt) {
-            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
@@ -949,24 +945,6 @@ public class ShowExecutor {
             throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
-    }
-
-    private void handleShowTableStats() {
-        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
-        TableIf tableIf = showTableStatsStmt.getTable();
-        // Handle use table id to show table stats. Mainly for online debug.
-        if (showTableStatsStmt.isUseTableId()) {
-            long tableId = showTableStatsStmt.getTableId();
-            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableId);
-            if (tableStats == null) {
-                resultSet = showTableStatsStmt.constructEmptyResultSet();
-            } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
-            }
-            return;
-        }
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
