@@ -2788,7 +2788,7 @@ public class Config extends ConfigBase {
     })
     public static boolean enable_convert_light_weight_schema_change = false;
 
-    @ConfField(description = {
+    @ConfField(mutable = true, masterOnly = true, description = {
             "暂时性配置项，开启后加 key 列采用轻量级实现",
             "temporary config filed, will enable light weight add key column"
     })
