@@ -388,7 +388,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """use ${dbName}"""
         def res = sql """explain ${test_sql1}"""
         logger.info("res1111: " + res)
-        mv_not_part_in(test_sql1, mtmvName1)
+        mv_rewrite_fail(test_sql1, mtmvName1)
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
@@ -396,7 +396,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """use ${dbName}"""
         def res = sql """explain ${test_sql1}"""
         logger.info("res22222: " + res)
-        mv_not_part_in(test_sql1, mtmvName1)
+        mv_rewrite_fail(test_sql1, mtmvName1)
     }
 
     // After deleting the table, you can create a new MTMV
@@ -423,7 +423,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """use ${dbName}"""
         def res = sql """explain ${test_sql6}"""
         logger.info("res33333: " + res)
-        mv_not_part_in(test_sql6, mtmvName6)
+        mv_rewrite_fail(test_sql6, mtmvName6)
     }
 
     connect('root', context.config.jdbcPassword, master_jdbc_url) {
@@ -431,7 +431,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """use ${dbName}"""
         def res = sql """explain ${test_sql6}"""
         logger.info("res4444: " + res)
-        mv_not_part_in(test_sql6, mtmvName6)
+        mv_rewrite_fail(test_sql6, mtmvName6)
     }
 
     // After deleting the table, you can create a new MTMV
