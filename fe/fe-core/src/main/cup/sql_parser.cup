@@ -2011,11 +2011,6 @@ create_stmt ::=
     {:
         RESULT = new CreateStorageVaultStmt(ifNotExists, storageVaultName, properties);
     :}
-    /* workload group*/
-    | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties
-    {:
-        RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
-    :}
     /* workload schedule policy */
     | KW_CREATE KW_WORKLOAD KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
     {:
