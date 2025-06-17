@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
@@ -430,49 +429,6 @@ public class RoutineLoadManager implements Writable {
                 .add("user", ConnectContext.get().getQualifiedUser())
                 .add("msg", "routine load job has been stopped by user")
                 .build());
-    }
-
-    public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
-            throws UserException {
-        List<RoutineLoadJob> jobs = Lists.newArrayList();
-        // it needs lock when getting routine load job,
-        // otherwise, it may cause the editLog out of order in the following scenarios:
-        // thread A: create job and record job meta
-        // thread B: change job state and persist in editlog according to meta
-        // thread A: persist in editlog
-        // which will cause the null pointer exception when replaying editLog
-        readLock();
-        try {
-            if (pauseRoutineLoadStmt.isAll()) {
-                jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
-            } else {
-                RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
-                        pauseRoutineLoadStmt.getName());
-                jobs.add(routineLoadJob);
-            }
-        } finally {
-            readUnlock();
-        }
-
-        for (RoutineLoadJob routineLoadJob : jobs) {
-            try {
-                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
-                                "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
-                        false /* not replay */);
-                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
-                        routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
-                        "routine load job has been paused by user").build());
-            } catch (UserException e) {
-                LOG.warn("failed to pause routine load job {}", routineLoadJob.getName(), e);
-                // if user want to pause a certain job and failed, return error.
-                // if user want to pause all possible jobs, skip error jobs.
-                if (!pauseRoutineLoadStmt.isAll()) {
-                    throw e;
-                }
-                continue;
-            }
-        }
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
