@@ -165,7 +165,7 @@ public class ShowCreateUserCommand extends ShowCommand {
                     List<String> lockTime = policies.get(5);
                     sb.append(" FAILED_LOGIN_ATTEMPTS ").append(failedAttempts.get(1))
                             .append(" PASSWORD_LOCK_TIME ").append(lockTime.get(1))
-                            .append("\n");
+                            .append(" ");
                 }
             }
         }
@@ -174,7 +174,7 @@ public class ShowCreateUserCommand extends ShowCommand {
         if (Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user) != null) {
             String comment = Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user).getComment();
             if (comment != null) {
-                sb.append(comment);
+                sb.append("\"").append(comment).append("\"");
             }
         }
         return sb.toString();
