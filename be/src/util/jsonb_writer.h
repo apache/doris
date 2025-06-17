@@ -240,6 +240,18 @@ public:
         return 0;
     }
 
+    uint32_t writeDecimal(JsonbDecimal v) {
+        if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
+            if (!writeFirstHeader()) return 0;
+            os_->put((JsonbTypeUnder)JsonbType::T_Decimal);
+            os_->write((char*)&v, sizeof(JsonbDecimal));
+            kvState_ = WS_Value;
+            return sizeof(JsonbDecimal);
+        }
+
+        return 0;
+    }
+
     uint32_t writeDouble(double v) {
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
             if (!writeFirstHeader()) return 0;
