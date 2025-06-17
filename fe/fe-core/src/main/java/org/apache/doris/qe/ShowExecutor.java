@@ -28,7 +28,6 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
-import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
 import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
@@ -295,8 +294,6 @@ public class ShowExecutor {
         checkStmtSupported();
         if (stmt instanceof ShowRollupStmt) {
             handleShowRollup();
-        } else if (stmt instanceof ShowAuthorStmt) {
-            handleShowAuthor();
         } else if (stmt instanceof ShowProcStmt) {
             handleShowProc();
         } else if (stmt instanceof HelpStmt) {
@@ -538,14 +535,6 @@ public class ShowExecutor {
     private void handleEmtpy() {
         // Only success
         resultSet = new ShowResultSet(stmt.getMetaData(), EMPTY_SET);
-    }
-
-    // Handle show authors
-    private void handleShowAuthor() {
-        ShowAuthorStmt showAuthorStmt = (ShowAuthorStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
-        // Only success
-        resultSet = new ShowResultSet(showAuthorStmt.getMetaData(), rowSet);
     }
 
     // Handle show engines

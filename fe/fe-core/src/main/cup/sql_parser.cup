@@ -4208,11 +4208,6 @@ show_param ::=
     {:
         RESULT = new ShowEnginesStmt();
     :}
-    /* Authors */
-    | KW_AUTHORS
-    {:
-        RESULT = new ShowAuthorStmt();
-    :}
     /* Create table */
     | KW_CREATE KW_TABLE table_name:table
     {:

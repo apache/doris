@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
@@ -568,18 +567,6 @@ public class ShowExecutorTest {
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Unknown database 'emptyDb'");
         executor.execute();
-    }
-
-    @Test
-    public void testShowAuthors() throws AnalysisException {
-        ShowAuthorStmt stmt = new ShowAuthorStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertEquals(3, resultSet.getMetaData().getColumnCount());
-        Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
-        Assert.assertEquals("Location", resultSet.getMetaData().getColumn(1).getName());
-        Assert.assertEquals("Comment", resultSet.getMetaData().getColumn(2).getName());
     }
 
     @Test
