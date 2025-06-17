@@ -2973,9 +2973,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
                     }
                     if (ctx.windowSpec() != null) {
-                        if (isDistinct) {
-                            throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
-                        }
                         return withWindowSpec(ctx.windowSpec(), new Count());
                     }
                     return new Count();
@@ -2988,7 +2985,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
                 if (ctx.windowSpec() != null) {
-                    if (isDistinct) {
+                    if (isDistinct
+                            && !("count".equalsIgnoreCase(functionName))
+                            && !("sum".equalsIgnoreCase(functionName))
+                            && !("group_concat".equalsIgnoreCase(functionName))) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
                     }
                     return withWindowSpec(ctx.windowSpec(), function);
