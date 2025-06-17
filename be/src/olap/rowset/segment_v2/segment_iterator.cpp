@@ -959,8 +959,9 @@ Status SegmentIterator::_apply_index_expr() {
 
     // Apply ann range search
     std::vector<ColumnId> idx_to_cids;
-    idx_to_cids.resize(_schema->num_columns() + _virtual_column_exprs.size());
-    for (int i = 0; i < _schema->num_columns(); ++i) {
+    size_t normal_column_size = _schema->column_ids().size();
+    idx_to_cids.resize(normal_column_size + _virtual_column_exprs.size());
+    for (int i = 0; i < normal_column_size; ++i) {
         idx_to_cids[i] = _schema->column_id(i);
     }
 

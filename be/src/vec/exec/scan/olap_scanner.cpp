@@ -22,14 +22,13 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <stdlib.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <iterator>
 #include <ostream>
 #include <set>
-#include <shared_mutex>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -45,14 +44,9 @@
 #include "olap/inverted_index_profile.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/schema_cache.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "olap/tablet_schema_cache.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -60,7 +54,6 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/column_nothing.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/scan_node.h"
@@ -172,7 +165,7 @@ Status OlapScanner::init() {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
+            olap_scan_node.columns_desc[0].col_unique_id >= 0 && // Why check first column?
             tablet->tablet_schema()->num_variant_columns() == 0) {
             schema_key =
                     SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
@@ -192,6 +185,7 @@ Status OlapScanner::init() {
                 //  so we have to use schema from a query plan witch FE puts it in query plans.
                 tablet_schema->clear_columns();
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
+                    LOG_INFO("Column desc\n{}", apache::thrift::ThriftDebugString(column_desc));
                     tablet_schema->append_column(TabletColumn(column_desc));
                 }
                 if (olap_scan_node.__isset.schema_version) {
@@ -539,7 +533,9 @@ Status OlapScanner::_init_return_columns() {
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
-        // _return_columns 中只保留 normal_columns
+        // _return_columns will contain:
+        // 1. normal columns.
+        // 2. __DORIS_GLOBAL_ROWID_COL__ column.
         _return_columns.push_back(index);
         if (slot->is_nullable() && !tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
