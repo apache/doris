@@ -383,19 +383,27 @@ public:
 
     // Returns the 'num_bits' least-significant bits of 'v'.
     static inline uint64_t TrailingBits(uint64_t v, int num_bits) {
-        if (PREDICT_FALSE(num_bits == 0)) return 0;
-        if (PREDICT_FALSE(num_bits >= 64)) return v;
+        if (num_bits == 0) [[unlikely]] {
+            return 0;
+        }
+        if (num_bits >= 64) [[unlikely]] {
+            return v;
+        }
         int n = 64 - num_bits;
         return (v << n) >> n;
     }
 
     static inline uint64_t ShiftLeftZeroOnOverflow(uint64_t v, int num_bits) {
-        if (PREDICT_FALSE(num_bits >= 64)) return 0;
+        if (num_bits >= 64) [[unlikely]] {
+            return 0;
+        }
         return v << num_bits;
     }
 
     static inline uint64_t ShiftRightZeroOnOverflow(uint64_t v, int num_bits) {
-        if (PREDICT_FALSE(num_bits >= 64)) return 0;
+        if (num_bits >= 64) [[unlikely]] {
+            return 0;
+        }
         return v >> num_bits;
     }
 

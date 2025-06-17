@@ -949,7 +949,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 
     Status res = Status::OK();
     // 1. get timestamp string
-    string time_str;
+    std::string time_str;
     if ((res = gen_timestamp_string(&time_str)) != Status::OK()) {
         LOG(WARNING) << "failed to generate time_string when move file to trash.err code=" << res;
         return res;

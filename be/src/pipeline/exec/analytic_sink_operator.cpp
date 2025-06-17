@@ -679,10 +679,10 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
                 output_slot_desc->is_nullable() && (!_agg_functions[i]->data_type()->is_nullable());
     }
     if (!_partition_by_eq_expr_ctxs.empty() || !_order_by_eq_expr_ctxs.empty()) {
-        vector<TTupleId> tuple_ids;
+        std::vector<TTupleId> tuple_ids;
         tuple_ids.push_back(_child->row_desc().tuple_descriptors()[0]->id());
         tuple_ids.push_back(_buffered_tuple_id);
-        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, vector<bool>(2, false));
+        RowDescriptor cmp_row_desc(state->desc_tbl(), tuple_ids, std::vector<bool>(2, false));
         if (!_partition_by_eq_expr_ctxs.empty()) {
             RETURN_IF_ERROR(
                     vectorized::VExpr::prepare(_partition_by_eq_expr_ctxs, state, cmp_row_desc));

@@ -145,7 +145,7 @@ public:
 
     Status seek_to_position_in_page(size_t pos) override {
         CHECK(_parsed) << "Must call init()";
-        if (PREDICT_FALSE(_num_elems == 0)) {
+        if (_num_elems == 0) [[unlikely]] {
             if (pos != 0) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                         "seek pos {} is larger than total elements  {}", pos, _num_elems);

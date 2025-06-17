@@ -2948,7 +2948,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_money_format(FunctionContext* context, const string& value) {
+static StringRef do_money_format(FunctionContext* context, const std::string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
@@ -3082,7 +3082,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 }
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_format_round(FunctionContext* context, const string& value,
+static StringRef do_format_round(FunctionContext* context, const std::string& value,
                                  Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
@@ -3701,7 +3701,7 @@ struct ReverseImpl {
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1];
-            string dst;
+            std::string dst;
             dst.resize(src_len);
             simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
                                             StringRef((uint8_t*)dst.data(), src_len));
