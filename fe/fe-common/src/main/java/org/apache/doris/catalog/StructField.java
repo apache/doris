@@ -24,6 +24,8 @@ import org.apache.doris.thrift.TTypeNode;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import javax.annotation.Nullable;
+
 public class StructField {
     @SerializedName(value = "name")
     protected final String name;
@@ -85,10 +87,10 @@ public class StructField {
         return containsNull;
     }
 
-    public String toSql(int depth) {
+    public String toSql(int depth, @Nullable EncodingTree encodingTree) {
         String typeSql;
         if (depth < Type.MAX_NESTING_DEPTH) {
-            typeSql = type.toSql(depth + 1) + (!containsNull ? " not null" : "");
+            typeSql = type.toSql(depth + 1, encodingTree) + (!containsNull ? " not null" : "");
         } else {
             typeSql = "...";
         }
