@@ -68,10 +68,10 @@ public class IcebergExternalTableTest {
         IcebergExternalDatabase database = new IcebergExternalDatabase(mockCatalog, 1L, "2", "2");
         IcebergExternalTable table = new IcebergExternalTable(1, "1", "1", mockCatalog, database);
 
-        // 创建spy以便能够模拟getIcebergTable方法和makeSureInitialized方法
+        // Create a spy to be able to mock the getIcebergTable method and the makeSureInitialized method
         IcebergExternalTable spyTable = Mockito.spy(table);
         Mockito.doReturn(icebergTable).when(spyTable).getIcebergTable();
-        // 模拟makeSureInitialized方法为空操作，避免调用父类的实现
+        // Simulate the makeSureInitialized method as a no-op to avoid calling the parent class implementation
         Mockito.doNothing().when(spyTable).makeSureInitialized();
 
         Map<Integer, PartitionSpec> specs = Maps.newHashMap();
@@ -250,3 +250,4 @@ public class IcebergExternalTableTest {
         Assertions.assertTrue(map.containsKey("day19730101"));
     }
 }
+
