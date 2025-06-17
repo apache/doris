@@ -26,15 +26,14 @@
 
 #include <algorithm>
 #include <cstring>
-#include <memory>
 #include <ostream>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/macros.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"

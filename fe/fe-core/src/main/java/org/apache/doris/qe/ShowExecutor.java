@@ -38,7 +38,6 @@ import org.apache.doris.analysis.ShowCharsetStmt;
 import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
-import org.apache.doris.analysis.ShowColumnHistStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowConfigStmt;
@@ -95,11 +94,9 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
-import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
-import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
@@ -199,8 +196,6 @@ import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -215,7 +210,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AutoAnalysisPendingJob;
 import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
@@ -309,8 +303,6 @@ public class ShowExecutor {
             handleHelp();
         } else if (stmt instanceof ShowDbIdStmt) {
             handleShowDbId();
-        } else if (stmt instanceof ShowTableStmt) {
-            handleShowTable();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
         } else if (stmt instanceof ShowCreateTableStmt) {
@@ -424,16 +416,12 @@ public class ShowExecutor {
             handleShowLoadProfile();
         } else if (stmt instanceof ShowDataSkewStmt) {
             handleShowDataSkew();
-        } else if (stmt instanceof ShowSyncJobStmt) {
-            handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
         } else if (stmt instanceof ShowTableStatsStmt) {
             handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
-        } else if (stmt instanceof ShowColumnHistStmt) {
-            handleShowColumnHist();
         } else if (stmt instanceof ShowTableCreationStmt) {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
@@ -904,57 +892,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Show table statement.
-    private void handleShowTable() throws AnalysisException {
-        ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf<TableIf> db = ctx.getEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(showTableStmt.getCatalog())
-                .getDbOrAnalysisException(showTableStmt.getDb());
-        PatternMatcher matcher = null;
-        if (showTableStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(), isShowTablesCaseSensitive());
-        }
-        for (TableIf tbl : db.getTables()) {
-            if (tbl.getName().startsWith(FeConstants.TEMP_MATERIZLIZE_DVIEW_PREFIX)) {
-                continue;
-            }
-            if (showTableStmt.getType() != null && tbl.getType() != showTableStmt.getType()) {
-                continue;
-            }
-            if (tbl.isTemporary()) {
-                continue;
-            }
-            if (matcher != null && !matcher.match(tbl.getName())) {
-                continue;
-            }
-            // check tbl privs
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), showTableStmt.getCatalog(), db.getFullName(), tbl.getName(),
-                            PrivPredicate.SHOW)) {
-                continue;
-            }
-            if (showTableStmt.isVerbose()) {
-                String storageFormat = "NONE";
-                String invertedIndexFileStorageFormat = "NONE";
-                if (tbl instanceof OlapTable) {
-                    storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
-                }
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexFileStorageFormat));
-            } else {
-                rows.add(Lists.newArrayList(tbl.getName()));
-            }
-        }
-        // sort by table name
-        rows.sort((x, y) -> {
-            return x.get(0).compareTo(y.get(0));
-        });
-
-        resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
-    }
-
     public boolean isShowTablesCaseSensitive() {
         if (GlobalVariable.lowerCaseTableNames == 0) {
             return CaseSensibility.TABLE.getCaseSensibility();
@@ -1227,11 +1164,7 @@ public class ShowExecutor {
         Env env = ctx.getEnv();
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
-        List<List<Comparable>> loadInfos;
-        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
-        Load load = env.getLoadInstance();
-        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
-                showStmt.isAccurateMatch(), showStmt.getStates());
+        List<List<Comparable>> loadInfos = Lists.newArrayList();
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
@@ -1246,7 +1179,7 @@ public class ShowExecutor {
                         showStmt.isTableNameAccurateMatch(),
                         showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
         }
-        // add the nerieds load info
+        // add the nereids load info
         JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
                 showStmt.isAccurateMatch(), showStmt.getStateV2(), db.getCatalog().getName()));
@@ -1372,64 +1305,8 @@ public class ShowExecutor {
         }
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
-        ShowResultSet showResultSet = handleShowLoadWarningV2(showWarningsStmt, db);
-        if (showResultSet != null) {
-            resultSet = showResultSet;
-            return;
-        }
-
-        long dbId = db.getId();
-        Load load = env.getLoadInstance();
-        long jobId = 0;
-        LoadJob job = null;
-        String label = null;
-        if (showWarningsStmt.isFindByLabel()) {
-            jobId = load.getLatestJobIdByLabel(dbId, showWarningsStmt.getLabel());
-            job = load.getLoadJob(jobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("load_job_id={}", jobId);
-            }
-            jobId = showWarningsStmt.getJobId();
-            job = load.getLoadJob(jobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-            label = job.getLabel();
-            LOG.info("label={}", label);
-        }
-
-        // check auth
-        Set<String> tableNames = job.getTableNames();
-        if (tableNames.isEmpty()) {
-            // forward compatibility
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                            PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), db.getFullName());
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                                tblName, PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW LOAD WARNING",
-                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                            db.getFullName() + ": " + tblName);
-                }
-            }
-        }
-        List<List<String>> rows = Lists.newArrayList();
-        long limit = showWarningsStmt.getLimitNum();
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
-        }
-
-        resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+        resultSet = handleShowLoadWarningV2(showWarningsStmt, db);
+        return;
     }
 
     private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
@@ -2032,26 +1909,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
-    private void handleShowSyncJobs() throws AnalysisException {
-        ShowSyncJobStmt showStmt = (ShowSyncJobStmt) stmt;
-        Env env = Env.getCurrentEnv();
-        DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
-
-        List<List<Comparable>> syncInfos = env.getSyncJobManager().getSyncJobsInfoByDbId(db.getId());
-        Collections.sort(syncInfos, new ListComparator<List<Comparable>>(0));
-
-        List<List<String>> rows = Lists.newArrayList();
-        for (List<Comparable> syncInfo : syncInfos) {
-            List<String> row = new ArrayList<String>(syncInfo.size());
-
-            for (Comparable element : syncInfo) {
-                row.add(element.toString());
-            }
-            rows.add(row);
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
     private void handleShowGrants() {
         ShowGrantsStmt showStmt = (ShowGrantsStmt) stmt;
         List<List<String>> infos = Env.getCurrentEnv().getAuth().getAuthInfo(showStmt.getUserIdent());
@@ -2579,13 +2436,6 @@ public class ShowExecutor {
             }
         }
         return ret;
-    }
-
-    public void handleShowColumnHist() {
-        // TODO: support histogram in the future.
-        ShowColumnHistStmt showColumnHistStmt = (ShowColumnHistStmt) stmt;
-        List<Pair<String, Histogram>> columnStatistics = Lists.newArrayList();
-        resultSet = showColumnHistStmt.constructResultSet(columnStatistics);
     }
 
     public void handleShowSqlBlockRule() throws AnalysisException {

@@ -351,14 +351,6 @@ inline void* memrchr(const void* bytes, int find_char, size_t len) {
 #define ATTRIBUTE_MEMBER_UNUSED
 #endif
 
-//
-// For functions we want to force inline or not inline.
-// Introduced in gcc 3.1.
-#define ATTRIBUTE_ALWAYS_INLINE __attribute__((always_inline))
-#define HAVE_ATTRIBUTE_ALWAYS_INLINE 1
-#define ATTRIBUTE_NOINLINE __attribute__((noinline))
-#define HAVE_ATTRIBUTE_NOINLINE 1
-
 // For weak functions
 #undef ATTRIBUTE_WEAK
 #define ATTRIBUTE_WEAK __attribute__((weak))
@@ -536,20 +528,6 @@ extern inline void prefetch(const char* x) {
 #endif // ifdef __cplusplus
 
 //
-// GCC can be told that a certain branch is not likely to be taken (for
-// instance, a CHECK failure), and use that information in static analysis.
-// Giving it this information can help it optimize for the common case in
-// the absence of better information (ie. -fprofile-arcs).
-//
-#if defined(__GNUC__)
-#define PREDICT_FALSE(x) (__builtin_expect(x, 0))
-#define PREDICT_TRUE(x) (__builtin_expect(!!(x), 1))
-#else
-#define PREDICT_FALSE(x) x
-#define PREDICT_TRUE(x) x
-#endif
-
-//
 // Tell GCC that a function is hot or cold. GCC can use this information to
 // improve static analysis, i.e. a conditional branch to a cold function
 // is likely to be not-taken.
@@ -619,8 +597,6 @@ inline void* aligned_malloc(size_t size, int minimum_alignment) {
 #define REQUIRE_STACK_ALIGN_TRAMPOLINE (0)
 #define MUST_USE_RESULT
 extern inline void prefetch(const char* x) {}
-#define PREDICT_FALSE(x) x
-#define PREDICT_TRUE(x) x
 
 // These should be redefined appropriately if better alternatives to
 // ftell/fseek exist in the compiler
