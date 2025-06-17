@@ -5357,26 +5357,6 @@ restore_stmt ::=
     :}
     ;
 
-// Kill statement
-kill_stmt ::=
-    KW_KILL INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(true, value.intValue());
-    :}
-    | KW_KILL KW_CONNECTION INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(true, value.intValue());
-    :}
-    | KW_KILL KW_QUERY INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(false, value.intValue());
-    :}
-    | KW_KILL KW_QUERY STRING_LITERAL:value
-    {:
-        RESULT = new KillStmt(value);
-    :}
-    ;
-
 kill_analysis_job_stmt ::=
     KW_KILL KW_ANALYZE INTEGER_LITERAL:value
     {:
