@@ -205,7 +205,7 @@ void CloudWarmUpManager::handle_jobs() {
 
         timespec time;
         time.tv_sec = UnixSeconds() + WAIT_TIME_SECONDS;
-        if (!wait->timed_wait(time)) {
+        if (wait->timed_wait(time)) {
             LOG_WARNING("Warm up {} tablets take a long time", cur_job->tablet_ids.size());
         }
         {
