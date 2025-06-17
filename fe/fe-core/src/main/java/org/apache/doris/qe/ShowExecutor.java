@@ -50,7 +50,6 @@ import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRepositoryStmt;
-import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.ShowDataTypesStmt;
@@ -339,8 +338,6 @@ public class ShowExecutor {
             handleShowRoutineLoad();
         } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
             handleShowRoutineLoadTask();
-        } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
-            handleShowCreateRoutineLoad();
         } else if (stmt instanceof ShowCreateLoadStmt) {
             handleShowCreateLoad();
         } else if (stmt instanceof ShowCreateRepositoryStmt) {
@@ -2207,59 +2204,6 @@ public class ShowExecutor {
         }
         rows.add(Lists.newArrayList(repoName, repo.getCreateStatement()));
         resultSet = new ShowResultSet(showCreateRepositoryStmt.getMetaData(), rows);
-    }
-
-    private void handleShowCreateRoutineLoad() throws AnalysisException {
-        ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        String dbName = showCreateRoutineLoadStmt.getDb();
-        String labelName = showCreateRoutineLoadStmt.getLabel();
-        // if include history return all create load
-        if (showCreateRoutineLoadStmt.isIncludeHistory()) {
-            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
-            try {
-                routineLoadJobList = Env.getCurrentEnv().getRoutineLoadManager().getJob(dbName, labelName, true, null);
-            } catch (MetaNotFoundException e) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
-                        .add("error_msg", "Routine load cannot be found by this name")
-                        .build(), e);
-            }
-            if (routineLoadJobList == null) {
-                resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
-                return;
-            }
-            for (RoutineLoadJob job : routineLoadJobList) {
-                String tableName = "";
-                try {
-                    tableName = job.getTableName();
-                } catch (MetaNotFoundException e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
-                            .add("error_msg", "The table name for this routine load does not exist")
-                            .build(), e);
-                }
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
-                                PrivPredicate.LOAD)) {
-                    resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
-                    continue;
-                }
-                rows.add(Lists.newArrayList(String.valueOf(job.getId()),
-                        showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
-            }
-        } else {
-            // if job exists
-            RoutineLoadJob routineLoadJob;
-            try {
-                routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
-                // get routine load info
-                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()),
-                        showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
-            } catch (MetaNotFoundException | DdlException e) {
-                LOG.warn(e.getMessage(), e);
-                throw new AnalysisException(e.getMessage());
-            }
-        }
-        resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
     private void handleShowCreateLoad() throws AnalysisException {
