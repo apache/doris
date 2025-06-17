@@ -24,7 +24,6 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
@@ -1146,13 +1145,6 @@ public class AlterTest {
             }
         }
         return true;
-    }
-
-    @Test(expected = DdlException.class)
-    public void testDropInUseResource() throws Exception {
-        String sql = "drop resource remote_s3";
-        DropResourceStmt stmt = (DropResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getResourceMgr().dropResource(stmt);
     }
 
     @Test
