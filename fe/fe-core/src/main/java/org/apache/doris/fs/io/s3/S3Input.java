@@ -17,6 +17,7 @@
 
 package org.apache.doris.fs.io.s3;
 
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.fs.io.DorisInput;
 import org.apache.doris.fs.io.ParsedPath;
 
@@ -115,7 +116,7 @@ final class S3Input implements DorisInput {
         if (position < 0) {
             throw new IOException("Negative seek offset");
         }
-        Objects.checkFromIndexSize(offset, length, buffer.length);
+        IOUtils.checkFromIndexSize(offset, length, buffer.length);
     }
 
     /**
