@@ -49,9 +49,9 @@ public:
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
     size_t size() const override { return _file_size; }
 
-    std::unique_ptr<HttpClient> getClient();
-    std::unique_ptr<HttpClient> createClient();
-    void storeClient(std::unique_ptr<HttpClient> client);
+    std::shared_ptr<HttpClient> getClient();
+    std::shared_ptr<HttpClient> createClient();
+    void storeClient(std::shared_ptr<HttpClient> client);
     Status read_range(size_t offset, size_t length, char* buffer);
 
 private:
@@ -65,6 +65,7 @@ private:
     size_t _file_size = -1;
     Path _path;
     std::string _url;
+    int64_t _last_modified = 0;
     std::atomic<bool> _closed = false;
 };
 

@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "http/http_client.h"
+#include "http_file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
@@ -73,10 +74,6 @@ protected:
         return Status::NotSupported("not supported");
     }
 
-    Status exists_impl(const Path& path, bool* res) const override {
-        return Status::NotSupported("not supported");
-    }
-
     Status file_size_impl(const Path& file, int64_t* file_size) const override;
 
     Status list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
@@ -88,10 +85,10 @@ protected:
         return Status::NotSupported("not supported");
     }
 
+    Status exists_impl(const Path& path, bool* res) const override;
 private:
     HttpFileSystem(Path&& root_path, std::string id);
     Status init(const std::string& url);
-    HttpFileReader reader;
     std::string _url;
 };
 } // namespace doris::io

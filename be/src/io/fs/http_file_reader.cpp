@@ -23,19 +23,19 @@
 namespace doris::io {
 
 HttpFileReader::HttpFileReader(const OpenFileInfo& openFileInfo, std::string url)
-        : _url(std::move(url)), _path(openFileInfo.path) {
-    auto etag_iter = file_info.extended_info.find("etag");
-    if (etag_iter != file_info.extended_info.end()) {
+        : _path(openFileInfo.path), _url(std::move(url)) {
+    auto etag_iter = openFileInfo.extend_info.find("etag");
+    if (etag_iter != openFileInfo.extend_info.end()) {
         _etag = etag_iter->second;
     }
 
-    auto lm_iter = file_info.extended_info.find("last_modified");
-    if (lm_iter != file_info.extended_info.end()) {
-        _last_modified = std::stoll(lm_iter->second); // 假设时间戳是 string 类型
+    auto lm_iter = openFileInfo.extend_info.find("last_modified");
+    if (lm_iter != openFileInfo.extend_info.end()) {
+        _last_modified = std::stoll(lm_iter->second);
     }
 
-    auto size_iter = file_info.extended_info.find("file_size");
-    if (size_iter != file_info.extended_info.end()) {
+    auto size_iter = openFileInfo.extend_info.find("file_size");
+    if (size_iter != openFileInfo.extend_info.end()) {
         _file_size = std::stoull(size_iter->second);
         _initialized = true;
     }
@@ -75,12 +75,12 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t to_read = result.size;
     size_t buffer_offset = 0;
-
+    auto client = getClient();
     if (offset >= _buffer_start && offset < _buffer_end) {
         size_t buffer_idx = offset - _buffer_start;
         size_t available = _buffer_end - offset;
         size_t copy_len = std::min(available, to_read);
-        std::memcpy(result.data, _read_buffer.get() + buffer_idx, copy_len);
+        memcpy(result.data, _read_buffer.get() + buffer_idx, copy_len);
         buffer_offset += copy_len;
         to_read -= copy_len;
         offset += copy_len;
@@ -91,7 +91,6 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     if (to_read > 0) {
         if (to_read > READ_BUFFER_SIZE) {
-            auto client = getClient();
             client->set_range(offset, to_read);
             std::string buffer;
             auto callback = [&](const void* data, size_t len) {
@@ -103,8 +102,7 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
             if (buffer.size() > to_read) {
                 return Status::InternalError("HTTP response larger than requested buffer");
             }
-
-            std::memcpy(result.data + buffer_offset, buffer.data(), buffer.size());
+            memcpy(result.data + buffer_offset, buffer.data(), buffer.size());
             buffer_offset += buffer.size();
         } else {
             // 否则先读入缓存区
@@ -120,13 +118,13 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                 return Status::InternalError("HTTP response larger than buffer");
             }
 
-            std::memcpy(_read_buffer.get(), buffer.data(), buffer.size());
+            memcpy(_read_buffer.get(), buffer.data(), buffer.size());
             _buffer_start = offset;
             _buffer_end = offset + buffer.size();
 
             // 把用户需要的部分复制过去
             size_t copy_len = std::min(to_read, buffer.size());
-            std::memcpy(result.data + buffer_offset, _read_buffer.get(), copy_len);
+            memcpy(result.data + buffer_offset, _read_buffer.get(), copy_len);
             buffer_offset += copy_len;
         }
     }
@@ -142,11 +140,11 @@ Status HttpFileReader::close() {
     return Status::OK();
 }
 
-void HttpFileReader::storeClient(std::unique_ptr<HTTPClient> client) {
-    client_cache.StoreClient(std::move(client));
+void HttpFileReader::storeClient(std::shared_ptr<HttpClient> client) {
+    client_cache.StoreClient(client);
 }
 
-unique_ptr<HTTPClient> HttpFileReader::getClient() {
+std::shared_ptr<HttpClient> HttpFileReader::getClient() {
     auto cached_client = client_cache.GetClient();
     if (cached_client) {
         return cached_client;
@@ -154,13 +152,13 @@ unique_ptr<HTTPClient> HttpFileReader::getClient() {
     return createClient();
 }
 
-unique_ptr<HttpClient> HttpFileReader::createClient() {
-    auto client = std::make_unique<HttpClient>();
+std::shared_ptr<HttpClient> HttpFileReader::createClient() {
+    auto client = std::make_shared<HttpClient>();
     auto st = client->init(_url);
     if (!st.ok()) {
         return nullptr;
     }
-    storeClient(std::make_unique<HttpClient>(*client));
+    storeClient(client);
     return client;
 }
 
@@ -169,6 +167,9 @@ Status HttpFileReader::read_at(size_t offset, void* buf, size_t nbytes, size_t* 
     return read_at_impl(offset, slice, bytes_read, nullptr);
 }
 
-Status HttpFileReader::read_range(size_t offset, size_t length, char* buffer) {}
+Status HttpFileReader::read_range(size_t offset, size_t length, char* buffer) {
+    auto client = getClient();
+    return client->read_range(_url, offset, length, buffer);
+}
 
 } // namespace doris::io
