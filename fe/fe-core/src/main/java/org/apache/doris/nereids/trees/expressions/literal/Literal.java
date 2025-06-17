@@ -220,12 +220,6 @@ public abstract class Literal extends Expression implements LeafExpression {
         } else if (targetType.isLargeIntType()) {
             maxVal = new BigDecimal(LargeIntType.MAX_VALUE);
             minVal = new BigDecimal(LargeIntType.MIN_VALUE);
-        } else if (targetType.isFloatType()) {
-            maxVal = new BigDecimal(Float.MAX_VALUE);
-            minVal = BigDecimal.valueOf(-Float.MAX_VALUE);
-        } else if (targetType.isDoubleType()) {
-            maxVal = new BigDecimal(Double.MAX_VALUE);
-            minVal = BigDecimal.valueOf(-Double.MAX_VALUE);
         }
         return value.compareTo(maxVal) > 0 || value.compareTo(minVal) < 0;
     }
