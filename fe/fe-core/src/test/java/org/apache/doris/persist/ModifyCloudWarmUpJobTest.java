@@ -21,6 +21,7 @@ import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.CloudWarmUpJob.JobState;
 import org.apache.doris.cloud.CloudWarmUpJob.JobType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -58,23 +59,29 @@ public class ModifyCloudWarmUpJobTest {
         long finishedTimesMs = 22222;
         String clusterName = "cloudTest";
         long lastBatchId = 33333;
-        Map<Long, List<List<Long>>> beToTabletIdBatches = new HashMap<>();
+        Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatchesWithSize = new HashMap<>();
         List<List<Long>> batches = new ArrayList<>();
         List<Long> batch = new ArrayList<>();
         batch.add(123L);
         batches.add(batch);
-        beToTabletIdBatches.put(999L, batches);
+        List<Pair<List<Long>, Long>> batchesWithSize = new ArrayList<>();
+        for (List<Long> batchN : batches) {
+            long batchSize = 2000;
+            batchesWithSize.add(Pair.of(batchN, batchSize));
+        }
+
+        beToTabletIdBatchesWithSize.put(999L, batchesWithSize);
         Map<Long, String> beToThriftAddress = new HashMap<>();
         beToThriftAddress.put(998L, "address");
         CloudWarmUpJob.JobType jobType = JobType.TABLE;
 
-        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, clusterName, beToTabletIdBatches, jobType);
+        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, clusterName, beToTabletIdBatchesWithSize, jobType);
         warmUpJob.setJobState(jobState);
         warmUpJob.setCreateTimeMs(createTimeMs);
         warmUpJob.setErrMsg(errMsg);
         warmUpJob.setFinishedTimeMs(finishedTimesMs);
         warmUpJob.setLastBatchId(lastBatchId);
-        warmUpJob.setBeToTabletIdBatches(beToTabletIdBatches);
+        warmUpJob.setBeToTabletIdBatchesWithSize(beToTabletIdBatchesWithSize);
         warmUpJob.setBeToThriftAddress(beToThriftAddress);
         String c1Json = GsonUtils.GSON.toJson(warmUpJob);
         Text.writeString(out, c1Json);
@@ -95,12 +102,12 @@ public class ModifyCloudWarmUpJobTest {
         Assert.assertEquals(finishedTimesMs, warmUpJob2.getFinishedTimeMs());
         Assert.assertEquals(clusterName, warmUpJob2.getCloudClusterName());
         Assert.assertEquals(lastBatchId, warmUpJob2.getLastBatchId());
-        Map<Long, List<List<Long>>> beToTabletIdBatches2 = warmUpJob2.getBeToTabletIdBatches();
+        Map<Long, List<Pair<List<Long>, Long>>> beToTabletIdBatches2 = warmUpJob2.getBeToTabletIdBatchesWithSize();
         Assert.assertEquals(1, beToTabletIdBatches2.size());
         Assert.assertNotNull(beToTabletIdBatches2.get(999L));
         Assert.assertEquals(1, beToTabletIdBatches2.get(999L).size());
-        Assert.assertEquals(1, beToTabletIdBatches2.get(999L).get(0).size());
-        Assert.assertEquals(123L, (long) beToTabletIdBatches2.get(999L).get(0).get(0));
+        Assert.assertEquals(1, beToTabletIdBatches2.get(999L).get(0).first.size());
+        Assert.assertEquals(123L, (long) beToTabletIdBatches2.get(999L).get(0).first.get(0));
         Map<Long, String> beToThriftAddress2 = warmUpJob2.getBeToThriftAddress();
         Assert.assertEquals(1, beToThriftAddress2.size());
         Assert.assertNotNull(beToThriftAddress2.get(998L));
