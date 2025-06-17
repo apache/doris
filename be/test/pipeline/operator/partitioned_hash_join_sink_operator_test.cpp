@@ -223,7 +223,7 @@ TEST_F(PartitionedHashJoinSinkOperatorTest, SinkEosAndSpill) {
     auto shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
 
     LocalSinkStateInfo sink_info {.task_idx = 0,
-                                  .parent_profile = _helper.runtime_profile.get(),
+                                  .parent_profile = _helper.operator_profile.get(),
                                   .sender_id = 0,
                                   .shared_state = shared_state.get(),
                                   .shared_state_map = {},

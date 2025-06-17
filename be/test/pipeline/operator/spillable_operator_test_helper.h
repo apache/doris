@@ -113,7 +113,10 @@ public:
     std::unique_ptr<MockRuntimeState> runtime_state;
     std::unique_ptr<ObjectPool> obj_pool;
     std::shared_ptr<QueryContext> query_ctx;
-    std::shared_ptr<RuntimeProfile> runtime_profile;
+    std::unique_ptr<RuntimeProfile> operator_profile;
+    std::unique_ptr<RuntimeProfile> custom_profile;
+    std::unique_ptr<RuntimeProfile> common_profile;
+
     std::shared_ptr<PipelineTask> pipeline_task;
     DescriptorTbl* desc_tbl;
     static constexpr uint32_t TEST_PARTITION_COUNT = 8;

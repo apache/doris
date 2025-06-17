@@ -72,7 +72,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
             _helper.runtime_state.get(), probe_operator.get());
 
     auto shared_state = std::make_shared<PartitionedHashJoinSharedState>();
-    LocalStateInfo info {.parent_profile = _helper.runtime_profile.get(),
+    LocalStateInfo info {.parent_profile = _helper.operator_profile.get(),
                          .scan_ranges = {},
                          .shared_state = shared_state.get(),
                          .shared_state_map = {},
@@ -125,7 +125,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, InitAndOpen) {
     auto inner_sink_state = std::make_unique<HashJoinBuildSinkLocalState>(
             probe_operator->_inner_sink_operator.get(), _helper.runtime_state.get());
 
-    LocalSinkStateInfo sink_info {0,  _helper.runtime_profile.get(),
+    LocalSinkStateInfo sink_info {0,  _helper.operator_profile.get(),
                                   -1, local_state->_shared_state->inner_shared_state.get(),
                                   {}, {}};
     st = probe_operator->_inner_sink_operator->prepare(
