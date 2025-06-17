@@ -22,7 +22,6 @@ import org.apache.doris.fs.io.DorisInputStream;
 import org.apache.iceberg.io.SeekableInputStream;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.util.Objects;
 
 /**
@@ -102,40 +101,6 @@ public class DelegateSeekableInputStream extends SeekableInputStream {
         return stream.read(b, off, len);
     }
 
-    /**
-     * Reads all remaining bytes from the stream.
-     * @return a byte array containing all remaining bytes
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public byte[] readAllBytes() throws IOException {
-        return stream.readAllBytes();
-    }
-
-    /**
-     * Reads up to len bytes from the stream.
-     * @param len the maximum number of bytes to read
-     * @return a byte array containing the bytes read
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public byte[] readNBytes(int len) throws IOException {
-        return stream.readNBytes(len);
-    }
-
-    /**
-     * Reads up to len bytes from the stream into a portion of an array.
-     * @param b the buffer into which the data is read
-     * @param off the start offset in array b at which the data is written
-     * @param len the maximum number of bytes to read
-     * @return the number of bytes read
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public int readNBytes(byte[] b, int off, int len) throws IOException {
-        return stream.readNBytes(b, off, len);
-    }
-
     // ===================== Skip and Availability Methods =====================
 
     /**
@@ -147,16 +112,6 @@ public class DelegateSeekableInputStream extends SeekableInputStream {
     @Override
     public long skip(long n) throws IOException {
         return stream.skip(n);
-    }
-
-    /**
-     * Skips exactly n bytes from the stream, throwing if not enough bytes are available.
-     * @param n the number of bytes to skip
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public void skipNBytes(long n) throws IOException {
-        stream.skipNBytes(n);
     }
 
     /**
@@ -205,18 +160,5 @@ public class DelegateSeekableInputStream extends SeekableInputStream {
     @Override
     public boolean markSupported() {
         return stream.markSupported();
-    }
-
-    // ===================== Transfer Methods =====================
-
-    /**
-     * Transfers all bytes from this input stream to the given output stream.
-     * @param out the output stream to write to
-     * @return the number of bytes transferred
-     * @throws IOException if an I/O error occurs
-     */
-    @Override
-    public long transferTo(OutputStream out) throws IOException {
-        return stream.transferTo(out);
     }
 }

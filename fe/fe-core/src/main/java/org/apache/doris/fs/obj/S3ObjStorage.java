@@ -23,10 +23,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.fs.io.DorisInputFile;
-import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.s3.S3InputFile;
-import org.apache.doris.fs.io.s3.S3OutputFile;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
@@ -80,7 +76,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -97,7 +92,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         this.s3Properties = properties;
         isUsePathStyle = Boolean.parseBoolean(properties.getUsePathStyle());
         forceParsingByStandardUri = Boolean.parseBoolean(s3Properties.getForceParsingByStandardUrl());
-
     }
 
     @Override
@@ -627,15 +621,5 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             }
             client = null;
         }
-    }
-
-    @Override
-    public DorisOutputFile newOutputFile(S3URI s3URI, Executor uploadExecutor) {
-        return new S3OutputFile(uploadExecutor, getClient(), s3URI);
-    }
-
-    @Override
-    public DorisInputFile newInputFile(S3URI s3URI, long length, long modifyTime) {
-        return new S3InputFile(getClient(), s3URI, length, modifyTime);
     }
 }
