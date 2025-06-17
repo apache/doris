@@ -170,6 +170,7 @@ public:
     void coordinator_callback(const ReportStatusRequest& req);
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
+    ThreadPool* get_cloud_tablet_thread_pool() { return _cloud_tablet_thread_pool.get(); }
 
     // When fragment mgr is going to stop, the _stop_background_threads_latch is set to 0
     // and other module that use fragment mgr's thread pool should get this signal and exit.
@@ -221,6 +222,7 @@ private:
     scoped_refptr<Thread> _cancel_thread;
     // This pool is used as global async task pool
     std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPool> _cloud_tablet_thread_pool;
 
     std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;

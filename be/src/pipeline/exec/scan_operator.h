@@ -156,15 +156,13 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t get_push_down_count() override;
 
-    std::vector<Dependency*> filter_dependencies() override {
+    std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
             return {};
         }
-        std::vector<Dependency*> res;
-        res.resize(_filter_dependencies.size());
-        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
-            res[i] = _filter_dependencies[i].get();
-        }
+        std::vector<Dependency*> res(_filter_dependencies.size());
+        std::transform(_filter_dependencies.begin(), _filter_dependencies.end(), res.begin(),
+                       [](DependencySPtr dep) { return dep.get(); });
         return res;
     }
 

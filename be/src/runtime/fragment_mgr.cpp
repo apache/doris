@@ -325,6 +325,11 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
                 .set_max_queue_size(config::fragment_mgr_async_work_pool_queue_size)
                 .build(&_thread_pool);
     CHECK(s.ok()) << s.to_string();
+    s = ThreadPoolBuilder("CloudTabletThreadPool")
+                .set_min_threads(config::fragment_mgr_async_work_pool_thread_num_min)
+                .set_max_threads(config::fragment_mgr_async_work_pool_thread_num_min)
+                .build(&_cloud_tablet_thread_pool);
+    CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() = default;
@@ -337,6 +342,7 @@ void FragmentMgr::stop() {
     }
 
     _thread_pool->shutdown();
+    _cloud_tablet_thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
     _pipeline_map.clear();
