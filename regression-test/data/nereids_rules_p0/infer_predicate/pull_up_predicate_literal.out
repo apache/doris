@@ -2383,7 +2383,7 @@ PhysicalResultSink
 ----------PhysicalProject
 ------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
 ------PhysicalProject
---------filter((t2.d_ipv4 = 2130706433))
+--------filter((t2.d_ipv4 = 127.0.0.1))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type239 --
