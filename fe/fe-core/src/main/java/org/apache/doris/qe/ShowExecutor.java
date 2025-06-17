@@ -1315,7 +1315,6 @@ public class ShowExecutor {
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
         resultSet = handleShowLoadWarningV2(showWarningsStmt, db);
-        return;
     }
 
     private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
