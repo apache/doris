@@ -435,6 +435,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
 
 
+    hive_docker """ set hive.stats.column.autogather = true; """
+
 
 
 
