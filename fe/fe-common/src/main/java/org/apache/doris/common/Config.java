@@ -3432,6 +3432,15 @@ public class Config extends ConfigBase {
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
 
+    @ConfField(mutable = true, description = {"存算分离模式下MOW表上的导入是否共享锁，默认false",
+            "Whether to share lock for load on MOW tables in cloud mode, default is false."})
+    public static boolean enable_share_mow_lock_for_load = true;
+
+    @ConfField(mutable = true, description = {"存算分离模式下MOW表上导入共享锁的使用次数上限，超过该次数后，导入将主动释放锁，默认4次",
+            "The maximum number of times the shared lock can be used for load on MOW tables in cloud mode, "
+            + "after which the load will actively release the lock, default is 4 times"})
+    public static int share_mow_lock_for_load_threshold = -1;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
