@@ -2822,17 +2822,6 @@ pause_routine_load_stmt ::=
     :}
     ;
 
-resume_routine_load_stmt ::=
-    KW_RESUME KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ResumeRoutineLoadStmt(jobLabel);
-    :}
-    | KW_RESUME KW_ALL KW_ROUTINE KW_LOAD
-    {:
-        RESULT = new ResumeRoutineLoadStmt(null);
-    :}
-    ;
-
 stop_routine_load_stmt ::=
     KW_STOP KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
