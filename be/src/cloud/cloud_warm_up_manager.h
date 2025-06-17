@@ -67,8 +67,16 @@ public:
     // Cancel the job
     Status clear_job(int64_t job_id);
 
+    Status set_event(int64_t job_id, TWarmUpEventType::type event, bool clear = false);
+
+    void warm_up_rowset(RowsetMeta& rs_meta);
+
+    void recycle_cache(int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
+                       const std::vector<int64_t>& num_segments);
+
 private:
     void handle_jobs();
+    std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id);
 
     std::mutex _mtx;
     std::condition_variable _cond;
@@ -80,6 +88,13 @@ private:
     bool _closed {false};
     // the attribute for compile in ut
     [[maybe_unused]] CloudStorageEngine& _engine;
+
+    // timestamp, info
+    using CacheEntry = std::pair<std::chrono::steady_clock::time_point, TReplicaInfo>;
+    // tablet_id -> entry
+    using Cache = std::unordered_map<int64_t, CacheEntry>;
+    // job_id -> cache
+    std::unordered_map<int64_t, Cache> _tablet_replica_cache;
 };
 
 } // namespace doris
