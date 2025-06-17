@@ -146,9 +146,17 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
         //1) wait scan operator write data
         {
             std::unique_lock l(_m);
-            while (!_eos && _data_queue.empty() && _writer_status.ok()) {
+            // When the query is cancelled, _writer_status may be set to error status in force_close method.
+            // When the BE process is exit gracefully, the fragment mgr's thread pool will be shutdown,
+            // and the async thread will be exit.
+            while (!_eos && _data_queue.empty() && _writer_status.ok() &&
+                   !ExecEnv::GetInstance()->fragment_mgr()->shutting_down()) {
                 // Add 1s to check to avoid lost signal
                 _cv.wait_for(l, std::chrono::seconds(1));
+            }
+            // If writer status is not ok, then we should not change its status to avoid lost the actual error status.
+            if (ExecEnv::GetInstance()->fragment_mgr()->shutting_down() && _writer_status.ok()) {
+                _writer_status.update(Status::InternalError<false>("FragmentMgr is shutting down"));
             }
 
             //check if eos or writer error

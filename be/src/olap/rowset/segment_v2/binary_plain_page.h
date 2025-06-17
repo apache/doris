@@ -216,7 +216,7 @@ public:
     }
 
     Status seek_to_position_in_page(size_t pos) override {
-        if (PREDICT_FALSE(_num_elems == 0)) {
+        if (_num_elems == 0) [[unlikely]] {
             if (pos != 0) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                         "seek pos {} is larger than total elements  {}", pos, _num_elems);
@@ -229,7 +229,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+        if (*n == 0 || _cur_idx >= _num_elems) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -264,7 +264,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0)) {
+        if (*n == 0) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }

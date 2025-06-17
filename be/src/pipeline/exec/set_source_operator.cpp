@@ -51,7 +51,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
             << output_data_types.size() << " " << column_nums;
     // the nullable is not depend on child, it's should use _row_descriptor from FE plan
     // some case all not nullable column from children, but maybe need output nullable.
-    vector<bool> nullable_flags(column_nums, false);
+    std::vector<bool> nullable_flags(column_nums, false);
     for (int i = 0; i < column_nums; ++i) {
         nullable_flags[i] = output_data_types[i]->is_nullable();
         if (nullable_flags[i] != _shared_state->build_not_ignore_null[i]) {

@@ -276,6 +276,8 @@ public:
                                           std::map<std::string, int64_t>& pre_rowset_to_versions);
 
     bool need_remove_unused_rowsets();
+
+    void add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
     void remove_unused_rowsets();
 
 private:

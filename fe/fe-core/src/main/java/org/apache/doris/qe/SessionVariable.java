@@ -341,7 +341,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
     public static final String ENABLE_NEREIDS_RULES = "enable_nereids_rules";
     public static final String DISABLE_NEREIDS_EXPRESSION_RULES = "disable_nereids_expression_rules";
-    public static final String ENABLE_NEW_COST_MODEL = "enable_new_cost_model";
     public static final String ENABLE_FALLBACK_TO_ORIGINAL_PLANNER = "enable_fallback_to_original_planner";
     public static final String ENABLE_NEREIDS_TIMEOUT = "enable_nereids_timeout";
     public static final String NEREIDS_TIMEOUT_SECOND = "nereids_timeout_second";
@@ -1563,9 +1562,6 @@ public class SessionVariable implements Serializable, Writable {
     private String disableNereidsExpressionRules = "";
 
     private BitSet disableNereidsExpressionRuleSet = new BitSet();
-
-    @VariableMgr.VarAttr(name = ENABLE_NEW_COST_MODEL, needForward = true)
-    private boolean enableNewCostModel = false;
 
     @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
     public double filterCostFactor = 0.0001;
@@ -3836,14 +3832,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public BitSet getDisableNereidsExpressionRules() {
         return disableNereidsExpressionRuleSet;
-    }
-
-    public void setEnableNewCostModel(boolean enable) {
-        this.enableNewCostModel = enable;
-    }
-
-    public boolean getEnableNewCostModel() {
-        return this.enableNewCostModel;
     }
 
     public void setDisableNereidsRules(String disableNereidsRules) {
