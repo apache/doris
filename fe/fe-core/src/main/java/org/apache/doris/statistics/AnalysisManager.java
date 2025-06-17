@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AnalyzeDBStmt;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
-import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCachedStatsStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
@@ -1390,19 +1389,6 @@ public class AnalysisManager implements Writable {
         }
         checkPriv(jobInfo);
         long jobId = analyzeJobCommand.getJobId();
-        AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
-        Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
-        replayDeleteAnalysisJob(analyzeDeletionLog);
-        removeAll(findTasks(jobId));
-    }
-
-    public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
-        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobStmt.getJobId());
-        if (jobInfo == null) {
-            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobStmt.getJobId()));
-        }
-        checkPriv(jobInfo);
-        long jobId = analyzeJobStmt.getJobId();
         AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
         Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
         replayDeleteAnalysisJob(analyzeDeletionLog);

@@ -3225,10 +3225,6 @@ drop_stmt ::=
     {:
         RESULT = new DropStatsStmt(true);
     :}
-    | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
-    {:
-        RESULT = new DropAnalyzeJobStmt(job_id);
-    :}
     | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
     {:
         RESULT = new DropStageStmt(ifExists, stageName);
