@@ -78,14 +78,13 @@ suite("test_agg_schema_key_add_light", "p0") {
     qt_sql """ select * from ${tbName1} order by user_id; """
 
     // Add a new key column with INT type without pos. Expected is a light schema change.
-    sql """ alter  table ${tbName1} add column house_price1 INT KEY DEFAULT "1000"; """
+    sql """ alter  table ${tbName1} add column house_price1 INT KEY; """
     insertSql = " insert into ${tbName1} values(923456689, 'Alice', 'Yaan', 22536, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
         time 600
     }, insertSql, false, "${tbName1}")
     checkAddKey(true)
-
 
     qt_sql """ select * from ${tbName1} order by user_id; """
 
@@ -102,7 +101,7 @@ suite("test_agg_schema_key_add_light", "p0") {
     qt_sql """ select * from ${tbName1} order by user_id; """
 
     // Add a new key column with VARCHAR type after shortkey. Expected is a light schema change.
-    sql """ alter  table ${tbName1} add column light_mid VARCHAR(16) KEY DEFAULT "light_mid" AFTER `username`; """
+    sql """ alter  table ${tbName1} add column light_mid VARCHAR(16) KEY DEFAULT "light_mid" AFTER `heavy`; """
 
     waitForSchemaChangeDone({
         sql getTableStatusSql
@@ -119,4 +118,52 @@ suite("test_agg_schema_key_add_light", "p0") {
     checkAddKey(false)
 
     qt_sql """ select * from ${tbName1} order by user_id; """
+
+
+    insertSql = " insert into ${tbName1} values(923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    // Add a new key column with DATE type after shortkey. Expected is a light schema change.
+    sql """ alter  table ${tbName1} add column light_mid1 DATE KEY AFTER `heavy_mid`; """
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 600
+    }, insertSql, false, "${tbName1}")
+    checkAddKey(true)
+
+    qt_sql """ select * from ${tbName1} order by user_id; """
+
+    insertSql = " insert into ${tbName1} values(923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 35.01, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    // Add a new key column with DATE type after shortkey. Expected is a light schema change.
+    sql """ alter  table ${tbName1} add column decimal_light DECIMAL KEY; """
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 600
+    }, insertSql, false, "${tbName1}")
+    checkAddKey(true)
+
+    qt_sql """ select * from ${tbName1} order by user_id; """
+
+
+    insertSql = " insert into ${tbName1} values('2025-01-01', 923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 35.01, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+    // Add a new key column as the 1st column with DATE type. Expected is a heavy schema change.
+    sql """ alter  table ${tbName1} add column decimal_heavy DATE KEY FIRST; """
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 600
+    }, insertSql, false, "${tbName1}")
+    checkAddKey(false)
+
+    qt_sql """ select * from ${tbName1} order by user_id; """
+
+    insertSql = " insert into ${tbName1} values('2025-01-01', 923456689, 'heavy_mid', '2020-04-01', 'heavy_sc_insert', 'light-mid', 'Alice', 'Yaan', 22536, 1, 35.01, 25, 0, 13812345678, 'No. 123 Street, Beijing', '2022-01-01 10:00:00'); "
+
+    sql """ alter  table ${tbName1} rename column decimal_heavy decimal_heavy_new; """
+    waitForSchemaChangeDone({
+        sql getTableStatusSql
+        time 600
+    }, insertSql, false, "${tbName1}")
+    checkAddKey(true)
+
+    qt_sql """ select * from ${tbName1} order by user_id; """
+
+    qt_sql """ select * from ${tbName1} where decimal_heavy_new = 0.111; """
 }

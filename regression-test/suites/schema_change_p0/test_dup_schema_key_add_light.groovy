@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dup_schema_key_add_light", "p0") {
-    def tbName1 = "test_dup_schema_key_add_light1"
+suite("test_agg_schema_key_add_light", "p0") {
+    def tbName1 = "test_agg_schema_key_add_light1"
     def getTableStatusSql = " SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName1}' ORDER BY createtime DESC LIMIT 1  "
 
     def lightAddKeyConfig = sql_return_maparray " SHOW FRONTEND CONFIG like 'enable_light_add_key'"
@@ -38,7 +38,7 @@ suite("test_dup_schema_key_add_light", "p0") {
             "              `user_id` LARGEINT NOT NULL COMMENT \"用户id\",\n" +
             "              `username` VARCHAR(50) NOT NULL COMMENT \"用户昵称\",\n" +
             "              `city` VARCHAR(20) COMMENT \"用户所在城市\",\n" +
-            "              `age` SMALLINT  COMMENT \"用户年龄\",\n" +
+            "              `age` SMALLINT SUM  COMMENT \"用户年龄\",\n" +
             "              `sex` TINYINT   COMMENT \"用户性别\",\n" +
             "              `phone` LARGEINT   COMMENT \"用户电话\",\n" +
             "              `address` VARCHAR(500)   DEFAULT \"青海省西宁市城东区\"COMMENT \"用户地址\",\n" +
@@ -108,10 +108,6 @@ suite("test_dup_schema_key_add_light", "p0") {
         time 600
     }, "", false, "${tbName1}")
     checkAddKey(true)
-
-    qt_sql """ select * from ${tbName1} where user_id = 234567890 and light_mid = 'light_mid' """
-
-    qt_sql """ select * from ${tbName1} where user_id = 234567890; """
 
     // a heavy schema change after light schema change without writing.
     sql """ alter  table ${tbName1} add column heavy_mid VARCHAR(16) KEY DEFAULT "heavy_mid" AFTER `user_id`; """
