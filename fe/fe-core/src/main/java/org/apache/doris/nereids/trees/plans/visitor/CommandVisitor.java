@@ -192,6 +192,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
@@ -252,6 +253,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
@@ -851,6 +853,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showLoadProfileCommand, context);
     }
 
+    default R visitShowLoadWarningsCommand(ShowLoadWarningsCommand showLoadWarningsCommand, C context) {
+        return visitCommand(showLoadWarningsCommand, context);
+    }
+
     default R visitAlterStoragePolicyCommand(AlterStoragePolicyCommand alterStoragePolicyCommand, C context) {
         return visitCommand(alterStoragePolicyCommand, context);
     }
@@ -1212,6 +1218,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateUserCommand(CreateUserCommand createUserCommand, C context) {
         return visitCommand(createUserCommand, context);
+    }
+
+    default R visitWarmUpClusterCommand(WarmUpClusterCommand warmUpClusterCommand, C context) {
+        return visitCommand(warmUpClusterCommand, context);
     }
 
     default R visitCreateResourceCommand(CreateResourceCommand createResourceCommand, C context) {
