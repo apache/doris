@@ -78,12 +78,12 @@ suite("test_alter_vault_type", "nonConcurrent") {
         """
     }, "is not hdfs storage vault")
 
-    user  = "alter_vault_no_pri";
-    pass = "12345"
-    sql """create user ${user} identified by '${pass}'"""
+    def test_user  = "alter_vault_no_pri";
+    def test_pass = "12345"
+    sql """create user ${test_user} identified by '${test_pass}'"""
 
     try {
-        result = connect(user, pass, context.config.jdbcUrl) {
+        def result = connect(test_user, test_pass, context.config.jdbcUrl) {
             sql """
             ALTER STORAGE VAULT ${s3VaultName}
             PROPERTIES (
