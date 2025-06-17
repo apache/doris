@@ -125,14 +125,18 @@ public abstract class FractionalLiteral extends NumericLiteral {
         if (Double.compare(num, -0.0) == 0) {
             return "-0";
         }
-        MathContext mc = new MathContext(6, RoundingMode.HALF_UP);
+        int precision = this instanceof DoubleLiteral ? 17 : 9;
+        int expUpper = this instanceof DoubleLiteral ? 17 : 9;
+        String decimalFormat = this instanceof DoubleLiteral ? "%.17f" : "%.9f";
+        String sciFormat = this instanceof DoubleLiteral ? "%.16E" : "%.5E";
+        MathContext mc = new MathContext(precision, RoundingMode.HALF_UP);
         BigDecimal bd = new BigDecimal(num).round(mc);
         double value = bd.doubleValue();
         int exponent = (int) Math.floor(Math.log10(Math.abs(value)));
-        if (exponent <= 6 && exponent >= -4) {
-            return String.format("%.12f", value).replaceAll("0+$", "").replaceAll("\\.$", "");
+        if (exponent < expUpper && exponent >= -4) {
+            return String.format(decimalFormat, bd).replaceAll("0+$", "").replaceAll("\\.$", "");
         } else {
-            return String.format("%.6E", value).replaceAll("(\\.\\d*?[1-9])0*E", "$1E")
+            return String.format(sciFormat, bd).replaceAll("(\\.\\d*?[1-9])0*E", "$1E")
                     .replaceAll("\\.0*E", "E").replaceAll("E", "e");
         }
     }
