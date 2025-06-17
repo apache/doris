@@ -24,7 +24,6 @@ import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCachedStatsStmt;
 import org.apache.doris.analysis.DropStatsStmt;
-import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
@@ -1199,23 +1198,6 @@ public class AnalysisManager implements Writable {
 
     public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
         Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
-        if (analysisTaskMap == null) {
-            throw new DdlException("Job not exists or already finished");
-        }
-        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
-        if (anyTask == null) {
-            return;
-        }
-        checkPriv(anyTask);
-        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
-        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
-            taskInfo.cancel();
-            logKilled(taskInfo.info);
-        }
-    }
-
-    public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
-        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
         if (analysisTaskMap == null) {
             throw new DdlException("Job not exists or already finished");
         }

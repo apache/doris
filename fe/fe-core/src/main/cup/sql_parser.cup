@@ -5377,13 +5377,6 @@ kill_stmt ::=
     :}
     ;
 
-kill_analysis_job_stmt ::=
-    KW_KILL KW_ANALYZE INTEGER_LITERAL:value
-    {:
-        RESULT = new KillAnalysisJobStmt(value.intValue());
-    :}
-    ;
-
 // TODO(zhaochun): stolen from MySQL. Why not use value list, maybe avoid shift/reduce conflict
 // Set statement
 set_stmt ::=

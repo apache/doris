@@ -104,7 +104,6 @@ import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -383,8 +382,6 @@ public class DdlExecutor {
             env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCachedStatsStmt) {
             env.getAnalysisManager().dropCachedStats((DropCachedStatsStmt) ddlStmt);
-        } else if (ddlStmt instanceof KillAnalysisJobStmt) {
-            env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanQueryStatsStmt) {
             CleanQueryStatsStmt stmt = (CleanQueryStatsStmt) ddlStmt;
             CleanQueryStatsInfo cleanQueryStatsInfo = null;
