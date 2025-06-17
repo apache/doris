@@ -34,6 +34,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -46,12 +47,15 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
     private String srcClusterName;
     private boolean isWarmUpWithTable;
     private boolean isForce;
+    private Map<String, String> properties;
 
-    public WarmUpClusterStmt(String dstClusterName, String srcClusterName, boolean isForce) {
+    public WarmUpClusterStmt(String dstClusterName, String srcClusterName, boolean isForce,
+            Map<String, String> properties) {
         this.dstClusterName = dstClusterName;
         this.srcClusterName = srcClusterName;
         this.isForce = isForce;
         this.isWarmUpWithTable = false;
+        this.properties = properties;
     }
 
     public WarmUpClusterStmt(String dstClusterName, List<Map<TableName, String>> tableList, boolean isForce) {
@@ -59,6 +63,7 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
         this.tableList = tableList;
         this.isForce = isForce;
         this.isWarmUpWithTable = true;
+        this.properties = new HashMap<>();
     }
 
     @Override
@@ -160,5 +165,9 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
 
     public boolean isForce() {
         return isForce;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 }
