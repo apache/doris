@@ -17,7 +17,6 @@
 
 #include "io/fs/http_file_system.h"
 
-
 #include <fstream>
 
 #include "common/status.h"
@@ -60,8 +59,8 @@ Status HttpFileSystem::download_impl(const Path& remote_file, const Path& local_
     FileReaderSPtr reader;
     RETURN_IF_ERROR(open_file(remote_file, &reader));
 
-    auto *http_reader = dynamic_cast<HttpFileReader*>(reader.get());
-    if(http_reader == nullptr) {
+    auto* http_reader = dynamic_cast<HttpFileReader*>(reader.get());
+    if (http_reader == nullptr) {
         return Status::InternalError("Expected HttpFileReader");
     }
 
