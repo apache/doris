@@ -32,7 +32,7 @@
 24	nan	-inf
 25	123.456	123.456
 
--- !select_inf_add_sub1 --
+-- !select_inf_add1 --
 1	inf	inf	inf
 2	inf	-inf	-nan
 3	inf	nan	nan
@@ -59,7 +59,7 @@
 24	nan	-inf	nan
 25	123.456	123.456	246.91200256347656
 
--- !select_inf_add_sub2 --
+-- !select_inf_sub1 --
 1	inf	inf	-nan
 2	inf	-inf	inf
 3	inf	nan	nan
@@ -86,7 +86,7 @@
 24	nan	-inf	nan
 25	123.456	123.456	0.0
 
--- !select_inf_multi_div1 --
+-- !select_inf_multi1 --
 1	inf	inf	inf
 2	inf	-inf	-inf
 3	inf	nan	nan
@@ -113,7 +113,7 @@
 24	nan	-inf	nan
 25	123.456	123.456	15241.384252476564
 
--- !select_inf_multi_div2 --
+-- !select_inf_div1 --
 1	inf	inf	-nan
 2	inf	-inf	-nan
 3	inf	nan	nan

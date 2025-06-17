@@ -76,7 +76,7 @@ void FunctionCastToDecimalTest::from_string_to_decimal64_test_func() {
     from_string_test_func<Decimal64, 18, 18>(table_index, test_data_index);
     ++table_index;
 }
-TEST_F(FunctionCastToDecimalTest, test_from_string_to_decimal64) {
+TEST_F(FunctionCastToDecimalTest, test_to_decimal64_from_string) {
     from_string_to_decimal64_test_func();
 }
 } // namespace doris::vectorized

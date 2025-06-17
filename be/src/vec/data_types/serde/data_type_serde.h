@@ -281,7 +281,7 @@ public:
     }
 
     // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them
-    virtual Status from_string_strict_mode_batch(const ColumnString& str, ColumnNullable& column,
+    virtual Status from_string_strict_mode_batch(const ColumnString& str, IColumn& column,
                                                  const FormatOptions& options) const {
         return Status::NotSupported("from_string is not supported");
     }

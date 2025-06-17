@@ -18,7 +18,6 @@
 #pragma once
 
 #include "cast_base.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 template <typename T>
@@ -34,20 +33,27 @@ class CastToImpl<Mode, DataTypeString, ToDataType> : public CastToBase {
         const auto* col_from = check_and_get_column<DataTypeString::ColumnType>(
                 block.get_by_position(arguments[0]).column.get());
 
-        auto to_type = make_nullable(block.get_by_position(result).type);
-        auto column_to = to_type->create_column();
-
+        auto to_type = block.get_by_position(result).type;
         auto serde = remove_nullable(to_type)->get_serde();
+        MutableColumnPtr column_to;
+
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;
 
-        auto& col_to = assert_cast<ColumnNullable&>(*column_to);
-
         if constexpr (Mode == CastModeType::NonStrictMode) {
-            RETURN_IF_ERROR(serde->from_string_batch(*col_from, col_to, format_options));
+            auto to_nullable_type = make_nullable(to_type);
+            column_to = to_nullable_type->create_column();
+            auto& nullable_col_to = assert_cast<ColumnNullable&>(*column_to);
+            RETURN_IF_ERROR(serde->from_string_batch(*col_from, nullable_col_to, format_options));
         } else if constexpr (Mode == CastModeType::StrictMode) {
+            if (to_type->is_nullable()) {
+                return Status::InternalError(
+                        "result type should be not nullable when casting string to decimal in "
+                        "strict cast mode");
+            }
+            column_to = to_type->create_column();
             RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, col_to, format_options));
+                    serde->from_string_strict_mode_batch(*col_from, *column_to, format_options));
         } else {
             return Status::InternalError("Unsupported cast mode");
         }

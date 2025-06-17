@@ -76,7 +76,7 @@ void FunctionCastToDecimalTest::from_string_to_decimal128v3_test_func() {
     ++table_index;
 }
 
-TEST_F(FunctionCastToDecimalTest, test_from_string_to_decimal128) {
+TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_string) {
     from_string_to_decimal128v3_test_func();
 }
 } // namespace doris::vectorized

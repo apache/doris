@@ -15,24 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fstream>
-#include <memory>
-
-#include "cast_test.h"
 #include "cast_to_decimal.h"
-#include "common/exception.h"
-#include "olap/olap_common.h"
-#include "testutil/test_util.h"
-#include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/number_traits.h"
 
 namespace doris::vectorized {
-TEST_F(FunctionCastToDecimalTest, test_to_decimal64_from_float) {
-    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 0>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 9>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 17>();
+TEST_F(FunctionCastToDecimalTest, test_from_float_to_decimal64) {
+    int table_index = 0;
+    int test_data_index = 0;
+
+    std::unique_ptr<std::ofstream> ofs_const_case_uptr, ofs_const_expected_result_uptr;
+    std::unique_ptr<std::ofstream> ofs_case_uptr, ofs_expected_result_uptr;
+    std::string regression_case_name = "test_cast_to_decimal64_from_float";
+    if (FLAGS_gen_regression_case) {
+        setup_regression_case_output(regression_case_name, ofs_const_case_uptr,
+                                     ofs_const_expected_result_uptr, ofs_case_uptr,
+                                     ofs_expected_result_uptr, "to_decimal/from_float");
+    }
+    auto* ofs_const_case = ofs_const_case_uptr.get();
+    auto* ofs_const_expected_result = ofs_const_expected_result_uptr.get();
+    auto* ofs_case = ofs_case_uptr.get();
+    auto* ofs_expected_result = ofs_expected_result_uptr.get();
+    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 0>(
+            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+            ofs_const_expected_result);
+    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 9>(
+            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+            ofs_const_expected_result);
+    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 17>(
+            table_index++, test_data_index, ofs_case, ofs_expected_result, ofs_const_case,
+            ofs_const_expected_result);
+    if (FLAGS_gen_regression_case) {
+        (*ofs_const_case) << "}";
+        (*ofs_case) << "}";
+    }
 }
 } // namespace doris::vectorized

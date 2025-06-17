@@ -35,7 +35,7 @@ void FunctionCastToDecimalTest::from_string_to_decimal64_overflow_test_func() {
     int test_data_index = 0;
     std::unique_ptr<std::ofstream> ofs_const_case_uptr, ofs_const_expected_result_uptr;
     std::unique_ptr<std::ofstream> ofs_case_uptr, ofs_expected_result_uptr;
-    std::string regression_case_name = "test_cast_str_to_decimal64_overflow";
+    std::string regression_case_name = "test_cast_to_decimal64_from_str_overflow";
     if (FLAGS_gen_regression_case) {
         setup_regression_case_output(regression_case_name, ofs_const_case_uptr,
                                      ofs_const_expected_result_uptr, ofs_case_uptr,

@@ -15,22 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fstream>
-#include <memory>
-
-#include "cast_test.h"
 #include "cast_to_decimal.h"
-#include "common/exception.h"
-#include "olap/olap_common.h"
-#include "testutil/test_util.h"
-#include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/number_traits.h"
 
 namespace doris::vectorized {
-TEST_F(FunctionCastToDecimalTest, test_from_int_to_decimal128) {
+TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_int) {
     from_int_test_func<Decimal128V2>();
     from_int_test_func<Decimal128V3>();
 }

@@ -84,8 +84,8 @@ suite("test_float_special_values", "datatype_p0") {
 
     // inf arithmetics
     // inf add/sub
-    qt_select_inf_add_sub1 "select k1, k2, k3, k2 + k3 from test_float_nan_and_inf order by k1;"
-    qt_select_inf_add_sub2 "select k1, k2, k3, k2 - k3 from test_float_nan_and_inf order by k1;"
+    qt_select_inf_add1 "select k1, k2, k3, k2 + k3 from test_float_nan_and_inf order by k1;"
+    qt_select_inf_sub1 "select k1, k2, k3, k2 - k3 from test_float_nan_and_inf order by k1;"
 
     // inf multiply/divide
     // inf division by zero
@@ -97,8 +97,8 @@ suite("test_float_special_values", "datatype_p0") {
     // park-sql (default)> select f1, f1 / 0 from test_float;
     // Infinity        NULL
     // NaN     NULL
-    qt_select_inf_multi_div1 "select k1, k2, k3, k2 * k3 from test_float_nan_and_inf order by k1;"
-    qt_select_inf_multi_div2 "select k1, k2, k3, k2 / k3 from test_float_nan_and_inf order by k1;"
+    qt_select_inf_multi1 "select k1, k2, k3, k2 * k3 from test_float_nan_and_inf order by k1;"
+    qt_select_inf_div1 "select k1, k2, k3, k2 / k3 from test_float_nan_and_inf order by k1;"
 
     // inf mod
     qt_select_inf_mod1 "select k1, k2, k3, k2 % k3 from test_float_nan_and_inf order by k1;"

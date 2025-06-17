@@ -24,6 +24,7 @@
 
 #include "arrow/type.h"
 #include "common/consts.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/types.h"
@@ -66,7 +67,7 @@ Status DataTypeDecimalSerDe<T>::from_string_batch(const ColumnString& str, Colum
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(const ColumnString& str,
-                                                              ColumnNullable& column,
+                                                              IColumn& column,
                                                               const FormatOptions& options) const {
     const auto row = str.size();
     column.resize(row);
@@ -74,9 +75,8 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(const ColumnString
     const ColumnString::Chars* chars = &str.get_chars();
     const IColumn::Offsets* offsets = &str.get_offsets();
 
-    auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
+    auto& column_to = assert_cast<ColumnType&>(column);
     auto& vec_to = column_to.get_data();
-    auto& null_map = column.get_null_map_data();
     size_t current_offset = 0;
     PrecisionScaleArg scale_arg {.precision = static_cast<UInt32>(precision),
                                  .scale = static_cast<UInt32>(scale)};
@@ -93,7 +93,6 @@ Status DataTypeDecimalSerDe<T>::from_string_strict_mode_batch(const ColumnString
                     "parse number fail, string: '{}'",
                     std::string((char*)&(*chars)[current_offset], string_size));
         }
-        null_map[i] = false;
         current_offset = next_offset;
     }
     return Status::OK();

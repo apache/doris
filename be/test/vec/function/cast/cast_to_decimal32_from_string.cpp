@@ -92,7 +92,7 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_test_func() {
     ++table_index;
     from_string_test_func<Decimal32, 9, 9>(table_index, test_data_index, -100);
 }
-TEST_F(FunctionCastToDecimalTest, test_from_string_to_decimal32) {
+TEST_F(FunctionCastToDecimalTest, test_to_decimal32_from_string) {
     from_string_to_decimal32_test_func();
 }
 } // namespace doris::vectorized

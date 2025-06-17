@@ -23,7 +23,7 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_overflow_test_func() {
     int test_data_index = 0;
     std::unique_ptr<std::ofstream> ofs_const_case_uptr, ofs_const_expected_result_uptr;
     std::unique_ptr<std::ofstream> ofs_case_uptr, ofs_expected_result_uptr;
-    std::string regression_case_name = "test_cast_str_to_decimal32_overflow";
+    std::string regression_case_name = "test_cast_to_decimal32_from_str_overflow";
     if (FLAGS_gen_regression_case) {
         setup_regression_case_output(regression_case_name, ofs_const_case_uptr,
                                      ofs_const_expected_result_uptr, ofs_case_uptr,
@@ -33,6 +33,9 @@ void FunctionCastToDecimalTest::from_string_to_decimal32_overflow_test_func() {
     auto* ofs_const_expected_result = ofs_const_expected_result_uptr.get();
     auto* ofs_case = ofs_case_uptr.get();
     auto* ofs_expected_result = ofs_expected_result_uptr.get();
+    if (FLAGS_gen_regression_case) {
+        (*ofs_const_case) << "    sql \"set debug_skip_fold_constant = true;\"\n";
+    }
 
     from_string_overflow_test_func<Decimal32, 1, 0>(
             ofs_const_case, ofs_const_expected_result, ofs_case, ofs_expected_result,
