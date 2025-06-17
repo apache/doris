@@ -236,6 +236,14 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
+# add jindofs
+# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
+if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/jindofs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 # add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
