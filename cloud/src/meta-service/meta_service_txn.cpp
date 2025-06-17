@@ -23,6 +23,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"
@@ -149,6 +150,9 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
         msg = ss.str();
         return;
     }
+    stats.get_counter << txn->num_get_keys();
+    stats.put_counter << txn->num_put_keys();
+    stats.del_counter << txn->num_del_keys();
     //2. Get txn id from version stamp
     txn.reset();
 
@@ -765,7 +769,8 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 void scan_tmp_rowset(
         const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
         MetaServiceCode& code, std::string& msg, int64_t* db_id,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta) {
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
+        KVStats* stats) {
     // Create a readonly txn for scan tmp rowset
     std::stringstream ss;
     std::unique_ptr<Transaction> txn;
@@ -777,6 +782,13 @@ void scan_tmp_rowset(
         LOG(WARNING) << msg;
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        if (stats) {
+            stats->get_counter << txn->num_get_keys();
+            stats->put_counter << txn->num_put_keys();
+            stats->del_counter << txn->num_del_keys();
+        }
+    });
 
     // Get db id with txn id
     std::string index_val;
@@ -999,7 +1011,7 @@ void commit_txn_immediately(
         std::shared_ptr<TxnKv>& txn_kv, std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer,
         MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
-        TxnErrorCode& err) {
+        TxnErrorCode& err, KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
     do {
@@ -1014,6 +1026,11 @@ void commit_txn_immediately(
             LOG(WARNING) << msg;
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
+        });
 
         // Get txn info with db_id and txn_id
         std::string info_val; // Will be reused when saving updated txn
@@ -1567,7 +1584,8 @@ void commit_txn_eventually(
         const CommitTxnRequest* request, CommitTxnResponse* response,
         std::shared_ptr<TxnKv>& txn_kv, std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer,
         MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
-        const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
+        const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+        KVStats& stats) {
     StopWatch sw;
     std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {
         if (config::use_detailed_metrics && !instance_id.empty()) {
@@ -1591,6 +1609,11 @@ void commit_txn_eventually(
             LOG(WARNING) << msg;
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
+        });
 
         // tablet_id -> {table/index/partition}_id
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
@@ -1939,7 +1962,7 @@ void commit_txn_eventually(
  */
 void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
                              std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code,
-                             std::string& msg, const std::string& instance_id) {
+                             std::string& msg, const std::string& instance_id, KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
     auto sub_txn_infos = request->sub_txn_infos();
@@ -1953,6 +1976,11 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         LOG(WARNING) << msg;
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
+    });
 
     // Get db id with txn id
     std::string index_val;
@@ -2552,13 +2580,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     RPC_RATE_LIMIT(commit_txn)
 
     if (request->has_is_txn_load() && request->is_txn_load()) {
-        commit_txn_with_sub_txn(request, response, txn_kv_, code, msg, instance_id);
+        commit_txn_with_sub_txn(request, response, txn_kv_, code, msg, instance_id, stats);
         return;
     }
 
     int64_t db_id;
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> tmp_rowsets_meta;
-    scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &db_id, &tmp_rowsets_meta);
+    scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &db_id, &tmp_rowsets_meta, &stats);
     if (code != MetaServiceCode::OK) {
         LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id << " code=" << code;
         return;
@@ -2577,7 +2605,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         }
 
         commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg,
-                               instance_id, db_id, tmp_rowsets_meta, err);
+                               instance_id, db_id, tmp_rowsets_meta, err, stats);
 
         if (MetaServiceCode::OK == code) {
             return;
@@ -2607,7 +2635,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     code = MetaServiceCode::OK;
     msg.clear();
     commit_txn_eventually(request, response, txn_kv_, txn_lazy_committer_, code, msg, instance_id,
-                          db_id, tmp_rowsets_meta);
+                          db_id, tmp_rowsets_meta, stats);
 }
 
 static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
@@ -3117,6 +3145,8 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
         msg = ss.str();
         return;
     }
+    stats.get_counter << txn->num_get_keys();
+    stats.put_counter << txn->num_put_keys();
 
     // 2. Get sub txn id from version stamp
     txn.reset();
@@ -3607,7 +3637,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
  * @return TxnErrorCode
  */
 TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::string_view instance_id,
-                                  int64_t db_id, const std::string_view label_key) {
+                                  int64_t db_id, const std::string_view label_key, KVStats& stats) {
     std::string label_val;
     TxnLabelPB label_pb;
 
@@ -3623,6 +3653,11 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
                      << " label_key=" << hex(label_key);
         return err;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
+    });
 
     err = txn->get(label_key, &label_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -3778,6 +3813,11 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                           << " end=" << hex(end_label_key);
                 return;
             }
+            std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+                stats.get_counter << txn->num_get_keys();
+                stats.put_counter << txn->num_put_keys();
+                stats.del_counter << txn->num_del_keys();
+            });
 
             err = txn->get(begin_label_key, end_label_key, &it, snapshot, limit);
             if (err != TxnErrorCode::TXN_OK) {
@@ -3799,7 +3839,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                     begin_label_key = k;
                     LOG(INFO) << "iterator has no more kvs. key=" << hex(k);
                 }
-                err = internal_clean_label(txn_kv_, instance_id, db_id, k);
+                err = internal_clean_label(txn_kv_, instance_id, db_id, k, stats);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format("failed to clean txn label. err={}", err);
@@ -3812,7 +3852,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
     } else {
         const std::string& label = request->labels(0);
         const std::string label_key = txn_label_key({instance_id, db_id, label});
-        TxnErrorCode err = internal_clean_label(txn_kv_, instance_id, db_id, label_key);
+        TxnErrorCode err = internal_clean_label(txn_kv_, instance_id, db_id, label_key, stats);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to clean txn label. err={}", err);

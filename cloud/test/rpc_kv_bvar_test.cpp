@@ -91,7 +91,7 @@ void start_compaction_job(MetaService* meta_service, int64_t tablet_id, const st
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
 };
 
-std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
+std::unique_ptr<MetaServiceProxy> get_meta_service() {
     int ret = 0;
     // MemKv
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
@@ -110,10 +110,6 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto rl = std::make_shared<RateLimiter>();
     auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
-}
-
-std::unique_ptr<MetaServiceProxy> get_meta_service() {
-    return get_meta_service(true);
 }
 
 std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
@@ -207,6 +203,32 @@ static void create_tablet_with_db_id(MetaServiceProxy* meta_service, int64_t db_
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
 }
 
+void create_tablet(MetaService* meta_service, int64_t table_id, int64_t index_id,
+                   int64_t partition_id, int64_t tablet_id, bool enable_mow,
+                   bool not_ready = false) {
+    brpc::Controller cntl;
+    CreateTabletsRequest req;
+    CreateTabletsResponse res;
+    auto* tablet = req.add_tablet_metas();
+    tablet->set_tablet_state(not_ready ? doris::TabletStatePB::PB_NOTREADY
+                                       : doris::TabletStatePB::PB_RUNNING);
+    tablet->set_table_id(table_id);
+    tablet->set_index_id(index_id);
+    tablet->set_partition_id(partition_id);
+    tablet->set_tablet_id(tablet_id);
+    tablet->set_enable_unique_key_merge_on_write(enable_mow);
+    auto* schema = tablet->mutable_schema();
+    schema->set_schema_version(0);
+    auto* first_rowset = tablet->add_rs_metas();
+    first_rowset->set_rowset_id(0); // required
+    first_rowset->set_rowset_id_v2(next_rowset_id());
+    first_rowset->set_start_version(0);
+    first_rowset->set_end_version(1);
+    first_rowset->mutable_tablet_schema()->CopyFrom(*schema);
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << tablet_id;
+}
+
 static void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
                           int64_t partition_id, int64_t tablet_id, const std::string& rowset_id,
                           int32_t schema_version) {
@@ -267,6 +289,28 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     return rowset;
 }
 
+static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int index_id,
+                                              int partition_id, int64_t version = -1,
+                                              int num_rows = 100) {
+    doris::RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // required
+    rowset.set_rowset_id_v2(next_rowset_id());
+    rowset.set_tablet_id(tablet_id);
+    rowset.set_partition_id(partition_id);
+    rowset.set_index_id(index_id);
+    rowset.set_txn_id(txn_id);
+    if (version > 0) {
+        rowset.set_start_version(version);
+        rowset.set_end_version(version);
+    }
+    rowset.set_num_segments(0);
+    rowset.set_num_rows(0);
+    rowset.set_data_disk_size(0);
+    rowset.mutable_tablet_schema()->set_schema_version(0);
+    rowset.set_txn_expiration(::time(nullptr)); // Required by DCHECK
+    return rowset;
+}
+
 static void check_get_tablet(MetaServiceProxy* meta_service, int64_t tablet_id,
                              int32_t schema_version) {
     brpc::Controller cntl;
@@ -279,6 +323,16 @@ static void check_get_tablet(MetaServiceProxy* meta_service, int64_t tablet_id,
     EXPECT_TRUE(res.tablet_meta().has_schema()) << tablet_id;
     EXPECT_EQ(res.tablet_meta().schema_version(), schema_version) << tablet_id;
 };
+
+static void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
+                                     int64_t index_id, int64_t partition_id, int64_t tablet_id,
+                                     int64_t txn_id) {
+    create_tablet(meta_service, table_id, index_id, partition_id, tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
+    CreateRowsetResponse res;
+    commit_rowset(meta_service, tmp_rowset, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
 
 static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                            CreateRowsetResponse& res) {
@@ -402,19 +456,77 @@ static void update_delete_bitmap(MetaServiceProxy* meta_service,
                                        nullptr);
 }
 
+void start_schema_change_job(MetaServiceProxy* meta_service, int64_t table_id, int64_t index_id,
+                             int64_t partition_id, int64_t tablet_id, int64_t new_tablet_id,
+                             const std::string& job_id, const std::string& initiator,
+                             StartTabletJobResponse& res, int64_t alter_version = -1) {
+    brpc::Controller cntl;
+    StartTabletJobRequest req;
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto* sc = req.mutable_job()->mutable_schema_change();
+    sc->set_id(job_id);
+    sc->set_initiator(initiator);
+    sc->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+    if (alter_version != -1) {
+        sc->set_alter_version(alter_version);
+    }
+    long now = time(nullptr);
+    sc->set_expiration(now + 12);
+    meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+            << job_id << ' ' << initiator << ' ' << res.status().msg();
+};
+
+void finish_schema_change_job(
+        MetaService* meta_service, int64_t tablet_id, int64_t new_tablet_id,
+        const std::string& job_id, const std::string& initiator,
+        const std::vector<doris::RowsetMetaCloudPB>& output_rowsets, FinishTabletJobResponse& res,
+        FinishTabletJobRequest_Action action = FinishTabletJobRequest::COMMIT) {
+    brpc::Controller cntl;
+    FinishTabletJobRequest req;
+    req.set_action(action);
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+    auto* sc = req.mutable_job()->mutable_schema_change();
+    sc->mutable_new_tablet_idx()->set_tablet_id(new_tablet_id);
+    if (output_rowsets.empty()) {
+        sc->set_alter_version(0);
+    } else {
+        sc->set_alter_version(output_rowsets.back().end_version());
+        for (const auto& rowset : output_rowsets) {
+            sc->add_txn_ids(rowset.txn_id());
+            sc->add_output_versions(rowset.end_version());
+            sc->set_num_output_rows(sc->num_output_rows() + rowset.num_rows());
+            sc->set_num_output_segments(sc->num_output_segments() + rowset.num_segments());
+            sc->set_size_output_rowsets(sc->size_output_rowsets() + rowset.total_disk_size());
+            sc->set_index_size_output_rowsets(sc->index_size_output_rowsets() +
+                                              rowset.index_disk_size());
+            sc->set_segment_size_output_rowsets(sc->segment_size_output_rowsets() +
+                                                rowset.data_disk_size());
+        }
+        sc->set_num_output_rowsets(output_rowsets.size());
+    }
+    sc->set_id(job_id);
+    sc->set_initiator(initiator);
+    sc->set_delete_bitmap_lock_initiator(12345);
+    meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
+}
+
 // create_tablets
 TEST(RpcKvBvarTest, DISABLED_CreateTablets) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
-    LOG(INFO) << "CreateTablets: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_create_tablets_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_create_tablets_write_counter.get_value());
+    LOG(INFO) << "CreateTablets: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_tablets_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_tablets_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_create_tablets_del_counter.get_value());
 }
 
 // get_tablet
@@ -425,8 +537,9 @@ TEST(RpcKvBvarTest, DISABLED_GetTablet) {
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     brpc::Controller cntl;
     GetTabletRequest req;
@@ -435,9 +548,11 @@ TEST(RpcKvBvarTest, DISABLED_GetTablet) {
     GetTabletResponse resp;
 
     meta_service->get_tablet(&cntl, &req, &resp, nullptr);
-    LOG(INFO) << "GetTablet: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_get_tablet_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_get_tablet_write_counter.get_value());
+    LOG(INFO) << "GetTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_tablet_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_tablet_del_counter.get_value());
 }
 
 // get_tablet_stats
@@ -448,15 +563,18 @@ TEST(RpcKvBvarTest, DISABLED_GetTabletStats) {
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     GetTabletStatsResponse res;
     get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
 
-    LOG(INFO) << "GetTabletStats: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_get_tablet_stats_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_get_tablet_stats_write_counter.get_value());
+    LOG(INFO) << "GetTabletStats: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_stats_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_tablet_stats_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_tablet_stats_del_counter.get_value());
 }
 
 // update_tablet
@@ -474,14 +592,17 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTablet) {
     tablet_meta_info->set_tablet_id(tablet_id);
     tablet_meta_info->set_is_in_memory(true);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     meta_service->update_tablet(&cntl, &req, &resp, nullptr);
 
-    LOG(INFO) << "UpdateTablet: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_update_tablet_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_update_tablet_write_counter.get_value());
+    LOG(INFO) << "UpdateTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tablet_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tablet_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_tablet_del_counter.get_value());
 }
 
 // update_tablet_schema
@@ -498,18 +619,225 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTablet) {
 //     req.set_tablet_id(tablet_id);
 //     req.set_cloud_unique_id("test_cloud_unique_id");
 
-//     mem_kv->read_count_ = 0;
-//     mem_kv->write_count_ = 0;
+//     mem_kv->get_count_ = 0;
+//     mem_kv->put_count_ = 0;
+//     mem_kv->del_count_ = 0;
 
 //     meta_service->update_tablet_schema(&cntl, &req, &resp, nullptr);
 
-//     LOG(INFO) << "UpdateTabletSchema: " << mem_kv->read_count_ << ", "
-//               << mem_kv->write_count_;
-//     ASSERT_EQ(mem_kv->read_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_read_counter.get_value());
-//     ASSERT_EQ(mem_kv->write_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_write_counter.get_value());
+//     LOG(INFO) << "UpdateTabletSchema: " << mem_kv->get_count_ << ", "
+//               << mem_kv->put_count_ << ", " << mem_kv->del_count_;
+//     ASSERT_EQ(mem_kv->get_count_,
+//               g_bvar_rpc_kv_update_tablet_schema_get_counter.get_value());
+//     ASSERT_EQ(mem_kv->put_count_,
+//               g_bvar_rpc_kv_update_tablet_schema_put_counter.get_value());
+//     ASSERT_EQ(mem_kv->del_count_,
+//               g_bvar_rpc_kv_update_tablet_schema_del_counter.get_value());
 // }
+
+// begin_txn
+TEST(RpcKvBvarTest, DISABLED_BeginTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = 0;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+
+    LOG(INFO) << "BeginTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_txn_del_counter.get_value());
+}
+
+// commit_txn
+TEST(RpcKvBvarTest, DISABLED_CommitTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    commit_txn(meta_service.get(), db_id, txn_id, label);
+
+    LOG(INFO) << "CommitTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_txn_del_counter.get_value());
+}
+
+// precommit_txn
+TEST(RpcKvBvarTest, DISABLED_PrecommitTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    const int64_t db_id = 563413;
+    const int64_t table_id = 417417878;
+    const std::string& label = "label_123dae121das";
+    int64_t txn_id = -1;
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info;
+        txn_info.set_db_id(db_id);
+        txn_info.set_label(label);
+        txn_info.add_table_ids(table_id);
+        txn_info.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+        ASSERT_GT(txn_id, -1);
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = meta_service->txn_kv()->create_txn(&txn);
+    ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+
+    const std::string info_key = txn_info_key({mock_instance, db_id, txn_id});
+    std::string info_val;
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info;
+    txn_info.ParseFromString(info_val);
+    ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_PREPARED);
+
+    brpc::Controller cntl;
+    PrecommitTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_precommit_timeout_ms(36000);
+    PrecommitTxnResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "PrecommitTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_precommit_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_precommit_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_precommit_txn_del_counter.get_value());
+}
+
+// abort_txn
+TEST(RpcKvBvarTest, DISABLED_AbortTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    brpc::Controller cntl;
+    AbortTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_reason("test");
+    AbortTxnResponse res;
+    meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                            nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "AbortTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_txn_del_counter.get_value());
+}
+
+// get_txn
+TEST(RpcKvBvarTest, DISABLED_GetTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+    int64_t txn_id = 0;
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    brpc::Controller cntl;
+    GetTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_db_id(db_id);
+    GetTxnResponse res;
+    meta_service->get_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                          nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "GetTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_txn_del_counter.get_value());
+}
+
+// get_txn_id
+TEST(RpcKvBvarTest, DISABLED_GetTxnId) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 100201;
+    std::string label = "test_prepare_rowset";
+    constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = 0;
+
+    ASSERT_NO_FATAL_FAILURE(begin_txn(meta_service.get(), db_id, label, table_id, txn_id));
+
+    brpc::Controller cntl;
+    GetTxnIdRequest req;
+    GetTxnIdResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_label(label);
+    req.set_db_id(db_id);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_txn_id(&cntl, &req, &res, nullptr);
+
+    LOG(INFO) << "GetTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_id_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_txn_id_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_txn_id_del_counter.get_value());
+}
 
 // prepare_rowset
 TEST(RpcKvBvarTest, DISABLED_PrepareRowset) {
@@ -527,14 +855,17 @@ TEST(RpcKvBvarTest, DISABLED_PrepareRowset) {
     rowset.mutable_load_id()->set_hi(123);
     rowset.mutable_load_id()->set_lo(456);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     prepare_rowset(meta_service.get(), rowset, res);
 
-    LOG(INFO) << "PrepareRowset: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_prepare_rowset_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_prepare_rowset_write_counter.get_value());
+    LOG(INFO) << "PrepareRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_rowset_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_rowset_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_prepare_rowset_del_counter.get_value());
 }
 
 // get_rowset
@@ -549,16 +880,19 @@ TEST(RpcKvBvarTest, DISABLED_GetRowset) {
     // check get tablet response
     check_get_tablet(meta_service.get(), tablet_id, 1);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     // check get rowset response
     GetRowsetResponse get_rowset_res;
     get_rowset(meta_service.get(), table_id, index_id, partition_id, tablet_id, get_rowset_res);
 
-    LOG(INFO) << "GetRowset: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_get_rowset_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_get_rowset_write_counter.get_value());
+    LOG(INFO) << "GetRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rowset_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_rowset_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_rowset_del_counter.get_value());
 }
 
 // update_tmp_rowset
@@ -589,8 +923,9 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTmpRowset) {
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     req->mutable_rowset_meta()->CopyFrom(rowset);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     meta_service->update_tmp_rowset(&cntl, req, &res, nullptr);
 
@@ -598,9 +933,11 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTmpRowset) {
         delete req;
     }
 
-    LOG(INFO) << "UpdateTmpRowset: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_update_tmp_rowset_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_update_tmp_rowset_write_counter.get_value());
+    LOG(INFO) << "UpdateTmpRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tmp_rowset_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tmp_rowset_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_tmp_rowset_del_counter.get_value());
 }
 
 // commit_rowset
@@ -613,15 +950,18 @@ TEST(RpcKvBvarTest, DISABLED_CommitRowset) {
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     auto tmp_rowset = create_rowset(txn_id, tablet_id, partition_id);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     CreateRowsetResponse res;
     commit_rowset(meta_service.get(), tmp_rowset, res);
 
-    LOG(INFO) << "CommitRowset: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_commit_rowset_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_commit_rowset_write_counter.get_value());
+    LOG(INFO) << "CommitRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_rowset_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_rowset_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_rowset_del_counter.get_value());
 }
 
 // get_version
@@ -640,15 +980,18 @@ TEST(RpcKvBvarTest, DISABLED_GetVersion) {
     req.set_table_id(table_id);
     req.set_partition_id(partition_id);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     GetVersionResponse resp;
     meta_service->get_version(&ctrl, &req, &resp, nullptr);
 
-    LOG(INFO) << "GetVersion: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_get_version_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_get_version_write_counter.get_value());
+    LOG(INFO) << "GetVersion: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_version_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_version_del_counter.get_value());
 }
 
 // get_schema_dict
@@ -670,15 +1013,18 @@ TEST(RpcKvBvarTest, DISABLED_GetSchemaDict) {
     txn->put(dict_key, "dict_val");
     EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     GetSchemaDictResponse resp;
     meta_service->get_schema_dict(&ctrl, &req, &resp, nullptr);
 
-    LOG(INFO) << "GetSchemaDict: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_get_schema_dict_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_get_schema_dict_write_counter.get_value());
+    LOG(INFO) << "GetSchemaDict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_schema_dict_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_schema_dict_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_schema_dict_del_counter.get_value());
 }
 
 // get_delete_bitmap_update_lock
@@ -699,17 +1045,20 @@ TEST(RpcKvBvarTest, DISABLED_GetDeleteBitmapUpdateLock) {
     int64_t lock_id = -2;
     int64_t initiator = 1009;
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     get_delete_bitmap_update_lock(meta_service.get(), table_id, t1p1, lock_id, initiator);
 
-    LOG(INFO) << "GetDeleteBitmapUpdateLock: " << mem_kv->read_count_ << ", "
-              << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_,
-              g_bvar_rpc_kv_get_delete_bitmap_update_lock_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_,
-              g_bvar_rpc_kv_get_delete_bitmap_update_lock_write_counter.get_value());
+    LOG(INFO) << "GetDeleteBitmapUpdateLock: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
+              << ", " << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_,
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_,
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_counter.get_value());
 }
 
 // update_delete_bitmap
@@ -737,15 +1086,18 @@ TEST(RpcKvBvarTest, DISABLED_UpdateDeleteBitmap) {
     // will be splited and stored in 5 KVs
     std::string data1(split_size * 5, 'c');
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     update_delete_bitmap(meta_service.get(), update_delete_bitmap_req, update_delete_bitmap_res,
                          table_id, t1p1, lock_id, initiator, tablet_id, txn_id, version, data1);
 
-    LOG(INFO) << "UpdateDeleteBitmap: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_update_delete_bitmap_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_update_delete_bitmap_write_counter.get_value());
+    LOG(INFO) << "UpdateDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_delete_bitmap_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_delete_bitmap_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_delete_bitmap_del_counter.get_value());
 }
 
 // get_delete_bitmap
@@ -783,15 +1135,18 @@ TEST(RpcKvBvarTest, DISABLED_GetDeleteBitmap) {
     get_delete_bitmap_req.add_begin_versions(0);
     get_delete_bitmap_req.add_end_versions(version);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     meta_service->get_delete_bitmap(reinterpret_cast<google::protobuf::RpcController*>(&ctrl),
                                     &get_delete_bitmap_req, &get_delete_bitmap_res, nullptr);
 
-    LOG(INFO) << "GetDeleteBitmap: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_get_delete_bitmap_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_get_delete_bitmap_write_counter.get_value());
+    LOG(INFO) << "GetDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_delete_bitmap_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_delete_bitmap_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_delete_bitmap_del_counter.get_value());
 }
 
 // remove_delete_bitmap_update_lock
@@ -822,19 +1177,22 @@ TEST(RpcKvBvarTest, DISABLED_RemoveDeleteBitmapUpdateLock) {
     remove_req.set_lock_id(lock_id);
     remove_req.set_initiator(initiator);
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     meta_service->remove_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
             nullptr);
 
-    LOG(INFO) << "RemoveDeleteBitmapUpdateLock: " << mem_kv->read_count_ << ", "
-              << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_,
-              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_,
-              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_write_counter.get_value());
+    LOG(INFO) << "RemoveDeleteBitmapUpdateLock: " << mem_kv->get_count_ << ", "
+              << mem_kv->put_count_ << ", " << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_,
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_,
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_counter.get_value());
 }
 
 // remove_delete_bitmap
@@ -871,14 +1229,17 @@ TEST(RpcKvBvarTest, DISABLED_RemoveDeleteBitmap) {
     req.add_rowset_ids("rowset_ids");
     req.set_cloud_unique_id("test_cloud_unique_id");
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     meta_service->remove_delete_bitmap(&ctrl, &req, &resp, nullptr);
 
-    LOG(INFO) << "RemoveDeleteBitmap: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_remove_delete_bitmap_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_remove_delete_bitmap_write_counter.get_value());
+    LOG(INFO) << "RemoveDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_remove_delete_bitmap_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_remove_delete_bitmap_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_remove_delete_bitmap_del_counter.get_value());
 }
 
 // start_tablet_job
@@ -892,58 +1253,1976 @@ TEST(RpcKvBvarTest, DISABLED_StartTabletJob) {
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     StartTabletJobResponse res;
 
-    mem_kv->read_count_ = 0;
-    mem_kv->write_count_ = 0;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
 
     start_compaction_job(meta_service.get(), tablet_id, "compaction1", "ip:port", 0, 0,
                          TabletCompactionJobPB::BASE, res);
 
-    LOG(INFO) << "StartTabletJob: " << mem_kv->read_count_ << ", " << mem_kv->write_count_;
-    ASSERT_EQ(mem_kv->read_count_, g_bvar_rpc_kv_start_tablet_job_read_counter.get_value());
-    ASSERT_EQ(mem_kv->write_count_, g_bvar_rpc_kv_start_tablet_job_write_counter.get_value());
+    LOG(INFO) << "StartTabletJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_start_tablet_job_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_start_tablet_job_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_start_tablet_job_del_counter.get_value());
 }
 
 // finish_tablet_job
+TEST(RpcKvBvarTest, DISABLED_FinishTabletJob) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+
+    int64_t table_id = 1;
+    int64_t index_id = 2;
+    int64_t partition_id = 3;
+    int64_t tablet_id = 4;
+
+    ASSERT_NO_FATAL_FAILURE(
+            create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false));
+
+    StartTabletJobResponse res;
+    start_compaction_job(meta_service.get(), tablet_id, "job1", "BE1", 0, 0,
+                         TabletCompactionJobPB::CUMULATIVE, res);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    res.Clear();
+
+    int64_t new_tablet_id = 11;
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                          new_tablet_id, false, true));
+    StartTabletJobResponse sc_res;
+    ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                    partition_id, tablet_id, new_tablet_id, "job2",
+                                                    "BE1", sc_res));
+
+    long now = time(nullptr);
+    FinishTabletJobRequest req;
+    FinishTabletJobResponse finish_res_2;
+    req.set_action(FinishTabletJobRequest::LEASE);
+    auto* compaction = req.mutable_job()->add_compaction();
+    compaction->set_id("job1");
+    compaction->set_initiator("BE1");
+    compaction->set_lease(now + 10);
+    req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->finish_tablet_job(&cntl, &req, &finish_res_2, nullptr);
+
+    LOG(INFO) << "FinishTabletJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_tablet_job_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_tablet_job_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_tablet_job_del_counter.get_value());
+}
 
 // prepare_index
+TEST(RpcKvBvarTest, DISABLED_PrepareIndex) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    std::string instance_id = "test_cloud_instance_id";
+
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id = 10004;
+
+    std::unique_ptr<Transaction> txn;
+    doris::TabletMetaCloudPB tablet_pb;
+    tablet_pb.set_table_id(table_id);
+    tablet_pb.set_index_id(index_id);
+    tablet_pb.set_partition_id(partition_id);
+    tablet_pb.set_tablet_id(tablet_id);
+    auto tablet_key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    auto tablet_val = tablet_pb.SerializeAsString();
+    RecycleIndexPB index_pb;
+    auto index_key = recycle_index_key({instance_id, index_id});
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+    std::string val;
+
+    brpc::Controller ctrl;
+    IndexRequest req;
+    req.set_db_id(1);
+    req.set_table_id(table_id);
+    req.add_index_ids(index_id);
+    req.set_is_new_table(true);
+    IndexResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+
+    LOG(INFO) << "PrepareIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_index_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_index_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_prepare_index_del_counter.get_value());
+}
+
 // commit_index
+TEST(RpcKvBvarTest, DISABLED_CommitIndex) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    std::string instance_id = "test_cloud_instance_id";
+
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id = 10004;
+
+    std::unique_ptr<Transaction> txn;
+    doris::TabletMetaCloudPB tablet_pb;
+    tablet_pb.set_table_id(table_id);
+    tablet_pb.set_index_id(index_id);
+    tablet_pb.set_partition_id(partition_id);
+    tablet_pb.set_tablet_id(tablet_id);
+    auto tablet_key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    auto tablet_val = tablet_pb.SerializeAsString();
+    RecycleIndexPB index_pb;
+    auto index_key = recycle_index_key({instance_id, index_id});
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+    std::string val;
+
+    brpc::Controller ctrl;
+    IndexRequest req;
+    req.set_db_id(1);
+    req.set_table_id(table_id);
+    req.add_index_ids(index_id);
+    req.set_is_new_table(true);
+    IndexResponse res;
+    meta_service->prepare_index(&ctrl, &req, &res, nullptr);
+    res.Clear();
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->commit_index(&ctrl, &req, &res, nullptr);
+
+    LOG(INFO) << "CommitIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_index_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_index_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_index_del_counter.get_value());
+}
+
 // drop_index
+TEST(RpcKvBvarTest, DISABLED_DropIndex) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 4524364;
+    int64_t table_id = 65354;
+    int64_t index_id = 658432;
+    int64_t partition_id = 76553;
+    std::string mock_instance = "test_instance";
+    const std::string label = "test_label_67a34e2q1231";
+
+    int64_t tablet_id_base = 2313324;
+    for (int i = 0; i < 10; ++i) {
+        create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                                 tablet_id_base + i);
+    }
+    int txn_id {};
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(table_id);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+        ASSERT_GT(txn_id, 0);
+    }
+    {
+        for (int i = 0; i < 10; ++i) {
+            auto tmp_rowset =
+                    create_rowset(txn_id, tablet_id_base + i, index_id, partition_id, -1, 100);
+            CreateRowsetResponse res;
+            commit_rowset(meta_service.get(), tmp_rowset, res);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        }
+    }
+
+    brpc::Controller cntl;
+    IndexRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+
+    req.set_db_id(1);
+    req.set_table_id(table_id);
+    req.add_index_ids(index_id);
+    IndexResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->drop_index(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+
+    LOG(INFO) << "DropIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_index_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_index_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_drop_index_del_counter.get_value());
+}
+
 // prepare_partition
+TEST(RpcKvBvarTest, DISABLED_PreparePartition) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    std::string instance_id = "test_cloud_instance_id";
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id = 10004;
+
+    std::unique_ptr<Transaction> txn;
+    doris::TabletMetaCloudPB tablet_pb;
+    tablet_pb.set_table_id(table_id);
+    tablet_pb.set_index_id(index_id);
+    tablet_pb.set_partition_id(partition_id);
+    tablet_pb.set_tablet_id(tablet_id);
+    auto tablet_key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    auto tablet_val = tablet_pb.SerializeAsString();
+    RecyclePartitionPB partition_pb;
+    auto partition_key = recycle_partition_key({instance_id, partition_id});
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+    std::string val;
+    brpc::Controller ctrl;
+    PartitionRequest req;
+    PartitionResponse res;
+    req.set_db_id(1);
+    req.set_table_id(table_id);
+    req.add_index_ids(index_id);
+    req.add_partition_ids(partition_id);
+    res.Clear();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+
+    LOG(INFO) << "PreparePartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_partition_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_partition_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_prepare_partition_del_counter.get_value());
+}
+
 // commit_partition
-// drop_partition
+TEST(RpcKvBvarTest, DISABLED_CommitPartition) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    std::string instance_id = "test_cloud_instance_id";
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    constexpr int64_t tablet_id = 10004;
+
+    std::unique_ptr<Transaction> txn;
+    doris::TabletMetaCloudPB tablet_pb;
+    tablet_pb.set_table_id(table_id);
+    tablet_pb.set_index_id(index_id);
+    tablet_pb.set_partition_id(partition_id);
+    tablet_pb.set_tablet_id(tablet_id);
+    auto tablet_key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    auto tablet_val = tablet_pb.SerializeAsString();
+    RecyclePartitionPB partition_pb;
+    auto partition_key = recycle_partition_key({instance_id, partition_id});
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+    std::string val;
+    brpc::Controller ctrl;
+    PartitionRequest req;
+    PartitionResponse res;
+    req.set_db_id(1);
+    req.set_table_id(table_id);
+    req.add_index_ids(index_id);
+    req.add_partition_ids(partition_id);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    meta_service->prepare_partition(&ctrl, &req, &res, nullptr);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->commit_partition(&ctrl, &req, &res, nullptr);
+
+    LOG(INFO) << "CommitPartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_partition_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_partition_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_partition_del_counter.get_value());
+}
+
 // check_kv
+TEST(RpcKvBvarTest, DISABLED_CheckKv) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    std::string instance_id = "test_instance";
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+
+    std::unique_ptr<Transaction> txn;
+    RecyclePartitionPB partition_pb;
+    auto partition_key = recycle_partition_key({instance_id, 10004});
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+    brpc::Controller ctrl;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(partition_key, "val");
+    txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    CheckKVRequest req_check;
+    CheckKVResponse res_check;
+    req_check.set_op(CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT);
+    CheckKeyInfos check_keys_pb;
+    check_keys_pb.add_table_ids(table_id + 1);
+    check_keys_pb.add_index_ids(index_id + 1);
+    check_keys_pb.add_partition_ids(partition_id + 1);
+    req_check.mutable_check_keys()->CopyFrom(check_keys_pb);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->check_kv(&ctrl, &req_check, &res_check, nullptr);
+
+    LOG(INFO) << "CheckKv: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_kv_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_check_kv_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_check_kv_del_counter.get_value());
+}
+
+// drop_partition
+TEST(RpcKvBvarTest, DISABLED_DropPartition) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    std::string instance_id = "test_instance";
+    constexpr int64_t table_id = 10001;
+    constexpr int64_t index_id = 10002;
+    constexpr int64_t partition_id = 10003;
+    auto tbl_version_key = table_version_key({instance_id, 1, table_id});
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->atomic_add(tbl_version_key, 1);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    brpc::Controller ctrl;
+    PartitionRequest req;
+    PartitionResponse res;
+    req.set_db_id(1);
+    req.set_table_id(table_id);
+    req.add_index_ids(index_id);
+    req.add_partition_ids(partition_id);
+    req.set_need_update_table_version(true);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->drop_partition(&ctrl, &req, &res, nullptr);
+
+    LOG(INFO) << "DropPartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_partition_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_partition_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_drop_partition_del_counter.get_value());
+}
+
 // get_obj_store_info
+TEST(RpcKvBvarTest, DISABLED_GetObjStoreInfo) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    InstanceKeyInfo key_info {"test_instance"};
+    std::string key;
+    instance_key(key_info, &key);
+    txn->put(key, "val");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    GetObjStoreInfoResponse res;
+    GetObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_obj_store_info(&cntl, &req, &res, nullptr);
+
+    LOG(INFO) << "GetObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_obj_store_info_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_obj_store_info_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_obj_store_info_del_counter.get_value());
+}
+
 // alter_storage_vault
+TEST(RpcKvBvarTest, DISABLED_AlterStorageVault) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    constexpr char vault_name[] = "test_alter_s3_vault";
+
+    InstanceKeyInfo key_info {"test_instance"};
+    std::string key;
+    instance_key(key_info, &key);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, "val");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+    StorageVaultPB vault;
+    vault.mutable_obj_info()->set_ak("new_ak");
+    vault.set_name(vault_name);
+    req.mutable_vault()->CopyFrom(vault);
+
+    brpc::Controller cntl;
+    AlterObjStoreInfoResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->alter_storage_vault(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+
+    LOG(INFO) << "AlterStorageVault: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_storage_vault_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_storage_vault_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_storage_vault_del_counter.get_value());
+}
+
 // alter_obj_store_info
+TEST(RpcKvBvarTest, DISABLED_AlterObjStoreInfo) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_id("1");
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    InstanceInfoPB instance;
+    instance.add_obj_info()->CopyFrom(obj_info);
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    AlterObjStoreInfoRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_op(AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK);
+    req.mutable_obj()->set_id("1");
+    req.mutable_obj()->set_ak("new_ak");
+    req.mutable_obj()->set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    AlterObjStoreInfoResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->alter_obj_store_info(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                       &req, &res, nullptr);
+
+    LOG(INFO) << "AlterObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_obj_store_info_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_obj_store_info_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_obj_store_info_del_counter.get_value());
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 // update_ak_sk
+TEST(RpcKvBvarTest, DISABLED_UpdateAkSk) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+
+    ObjectStoreInfoPB obj_info;
+
+    obj_info.set_user_id("111");
+
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    InstanceInfoPB instance;
+    instance.add_obj_info()->CopyFrom(obj_info);
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    UpdateAkSkRequest req;
+    req.set_instance_id("test_instance");
+    RamUserPB ram_user;
+    ram_user.set_user_id("111");
+
+    ram_user.set_ak("new_ak");
+    ram_user.set_sk(plain_sk);
+    req.add_internal_bucket_user()->CopyFrom(ram_user);
+
+    brpc::Controller cntl;
+    UpdateAkSkResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->update_ak_sk(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                               &res, nullptr);
+
+    LOG(INFO) << "UpdateAkSk: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_ak_sk_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_ak_sk_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_ak_sk_del_counter.get_value());
+
+    SyncPoint::get_instance()->disable_processing();
+    SyncPoint::get_instance()->clear_all_call_backs();
+}
+
 // create_instance
+TEST(RpcKvBvarTest, DISABLED_CreateInstance) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    brpc::Controller cntl;
+    CreateInstanceRequest req;
+    req.set_instance_id("test_instance");
+    req.set_user_id("test_user");
+    req.set_name("test_name");
+    ObjectStoreInfoPB obj;
+    obj.set_ak("123");
+    obj.set_sk("321");
+    obj.set_bucket("456");
+    obj.set_prefix("654");
+    obj.set_endpoint("789");
+    obj.set_region("987");
+    obj.set_external_endpoint("888");
+    obj.set_provider(ObjectStoreInfoPB::BOS);
+    req.mutable_obj_info()->CopyFrom(obj);
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->enable_processing();
+    CreateInstanceResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                  &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "CreateInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_instance_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_instance_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_create_instance_del_counter.get_value());
+
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // get_instance
+TEST(RpcKvBvarTest, DISABLED_GetInstance) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->enable_processing();
+    brpc::Controller cntl;
+    {
+        CreateInstanceRequest req;
+        req.set_instance_id("test_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        CreateInstanceResponse res;
+
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+    }
+    GetInstanceRequest req;
+    GetInstanceResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    req.set_cloud_unique_id("1:test_instance:m-n3qdpyal27rh8iprxx");
+    meta_service->get_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                               &res, nullptr);
+
+    LOG(INFO) << "GetInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_instance_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_instance_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_instance_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // alter_cluster
+// alter cluster have not do kv op
+// TEST(RpcKvBvarTest, AlterCluster) {
+//     auto meta_service = get_meta_service();
+//     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+//     brpc::Controller cntl;
+//     AlterClusterRequest req;
+//     req.set_instance_id(mock_instance);
+//     req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+//     req.set_op(AlterClusterRequest::ADD_CLUSTER);
+//     AlterClusterResponse res;
+
+//     mem_kv->get_count_ = 0;
+//     mem_kv->put_count_ = 0;
+//     mem_kv->del_count_ = 0;
+
+//     meta_service->alter_cluster(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+//                                 &res, nullptr);
+
+//     LOG(INFO) << "AlterCluster: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+//               << mem_kv->del_count_;
+//     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_cluster_get_counter.get_value());
+//     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_cluster_put_counter.get_value());
+//     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_cluster_del_counter.get_value());
+// }
+
 // get_cluster
+TEST(RpcKvBvarTest, DISABLED_GetCluster) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    InstanceKeyInfo key_info {mock_instance};
+    std::string key;
+    std::string val;
+    instance_key(key_info, &key);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    ClusterPB c1;
+    c1.set_cluster_name(mock_cluster_name);
+    c1.set_cluster_id(mock_cluster_id);
+    c1.add_mysql_user_name()->append("m1");
+    instance.add_clusters()->CopyFrom(c1);
+    val = instance.SerializeAsString();
+
+    std::unique_ptr<Transaction> txn;
+    std::string get_val;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    GetClusterRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_cluster_id(mock_cluster_id);
+    req.set_cluster_name("test_cluster");
+    GetClusterResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_cluster(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                              &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "GetCluster: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_cluster_del_counter.get_value());
+}
+
 // create_stage
+TEST(RpcKvBvarTest, DISABLED_CreateStage) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    brpc::Controller cntl;
+    const auto* cloud_unique_id = "test_cloud_unique_id";
+    std::string instance_id = "stage_test_instance_id";
+    [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
+    sp->enable_processing();
+
+    ObjectStoreInfoPB obj;
+    obj.set_ak("123");
+    obj.set_sk("321");
+    obj.set_bucket("456");
+    obj.set_prefix("654");
+    obj.set_endpoint("789");
+    obj.set_region("987");
+    obj.set_external_endpoint("888");
+    obj.set_provider(ObjectStoreInfoPB::BOS);
+
+    RamUserPB ram_user;
+    ram_user.set_user_id("test_user_id");
+    ram_user.set_ak("test_ak");
+    ram_user.set_sk("test_sk");
+    EncryptionInfoPB encry_info;
+    encry_info.set_encryption_method("encry_method_test");
+    encry_info.set_key_id(1111);
+    ram_user.mutable_encryption_info()->CopyFrom(encry_info);
+
+    // create instance
+    {
+        CreateInstanceRequest req;
+        req.set_instance_id(instance_id);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        req.mutable_ram_user()->CopyFrom(ram_user);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // create an internal stage
+    CreateStageRequest create_stage_request;
+    StagePB stage;
+    stage.set_type(StagePB::INTERNAL);
+    stage.add_mysql_user_name("root");
+    stage.add_mysql_user_id("root_id");
+    stage.set_stage_id("internal_stage_id");
+    create_stage_request.set_cloud_unique_id(cloud_unique_id);
+    create_stage_request.mutable_stage()->CopyFrom(stage);
+    CreateStageResponse create_stage_response;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->create_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                               &create_stage_request, &create_stage_response, nullptr);
+    ASSERT_EQ(create_stage_response.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "CreateStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_stage_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_stage_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_create_stage_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // get_stage
+TEST(RpcKvBvarTest, DISABLED_GetStage) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    brpc::Controller cntl;
+    const auto* cloud_unique_id = "test_cloud_unique_id";
+    std::string instance_id = "stage_test_instance_id";
+    [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
+    sp->enable_processing();
+
+    ObjectStoreInfoPB obj;
+    obj.set_ak("123");
+    obj.set_sk("321");
+    obj.set_bucket("456");
+    obj.set_prefix("654");
+    obj.set_endpoint("789");
+    obj.set_region("987");
+    obj.set_external_endpoint("888");
+    obj.set_provider(ObjectStoreInfoPB::BOS);
+
+    RamUserPB ram_user;
+    ram_user.set_user_id("test_user_id");
+    ram_user.set_ak("test_ak");
+    ram_user.set_sk("test_sk");
+    EncryptionInfoPB encry_info;
+    encry_info.set_encryption_method("encry_method_test");
+    encry_info.set_key_id(1111);
+    ram_user.mutable_encryption_info()->CopyFrom(encry_info);
+
+    // create instance
+    {
+        CreateInstanceRequest req;
+        req.set_instance_id(instance_id);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        req.mutable_ram_user()->CopyFrom(ram_user);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // create an internal stage
+    CreateStageRequest create_stage_request;
+    StagePB stage;
+    stage.set_type(StagePB::INTERNAL);
+    stage.add_mysql_user_name("root");
+    stage.add_mysql_user_id("root_id");
+    stage.set_stage_id("internal_stage_id");
+    create_stage_request.set_cloud_unique_id(cloud_unique_id);
+    create_stage_request.mutable_stage()->CopyFrom(stage);
+    CreateStageResponse create_stage_response;
+    meta_service->create_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                               &create_stage_request, &create_stage_response, nullptr);
+    ASSERT_EQ(create_stage_response.status().code(), MetaServiceCode::OK);
+
+    GetStageRequest get_stage_req;
+    get_stage_req.set_type(StagePB::INTERNAL);
+    get_stage_req.set_cloud_unique_id(cloud_unique_id);
+    get_stage_req.set_mysql_user_name("root");
+    get_stage_req.set_mysql_user_id("root_id");
+
+    // get existent internal stage
+    GetStageResponse res2;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_stage(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                            &get_stage_req, &res2, nullptr);
+    ASSERT_EQ(res2.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(1, res2.stage().size());
+
+    LOG(INFO) << "GetStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_stage_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_stage_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_stage_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // get_iam
+TEST(RpcKvBvarTest, DISABLED_GetIam) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    brpc::Controller cntl;
+    auto cloud_unique_id = "test_cloud_unique_id";
+    std::string instance_id = "get_iam_test_instance_id";
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
+    sp->enable_processing();
+
+    config::arn_id = "iam_arn";
+    config::arn_ak = "iam_ak";
+    config::arn_sk = "iam_sk";
+
+    // create instance
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+
+        RamUserPB ram_user;
+        ram_user.set_user_id("test_user_id");
+        ram_user.set_ak("test_ak");
+        ram_user.set_sk("test_sk");
+
+        CreateInstanceRequest req;
+        req.set_instance_id(instance_id);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        req.mutable_ram_user()->CopyFrom(ram_user);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    GetIamRequest request;
+    request.set_cloud_unique_id(cloud_unique_id);
+    GetIamResponse response;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &request,
+                          &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "GetIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_iam_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_iam_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_iam_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // alter_iam
+TEST(RpcKvBvarTest, DISABLED_AlterIam) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+
+    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
+    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
+
+    AlterIamRequest req;
+    req.set_account_id("123");
+    req.set_ak("ak1");
+    req.set_sk(plain_sk);
+
+    brpc::Controller cntl;
+    AlterIamResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->alter_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                            nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "AlterIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_iam_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_iam_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_iam_del_counter.get_value());
+}
+
 // alter_ram_user
+TEST(RpcKvBvarTest, DISABLED_AlterRamUser) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+    std::string instance_id = "alter_ram_user_instance_id";
+    [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
+    sp->enable_processing();
+
+    config::arn_id = "iam_arn";
+    config::arn_ak = "iam_ak";
+    config::arn_sk = "iam_sk";
+
+    ObjectStoreInfoPB obj;
+    obj.set_ak("123");
+    obj.set_sk("321");
+    obj.set_bucket("456");
+    obj.set_prefix("654");
+    obj.set_endpoint("789");
+    obj.set_region("987");
+    obj.set_external_endpoint("888");
+    obj.set_provider(ObjectStoreInfoPB::BOS);
+
+    // create instance without ram user
+    CreateInstanceRequest create_instance_req;
+    create_instance_req.set_instance_id(instance_id);
+    create_instance_req.set_user_id("test_user");
+    create_instance_req.set_name("test_name");
+    create_instance_req.mutable_obj_info()->CopyFrom(obj);
+    CreateInstanceResponse create_instance_res;
+    meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                  &create_instance_req, &create_instance_res, nullptr);
+    ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::OK);
+
+    // alter ram user
+    RamUserPB ram_user;
+    ram_user.set_user_id("test_user_id");
+    ram_user.set_ak("test_ak");
+    ram_user.set_sk("test_sk");
+    AlterRamUserRequest alter_ram_user_request;
+    alter_ram_user_request.set_instance_id(instance_id);
+    alter_ram_user_request.mutable_ram_user()->CopyFrom(ram_user);
+    AlterRamUserResponse alter_ram_user_response;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+    meta_service->alter_ram_user(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &alter_ram_user_request, &alter_ram_user_response, nullptr);
+
+    LOG(INFO) << "AlterRamUser: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_ram_user_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_ram_user_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_ram_user_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // begin_copy
-// finish_copy
+TEST(RpcKvBvarTest, DISABLED_BeginCopy) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+    auto cloud_unique_id = "test_cloud_unique_id";
+    auto stage_id = "test_stage_id";
+    int64_t table_id = 100;
+    std::string instance_id = "copy_job_test_instance_id";
+
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    // generate a begin copy request
+    BeginCopyRequest begin_copy_request;
+    begin_copy_request.set_cloud_unique_id(cloud_unique_id);
+    begin_copy_request.set_stage_id(stage_id);
+    begin_copy_request.set_stage_type(StagePB::EXTERNAL);
+    begin_copy_request.set_table_id(table_id);
+    begin_copy_request.set_copy_id("test_copy_id");
+    begin_copy_request.set_group_id(0);
+    begin_copy_request.set_start_time_ms(200);
+    begin_copy_request.set_timeout_time_ms(300);
+    for (int i = 0; i < 20; ++i) {
+        ObjectFilePB object_file_pb;
+        object_file_pb.set_relative_path("obj_" + std::to_string(i));
+        object_file_pb.set_etag("obj_" + std::to_string(i) + "_etag");
+        begin_copy_request.add_object_files()->CopyFrom(object_file_pb);
+    }
+    BeginCopyResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->begin_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                             &begin_copy_request, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "BeginCopy: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_copy_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_copy_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_copy_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // get_copy_job
+TEST(RpcKvBvarTest, DISABLED_GetCopyJob) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+    const char* cloud_unique_id = "test_cloud_unique_id";
+    const char* stage_id = "test_stage_id";
+    int64_t table_id = 100;
+    std::string instance_id = "copy_job_test_instance_id";
+
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    {
+        // generate a begin copy request
+        BeginCopyRequest begin_copy_request;
+        begin_copy_request.set_cloud_unique_id(cloud_unique_id);
+        begin_copy_request.set_stage_id(stage_id);
+        begin_copy_request.set_stage_type(StagePB::EXTERNAL);
+        begin_copy_request.set_table_id(table_id);
+        begin_copy_request.set_copy_id("test_copy_id");
+        begin_copy_request.set_group_id(0);
+        begin_copy_request.set_start_time_ms(200);
+        begin_copy_request.set_timeout_time_ms(300);
+        for (int i = 0; i < 20; ++i) {
+            ObjectFilePB object_file_pb;
+            object_file_pb.set_relative_path("obj_" + std::to_string(i));
+            object_file_pb.set_etag("obj_" + std::to_string(i) + "_etag");
+            begin_copy_request.add_object_files()->CopyFrom(object_file_pb);
+        }
+        BeginCopyResponse res;
+        meta_service->begin_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &begin_copy_request, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    GetCopyJobRequest get_copy_job_request;
+    get_copy_job_request.set_cloud_unique_id(cloud_unique_id);
+    get_copy_job_request.set_stage_id(stage_id);
+    get_copy_job_request.set_table_id(table_id);
+    get_copy_job_request.set_copy_id("test_copy_id");
+    get_copy_job_request.set_group_id(0);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    GetCopyJobResponse res;
+    meta_service->get_copy_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                               &get_copy_job_request, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "GetCopyJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_job_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_copy_job_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_copy_job_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
+// finish_copy
+TEST(RpcKvBvarTest, DISABLED_FinishCopy) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+    const char* cloud_unique_id = "test_cloud_unique_id";
+    const char* stage_id = "test_stage_id";
+    int64_t table_id = 100;
+    std::string instance_id = "copy_job_test_instance_id";
+
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    {
+        // generate a begin copy request
+        BeginCopyRequest begin_copy_request;
+        begin_copy_request.set_cloud_unique_id(cloud_unique_id);
+        begin_copy_request.set_stage_id(stage_id);
+        begin_copy_request.set_stage_type(StagePB::EXTERNAL);
+        begin_copy_request.set_table_id(table_id);
+        begin_copy_request.set_copy_id("test_copy_id");
+        begin_copy_request.set_group_id(0);
+        begin_copy_request.set_start_time_ms(200);
+        begin_copy_request.set_timeout_time_ms(300);
+        for (int i = 0; i < 20; ++i) {
+            ObjectFilePB object_file_pb;
+            object_file_pb.set_relative_path("obj_" + std::to_string(i));
+            object_file_pb.set_etag("obj_" + std::to_string(i) + "_etag");
+            begin_copy_request.add_object_files()->CopyFrom(object_file_pb);
+        }
+        BeginCopyResponse res;
+        meta_service->begin_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &begin_copy_request, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+    FinishCopyRequest finish_copy_request;
+    finish_copy_request.set_cloud_unique_id(cloud_unique_id);
+    finish_copy_request.set_stage_id(stage_id);
+    finish_copy_request.set_stage_type(StagePB::EXTERNAL);
+    finish_copy_request.set_table_id(table_id);
+    finish_copy_request.set_copy_id("test_copy_id");
+    finish_copy_request.set_group_id(0);
+    finish_copy_request.set_action(FinishCopyRequest::COMMIT);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    FinishCopyResponse res;
+    meta_service->finish_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                              &finish_copy_request, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "FinishCopy: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_copy_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_copy_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_copy_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // get_copy_files
+TEST(RpcKvBvarTest, DISABLED_GetCopyFiles) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+    auto cloud_unique_id = "test_cloud_unique_id";
+    auto stage_id = "test_stage_id";
+    int64_t table_id = 100;
+    std::string instance_id = "copy_job_test_instance_id";
+
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    {
+        // generate a begin copy request
+        BeginCopyRequest begin_copy_request;
+        begin_copy_request.set_cloud_unique_id(cloud_unique_id);
+        begin_copy_request.set_stage_id(stage_id);
+        begin_copy_request.set_stage_type(StagePB::EXTERNAL);
+        begin_copy_request.set_table_id(table_id);
+        begin_copy_request.set_copy_id("test_copy_id");
+        begin_copy_request.set_group_id(0);
+        begin_copy_request.set_start_time_ms(200);
+        begin_copy_request.set_timeout_time_ms(300);
+        for (int i = 0; i < 20; ++i) {
+            ObjectFilePB object_file_pb;
+            object_file_pb.set_relative_path("obj_" + std::to_string(i));
+            object_file_pb.set_etag("obj_" + std::to_string(i) + "_etag");
+            begin_copy_request.add_object_files()->CopyFrom(object_file_pb);
+        }
+        BeginCopyResponse res;
+        meta_service->begin_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &begin_copy_request, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+    GetCopyFilesRequest get_copy_file_req;
+    get_copy_file_req.set_cloud_unique_id(cloud_unique_id);
+    get_copy_file_req.set_stage_id(stage_id);
+    get_copy_file_req.set_table_id(table_id);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    GetCopyFilesResponse res;
+    meta_service->get_copy_files(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &get_copy_file_req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "GetCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_files_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_copy_files_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_copy_files_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // filter_copy_files
+TEST(RpcKvBvarTest, DISABLED_FilterCopyFiles) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    brpc::Controller cntl;
+    auto cloud_unique_id = "test_cloud_unique_id";
+    auto stage_id = "test_stage_id";
+    int64_t table_id = 100;
+    std::string instance_id = "copy_job_test_instance_id";
+
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    {
+        // generate a begin copy request
+        BeginCopyRequest begin_copy_request;
+        begin_copy_request.set_cloud_unique_id(cloud_unique_id);
+        begin_copy_request.set_stage_id(stage_id);
+        begin_copy_request.set_stage_type(StagePB::EXTERNAL);
+        begin_copy_request.set_table_id(table_id);
+        begin_copy_request.set_copy_id("test_copy_id");
+        begin_copy_request.set_group_id(0);
+        begin_copy_request.set_start_time_ms(200);
+        begin_copy_request.set_timeout_time_ms(300);
+        for (int i = 0; i < 20; ++i) {
+            ObjectFilePB object_file_pb;
+            object_file_pb.set_relative_path("obj_" + std::to_string(i));
+            object_file_pb.set_etag("obj_" + std::to_string(i) + "_etag");
+            begin_copy_request.add_object_files()->CopyFrom(object_file_pb);
+        }
+        BeginCopyResponse res;
+        meta_service->begin_copy(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &begin_copy_request, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    FilterCopyFilesRequest request;
+    request.set_cloud_unique_id(cloud_unique_id);
+    request.set_stage_id(stage_id);
+    request.set_table_id(table_id);
+    for (int i = 0; i < 10; ++i) {
+        ObjectFilePB object_file;
+        object_file.set_relative_path("file" + std::to_string(i));
+        object_file.set_etag("etag" + std::to_string(i));
+        request.add_object_files()->CopyFrom(object_file);
+    }
+    FilterCopyFilesResponse res;
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->filter_copy_files(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &request, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    LOG(INFO) << "FilterCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_filter_copy_files_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_filter_copy_files_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_filter_copy_files_del_counter.get_value());
+    sp->clear_all_call_backs();
+    sp->clear_trace();
+    sp->disable_processing();
+}
+
 // get_cluster_status
-// begin_txn
-// precommit_txn
-// get_rl_task_commit_attach
-// reset_rl_progress
-// commit_txn
-// abort_txn
-// get_txn
+TEST(RpcKvBvarTest, DISABLED_GetClusterStatus) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    InstanceKeyInfo key_info {mock_instance};
+    std::string key;
+    std::string val;
+    instance_key(key_info, &key);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    ClusterPB c1;
+    c1.set_type(ClusterPB::COMPUTE);
+    c1.set_cluster_name(mock_cluster_name);
+    c1.set_cluster_id(mock_cluster_id);
+    c1.add_mysql_user_name()->append("m1");
+    c1.set_cluster_status(ClusterStatus::NORMAL);
+    ClusterPB c2;
+    c2.set_type(ClusterPB::COMPUTE);
+    c2.set_cluster_name(mock_cluster_name + "2");
+    c2.set_cluster_id(mock_cluster_id + "2");
+    c2.add_mysql_user_name()->append("m2");
+    c2.set_cluster_status(ClusterStatus::SUSPENDED);
+    ClusterPB c3;
+    c3.set_type(ClusterPB::COMPUTE);
+    c3.set_cluster_name(mock_cluster_name + "3");
+    c3.set_cluster_id(mock_cluster_id + "3");
+    c3.add_mysql_user_name()->append("m3");
+    c3.set_cluster_status(ClusterStatus::TO_RESUME);
+    instance.add_clusters()->CopyFrom(c1);
+    instance.add_clusters()->CopyFrom(c2);
+    instance.add_clusters()->CopyFrom(c3);
+    val = instance.SerializeAsString();
+
+    std::unique_ptr<Transaction> txn;
+    std::string get_val;
+    TxnErrorCode err = meta_service->txn_kv()->create_txn(&txn);
+    ASSERT_EQ(err, TxnErrorCode::TXN_OK);
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    brpc::Controller cntl;
+    GetClusterStatusRequest req;
+    req.add_instance_ids(mock_instance);
+    GetClusterStatusResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_cluster_status(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(res.details().at(0).clusters().size(), 3);
+
+    LOG(INFO) << "GetClusterStatus: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_status_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_status_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_cluster_status_del_counter.get_value());
+}
+
 // get_current_max_txn_id
+TEST(RpcKvBvarTest, DISABLED_GetCurrentMaxTxnId) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    const int64_t db_id = 123;
+    const std::string label = "test_label123";
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+
+    brpc::Controller begin_txn_cntl;
+    BeginTxnRequest begin_txn_req;
+    BeginTxnResponse begin_txn_res;
+    TxnInfoPB txn_info_pb;
+
+    begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(12345);
+    txn_info_pb.set_timeout_ms(36000);
+    begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                            &begin_txn_req, &begin_txn_res, nullptr);
+    ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+
+    brpc::Controller max_txn_id_cntl;
+    GetCurrentMaxTxnRequest max_txn_id_req;
+    GetCurrentMaxTxnResponse max_txn_id_res;
+
+    std::unique_ptr<Transaction> txn;
+    auto _ = mem_kv->create_txn(&txn);
+    txn->put("schema change", "val");
+    _ = txn->commit();
+
+    max_txn_id_req.set_cloud_unique_id(cloud_unique_id);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->get_current_max_txn_id(
+            reinterpret_cast<::google::protobuf::RpcController*>(&max_txn_id_cntl), &max_txn_id_req,
+            &max_txn_id_res, nullptr);
+
+    LOG(INFO) << "GetCurrentMaxTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_current_max_txn_id_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_current_max_txn_id_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_current_max_txn_id_del_counter.get_value());
+}
+
 // begin_sub_txn
+TEST(RpcKvBvarTest, DISABLED_BeginSubTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 98131;
+    int64_t txn_id = -1;
+    int64_t t1 = 10;
+    int64_t t1_index = 100;
+    int64_t t1_p1 = 11;
+    int64_t t1_p1_t1 = 12;
+    int64_t t1_p1_t2 = 13;
+    int64_t t1_p2 = 14;
+    int64_t t1_p2_t1 = 15;
+    int64_t t2 = 16;
+    std::string label = "test_label";
+    std::string label2 = "test_label_0";
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(t1);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // mock rowset and tablet: for sub_txn1
+    int64_t sub_txn_id1 = txn_id;
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p2, t1_p2_t1, sub_txn_id1);
+
+    brpc::Controller cntl;
+    BeginSubTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_sub_txn_num(0);
+    req.set_db_id(db_id);
+    req.set_label(label2);
+    req.mutable_table_ids()->Add(t1);
+    req.mutable_table_ids()->Add(t2);
+    BeginSubTxnResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+
+    LOG(INFO) << "BeginSubTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_sub_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_sub_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_sub_txn_del_counter.get_value());
+}
+
 // abort_sub_txn
+TEST(RpcKvBvarTest, DISABLED_AbortSubTxn) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 98131;
+    int64_t txn_id = -1;
+    int64_t t1 = 10;
+    int64_t t1_index = 100;
+    int64_t t1_p1 = 11;
+    int64_t t1_p1_t1 = 12;
+    int64_t t1_p1_t2 = 13;
+    int64_t t1_p2 = 14;
+    int64_t t1_p2_t1 = 15;
+    int64_t t2 = 16;
+    std::string label = "test_label";
+    std::string label2 = "test_label_0";
+    // begin txn
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(t1);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+
+    // mock rowset and tablet: for sub_txn1
+    int64_t sub_txn_id1 = txn_id;
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t1, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p1, t1_p1_t2, sub_txn_id1);
+    create_and_commit_rowset(meta_service.get(), t1, t1_index, t1_p2, t1_p2_t1, sub_txn_id1);
+    brpc::Controller cntl;
+    {
+        BeginSubTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_sub_txn_num(0);
+        req.set_db_id(db_id);
+        req.set_label(label2);
+        req.mutable_table_ids()->Add(t1);
+        req.mutable_table_ids()->Add(t2);
+        BeginSubTxnResponse res;
+
+        meta_service->begin_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+    }
+
+    AbortSubTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_sub_txn_num(2);
+    req.set_sub_txn_id(sub_txn_id1);
+    req.set_db_id(db_id);
+    req.mutable_table_ids()->Add(t1);
+    req.mutable_table_ids()->Add(t2);
+    AbortSubTxnResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->abort_sub_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+
+    LOG(INFO) << "AbortSubTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_sub_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_sub_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_sub_txn_del_counter.get_value());
+}
+
 // abort_txn_with_coordinator
+TEST(RpcKvBvarTest, DISABLED_AbortTxnWithCoordinator) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    const int64_t db_id = 666;
+    const int64_t table_id = 777;
+    const std::string label = "test_label";
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+    const int64_t coordinator_id = 15623;
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    std::string host = "127.0.0.1:15586";
+    int64_t txn_id = -1;
+
+    brpc::Controller begin_txn_cntl;
+    BeginTxnRequest begin_txn_req;
+    BeginTxnResponse begin_txn_res;
+    TxnInfoPB txn_info_pb;
+    TxnCoordinatorPB coordinator;
+
+    begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    coordinator.set_id(coordinator_id);
+    coordinator.set_ip(host);
+    coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+    coordinator.set_start_time(cur_time);
+    txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
+    begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                            &begin_txn_req, &begin_txn_res, nullptr);
+    ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+    txn_id = begin_txn_res.txn_id();
+    ASSERT_GT(txn_id, -1);
+
+    brpc::Controller abort_txn_cntl;
+    AbortTxnWithCoordinatorRequest abort_txn_req;
+    AbortTxnWithCoordinatorResponse abort_txn_resp;
+
+    abort_txn_req.set_id(coordinator_id);
+    abort_txn_req.set_ip(host);
+    abort_txn_req.set_start_time(cur_time + 3600);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->abort_txn_with_coordinator(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl), &abort_txn_req,
+            &abort_txn_resp, nullptr);
+
+    LOG(INFO) << "AbortTxnWithCoordinator: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
+              << ", " << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_del_counter.get_value());
+}
+
 // check_txn_conflict
+TEST(RpcKvBvarTest, DISABLED_CheckTxnConflict) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    const int64_t db_id = 666;
+    const int64_t table_id = 777;
+    const std::string label = "test_label";
+    const std::string cloud_unique_id = "test_cloud_unique_id";
+    const int64_t coordinator_id = 15623;
+    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::steady_clock::now().time_since_epoch())
+                               .count();
+    std::string host = "127.0.0.1:15586";
+    int64_t txn_id = -1;
+
+    brpc::Controller begin_txn_cntl;
+    BeginTxnRequest begin_txn_req;
+    BeginTxnResponse begin_txn_res;
+    TxnInfoPB txn_info_pb;
+    TxnCoordinatorPB coordinator;
+
+    begin_txn_req.set_cloud_unique_id(cloud_unique_id);
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    coordinator.set_id(coordinator_id);
+    coordinator.set_ip(host);
+    coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
+    coordinator.set_start_time(cur_time);
+    txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
+    begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
+
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+                            &begin_txn_req, &begin_txn_res, nullptr);
+
+    brpc::Controller abort_txn_conflict_cntl;
+    CheckTxnConflictRequest check_txn_conflict_req;
+    CheckTxnConflictResponse check_txn_conflict_res;
+
+    check_txn_conflict_req.set_cloud_unique_id(cloud_unique_id);
+    check_txn_conflict_req.set_db_id(db_id);
+    check_txn_conflict_req.set_end_txn_id(txn_id + 1);
+    check_txn_conflict_req.add_table_ids(table_id);
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->check_txn_conflict(
+            reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
+            &check_txn_conflict_req, &check_txn_conflict_res, nullptr);
+
+    LOG(INFO) << "CheckTxnConflict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_txn_conflict_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_check_txn_conflict_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_check_txn_conflict_del_counter.get_value());
+}
+
 // clean_txn_label
-// get_txn_id
+TEST(RpcKvBvarTest, DISABLED_CleanTxnLabel) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+    int64_t db_id = 1987211;
+    const std::string& label = "test_clean_label";
+    brpc::Controller cntl;
+    {
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+    }
+    CleanTxnLabelRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(db_id);
+    req.add_labels(label);
+    CleanTxnLabelResponse res;
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    meta_service->clean_txn_label(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                  &res, nullptr);
+
+    LOG(INFO) << "CleanTxnLabel: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_clean_txn_label_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_clean_txn_label_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_clean_txn_label_del_counter.get_value());
+}
+
+// get_rl_task_commit_attach
+TEST(RpcKvBvarTest, GetRlTaskCommitAttach) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    LOG(INFO) << "GetRlTaskCommitAttach: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
+              << ", " << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rl_task_commit_attach_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_rl_task_commit_attach_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_rl_task_commit_attach_del_counter.get_value());
+}
+
+// reset_rl_progress
+TEST(RpcKvBvarTest, ResetRlProgress) {
+    auto meta_service = get_meta_service();
+    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
+
+    mem_kv->get_count_ = 0;
+    mem_kv->put_count_ = 0;
+    mem_kv->del_count_ = 0;
+
+    LOG(INFO) << "ResetRlProgress: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
+              << mem_kv->del_count_;
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_reset_rl_progress_get_counter.get_value());
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_reset_rl_progress_put_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_reset_rl_progress_del_counter.get_value());
+}
 
 } // namespace doris::cloud

@@ -23,11 +23,13 @@
 
 namespace doris::cloud {
 struct KVStats {
-    KVStats(bvar::Adder<int64_t>& read_counter, bvar::Adder<int64_t>& write_counter)
-            : read_counter(read_counter), write_counter(write_counter) {}
+    KVStats(bvar::Adder<int64_t>& get_counter, bvar::Adder<int64_t>& put_counter,
+            bvar::Adder<int64_t>& del_counter)
+            : get_counter(get_counter), put_counter(put_counter), del_counter(del_counter) {}
 
-    bvar::Adder<int64_t>& read_counter;
-    bvar::Adder<int64_t>& write_counter;
+    bvar::Adder<int64_t>& get_counter;
+    bvar::Adder<int64_t>& put_counter;
+    bvar::Adder<int64_t>& del_counter;
 };
 
 } // namespace doris::cloud

@@ -30,7 +30,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/stats.h"
 #include "meta-service/txn_kv_error.h"
 #include "txn_kv.h"
 
@@ -59,8 +58,9 @@ public:
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
 
-    int64_t read_count_ {};
-    int64_t write_count_ {};
+    int64_t get_count_ {};
+    int64_t put_count_ {};
+    int64_t del_count_ {};
 
 private:
     using OpTuple = std::tuple<memkv::ModifyOpType, std::string, std::string>;

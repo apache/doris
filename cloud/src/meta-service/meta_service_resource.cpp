@@ -31,6 +31,7 @@
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/network_util.h"
+#include "common/stats.h"
 #include "common/string_util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -1970,7 +1971,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     if (request->op() == AlterInstanceRequest::REFRESH) return;
 
     auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id);
+        notify_refresh_instance(txn_kv, instance_id, nullptr);
     });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
@@ -2445,9 +2446,10 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
 
     if (code != MetaServiceCode::OK) return;
 
-    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id);
-    });
+    auto f = new std::function<void()>(
+            [instance_id = request->instance_id(), txn_kv = txn_kv_, &stats] {
+                notify_refresh_instance(txn_kv, instance_id, &stats);
+            });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
         LOG(WARNING) << "notify refresh instance inplace, instance_id=" << request->instance_id();
@@ -3866,8 +3868,8 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 
     RPC_RATE_LIMIT(get_cluster_status)
 
-    auto get_clusters_info = [this, &request, &response,
-                              &has_filter](const std::string& instance_id) {
+    auto get_clusters_info = [this, &request, &response, &has_filter,
+                              &stats](const std::string& instance_id) {
         InstanceKeyInfo key_info {instance_id};
         std::string key;
         std::string val;
@@ -3879,6 +3881,11 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to create txn err=" << err;
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
+        });
         err = txn->get(key, &val);
         LOG(INFO) << "get instance_key=" << hex(key);
 
@@ -3923,7 +3930,8 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
     msg = proto_to_json(*response);
 }
 
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id) {
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats) {
     LOG(INFO) << "begin notify_refresh_instance";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -3931,6 +3939,13 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         LOG(WARNING) << "failed to create txn err=" << err;
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {
+        if (stats) {
+            stats->get_counter << txn->num_get_keys();
+            stats->put_counter << txn->num_put_keys();
+            stats->del_counter << txn->num_del_keys();
+        }
+    });
     std::string key = system_meta_service_registry_key();
     std::string val;
     err = txn->get(key, &val);

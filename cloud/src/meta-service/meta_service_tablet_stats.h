@@ -19,7 +19,6 @@
 
 #include <gen_cpp/cloud.pb.h>
 
-#include "common/stats.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {

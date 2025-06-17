@@ -18,7 +18,10 @@
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <memory>
+
 #include "common/logging.h"
+#include "common/stats.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_kv_error.h"
@@ -617,7 +620,7 @@ void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controll
 
 void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
                         const CheckKVRequest* request, CheckKVResponse* response,
-                        MetaServiceCode* code, std::string* msg,
+                        MetaServiceCode* code, std::string* msg, KVStats& stats,
                         check_create_table_type get_check_info) {
     StopWatch watch;
     std::unique_ptr<Transaction> txn;
@@ -627,6 +630,8 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
         *msg = "failed to create txn";
         return;
     }
+    std::unique_ptr<int, std::function<void(int*)>> defer_stats(
+            (int*)0x01, [&](int*) { stats.get_counter << txn->num_get_keys(); });
     auto& [keys, hint, key_func] = get_check_info(request);
     if (keys.empty()) {
         *code = MetaServiceCode::INVALID_ARGUMENT;
@@ -646,6 +651,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
         } else if (err == TxnErrorCode::TXN_TOO_OLD) {
+            stats.get_counter << txn->num_get_keys();
             //  separate it to several txn for rubustness
             txn.reset();
             TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -691,7 +697,7 @@ void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
     RPC_RATE_LIMIT(check_kv);
     switch (request->op()) {
     case CheckKVRequest::CREATE_INDEX_AFTER_FE_COMMIT: {
-        check_create_table(instance_id, txn_kv_, request, response, &code, &msg,
+        check_create_table(instance_id, txn_kv_, request, response, &code, &msg, stats,
                            [](const CheckKVRequest* request) {
                                return std::make_tuple(
                                        request->check_keys().index_ids(), "index",
@@ -703,7 +709,7 @@ void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
     }
     case CheckKVRequest::CREATE_PARTITION_AFTER_FE_COMMIT: {
         check_create_table(
-                instance_id, txn_kv_, request, response, &code, &msg,
+                instance_id, txn_kv_, request, response, &code, &msg, stats,
                 [](const CheckKVRequest* request) {
                     return std::make_tuple(
                             request->check_keys().partition_ids(), "partition",

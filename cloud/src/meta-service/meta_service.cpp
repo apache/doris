@@ -366,8 +366,9 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             break;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.read_counter << txn->num_get_keys();
-            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
         });
         for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
             size_t limit = (i + BATCH_SIZE < num_acquired) ? i + BATCH_SIZE : num_acquired;
@@ -467,8 +468,9 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats.read_counter << txn->num_get_keys();
-        stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
     });
 
     std::string rs_key, rs_val;
@@ -608,8 +610,9 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.read_counter << txn0->num_get_keys();
-            stats.write_counter << txn0->num_del_keys() + txn0->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
         });
 
         InstanceKeyInfo key_info {instance_id};
@@ -1738,8 +1741,9 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.read_counter << txn->num_get_keys();
-            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
         });
         TabletIndexPB idx;
         // Get tablet id index from kv
@@ -1912,8 +1916,9 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.read_counter << txn->num_get_keys();
-            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
             txn.reset(nullptr);
         });
         if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
@@ -2361,8 +2366,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             err = txn->commit();
             TEST_SYNC_POINT_CALLBACK("update_delete_bitmap:commit:err", request->initiator(), i,
                                      &err);
-            stats.read_counter << txn->num_get_keys();
-            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
             total_txn_put_keys += txn->num_put_keys();
             total_txn_put_bytes += txn->put_bytes();
             total_txn_size += txn->approximate_bytes();
@@ -2587,8 +2593,9 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.read_counter << txn->num_get_keys();
-            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
         });
         MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
                                              begin_versions[i], 0};
@@ -2708,8 +2715,9 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.read_counter << txn->num_get_keys();
-            stats.write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
         });
         TabletIndexPB idx(request->idx());
         TabletStatsPB tablet_stat;
@@ -2777,7 +2785,7 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
                                                     const GetDeleteBitmapUpdateLockRequest* request,
                                                     GetDeleteBitmapUpdateLockResponse* response,
                                                     std::string& instance_id, std::string& lock_key,
-                                                    std::string lock_use_version, KVStats* stats) {
+                                                    std::string lock_use_version, KVStats& stats) {
     bool require_tablet_stats =
             request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
     if (!require_tablet_stats) return true;
@@ -2798,8 +2806,9 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
         return false;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats->read_counter << txn->num_get_keys();
-        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
     });
     auto table_id = request->table_id();
     std::stringstream ss;
@@ -2976,7 +2985,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         const GetDeleteBitmapUpdateLockRequest* request,
         GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
         std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
-        KVStats* stats) {
+        KVStats& stats) {
     VLOG_DEBUG << "get delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     auto table_id = request->table_id();
@@ -2994,8 +3003,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats->read_counter << txn->num_get_keys();
-            stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+            stats.get_counter << txn->num_get_keys();
+            stats.put_counter << txn->num_put_keys();
+            stats.del_counter << txn->num_del_keys();
         });
         std::string lock_val;
         DeleteBitmapUpdateLockPB lock_info;
@@ -3220,7 +3230,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         const GetDeleteBitmapUpdateLockRequest* request,
         GetDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
         std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
-        KVStats* stats) {
+        KVStats& stats) {
     VLOG_DEBUG << "get delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
@@ -3231,8 +3241,9 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats->read_counter << txn->num_get_keys();
-        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
     });
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
@@ -3310,7 +3321,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         const RemoveDeleteBitmapUpdateLockRequest* request,
         RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
         std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
-        KVStats* stats) {
+        KVStats& stats) {
     VLOG_DEBUG << "remove delete bitmap update lock in v2 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
@@ -3321,8 +3332,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats->read_counter << txn->num_get_keys();
-        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
     });
     if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
@@ -3394,7 +3406,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         const RemoveDeleteBitmapUpdateLockRequest* request,
         RemoveDeleteBitmapUpdateLockResponse* response, ::google::protobuf::Closure* done,
         std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
-        KVStats* stats) {
+        KVStats& stats) {
     VLOG_DEBUG << "remove delete bitmap update lock in v1 for table=" << request->table_id()
                << ",lock id=" << request->lock_id() << ",initiator=" << request->initiator();
     std::unique_ptr<Transaction> txn;
@@ -3405,8 +3417,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats->read_counter << txn->num_get_keys();
-        stats->write_counter << txn->num_del_keys() + txn->num_put_keys();
+        stats.get_counter << txn->num_get_keys();
+        stats.put_counter << txn->num_put_keys();
+        stats.del_counter << txn->num_del_keys();
     });
     std::string lock_key =
             meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
@@ -3484,10 +3497,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
               << " use_version=" << use_version;
     if (use_version == "v2") {
         get_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
-                                         msg, ss, &stats);
+                                         msg, ss, stats);
     } else {
         get_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
-                                         msg, ss, &stats);
+                                         msg, ss, stats);
     }
 }
 
@@ -3515,10 +3528,10 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
               << " use_version=" << use_version;
     if (use_version == "v2") {
         remove_delete_bitmap_update_lock_v2(controller, request, response, done, instance_id, code,
-                                            msg, ss, &stats);
+                                            msg, ss, stats);
     } else {
         remove_delete_bitmap_update_lock_v1(controller, request, response, done, instance_id, code,
-                                            msg, ss, &stats);
+                                            msg, ss, stats);
     }
 }
 

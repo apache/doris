@@ -237,8 +237,9 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string msg;                                                    \
     [[maybe_unused]] std::string instance_id;                                            \
     [[maybe_unused]] bool drop_request = false;                                          \
-    [[maybe_unused]] KVStats stats(g_bvar_rpc_kv_##func_name##_read_counter,             \
-                                   g_bvar_rpc_kv_##func_name##_write_counter);           \
+    [[maybe_unused]] KVStats stats(g_bvar_rpc_kv_##func_name##_get_counter,              \
+                                   g_bvar_rpc_kv_##func_name##_put_counter,              \
+                                   g_bvar_rpc_kv_##func_name##_del_counter);             \
     std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) { \
         response->mutable_status()->set_code(code);                                      \
         response->mutable_status()->set_msg(msg);                                        \
@@ -246,10 +247,11 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         closure_guard.reset(nullptr);                                                    \
         if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {     \
             g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                     \
-            if (txn != nullptr) {                                                        \
-                stats.read_counter << txn->num_get_keys();                               \
-                stats.write_counter << txn->num_del_keys() + txn->num_put_keys();        \
-            }                                                                            \
+        }                                                                                \
+        if (txn != nullptr) {                                                            \
+            stats.get_counter << txn->num_get_keys();                                    \
+            stats.put_counter << txn->num_put_keys();                                    \
+            stats.del_counter << txn->num_del_keys();                                    \
         }                                                                                \
     });
 
@@ -279,7 +281,8 @@ int decrypt_instance_info(InstanceInfoPB& instance, const std::string& instance_
 /**
  * Notifies other metaservice to refresh instance
  */
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id);
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats);
 
 void get_tablet_idx(MetaServiceCode& code, std::string& msg, Transaction* txn,
                     const std::string& instance_id, int64_t tablet_id, TabletIndexPB& tablet_idx);
