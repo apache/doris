@@ -50,6 +50,7 @@ public class ShowWarmUpCommand extends ShowCommand {
             .add("AllBatch")
             .add("FinishTime")
             .add("ErrMsg")
+            .add("Tables")
             .build();
     private Expression whereClause;
     private boolean showAllJobs = false;

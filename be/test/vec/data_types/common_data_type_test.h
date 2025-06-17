@@ -139,8 +139,7 @@ public:
                   meta_info.is_value_unambiguously_represented_in_contiguous_memory_region);
         if (is_decimal(data_type->get_primitive_type()) || data_type->is_nullable() ||
             data_type->get_primitive_type() == TYPE_STRUCT ||
-            (data_type->get_primitive_type() == INVALID_TYPE &&
-             !data_type->is_fixed_length_object()) ||
+            data_type->get_primitive_type() == INVALID_TYPE ||
             is_number(data_type->get_primitive_type()) ||
             is_int_or_bool(data_type->get_primitive_type()) ||
             is_float_or_double(data_type->get_primitive_type()) ||
@@ -148,6 +147,7 @@ public:
             is_ip(data_type->get_primitive_type())) {
             ASSERT_EQ(data_type->get_size_of_value_in_memory(), meta_info.size_of_value_in_memory);
         } else {
+            std::cout << "get_size_of_value_in_memory: " << data_type->get_name() << std::endl;
             EXPECT_ANY_THROW(EXPECT_FALSE(data_type->get_size_of_value_in_memory()));
         }
         if (is_decimal(data_type->get_primitive_type())) {
@@ -191,12 +191,11 @@ public:
                     << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
                     << " field: " << assert_field.get_type() << std::endl;
         } else {
-            //TODO(gabriel):
-            //            Field field = data_type->get_field(node);
-            //            ASSERT_EQ(field, assert_field)
-            //                    << "get_field_assert: "
-            //                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
-            //                    << " field: " << assert_field.get_type() << std::endl;
+            Field field = data_type->get_field(node);
+            ASSERT_EQ(field, assert_field)
+                    << "get_field_assert: "
+                    << " datatype:" + data_type->get_name() << " node_type:" << node.node_type
+                    << " field: " << assert_field.get_type() << std::endl;
         }
     }
 

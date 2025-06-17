@@ -23,6 +23,10 @@ suite("test_warm_up_tables") {
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
          return jobStateResult[0][2]
     }
+    def getTablesFromShowCommand = { jobId ->
+         def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
+         return jobStateResult[0][9]
+    }
 
     List<String> ipList = new ArrayList<>();
     List<String> hbPortList = new ArrayList<>()
@@ -163,6 +167,10 @@ suite("test_warm_up_tables") {
 
     jobId_ = sql "warm up cluster regression_cluster_name1 with table customer partition p3 and table supplier;"
     waitJobDone(jobId_);
+
+    def tablesString = getTablesFromShowCommand(jobId_[0][0])
+    assertTrue(tablesString.contains("customer.p3"), tablesString)
+    assertTrue(tablesString.contains("supplier"), tablesString)
 
     sleep(30000)
     long ttl_cache_size = 0

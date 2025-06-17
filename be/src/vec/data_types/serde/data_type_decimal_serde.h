@@ -114,7 +114,6 @@ private:
     int precision;
     int scale;
     const typename FieldType::NativeType scale_multiplier;
-    mutable char buf[FieldType::max_string_length()];
 };
 
 template <PrimitiveType T>

@@ -1000,7 +1000,7 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
             auto res_expected = col_res_expected->get_element(i);
             EXPECT_EQ(res, res_expected)
                     << "function " << func->get_name() << " decimal_type "
-                    << TypeName<DecimalType>().get() << " precision " << precision
+                    << type_to_string(DecimalType::PType) << " precision " << precision
                     << " input_scale " << scale << " input " << col_general->get_element(i)
                     << " scale_arg " << col_scale->get_element(i) << " decimal_col_is_const "
                     << decimal_col_is_const << " res " << res << " res_expected " << res_expected;
@@ -1052,7 +1052,7 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
         auto res = col_res.get_element(0);
         auto res_expected = col_res_expected->get_element(0);
         EXPECT_EQ(res, res_expected)
-                << "function " << func->get_name() << " float_type " << TypeName<FloatType>().get()
+                << "function " << func->get_name() << " float_type " << type_to_string(FloatPType)
                 << " input " << col_general->get_element(0) << " scale_arg "
                 << col_scale->get_element(0) << " float_col_is_const " << float_col_is_const
                 << " res " << res << " res_expected " << res_expected;

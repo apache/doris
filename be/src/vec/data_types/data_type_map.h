@@ -66,7 +66,7 @@ public:
     std::string do_get_name() const override {
         return "Map(" + key_type->get_name() + ", " + value_type->get_name() + ")";
     }
-    const char* get_family_name() const override { return "Map"; }
+    const std::string get_family_name() const override { return "Map"; }
 
     MutableColumnPtr create_column() const override;
     Field get_default() const override;

@@ -184,7 +184,8 @@ public class MTMV extends OlapTable {
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            return this.status.updateNotNull(newStatus);
+            // only can update state, refresh state will be change by add task
+            return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
         }

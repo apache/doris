@@ -85,7 +85,6 @@ Status CumulativeCompaction::prepare_compact() {
     Defer defer_set_st([&] {
         if (!st.ok()) {
             tablet()->set_last_cumu_compaction_status(st.to_string());
-            tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
         }
     });
 

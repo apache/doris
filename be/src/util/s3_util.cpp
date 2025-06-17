@@ -32,6 +32,7 @@
 
 #include <atomic>
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
 #include <cstdlib>
@@ -150,6 +151,33 @@ S3ClientFactory::S3ClientFactory() {
                     config::s3_put_token_per_second, config::s3_put_bucket_tokens,
                     config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
+
+#ifdef USE_AZURE
+    auto azureLogLevel =
+            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+    Azure::Core::Diagnostics::Logger::SetListener(
+            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                switch (level) {
+                case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Informational:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Warning:
+                    LOG(WARNING) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Error:
+                    LOG(ERROR) << message;
+                    break;
+                default:
+                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                 << ", message: " << message;
+                    break;
+                }
+            });
+#endif
 }
 
 S3ClientFactory::~S3ClientFactory() {
@@ -204,7 +232,13 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         }
     }
 
-    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+    Azure::Storage::Blobs::BlobClientOptions options;
+    options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+    options.Retry.MaxRetries = config::max_s3_client_retry;
+    options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
+
+    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+            uri, cred, std::move(options));
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
 #else
@@ -448,6 +482,9 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     case cloud::ObjectStoreInfoPB_Provider_AZURE:
         type = io::ObjStorageType::AZURE;
         break;
+    case cloud::ObjectStoreInfoPB_Provider_TOS:
+        type = io::ObjStorageType::TOS;
+        break;
     default:
         __builtin_unreachable();
         LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
@@ -510,6 +547,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
         break;
     case TObjStorageType::GCP:
         type = io::ObjStorageType::GCP;
+        break;
+    case TObjStorageType::TOS:
+        type = io::ObjStorageType::TOS;
         break;
     default:
         LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());

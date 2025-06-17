@@ -56,7 +56,7 @@ private:
 public:
     static constexpr PrimitiveType PType = TYPE_VARIANT;
     DataTypeVariant(const String& schema_format_ = "json", bool is_nullable_ = true);
-    const char* get_family_name() const override { return "Variant"; }
+    const std::string get_family_name() const override { return "Variant"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
 
     doris::FieldType get_storage_field_type() const override {

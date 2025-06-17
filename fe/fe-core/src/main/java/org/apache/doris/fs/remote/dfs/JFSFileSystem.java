@@ -18,11 +18,10 @@
 package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
-
-import java.util.Map;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 
 public class JFSFileSystem extends DFSFileSystem {
-    public JFSFileSystem(Map<String, String> properties) {
-        super(StorageBackend.StorageType.JFS, properties);
+    public JFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
+        super(hdfsProperties, StorageBackend.StorageType.JFS);
     }
 }

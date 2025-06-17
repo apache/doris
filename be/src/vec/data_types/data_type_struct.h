@@ -77,7 +77,7 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
     }
     std::string do_get_name() const override;
-    const char* get_family_name() const override { return "Struct"; }
+    const std::string get_family_name() const override { return "Struct"; }
 
     bool supports_sparse_serialization() const { return true; }
 

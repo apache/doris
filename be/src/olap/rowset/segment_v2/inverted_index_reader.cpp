@@ -1223,7 +1223,7 @@ InvertedIndexReaderType InvertedIndexIterator::get_inverted_index_reader_type() 
     return _reader->type();
 }
 
-const std::map<string, string>& InvertedIndexIterator::get_index_properties() const {
+const std::map<std::string, std::string>& InvertedIndexIterator::get_index_properties() const {
     return _reader->get_index_properties();
 }
 

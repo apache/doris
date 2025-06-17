@@ -52,6 +52,9 @@ suite("test_is_null_expr", "p0, nonConcurrent") {
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql " set inverted_index_skip_threshold = 0 "
+          sql " set enable_common_expr_pushdown_for_inverted_index = true"
+          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_parallel_scan = false"
           sql "sync"
           sql "${sqlQuery}"
       } finally {

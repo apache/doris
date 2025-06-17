@@ -50,11 +50,6 @@ public class HboStatsCalculator extends StatsCalculator {
                         .getHboPlanStatisticsProvider(), "HboPlanStatisticsProvider is null");
     }
 
-    @Override
-    public void estimate() {
-        super.estimate();
-    }
-
     /**
      * NOTE: Can't override computeScan since the publishing side's plan hash of scan node
      * use the scan's hbo string but embedding the filter info into the input table structure.

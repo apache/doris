@@ -58,4 +58,8 @@ public class TableSample {
     public int hashCode() {
         return Objects.hash(sampleValue, isPercent, seek);
     }
+
+    public org.apache.doris.analysis.TableSample translateToLegacyTableSample() {
+        return new org.apache.doris.analysis.TableSample(this.isPercent, this.sampleValue, this.seek);
+    }
 }

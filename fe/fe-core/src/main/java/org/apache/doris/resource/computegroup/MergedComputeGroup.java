@@ -17,11 +17,17 @@
 
 package org.apache.doris.resource.computegroup;
 
+import org.apache.doris.common.UserException;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupKey;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.Set;
 
 public class MergedComputeGroup extends ComputeGroup {
@@ -43,9 +49,17 @@ public class MergedComputeGroup extends ComputeGroup {
         return systemInfoService.getBackendListByComputeGroup(computeGroupSet);
     }
 
-    @Override
-    public Set<String> getNames() {
-        return computeGroupSet;
+    public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {
+        List<WorkloadGroup> wgList = Lists.newArrayList();
+
+        for (String cgName : computeGroupSet) {
+            WorkloadGroup wg = wgMgr.getWorkloadGroupByComputeGroup(WorkloadGroupKey.get(cgName, wgName));
+            if (wg == null) {
+                throw new UserException("Can not find workload group " + wgName + " in compute group " + cgName);
+            }
+            wgList.add(wg);
+        }
+        return wgList;
     }
 
     @Override

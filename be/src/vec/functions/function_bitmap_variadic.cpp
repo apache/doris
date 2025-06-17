@@ -226,11 +226,10 @@ public:
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
         }
 
-        using ResultDataType = typename Impl::ResultDataType;  //DataTypeBitMap or DataTypeInt64
-        using ResultType = typename ResultDataType::FieldType; //BitmapValue or Int64
-        using ColVecResult =
-                std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
-                                   ColumnVector<ResultDataType::PType>>;
+        using ResultDataType = typename Impl::ResultDataType; //DataTypeBitMap or DataTypeInt64
+        using ColVecResult = std::conditional_t<is_complex_v<ResultDataType::PType>,
+                                                ColumnComplexType<ResultDataType::PType>,
+                                                ColumnVector<ResultDataType::PType>>;
         typename ColVecResult::MutablePtr col_res = nullptr;
 
         typename ColumnUInt8::MutablePtr col_res_nulls;

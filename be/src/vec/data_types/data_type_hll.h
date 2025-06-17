@@ -50,7 +50,7 @@ public:
     static constexpr PrimitiveType PType = TYPE_HLL;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "HLL"; }
+    const std::string get_family_name() const override { return "HLL"; }
 
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_HLL; }
 

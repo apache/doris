@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNotnullErrorToInvalid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseNullableErrorToNull;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -86,6 +87,8 @@ public class NereidsLoadUtils {
                         exprs.add(expr.child(0));
                     } else if (expr instanceof UnboundSlot) {
                         exprs.add(expr);
+                    } else if (expr instanceof Alias && expr.child(0) instanceof Literal) {
+                        exprs.add(expr.child(0));
                     } else {
                         // some error happens
                         exprs.clear();

@@ -149,7 +149,7 @@ public:
               original_precision(rhs.original_precision),
               original_scale(rhs.original_scale) {}
 
-    const char* get_family_name() const override { return "Decimal"; }
+    const std::string get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;
     PrimitiveType get_primitive_type() const override { return T; }
 

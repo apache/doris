@@ -83,7 +83,7 @@ public:
     String get_name() const;
 
     /// Name of data type family (example: FixedString, Array).
-    virtual const char* get_family_name() const = 0;
+    virtual const std::string get_family_name() const = 0;
     virtual PrimitiveType get_primitive_type() const = 0;
 
     virtual doris::FieldType get_storage_field_type() const = 0;
@@ -97,8 +97,6 @@ public:
 
     // get specific serializer or deserializer
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
-    // FIXME(gabriel):Fixed length object type will be used in some cases but it is not supported by primitive type
-    virtual bool is_fixed_length_object() const { return false; }
 
 protected:
     virtual String do_get_name() const;

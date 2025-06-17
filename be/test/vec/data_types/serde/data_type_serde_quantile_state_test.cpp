@@ -119,7 +119,6 @@ TEST(QuantileStateSerdeTest, serializeOneCellToJson) {
     column_quantile_state->insert_value(quantile_state);
     ASSERT_EQ(column_quantile_state->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = quantile_state_serde->serialize_one_cell_to_json(*column_quantile_state, 0,
@@ -143,7 +142,6 @@ TEST(QuantileStateSerdeTest, serializeColumnToJson) {
     column_quantile_state->insert_value(quantile_state);
     ASSERT_EQ(column_quantile_state->size(), 2);
     DataTypeSerDe::FormatOptions formatOptions;
-    formatOptions.date_olap_format = true;
     auto ser_col = ColumnString::create();
     VectorBufferWriter buffer_writer(*ser_col.get());
     auto st = quantile_state_serde->serialize_column_to_json(*column_quantile_state, 0, 2,

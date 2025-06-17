@@ -73,30 +73,12 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
         if (!Config.isCloudMode()) {
             throw new AnalysisException("The sql is illegal in disk mode ");
         }
+
         if (whereClause == null) {
             throw new AnalysisException("Missing job id");
         }
-        boolean valid = true;
-        CHECK: {
-            if (!(whereClause instanceof EqualTo)) {
-                valid = false;
-                break CHECK;
-            }
 
-            // left child
-            if (!(whereClause.child(0) instanceof UnboundSlot)) {
-                valid = false;
-                break CHECK;
-            }
-            String leftKey = ((UnboundSlot) whereClause.child(0)).getName();
-            if (leftKey.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLiteral)) {
-                jobId = ((IntegerLiteral) whereClause.child(1)).getLongValue();
-            } else {
-                valid = false;
-            }
-        }
-
-        if (!valid) {
+        if (!analyzeWhereClause()) {
             throw new AnalysisException("Where clause should looks like one of them: id = 123");
         }
 
@@ -107,6 +89,25 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
                 PhysicalProperties.ANY);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         legacyWhereClause = ExpressionTranslator.translate(whereClause, planTranslatorContext);
+    }
+
+    private boolean analyzeWhereClause() {
+        if (!(whereClause instanceof EqualTo)) {
+            return false;
+        }
+
+        // left child
+        if (!(whereClause.child(0) instanceof UnboundSlot)) {
+            return false;
+        }
+
+        String leftKey = ((UnboundSlot) whereClause.child(0)).getName();
+        if (leftKey.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLiteral)) {
+            jobId = ((IntegerLiteral) whereClause.child(1)).getLongValue();
+        } else {
+            return false;
+        }
+        return true;
     }
 
     @Override

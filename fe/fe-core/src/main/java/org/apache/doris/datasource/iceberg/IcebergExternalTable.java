@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
@@ -189,7 +190,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public long getNewestUpdateVersionOrTime() {
-        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), getCatalog(), getDbName(), getName())
+        return IcebergUtils.getIcebergSnapshotCacheValue(Optional.empty(), getCatalog(), getDbName(), getName(), null)
                 .getPartitionInfo().getNameToIcebergPartition().values().stream()
                 .mapToLong(IcebergPartition::getLastUpdateTime).max().orElse(0);
     }
@@ -240,9 +241,9 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
-    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot) {
+    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         return new IcebergMvccSnapshot(IcebergUtils.getIcebergSnapshotCacheValue(
-                tableSnapshot, getCatalog(), getDbName(), getName()));
+                tableSnapshot, getCatalog(), getDbName(), getName(), scanParams));
     }
 
     @Override

@@ -70,7 +70,6 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
-import org.apache.doris.thrift.TTextSerdeType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
@@ -209,10 +208,6 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
 
             params.setLoadId(loadId);
-
-            if (fileGroup.getFileFormatProperties().getFormatName().equals("hive_text")) {
-                params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
-            }
 
             if (fileGroupInfo.getSequenceMapCol() != null) {
                 params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());

@@ -21,13 +21,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class RoutineLoadStatistic {
     /*
@@ -65,7 +65,7 @@ public class RoutineLoadStatistic {
 
     // Save all transactions current running. Including PREPARE, COMMITTED.
     // No need to persist, only for tracing txn of routine load job.
-    public Set<Long> runningTxnIds = Sets.newHashSet();
+    public Set<Long> runningTxnIds = ConcurrentHashMap.newKeySet();
 
     public static RoutineLoadStatistic read(DataInput in) throws IOException {
         String json = Text.readString(in);

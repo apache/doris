@@ -60,17 +60,6 @@ public:
         return Status::NotSupported("seek_at_or_after_value"); // FIXME
     }
 
-    // Seek the decoder forward by a given number of rows, or to the end
-    // of the page. This is primarily used to skip over data.
-    //
-    // Return the step skipped.
-    virtual size_t seek_forward(size_t n) {
-        size_t step = std::min(n, count() - current_index());
-        DCHECK_GE(step, 0);
-        static_cast<void>(seek_to_position_in_page(current_index() + step));
-        return step;
-    }
-
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) = 0;
 
     virtual Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
