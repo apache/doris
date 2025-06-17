@@ -1007,6 +1007,14 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
+    /**
+     * Set the initialized status for testing purposes only.
+     * This method should only be used in test cases.
+     */
+    public void setInitializedForTest(boolean initialized) {
+        this.initialized = initialized;
+    }
+
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
         makeSureInitialized();
