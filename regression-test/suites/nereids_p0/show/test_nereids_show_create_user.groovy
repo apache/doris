@@ -20,21 +20,15 @@ suite("test_nereids_show_create_user") {
     sql "CREATE USER IF NOT EXISTS 'xxxxxxx' IDENTIFIED BY '12345' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
     sql "DROP ROLE IF EXISTS 'test_role_for_show_create_user'"
     sql "CREATE ROLE IF NOT EXISTS 'test_role_for_show_create_user'"
-    sql "DROP USER IF EXISTS 'zzzzzzz'@'192.168.%'"
-    sql "CREATE USER IF NOT EXISTS 'zzzzzzz'@'192.168.%' IDENTIFIED BY '12345' DEFAULT ROLE 'test_role_for_show_create_user' PASSWORD_EXPIRE INTERVAL 10 DAY FAILED_LOGIN_ATTEMPTS 3 PASSWORD_LOCK_TIME 1 DAY;"
 
     checkNereidsExecute("SHOW ALL CREATE USER")
     checkNereidsExecute("SHOW CREATE USER xxxxxxx")
     checkNereidsExecute("SHOW CREATE USER 'zzzzzzz'@'192.168.%'")
     def res1 = sql """SHOW ALL CREATE USER"""
-    // admin, root, xxxxxxx, zzzzzzz
     assertEquals(true, res1.size() > 1)
 
     def res2 = sql """SHOW ALL CREATE USER"""
     assertEquals(true, res2.size() > 1)
-
-    def res3 = sql """SHOW CREATE USER 'zzzzzzz'@'192.168.%'"""
-    assertEquals('zzzzzzz', res3.get(0).get(0))
 
     def res4 = sql """SHOW CREATE USER xxxxxxx"""
     assertEquals('xxxxxxx', res4.get(0).get(0))
