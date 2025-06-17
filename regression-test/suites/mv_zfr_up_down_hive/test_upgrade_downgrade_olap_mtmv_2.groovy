@@ -215,37 +215,37 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             compare_res(sql2 + " order by 1,2,3")
         }
 
-//        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
-//        try {
-//            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(p_20180115)"""
-//        } catch (Exception e) {
-//            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
-//            logger.info(e.getMessage())
-//        }
-//
-//        // When refreshing the entire MTMV, the partition will be deleted.
-//        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
-//        waitingMTMVTaskFinishedByMvName(mtmvName2)
-//
-//        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-//        logger.info("state_mtmv2:" + state_mtmv2)
-//        assertTrue(state_mtmv2[0][0] == "NORMAL")
-//        assertTrue(state_mtmv2[0][1] == "SUCCESS")
-//        assertTrue(state_mtmv2[0][2] == true)
-//
-//        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-//            sql """use ${dbName}"""
-//            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-//            compare_res(sql2 + " order by 1,2,3")
-//        }
-//
-//        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-//            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-//            sql """use ${dbName}"""
-//            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-//            compare_res(sql2 + " order by 1,2,3")
-//        }
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(p_20180115)"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
     } else if (step == 4) {
 
         assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
@@ -275,43 +275,45 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_not_part_in(sql2, mtmvName2)
         }
 
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+        mtmv_part_res = sql """show partitions from ${mtmvName2}"""
+        logger.info("mtmv_part_res:" + mtmv_part_res)
+        def part_2 = mtmv_part_res.size()
+        assertTrue(part_1 == part_2 + diff_part)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
     }
 
-    // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
-    try {
-        sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
-    } catch (Exception e) {
-        logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
-        logger.info(e.getMessage())
-    }
 
-    // When refreshing the entire MTMV, the partition will be deleted.
-    sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
-    waitingMTMVTaskFinishedByMvName(mtmvName2)
-    mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-    logger.info("mtmv_part_res:" + mtmv_part_res)
-    def part_2 = mtmv_part_res.size()
-    assertTrue(part_1 == part_2 + diff_part)
-
-    state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-    logger.info("state_mtmv2:" + state_mtmv2)
-    assertTrue(state_mtmv2[0][0] == "NORMAL")
-    assertTrue(state_mtmv2[0][1] == "SUCCESS")
-    assertTrue(state_mtmv2[0][2] == true)
-
-    connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-        compare_res(sql2 + " order by 1,2,3")
-    }
-
-    connect('root', context.config.jdbcPassword, master_jdbc_url) {
-        sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-        sql """use ${dbName}"""
-        mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-        compare_res(sql2 + " order by 1,2,3")
-    }
 
 
     // mtmv3: insert data
