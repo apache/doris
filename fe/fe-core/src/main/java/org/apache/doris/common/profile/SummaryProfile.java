@@ -21,6 +21,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
@@ -242,6 +244,8 @@ public class SummaryProfile {
 
     @SerializedName(value = "nereidsCollectTablePartitionFinishTime")
     private long nereidsCollectTablePartitionFinishTime = -1;
+    @SerializedName(value = "nereidsCollectTablePartitionTime")
+    private long nereidsCollectTablePartitionTime = 0;
     @SerializedName(value = "nereidsAnalysisFinishTime")
     private long nereidsAnalysisFinishTime = -1;
     @SerializedName(value = "nereidsRewriteFinishTime")
@@ -796,7 +800,13 @@ public class SummaryProfile {
 
 
     public String getPrettyNereidsCollectTablePartitionTime() {
-        return getPrettyTime(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
+        long totalTime = nereidsCollectTablePartitionFinishTime
+                - nereidsRewriteFinishTime + nereidsCollectTablePartitionTime;
+        return RuntimeProfile.printCounter(totalTime, TUnit.TIME_MS);
+    }
+
+    public void addCollectTablePartitionTime(long elapsed) {
+        nereidsCollectTablePartitionTime += elapsed;
     }
 
     public String getPrettyNereidsOptimizeTime() {
@@ -970,5 +980,16 @@ public class SummaryProfile {
 
     public void setAssignedWeightPerBackend(Map<Backend, Long> assignedWeightPerBackend) {
         this.assignedWeightPerBackend = assignedWeightPerBackend;
+    }
+
+    public static SummaryProfile getSummaryProfile(ConnectContext connectContext) {
+        ConnectContext ctx = connectContext == null ? ConnectContext.get() : connectContext;
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
     }
 }

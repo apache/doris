@@ -22,6 +22,8 @@ import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -423,7 +425,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // need to collect table partition again, because the rewritten plan would contain new relation
             // and the rewritten plan would part in rewritten later , the table used partition info is needed
             // for later rewrite
-            MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
+            long startTimeMs = TimeUtils.getStartTimeMs();
+            try {
+                MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
+            } finally {
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
+                if (summaryProfile != null) {
+                    summaryProfile.addCollectTablePartitionTime(TimeUtils.getElapsedTimeMs(startTimeMs));
+                }
+            }
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
