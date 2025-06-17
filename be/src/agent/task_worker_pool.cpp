@@ -1477,6 +1477,7 @@ void PushTaskPool::_push_worker_thread_callback() {
 
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
+        bool get_task = false;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             _worker_thread_condition_variable.wait(
@@ -1493,16 +1494,22 @@ void PushTaskPool::_push_worker_thread_callback() {
 
                 if (it == _tasks.cend()) {
                     // there is no high priority task. notify other thread to handle normal task
+                    get_task = false;
                     _worker_thread_condition_variable.notify_all();
-                    sleep(1);
-                    continue;
+                } else {
+                    agent_task_req = *it;
+                    _tasks.erase(it);
+                    get_task = true;
                 }
-                agent_task_req = *it;
-                _tasks.erase(it);
             } else {
                 agent_task_req = _tasks.front();
                 _tasks.pop_front();
+                get_task = true;
             }
+        }
+        if (!get_task) { // There is no HIGH priority task.
+            sleep(1);
+            continue;
         }
         TPushReq& push_req = agent_task_req.push_req;
 
