@@ -23,7 +23,6 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCachedStatsStmt;
-import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
@@ -927,38 +926,6 @@ public class AnalysisManager implements Writable {
         long dbId = stmt.getDbId();
         long tblId = stmt.getTblId();
         dropCachedStats(catalogId, dbId, tblId);
-    }
-
-    public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
-        if (dropStatsStmt.dropExpired) {
-            Env.getCurrentEnv().getStatisticsCleaner().clear();
-            return;
-        }
-
-        TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
-        if (tableStats == null) {
-            return;
-        }
-        Set<String> cols = dropStatsStmt.getColumnNames();
-        PartitionNames partitionNames = dropStatsStmt.getPartitionNames();
-        long catalogId = dropStatsStmt.getCatalogIdId();
-        long dbId = dropStatsStmt.getDbId();
-        long tblId = dropStatsStmt.getTblId();
-        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
-        // Remove tableMetaStats if drop whole table stats.
-        if (cols == null && (!table.isPartitionedTable() || partitionNames == null
-                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
-            removeTableStats(tblId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
-        }
-        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
-        // Drop stats ddl is master only operation.
-        Set<String> partitions = null;
-        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
-            partitions = new HashSet<>(partitionNames.getPartitionNames());
-        }
-        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
-        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
     }
 
     public void dropStats(TableIf table, PartitionNames partitionNames) {
