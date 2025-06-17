@@ -1064,7 +1064,7 @@ ColumnPtr ColumnVariant::replicate(const Offsets& offsets) const {
             [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
 }
 
-ColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
     if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {
             limit = num_rows;
@@ -1606,7 +1606,7 @@ void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumn
                                        nested_object_nullable->get_null_map_column_ptr()),
                 offset);
         auto nullable_subnested_column = ColumnNullable::create(
-                subnested_column, nested_column_nullable->get_null_map_column_ptr());
+                std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
