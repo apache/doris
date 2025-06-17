@@ -282,7 +282,7 @@ Array create_empty_array_field(size_t num_dimensions) {
     Array array;
     Array* current_array = &array;
     for (size_t i = 1; i < num_dimensions; ++i) {
-        current_array->push_back(Field::create_field<TYPE_NULL>(Null()));
+        current_array->push_back(Field::create_field<TYPE_ARRAY>(Array()));
         current_array = &current_array->back().get<Array&>();
     }
 

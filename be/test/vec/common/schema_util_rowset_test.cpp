@@ -131,7 +131,6 @@ static void fill_string_column_with_test_data(auto& column_string, int size, int
             all_path_stats[uid][key] += 1;
         }
         json_str += "}";
-        vectorized::Field str(json_str);
         column_string->insert_data(json_str.data(), json_str.size());
     }
 }
@@ -150,7 +149,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
     auto columns = block->mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
-        vectorized::Field key = i;
+        vectorized::Field key = vectorized::Field::create_field<TYPE_INT>(i);
         columns[0]->insert(key);
     }
 
@@ -159,7 +158,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
 
     // insert v2
     for (int i = 0; i < size; i++) {
-        vectorized::Field v2("V2");
+        vectorized::Field v2 = vectorized::Field::create_field<TYPE_STRING>("V2");
         columns[2]->insert(v2);
     }
 
@@ -168,7 +167,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
 
     // insert v4
     for (int i = 0; i < size; i++) {
-        vectorized::Field v4(i);
+        vectorized::Field v4 = vectorized::Field::create_field<TYPE_INT>(i);
         columns[4]->insert(v4);
     }
 }
@@ -524,11 +523,11 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnObject::create(true);
+    auto insert_object = ColumnVariant::create(true);
     fill_varaint_column(insert_object, 1, 1);
     std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
-    _variant_column_data->column_data = insert_object;
+    _variant_column_data->column_data = insert_object.get();
     _variant_column_data->row_pos = 0;
     const uint8_t* data = (const uint8_t*)_variant_column_data.get();
     EXPECT_TRUE(variant_subcolumn_writer->append_data(&data, 1));

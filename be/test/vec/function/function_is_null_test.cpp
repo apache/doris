@@ -19,6 +19,7 @@
 
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_file_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/storage_engine.h"
 #include "vec/functions/is_not_null.h"
 #include "vec/functions/is_null.h"
@@ -218,17 +219,17 @@ TEST_F(FunctionIsNullTest, gc_binlogs_test) {
         auto index_file_reader = std::make_shared<InvertedIndexFileReader>(
                 io::global_local_filesystem(), index_prefix, InvertedIndexStorageFormatPB::V2);
         EXPECT_TRUE(index_file_reader->init().ok());
-        auto index_meta = _tablet_schema->inverted_index(0);
-        EXPECT_TRUE(index_meta);
-        auto bkd_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
+        auto index_meta = _tablet_schema->inverted_indexs(0);
+        EXPECT_TRUE(index_meta.at(0));
+        auto bkd_reader = BkdIndexReader::create_shared(index_meta.at(0), index_file_reader);
         EXPECT_TRUE(bkd_reader);
         check_result(bkd_reader.get(), true, 1);
         check_result(bkd_reader.get(), false, 2);
 
-        auto index_meta2 = _tablet_schema->inverted_index(1);
-        EXPECT_TRUE(index_meta2);
+        auto index_meta2 = _tablet_schema->inverted_indexs(1);
+        EXPECT_TRUE(index_meta2.at(0));
         auto string_reader =
-                StringTypeInvertedIndexReader::create_shared(index_meta2, index_file_reader);
+                StringTypeInvertedIndexReader::create_shared(index_meta2.at(0), index_file_reader);
         EXPECT_TRUE(string_reader);
         check_result(string_reader.get(), true, 2);
         check_result(string_reader.get(), false, 1);

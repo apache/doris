@@ -545,8 +545,7 @@ TEST_F(ICUTokenizerTest, TestICUEmoji) {
             "🏴";
     tokenize(longWordText, datas);
     std::vector<std::string> result = {
-            "💩", "💩", "💩", "👩‍❤️‍👩", "👨🏼‍⚕️", "🇺🇸", "🇺🇸",
-            "#️⃣",  "3️⃣",  "🏴"};
+            "💩", "💩", "💩", "👩‍❤️‍👩", "👨🏼‍⚕️", "🇺🇸", "🇺🇸", "#️⃣", "3️⃣", "🏴"};
     for (size_t i = 0; i < datas.size(); i++) {
         ASSERT_EQ(datas[i], result[i]);
     }

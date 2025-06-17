@@ -82,6 +82,9 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     case PrimitiveType::TYPE_ARRAY:
         return visitor.template apply<PrimitiveType::TYPE_ARRAY>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_ARRAY>::NearestFieldType>());
+    case PrimitiveType::TYPE_MAP:
+        return visitor.template apply<PrimitiveType::TYPE_MAP>(
+                field.template get<typename PrimitiveTypeTraits<TYPE_MAP>::NearestFieldType>());
     case PrimitiveType::TYPE_STRUCT:
         return visitor.template apply<PrimitiveType::TYPE_STRUCT>(
                 field.template get<typename PrimitiveTypeTraits<TYPE_STRUCT>::NearestFieldType>());

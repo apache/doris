@@ -24,13 +24,13 @@
 #include "olap/rowset/segment_v2/variant/variant_column_writer_impl.h"
 #include "testutil/variant_util.h"
 #include "vec/columns/column_nothing.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/schema_util.cpp"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/data_type_variant.h"
 
 using namespace doris::vectorized;
@@ -450,23 +450,23 @@ TEST_F(SchemaUtilTest, get_subpaths) {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
     // get subpaths
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
+    TabletSchema::PathsSetInfo uid_to_paths_set_info;
+    schema_util::get_subpaths(3, path_stats[1], uid_to_paths_set_info);
 
-    EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
-    EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 2);
+    EXPECT_EQ(uid_to_paths_set_info.sub_path_set.size(), 3);
+    EXPECT_EQ(uid_to_paths_set_info.sparse_path_set.size(), 2);
 
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path1") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path2") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path3") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sub_path_set.find("path1") !=
+                uid_to_paths_set_info.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sub_path_set.find("path2") !=
+                uid_to_paths_set_info.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sub_path_set.find("path3") !=
+                uid_to_paths_set_info.sub_path_set.end());
 
-    EXPECT_TRUE(uid_to_paths_set_info[1].sparse_path_set.find("path4") !=
-                uid_to_paths_set_info[1].sparse_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sparse_path_set.find("path5") !=
-                uid_to_paths_set_info[1].sparse_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sparse_path_set.find("path4") !=
+                uid_to_paths_set_info.sparse_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sparse_path_set.find("path5") !=
+                uid_to_paths_set_info.sparse_path_set.end());
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
@@ -479,18 +479,18 @@ TEST_F(SchemaUtilTest, get_subpaths_equal_to_max) {
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
     path_stats[1] = {{"path1", 1000}, {"path2", 800}, {"path3", 500}};
 
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
+    TabletSchema::PathsSetInfo uid_to_paths_set_info;
+    schema_util::get_subpaths(3, path_stats[1], uid_to_paths_set_info);
 
-    EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
-    EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
+    EXPECT_EQ(uid_to_paths_set_info.sub_path_set.size(), 3);
+    EXPECT_EQ(uid_to_paths_set_info.sparse_path_set.size(), 0);
 
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path1") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path2") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path3") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sub_path_set.find("path1") !=
+                uid_to_paths_set_info.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sub_path_set.find("path2") !=
+                uid_to_paths_set_info.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info.sub_path_set.find("path3") !=
+                uid_to_paths_set_info.sub_path_set.end());
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
@@ -519,45 +519,47 @@ TEST_F(SchemaUtilTest, get_subpaths_multiple_variants) {
     path_stats[4] = {
             {"path1", 1000}, {"path2", 800}, {"path3", 500}, {"path4", 300}, {"path5", 200}};
 
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(3, path_stats[1], uid_to_paths_set_info[1]);
-    schema_util::get_subpaths(2, path_stats[2], uid_to_paths_set_info[2]);
-    schema_util::get_subpaths(4, path_stats[3], uid_to_paths_set_info[3]);
+    TabletSchema::PathsSetInfo uid_to_paths_set_info1;
+    TabletSchema::PathsSetInfo uid_to_paths_set_info2;
+    TabletSchema::PathsSetInfo uid_to_paths_set_info3;
+    schema_util::get_subpaths(3, path_stats[1], uid_to_paths_set_info1);
+    schema_util::get_subpaths(2, path_stats[2], uid_to_paths_set_info2);
+    schema_util::get_subpaths(4, path_stats[3], uid_to_paths_set_info3);
 
-    EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 3);
-    EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 2);
+    EXPECT_EQ(uid_to_paths_set_info1.sub_path_set.size(), 3);
+    EXPECT_EQ(uid_to_paths_set_info1.sparse_path_set.size(), 2);
 
-    EXPECT_EQ(uid_to_paths_set_info[2].sub_path_set.size(), 2);
-    EXPECT_EQ(uid_to_paths_set_info[2].sparse_path_set.size(), 0);
+    EXPECT_EQ(uid_to_paths_set_info2.sub_path_set.size(), 2);
+    EXPECT_EQ(uid_to_paths_set_info2.sparse_path_set.size(), 0);
 
-    EXPECT_EQ(uid_to_paths_set_info[3].sub_path_set.size(), 4);
-    EXPECT_EQ(uid_to_paths_set_info[3].sparse_path_set.size(), 0);
+    EXPECT_EQ(uid_to_paths_set_info3.sub_path_set.size(), 4);
+    EXPECT_EQ(uid_to_paths_set_info3.sparse_path_set.size(), 0);
 
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path1") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path2") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sub_path_set.find("path3") !=
-                uid_to_paths_set_info[1].sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info1.sub_path_set.find("path1") !=
+                uid_to_paths_set_info1.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info1.sub_path_set.find("path2") !=
+                uid_to_paths_set_info1.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info1.sub_path_set.find("path3") !=
+                uid_to_paths_set_info1.sub_path_set.end());
 
-    EXPECT_TRUE(uid_to_paths_set_info[1].sparse_path_set.find("path4") !=
-                uid_to_paths_set_info[1].sparse_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[1].sparse_path_set.find("path5") !=
-                uid_to_paths_set_info[1].sparse_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info1.sparse_path_set.find("path4") !=
+                uid_to_paths_set_info1.sparse_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info1.sparse_path_set.find("path5") !=
+                uid_to_paths_set_info1.sparse_path_set.end());
 
-    EXPECT_TRUE(uid_to_paths_set_info[2].sub_path_set.find("path1") !=
-                uid_to_paths_set_info[2].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[2].sub_path_set.find("path2") !=
-                uid_to_paths_set_info[2].sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info2.sub_path_set.find("path1") !=
+                uid_to_paths_set_info2.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info2.sub_path_set.find("path2") !=
+                uid_to_paths_set_info2.sub_path_set.end());
 
-    EXPECT_TRUE(uid_to_paths_set_info[3].sub_path_set.find("path1") !=
-                uid_to_paths_set_info[3].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[3].sub_path_set.find("path2") !=
-                uid_to_paths_set_info[3].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[3].sub_path_set.find("path3") !=
-                uid_to_paths_set_info[3].sub_path_set.end());
-    EXPECT_TRUE(uid_to_paths_set_info[3].sub_path_set.find("path4") !=
-                uid_to_paths_set_info[3].sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info3.sub_path_set.find("path1") !=
+                uid_to_paths_set_info3.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info3.sub_path_set.find("path2") !=
+                uid_to_paths_set_info3.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info3.sub_path_set.find("path3") !=
+                uid_to_paths_set_info3.sub_path_set.end());
+    EXPECT_TRUE(uid_to_paths_set_info3.sub_path_set.find("path4") !=
+                uid_to_paths_set_info3.sub_path_set.end());
 }
 
 TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
@@ -570,11 +572,11 @@ TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
     std::unordered_map<int32_t, schema_util::PathToNoneNullValues> path_stats;
     path_stats[2] = {{"path1", 1000}, {"path2", 800}};
 
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    schema_util::get_subpaths(3, path_stats[2], uid_to_paths_set_info[2]);
+    TabletSchema::PathsSetInfo uid_to_paths_set_info;
+    schema_util::get_subpaths(3, path_stats[2], uid_to_paths_set_info);
 
-    EXPECT_EQ(uid_to_paths_set_info[1].sub_path_set.size(), 0);
-    EXPECT_EQ(uid_to_paths_set_info[1].sparse_path_set.size(), 0);
+    EXPECT_EQ(uid_to_paths_set_info.sub_path_set.size(), 2);
+    EXPECT_EQ(uid_to_paths_set_info.sparse_path_set.size(), 0);
 }
 
 TEST_F(SchemaUtilTest, generate_sub_column_info_based) {
@@ -703,35 +705,30 @@ TEST_F(SchemaUtilTest, TestArrayDimensions) {
 
     // Test get_base_type_of_array
     auto base_type = schema_util::get_base_type_of_array(array_type);
-    EXPECT_EQ(base_type->get_type_id(), TypeIndex::Int32);
+    EXPECT_EQ(base_type->get_primitive_type(), PrimitiveType::TYPE_INT);
 
     base_type = schema_util::get_base_type_of_array(nested_array_type);
-    EXPECT_EQ(base_type->get_type_id(), TypeIndex::Int32);
-
-    // Test create_empty_array_field
-    auto array_field = schema_util::create_empty_array_field(2);
-    EXPECT_EQ(array_field.size(), 1);
-    EXPECT_TRUE(array_field[0].get<Array>().empty());
+    EXPECT_EQ(base_type->get_primitive_type(), PrimitiveType::TYPE_INT);
 }
 
 TEST_F(SchemaUtilTest, TestIntegerConversion) {
     // Test conversion between integers
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8,
-                                                                      TypeIndex::Int16));
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int8,
-                                                                      TypeIndex::Int32));
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::Int16,
-                                                                      TypeIndex::Int32));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
+            PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_SMALLINT));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_TINYINT,
+                                                                      PrimitiveType::TYPE_INT));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_SMALLINT,
+                                                                      PrimitiveType::TYPE_INT));
 
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int32,
-                                                                     TypeIndex::Int16));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::Int64,
-                                                                     TypeIndex::Int32));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_INT,
+                                                                     PrimitiveType::TYPE_SMALLINT));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_BIGINT,
+                                                                     PrimitiveType::TYPE_INT));
 
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt8,
-                                                                      TypeIndex::UInt16));
-    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(TypeIndex::UInt32,
-                                                                     TypeIndex::UInt16));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
+            PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_SMALLINT));
+    EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_INT,
+                                                                     PrimitiveType::TYPE_SMALLINT));
 }
 
 TEST_F(SchemaUtilTest, TestColumnCasting) {
@@ -740,7 +737,7 @@ TEST_F(SchemaUtilTest, TestColumnCasting) {
     auto dst_type = std::make_shared<DataTypeInt64>();
 
     auto column = ColumnInt32::create();
-    column->insert(42);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(42));
 
     ColumnWithTypeAndName src_col;
     src_col.type = src_type;
@@ -752,7 +749,6 @@ TEST_F(SchemaUtilTest, TestColumnCasting) {
 
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(result->get_int(0), 42);
-    EXPECT_EQ(result->get_name(), TypeName<Int64>::get());
 }
 
 TEST_F(SchemaUtilTest, TestGetColumnByType) {
@@ -793,10 +789,10 @@ TEST_F(SchemaUtilTest, TestGetColumnByType) {
 
 //TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
 //    // Create test subcolumns
-//    vectorized::ColumnObject::Subcolumns subcolumns;
+//    vectorized::ColumnVariant::Subcolumns subcolumns;
 //
 //    auto create_subcolumn = [](const std::string& path) {
-//        auto subcol = std::make_shared<vectorized::ColumnObject::Subcolumn>();
+//        auto subcol = std::make_shared<vectorized::ColumnVariant::Subcolumn>();
 //        subcol->path = path;
 //        return subcol;
 //    };
@@ -842,10 +838,10 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     Block block;
 
     // Create a variant column with JSON string data
-    auto variant_type = std::make_shared<DataTypeObject>(10);
-    auto variant_column = ColumnObject::create(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10);
+    auto variant_column = ColumnVariant::create(10);
     auto root_column = ColumnString::create();
-    root_column->insert("{'a': 1, 'b': 'test'}");
+    root_column->insert(vectorized::Field::create_field<TYPE_STRING>("{'a': 1, 'b': 'test'}"));
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
 
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
@@ -861,7 +857,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumns) {
     std::cout << "Result column name: " << result_column->get_name() << std::endl;
     EXPECT_TRUE(result_column->get_name().find("variant") == std::string::npos);
 
-    const auto& obj_column = assert_cast<const ColumnObject&>(*result_column);
+    const auto& obj_column = assert_cast<const ColumnVariant&>(*result_column);
     EXPECT_TRUE(obj_column.is_scalar_variant());
 }
 
@@ -892,20 +888,20 @@ TEST_F(SchemaUtilTest, TestGetLeastCommonSchema) {
 
 TEST_F(SchemaUtilTest, TestGetSizeOfInteger) {
     // Test all integer types
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int8), sizeof(int8_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int16), sizeof(int16_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int32), sizeof(int32_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int64), sizeof(int64_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::Int128), sizeof(int128_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_TINYINT), sizeof(int8_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_SMALLINT), sizeof(int16_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_INT), sizeof(int32_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_BIGINT), sizeof(int64_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_LARGEINT), sizeof(int128_t));
 
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt8), sizeof(uint8_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt16), sizeof(uint16_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt32), sizeof(uint32_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt64), sizeof(uint64_t));
-    EXPECT_EQ(schema_util::get_size_of_interger(TypeIndex::UInt128), sizeof(uint128_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_TINYINT), sizeof(uint8_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_SMALLINT), sizeof(uint16_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_INT), sizeof(uint32_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_BIGINT), sizeof(uint64_t));
+    EXPECT_EQ(schema_util::get_size_of_interger(PrimitiveType::TYPE_LARGEINT), sizeof(uint128_t));
 
     // Test invalid type
-    //    EXPECT_THROW(schema_util::get_size_of_interger(TypeIndex::String), Exception);
+    //    EXPECT_THROW(schema_util::get_size_of_interger(PrimitiveType::TYPE_STRING), Exception);
 }
 
 TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
@@ -925,7 +921,7 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_EQ(result->size(), 1);
 
     // Test casting to variant type
-    auto variant_type = std::make_shared<DataTypeObject>(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10);
     auto nullable_array_type =
             make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()));
     auto array_column =
@@ -953,7 +949,7 @@ TEST_F(SchemaUtilTest, TestCastColumnEdgeCases) {
     EXPECT_TRUE(result1->is_nullable());
 
     // Test casting from variant to variant
-    auto variant_column = ColumnObject::create(10);
+    auto variant_column = ColumnVariant::create(10);
     variant_column->create_root(nullable_array_type, nullable_array_column->assume_mutable());
 
     ColumnWithTypeAndName variant_col;
@@ -975,8 +971,8 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
     // Insert some test dataset
     auto nested_array =
             ColumnArray::create(ColumnIPv4::create(), ColumnArray::ColumnOffsets::create());
-    nested_array->insert(Array(IPv4(1)));
-    nested_array->insert(Array(IPv4(2)));
+    nested_array->insert(vectorized::Field::create_field<TYPE_ARRAY>(Array(IPv4(1))));
+    nested_array->insert(vectorized::Field::create_field<TYPE_ARRAY>(Array(IPv4(2))));
 
     ColumnWithTypeAndName src_col;
     src_col.type = complex_type;
@@ -995,7 +991,7 @@ TEST_F(SchemaUtilTest, TestCastColumnWithExecuteFailure) {
 
 TEST_F(SchemaUtilTest, TestGetColumnByTypeEdgeCases) {
     // Test decimal type
-    auto decimal_type = std::make_shared<DataTypeDecimal<Decimal128V2>>(18, 2);
+    auto decimal_type = std::make_shared<DataTypeDecimal<doris::TYPE_DECIMALV2>>(18, 2);
     schema_util::ExtraInfo ext_info;
     auto decimal_column = schema_util::get_column_by_type(decimal_type, "decimal_col", ext_info);
     EXPECT_EQ(decimal_column.type(), FieldType::OLAP_FIELD_TYPE_DECIMAL);
@@ -1530,7 +1526,7 @@ TEST_F(SchemaUtilTest, TestGetCompactionSchema) {
 
 TEST_F(SchemaUtilTest, TestGetSortedSubcolumns) {
     // Create test subcolumns
-    vectorized::ColumnObject::Subcolumns subcolumns;
+    vectorized::ColumnVariant::Subcolumns subcolumns;
     auto obj = VariantUtil::construct_dst_varint_column();
 
     auto sorted = schema_util::get_sorted_subcolumns(obj->get_subcolumns());
@@ -1565,14 +1561,14 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     Block block;
 
     // Test parsing from string to variant
-    auto variant_type = std::make_shared<DataTypeObject>(10);
-    auto variant_column = ColumnObject::create(10);
+    auto variant_type = std::make_shared<DataTypeVariant>(10);
+    auto variant_column = ColumnVariant::create(10);
     auto root_column = ColumnString::create();
 
     // Add some test JSON data
-    root_column->insert("{'a': 1, 'b': 'test'}");
-    root_column->insert("{'a': 2, 'c': [1,2,3]}");
-    root_column->insert("{'a': 3, 'd': {'x': 1}}");
+    root_column->insert(vectorized::Field::create_field<TYPE_STRING>("{'a': 1, 'b': 'test'}"));
+    root_column->insert(vectorized::Field::create_field<TYPE_STRING>("{'a': 2, 'c': [1,2,3]}"));
+    root_column->insert(vectorized::Field::create_field<TYPE_STRING>("{'a': 3, 'd': {'x': 1}}"));
 
     variant_column->create_root(std::make_shared<DataTypeString>(), root_column->get_ptr());
     block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
@@ -1586,9 +1582,9 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     // Test parsing from JSONB to variant
     auto jsonb_type = std::make_shared<DataTypeJsonb>();
     auto jsonb_column = ColumnString::create();
-    jsonb_column->insert("{'x': 1}");
+    jsonb_column->insert(vectorized::Field::create_field<TYPE_STRING>("{'x': 1}"));
 
-    auto variant_column2 = ColumnObject::create(10);
+    auto variant_column2 = ColumnVariant::create(10);
     variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
 
     Block block2;
@@ -1598,7 +1594,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
     EXPECT_TRUE(status.ok());
 
     // Test parsing already parsed variant
-    auto variant_column3 = ColumnObject::create(10);
+    auto variant_column3 = ColumnVariant::create(10);
     variant_column3->finalize();
 
     Block block3;
@@ -1612,14 +1608,14 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     Block block;
 
     // Create a nullable variant column
-    auto variant_type = make_nullable(std::make_shared<DataTypeObject>(10));
+    auto variant_type = make_nullable(std::make_shared<DataTypeVariant>(10));
     auto string_type = make_nullable(std::make_shared<DataTypeString>());
 
     auto string_column = ColumnString::create();
-    string_column->insert("{'a': 1}");
+    string_column->insert(vectorized::Field::create_field<TYPE_STRING>("{'a': 1}"));
     auto nullable_string = make_nullable(string_column->get_ptr());
 
-    auto variant_column = ColumnObject::create(10);
+    auto variant_column = ColumnVariant::create(10);
     variant_column->create_root(string_type, nullable_string->assume_mutable());
     auto nullable_variant = make_nullable(variant_column->get_ptr());
 

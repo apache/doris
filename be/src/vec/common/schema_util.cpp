@@ -116,17 +116,6 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type) {
     return last_array ? last_array->get_nested_type() : type;
 }
 
-Array create_empty_array_field(size_t num_dimensions) {
-    DCHECK(num_dimensions > 0);
-    Array array;
-    Array* current_array = &array;
-    for (size_t i = 1; i < num_dimensions; ++i) {
-        current_array->push_back(Field::create_field<TYPE_ARRAY>(Array()));
-        current_array = &current_array->back().get<Array&>();
-    }
-    return array;
-}
-
 size_t get_size_of_interger(PrimitiveType type) {
     switch (type) {
     case PrimitiveType::TYPE_TINYINT:

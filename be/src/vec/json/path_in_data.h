@@ -37,12 +37,6 @@ namespace doris::vectorized {
 class PathInData;
 using PathInDataPtr = std::shared_ptr<PathInData>;
 
-struct TypeInfo {
-    PrimitiveType type = PrimitiveType::INVALID_TYPE;
-    Int8 scale = -1;
-    Int8 precision = -1;
-};
-
 class PathInData {
 public:
     struct Part {
@@ -67,7 +61,6 @@ public:
     using Parts = std::vector<Part>;
     PathInData() = default;
     explicit PathInData(std::string_view path_, bool is_typed_ = false);
-    explicit PathInData(std::string_view path_, TypeInfo type_info);
     explicit PathInData(const Parts& parts_);
     explicit PathInData(std::string_view path_, const Parts& parts_, bool is_typed_ = false);
     explicit PathInData(const std::vector<std::string>& paths);
@@ -108,12 +101,6 @@ public:
                 [](const auto& a, const auto& b) { return a.key < b.key; });
     }
 
-    PathInData with_type_info(const TypeInfo& type_info) const {
-        PathInData new_path = *this;
-        new_path.type_info = type_info;
-        return new_path;
-    }
-
 private:
     /// Creates full path from parts.
     void build_path(const Parts& other_parts);
@@ -129,9 +116,6 @@ private:
 
     /// True if the path is typed, e.g. a.b: int
     bool is_typed = false;
-
-    // type info of the path, only used in decimal type or datetime type
-    TypeInfo type_info;
 };
 
 class PathInDataBuilder {
