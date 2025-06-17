@@ -527,7 +527,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     fill_varaint_column(insert_object, 1, 1);
     std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
-    _variant_column_data->column_data = &insert_object;
+    _variant_column_data->column_data = insert_object.get();
     _variant_column_data->row_pos = 0;
     const uint8_t* data = (const uint8_t*)_variant_column_data.get();
     EXPECT_TRUE(variant_subcolumn_writer->append_data(&data, 1));

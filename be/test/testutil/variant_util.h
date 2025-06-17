@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include "vec/columns/column_variant.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/schema_util.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/json/parse2column.h"
@@ -50,16 +50,20 @@ public:
             field_map["array_str"] = arr_str_field;
 
             // add other int value
-            field_map["int_16"] = doris::vectorized::Field::create_field<TYPE_SMALLINT>(std::numeric_limits<Int16>::max());
-            field_map["int_32"] = doris::vectorized::Field::create_field<TYPE_INT>(std::numeric_limits<Int32>::max());
-            field_map["int_64"] = doris::vectorized::Field::create_field<TYPE_BIGINT>(Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
+            field_map["int_16"] = doris::vectorized::Field::create_field<TYPE_SMALLINT>(
+                    std::numeric_limits<Int16>::max());
+            field_map["int_32"] = doris::vectorized::Field::create_field<TYPE_INT>(
+                    std::numeric_limits<Int32>::max());
+            field_map["int_64"] = doris::vectorized::Field::create_field<TYPE_BIGINT>(
+                    Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
         }
         return field_map[type];
     }
 
     static doris::vectorized::Field construct_variant_map(
             const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
-        doris::vectorized::Field res = doris::vectorized::Field::create_field<TYPE_VARIANT>(VariantMap());
+        doris::vectorized::Field res =
+                doris::vectorized::Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& object = res.get<VariantMap&>();
         for (const auto& [k, v] : key_and_values) {
             PathInData path(k);
@@ -76,17 +80,20 @@ public:
 
         // 2. subcolumn path
         data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b", doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.b",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
         data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
         data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e", doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.e",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
         }
 
         // 3. sparse column path
-        data.emplace_back("v.d.d", doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.d.d",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
         data.emplace_back("v.c.d", doris::vectorized::Field::create_field<TYPE_INT>(30));
         data.emplace_back("v.b.d", doris::vectorized::Field::create_field<TYPE_INT>(30));
         for (int i = 0; i < 5; ++i) {
@@ -99,7 +106,8 @@ public:
     static auto construct_dst_varint_column() {
         // 1. create an empty variant column
         vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.create_root(vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
+        dynamic_subcolumns.create_root(
+                vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
         dynamic_subcolumns.add(vectorized::PathInData("v.f"),
                                vectorized::ColumnVariant::Subcolumn {0, true});
         dynamic_subcolumns.add(vectorized::PathInData("v.e"),
@@ -164,10 +172,12 @@ public:
 
         // 2. subcolumn path
         data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b", doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.b",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
         data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
         data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e", doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.e",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
@@ -186,11 +196,14 @@ public:
 
         // 2. subcolumn path
         data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b", doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.b",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
         data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
         data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e", doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
-        data.emplace_back("v.s", doris::vectorized::Field::create_field<TYPE_STRING>(String("str", 3)));
+        data.emplace_back("v.e",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.s",
+                          doris::vectorized::Field::create_field<TYPE_STRING>(String("str", 3)));
         data.emplace_back("v.x", get_field("int_16"));
         data.emplace_back("v.y", get_field("int_32"));
         data.emplace_back("v.z", get_field("int_64"));

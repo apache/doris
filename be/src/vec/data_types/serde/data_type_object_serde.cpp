@@ -141,22 +141,9 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    arrow::ArrayBuilder* array_builder,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
-    const auto* var = check_and_get_column<ColumnVariant>(column);
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
-    for (size_t i = start; i < end; ++i) {
-        if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
-        } else {
-            std::string serialized_value;
-            var->serialize_one_row_to_string(i, &serialized_value);
-            RETURN_IF_ERROR(
-                    checkArrowStatus(builder.Append(serialized_value.data(),
-                                                    static_cast<int>(serialized_value.size())),
-                                     column.get_name(), array_builder->type()->name()));
-        }
-    }
-    return Status::OK();
+    // we should not implement write_column_to_arrow for variant type before we exactly know how to define the behavior.
+    return Status::NotSupported(
+            "DataTypeVariantSerDe::write_column_to_arrow is not implemented yet.");
 }
 
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

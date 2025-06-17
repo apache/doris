@@ -96,8 +96,7 @@ void check_sparse_column_meta(const ColumnMetaPB& column_meta, auto& path_with_s
     auto path = std::make_shared<vectorized::PathInData>();
     path->from_protobuf(column_meta.column_path_info());
     EXPECT_EQ(column_meta.column_path_info().parrent_column_unique_id(), 1);
-    for (const auto& [pat, size] :
-         column_meta.variant_statistics().sparse_column_non_null_size()) {
+    for (const auto& [pat, size] : column_meta.variant_statistics().sparse_column_non_null_size()) {
         EXPECT_EQ(size, path_with_size[pat]);
     }
     EXPECT_EQ(path->copy_pop_front().get_path(), "__DORIS_VARIANT_SPARSE__");
@@ -298,7 +297,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     for (int i = 0; i < 1000; ++i) {
         std::string value;
-        assert_cast<ColumnVariant*>(new_column_object.get())->serialize_one_row_to_string(i, &value);
+        assert_cast<ColumnVariant*>(new_column_object.get())
+                ->serialize_one_row_to_string(i, &value);
 
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
@@ -314,7 +314,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     EXPECT_TRUE(st.ok()) << st.msg();
     for (int i = 0; i < row_ids.size(); ++i) {
         std::string value;
-        assert_cast<ColumnVariant*>(new_column_object.get())->serialize_one_row_to_string(i, &value);
+        assert_cast<ColumnVariant*>(new_column_object.get())
+                ->serialize_one_row_to_string(i, &value);
         EXPECT_EQ(value, inserted_jsonstr[row_ids[i]]);
     }
 
@@ -781,7 +782,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
 
     for (int i = 0; i < 1000; ++i) {
         std::string value;
-        assert_cast<ColumnVariant*>(new_column_object.get())->serialize_one_row_to_string(i, &value);
+        assert_cast<ColumnVariant*>(new_column_object.get())
+                ->serialize_one_row_to_string(i, &value);
         EXPECT_EQ(value, inserted_jsonstr[i]);
     }
 
@@ -894,7 +896,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_sub_index) {
     auto vw = assert_cast<VariantColumnWriter*>(writer.get());
 
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();
-    _variant_column_data->column_data = &column_object;
+    _variant_column_data->column_data = column_object.get();
     _variant_column_data->row_pos = 0;
     const uint8_t* data = (const uint8_t*)_variant_column_data.get();
     st = vw->append_data(&data, 10);

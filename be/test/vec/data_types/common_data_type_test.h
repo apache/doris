@@ -52,8 +52,6 @@
 
 namespace doris::vectorized {
 
-static bool gen_check_data_in_assert = true;
-
 class CommonDataTypeTest : public ::testing::Test {
 public:
     CommonDataTypeTest() = default;

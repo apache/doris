@@ -222,7 +222,7 @@ TEST_F(VariantRowsetCompactionTest, test_variant_rowset_compaction) {
                                                compaction._output_rs_writer.get(), 100000, 5,
                                                &compaction._stats)
                         .ok());
-    st = compaction._output_rs_writer->build(compaction._output_rowset);
+    Status st = compaction._output_rs_writer->build(compaction._output_rowset);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);

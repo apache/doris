@@ -71,7 +71,8 @@ protected:
     ////  if gen_check_data_in_assert is true, we will generate a file for check data, otherwise we will read the file to check data
     ////  so the key point is we should how we write assert callback function to check data,
     ///   and when check data is generated, we should check result to statisfy the semantic of the function
-    static void check_res_file(std::string function_name, std::vector<std::vector<std::string>>& res) {
+    static void check_res_file(std::string function_name,
+                               std::vector<std::vector<std::string>>& res) {
         std::string filename = "./res_" + function_name + ".csv";
         if (gen_check_data_in_assert) {
             std::ofstream res_file(filename);
@@ -231,9 +232,9 @@ public:
         Field f2;
         col1.get(idx1, f1);
         col2.get(idx2, f2);
-        EXPECT_EQ(f1, f2) << "idx1: " << idx1 << " idx2: " << idx2
-                          << " col1: " << col1.get_name() << " col2: " << col2.get_name()
-                          << " f1: " << f1.get_type_name() << " f2: " << f2.get_type_name();
+        EXPECT_EQ(f1, f2) << "idx1: " << idx1 << " idx2: " << idx2 << " col1: " << col1.get_name()
+                          << " col2: " << col2.get_name() << " f1: " << f1.get_type_name()
+                          << " f2: " << f2.get_type_name();
     }
     static void checkColumn(const IColumn& col1, const IColumn& col2, size_t column_size) {
         for (size_t i = 0; i < column_size; ++i) {
@@ -327,8 +328,7 @@ public:
         checkColumn(*target_column, *source_column, source_column->size());
     };
 
-    static void assert_insert_many_from_with_field_callback(
-            const MutableColumnPtr& source_column) {
+    static void assert_insert_many_from_with_field_callback(const MutableColumnPtr& source_column) {
         auto src_size = source_column->size();
         std::vector<size_t> insert_vals_count = {0, 3, 10};
         std::vector<size_t> src_data_indices = {0, src_size, src_size - 1, (src_size + 1) >> 1};
@@ -518,8 +518,7 @@ public:
             std::vector<uint32_t> indices;
 
             // empty indices array
-            tmp_target_column->insert_indices_from(*source_column, indices.data(),
-                                                   indices.data());
+            tmp_target_column->insert_indices_from(*source_column, indices.data(), indices.data());
             EXPECT_EQ(tmp_target_column->size(), 0);
         }
         auto test_func2 = [&](size_t clone_count) {
@@ -614,8 +613,7 @@ public:
         test_func(10);
 
         auto target_column = source_column->clone_empty();
-        EXPECT_THROW(target_column->insert_range_from(*source_column, 0, src_size + 1),
-                     Exception);
+        EXPECT_THROW(target_column->insert_range_from(*source_column, 0, src_size + 1), Exception);
     }
 
     // assert insert_range_from_ignore_overflow which happened in columnStr<UInt32> want to insert from ColumnStr<UInt64> for more column string to be inserted not just limit to the 4G
@@ -799,8 +797,7 @@ public:
         check_res_file("insert_indices_from", res);
     }
 
-    static void assert_insert_default_with_field_callback(
-            const MutableColumnPtr& source_column) {
+    static void assert_insert_default_with_field_callback(const MutableColumnPtr& source_column) {
         Field default_field;
         {
             auto target_column = source_column->clone_empty();
@@ -1907,8 +1904,7 @@ public:
         std::vector<IColumn::Filter*> filters = {&all_filtered, &no_filtered, &normal_filter};
         auto test_func = [&](const IColumn::Filter* filter) {
             const auto* filter_data = (const int8_t*)filter->data();
-            auto expected_size =
-                    filter->size() - simd::count_zero_num(filter_data, filter->size());
+            auto expected_size = filter->size() - simd::count_zero_num(filter_data, filter->size());
             {
                 // empty column
                 auto target_column = source_column->clone_empty();
@@ -2648,25 +2644,28 @@ auto check_permute = [](const IColumn& column, const IColumn::Permutation& permu
         }
     }
 };
-auto assert_column_vector_permute = [](MutableColumns& cols, size_t num_rows, bool stable_test = true/*some column does not support compare_at, should set false*/) {
-    for (const auto& col : cols) {
-        size_t expected_size = num_rows ? std::min(col->size(), num_rows) : col->size();
-        if (stable_test) {
-            IColumn::Permutation permutation;
-            CommonColumnTest::stable_get_column_permutation(*col, true, col->size(), -1,
-                                                            permutation);
-            check_permute(*col, permutation, num_rows, expected_size);
-        }
-        {
-            IColumn::Permutation permutation(col->size());
-            std::iota(permutation.begin(), permutation.end(), IColumn::Permutation::value_type(0));
-            std::random_device rd;
-            std::mt19937 g(rd());
-            std::shuffle(permutation.begin(), permutation.end(), g);
-            check_permute(*col, permutation, num_rows, expected_size);
-        }
-    }
-};
+auto assert_column_vector_permute =
+        [](MutableColumns& cols, size_t num_rows,
+           bool stable_test = true /*some column does not support compare_at, should set false*/) {
+            for (const auto& col : cols) {
+                size_t expected_size = num_rows ? std::min(col->size(), num_rows) : col->size();
+                if (stable_test) {
+                    IColumn::Permutation permutation;
+                    CommonColumnTest::stable_get_column_permutation(*col, true, col->size(), -1,
+                                                                    permutation);
+                    check_permute(*col, permutation, num_rows, expected_size);
+                }
+                {
+                    IColumn::Permutation permutation(col->size());
+                    std::iota(permutation.begin(), permutation.end(),
+                              IColumn::Permutation::value_type(0));
+                    std::random_device rd;
+                    std::mt19937 g(rd());
+                    std::shuffle(permutation.begin(), permutation.end(), g);
+                    check_permute(*col, permutation, num_rows, expected_size);
+                }
+            }
+        };
 template <PrimitiveType PType>
 auto assert_column_vector_has_enough_capacity_callback =
         [](auto x, const MutableColumnPtr& source_column) {

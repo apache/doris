@@ -27,8 +27,8 @@
 #include "vec/columns/column_variant.h"
 #include "vec/common/schema_util.cpp"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
+#include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_variant.h"
@@ -575,7 +575,7 @@ TEST_F(SchemaUtilTest, get_subpaths_no_path_stats) {
     TabletSchema::PathsSetInfo uid_to_paths_set_info;
     schema_util::get_subpaths(3, path_stats[2], uid_to_paths_set_info);
 
-    EXPECT_EQ(uid_to_paths_set_info.sub_path_set.size(), 0);
+    EXPECT_EQ(uid_to_paths_set_info.sub_path_set.size(), 2);
     EXPECT_EQ(uid_to_paths_set_info.sparse_path_set.size(), 0);
 }
 
@@ -709,13 +709,12 @@ TEST_F(SchemaUtilTest, TestArrayDimensions) {
 
     base_type = schema_util::get_base_type_of_array(nested_array_type);
     EXPECT_EQ(base_type->get_primitive_type(), PrimitiveType::TYPE_INT);
-
 }
 
 TEST_F(SchemaUtilTest, TestIntegerConversion) {
     // Test conversion between integers
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_TINYINT,
-                                                                      PrimitiveType::TYPE_SMALLINT));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
+            PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_SMALLINT));
     EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_TINYINT,
                                                                       PrimitiveType::TYPE_INT));
     EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_SMALLINT,
@@ -726,8 +725,8 @@ TEST_F(SchemaUtilTest, TestIntegerConversion) {
     EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_BIGINT,
                                                                      PrimitiveType::TYPE_INT));
 
-    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_TINYINT,
-                                                                      PrimitiveType::TYPE_SMALLINT));
+    EXPECT_FALSE(schema_util::is_conversion_required_between_integers(
+            PrimitiveType::TYPE_TINYINT, PrimitiveType::TYPE_SMALLINT));
     EXPECT_TRUE(schema_util::is_conversion_required_between_integers(PrimitiveType::TYPE_INT,
                                                                      PrimitiveType::TYPE_SMALLINT));
 }

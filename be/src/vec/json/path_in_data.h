@@ -116,7 +116,6 @@ private:
 
     /// True if the path is typed, e.g. a.b: int
     bool is_typed = false;
-
 };
 
 class PathInDataBuilder {
