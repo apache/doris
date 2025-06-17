@@ -451,22 +451,22 @@ supportedOtherStatement
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+    | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
+        ((CLUSTER | COMPUTE GROUP) source=identifier |
+            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
     ;
 
 unsupportedOtherStatement
-    : WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
-        ((CLUSTER | COMPUTE GROUP) source=identifier |
-            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
-    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
+    : RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
-warmUpItem
+ warmUpItem
     : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
     ;
 
