@@ -875,6 +875,7 @@ TabletSchema::TabletSchema() = default;
 
 TabletSchema::~TabletSchema() {
     clear_column_cache_handlers();
+    clear_index_cache_handlers();
 }
 
 int64_t TabletSchema::get_metadata_size() const {
@@ -956,12 +957,6 @@ void TabletSchema::clear_index_cache_handlers() {
         TabletColumnObjectPool::instance()->release(handle);
     }
     _index_cache_handlers.clear();
-}
-
-void TabletSchema::clear_index() {
-    clear_index_cache_handlers();
-    _indexes.clear();
-    _col_id_suffix_to_index.clear();
 }
 
 void TabletSchema::remove_index(int64_t index_id) {

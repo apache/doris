@@ -326,7 +326,6 @@ public:
     void append_index(TabletIndex&& index);
     void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
-    void clear_index();
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
