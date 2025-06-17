@@ -540,6 +540,10 @@ public class SummaryProfile {
         this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
     }
 
+    public void addCollectTablePartitionTime(long elapsed) {
+        nereidsCollectTablePartitionTime += elapsed;
+    }
+
     public void setNereidsAnalysisTime() {
         this.nereidsAnalysisFinishTime = TimeUtils.getStartTimeMs();
     }
@@ -803,10 +807,6 @@ public class SummaryProfile {
         long totalTime = nereidsCollectTablePartitionFinishTime
                 - nereidsRewriteFinishTime + nereidsCollectTablePartitionTime;
         return RuntimeProfile.printCounter(totalTime, TUnit.TIME_MS);
-    }
-
-    public void addCollectTablePartitionTime(long elapsed) {
-        nereidsCollectTablePartitionTime += elapsed;
     }
 
     public String getPrettyNereidsOptimizeTime() {
