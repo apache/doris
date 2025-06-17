@@ -35,7 +35,6 @@
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/string_buffer.hpp"
@@ -100,14 +99,14 @@ DataTypePtr get_data_type_with_default_argument(DataTypePtr type) {
     }
 }
 
-template <typename T>
+template <PrimitiveType T>
 std::string DataTypeDecimal<T>::do_get_name() const {
     std::stringstream ss;
     ss << "Decimal(" << precision << ", " << scale << ")";
     return ss.str();
 }
 
-template <typename T>
+template <PrimitiveType T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
     if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
         return precision == ptype->get_precision() && scale == ptype->get_scale();
@@ -115,13 +114,13 @@ bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
     return false;
 }
 
-template <typename T>
+template <PrimitiveType T>
 std::string DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    if constexpr (!IsDecimalV2<T>) {
+    if constexpr (T != TYPE_DECIMALV2) {
         auto value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
         return value.to_string(scale);
     } else {
@@ -130,15 +129,15 @@ std::string DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num)
     }
 }
 
-template <typename T>
+template <PrimitiveType T>
 void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    if constexpr (!IsDecimalV2<T>) {
-        T value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
+    if constexpr (T != TYPE_DECIMALV2) {
+        FieldType value = assert_cast<const ColumnType&>(*ptr).get_element(row_num);
         auto str = value.to_string(scale);
         ostr.write(str.data(), str.size());
     } else {
@@ -148,7 +147,7 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
     }
 }
 
-template <typename T>
+template <PrimitiveType T>
 void DataTypeDecimal<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
     // column may be column const
     const auto& col_ptr = column.get_ptr();
@@ -160,7 +159,7 @@ void DataTypeDecimal<T>::to_string_batch(const IColumn& column, ColumnString& co
     }
 }
 
-template <typename T>
+template <PrimitiveType T>
 template <bool is_const>
 void DataTypeDecimal<T>::to_string_batch_impl(const ColumnPtr& column_ptr,
                                               ColumnString& column_to) const {
@@ -169,11 +168,11 @@ void DataTypeDecimal<T>::to_string_batch_impl(const ColumnPtr& column_ptr,
     auto& chars = column_to.get_chars();
     auto& offsets = column_to.get_offsets();
     offsets.resize(size);
-    chars.reserve(4 * sizeof(T));
+    chars.reserve(4 * sizeof(FieldType));
     for (int row_num = 0; row_num < size; row_num++) {
         auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
-        if constexpr (!IsDecimalV2<T>) {
-            T value = num;
+        if constexpr (T != TYPE_DECIMALV2) {
+            FieldType value = num;
             auto str = value.to_string(scale);
             chars.insert(str.begin(), str.end());
         } else {
@@ -187,17 +186,17 @@ void DataTypeDecimal<T>::to_string_batch_impl(const ColumnPtr& column_ptr,
     }
 }
 
-template <typename T>
-std::string DataTypeDecimal<T>::to_string(const T& value) const {
+template <PrimitiveType T>
+std::string DataTypeDecimal<T>::to_string(const FieldType& value) const {
     return value.to_string(get_format_scale());
 }
 
-template <typename T>
+template <PrimitiveType T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
-    T val {};
+    FieldType val {};
     StringParser::ParseResult res =
-            read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), T>(
+            read_decimal_text_impl<DataTypeDecimalSerDe<T>::get_primitive_type(), FieldType>(
                     val, rb, precision, scale);
     if (res == StringParser::PARSE_SUCCESS || res == StringParser::PARSE_UNDERFLOW) {
         column_data.emplace_back(val);
@@ -210,13 +209,13 @@ Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
 
 // binary: const flag | row num | real_saved_num | data
 // data  : {val1 | val2| ...} or {encode_size | val1 | val2| ...}
-template <typename T>
+template <PrimitiveType T>
 int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column,
                                                               int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
         auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
-        auto mem_size = cast_set<UInt32>(sizeof(T) * real_need_copy_num);
+        auto mem_size = cast_set<UInt32>(sizeof(FieldType) * real_need_copy_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return size + mem_size;
         } else {
@@ -225,7 +224,7 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
                             streamvbyte_max_compressedbytes(upper_int32(mem_size)));
         }
     } else {
-        auto size = sizeof(T) * column.size();
+        auto size = sizeof(FieldType) * column.size();
         if (size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return sizeof(uint32_t) + size;
         } else {
@@ -236,15 +235,14 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
     }
 }
 
-template <typename T>
+template <PrimitiveType T>
 char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
         const auto* data_column = &column;
         size_t real_need_copy_num = 0;
         buf = serialize_const_flag_and_row_num(&data_column, buf, &real_need_copy_num);
 
-        // mem_size = real_need_copy_num * sizeof(T)
-        UInt32 mem_size = cast_set<UInt32>(real_need_copy_num * sizeof(T));
+        UInt32 mem_size = cast_set<UInt32>(real_need_copy_num * sizeof(FieldType));
         const auto* origin_data =
                 assert_cast<const ColumnDecimal<T>&>(*data_column).get_data().data();
 
@@ -262,7 +260,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
         }
     } else {
         // row num
-        UInt32 mem_size = cast_set<UInt32>(column.size() * sizeof(T));
+        UInt32 mem_size = cast_set<UInt32>(column.size() * sizeof(FieldType));
         *reinterpret_cast<uint32_t*>(buf) = mem_size;
         buf += sizeof(uint32_t);
         // column data
@@ -282,7 +280,7 @@ char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf, int be_exe
         return buf + encode_size;
     }
 }
-template <typename T>
+template <PrimitiveType T>
 const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* column,
                                             int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
@@ -291,7 +289,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
         buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
         // column data
-        UInt32 mem_size = cast_set<UInt32>(real_have_saved_num * sizeof(T));
+        UInt32 mem_size = cast_set<UInt32>(real_have_saved_num * sizeof(FieldType));
         auto& container = assert_cast<ColumnDecimal<T>*>(origin_column)->get_data();
         container.resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -311,7 +309,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
         buf += sizeof(uint32_t);
         // column data
         auto& container = assert_cast<ColumnDecimal<T>*>(column->get())->get_data();
-        container.resize(mem_size / sizeof(T));
+        container.resize(mem_size / sizeof(FieldType));
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             memcpy(container.data(), buf, mem_size);
             return buf + mem_size;
@@ -325,42 +323,25 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
     }
 }
 
-template <typename T>
+template <PrimitiveType T>
 void DataTypeDecimal<T>::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     col_meta->mutable_decimal_param()->set_precision(precision);
     col_meta->mutable_decimal_param()->set_scale(scale);
 }
 
-template <typename T>
+template <PrimitiveType T>
 Field DataTypeDecimal<T>::get_default() const {
-    if constexpr (std::is_same_v<T, Decimal32>) {
-        return Field::create_field<TYPE_DECIMAL32>(DecimalField<Decimal32>(Decimal32(), scale));
-    } else if constexpr (std::is_same_v<T, Decimal64>) {
-        return Field::create_field<TYPE_DECIMAL64>(DecimalField<Decimal64>(Decimal64(), scale));
-    } else if constexpr (std::is_same_v<T, Decimal128V2>) {
-        return Field::create_field<TYPE_DECIMALV2>(
-                DecimalField<Decimal128V2>(Decimal128V2(), scale));
-    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
-        return Field::create_field<TYPE_DECIMAL128I>(
-                DecimalField<Decimal128V3>(Decimal128V3(), scale));
-    } else if constexpr (std::is_same_v<T, Decimal256>) {
-        return Field::create_field<TYPE_DECIMAL256>(DecimalField<Decimal256>(Decimal256(), scale));
-    }
-    throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Invalid type {}", do_get_name());
-}
-template <typename T>
-MutableColumnPtr DataTypeDecimal<T>::create_column() const {
-    if constexpr (IsDecimalV2<T>) {
-        auto col = ColumnDecimal128V2::create(0, scale);
-        return col;
-    } else {
-        return ColumnType::create(0, scale);
-    }
+    return Field::create_field<T>(DecimalField<FieldType>(FieldType(), scale));
 }
 
-template <typename T>
-bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const {
+template <PrimitiveType T>
+MutableColumnPtr DataTypeDecimal<T>::create_column() const {
+    return ColumnType::create(0, scale);
+}
+
+template <PrimitiveType T>
+bool DataTypeDecimal<T>::parse_from_string(const std::string& str, FieldType* res) const {
     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
     res->value = StringParser::string_to_decimal<DataTypeDecimalSerDe<T>::get_primitive_type()>(
             str.c_str(), cast_set<Int32>(str.size()), precision, scale, &result);
@@ -368,8 +349,8 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
-    auto max_precision =
-            use_v2 ? max_decimal_precision<Decimal128V2>() : max_decimal_precision<Decimal256>();
+    auto max_precision = use_v2 ? max_decimal_precision<TYPE_DECIMALV2>()
+                                : max_decimal_precision<TYPE_DECIMAL256>();
     if (precision_value < min_decimal_precision() || precision_value > max_precision) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Wrong precision {}, min: {}, max: {}", precision_value,
@@ -384,70 +365,70 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
     }
 
     if (use_v2) {
-        return std::make_shared<DataTypeDecimal<Decimal128V2>>(precision_value, scale_value);
+        return std::make_shared<DataTypeDecimal<TYPE_DECIMALV2>>(precision_value, scale_value);
     }
 
-    if (precision_value <= max_decimal_precision<Decimal32>()) {
-        return std::make_shared<DataTypeDecimal<Decimal32>>(precision_value, scale_value);
-    } else if (precision_value <= max_decimal_precision<Decimal64>()) {
-        return std::make_shared<DataTypeDecimal<Decimal64>>(precision_value, scale_value);
-    } else if (precision_value <= max_decimal_precision<Decimal128V3>()) {
-        return std::make_shared<DataTypeDecimal<Decimal128V3>>(precision_value, scale_value);
+    if (precision_value <= max_decimal_precision<TYPE_DECIMAL32>()) {
+        return std::make_shared<DataTypeDecimal<TYPE_DECIMAL32>>(precision_value, scale_value);
+    } else if (precision_value <= max_decimal_precision<TYPE_DECIMAL64>()) {
+        return std::make_shared<DataTypeDecimal<TYPE_DECIMAL64>>(precision_value, scale_value);
+    } else if (precision_value <= max_decimal_precision<TYPE_DECIMAL128I>()) {
+        return std::make_shared<DataTypeDecimal<TYPE_DECIMAL128I>>(precision_value, scale_value);
     }
-    return std::make_shared<DataTypeDecimal<Decimal256>>(precision_value, scale_value);
+    return std::make_shared<DataTypeDecimal<TYPE_DECIMAL256>>(precision_value, scale_value);
 }
 
 template <>
-Decimal32 DataTypeDecimal<Decimal32>::get_scale_multiplier(UInt32 scale) {
+Decimal32 DataTypeDecimal<TYPE_DECIMAL32>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i32(scale);
 }
 
 template <>
-Decimal64 DataTypeDecimal<Decimal64>::get_scale_multiplier(UInt32 scale) {
+Decimal64 DataTypeDecimal<TYPE_DECIMAL64>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i64(scale);
 }
 
 template <>
-Decimal128V2 DataTypeDecimal<Decimal128V2>::get_scale_multiplier(UInt32 scale) {
+Decimal128V2 DataTypeDecimal<TYPE_DECIMALV2>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
 template <>
-Decimal128V3 DataTypeDecimal<Decimal128V3>::get_scale_multiplier(UInt32 scale) {
+Decimal128V3 DataTypeDecimal<TYPE_DECIMAL128I>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
 template <>
-Decimal256 DataTypeDecimal<Decimal256>::get_scale_multiplier(UInt32 scale) {
+Decimal256 DataTypeDecimal<TYPE_DECIMAL256>::get_scale_multiplier(UInt32 scale) {
     return Decimal256(common::exp10_i256(scale));
 }
 
 template <>
-Decimal32 DataTypeDecimal<Decimal32>::get_max_digits_number(UInt32 digit_count) {
+Decimal32 DataTypeDecimal<TYPE_DECIMAL32>::get_max_digits_number(UInt32 digit_count) {
     return common::max_i32(digit_count);
 }
 template <>
-Decimal64 DataTypeDecimal<Decimal64>::get_max_digits_number(UInt32 digit_count) {
+Decimal64 DataTypeDecimal<TYPE_DECIMAL64>::get_max_digits_number(UInt32 digit_count) {
     return common::max_i64(digit_count);
 }
 template <>
-Decimal128V2 DataTypeDecimal<Decimal128V2>::get_max_digits_number(UInt32 digit_count) {
+Decimal128V2 DataTypeDecimal<TYPE_DECIMALV2>::get_max_digits_number(UInt32 digit_count) {
     return common::max_i128(digit_count);
 }
 template <>
-Decimal128V3 DataTypeDecimal<Decimal128V3>::get_max_digits_number(UInt32 digit_count) {
+Decimal128V3 DataTypeDecimal<TYPE_DECIMAL128I>::get_max_digits_number(UInt32 digit_count) {
     return common::max_i128(digit_count);
 }
 template <>
-Decimal256 DataTypeDecimal<Decimal256>::get_max_digits_number(UInt32 digit_count) {
+Decimal256 DataTypeDecimal<TYPE_DECIMAL256>::get_max_digits_number(UInt32 digit_count) {
     return Decimal256(common::max_i256(digit_count));
 }
 
 /// Explicit template instantiations.
-template class DataTypeDecimal<Decimal32>;
-template class DataTypeDecimal<Decimal64>;
-template class DataTypeDecimal<Decimal128V2>;
-template class DataTypeDecimal<Decimal128V3>;
-template class DataTypeDecimal<Decimal256>;
+template class DataTypeDecimal<TYPE_DECIMAL32>;
+template class DataTypeDecimal<TYPE_DECIMAL64>;
+template class DataTypeDecimal<TYPE_DECIMALV2>;
+template class DataTypeDecimal<TYPE_DECIMAL128I>;
+template class DataTypeDecimal<TYPE_DECIMAL256>;
 
 } // namespace doris::vectorized

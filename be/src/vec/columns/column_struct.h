@@ -33,7 +33,6 @@
 
 #include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/sip_hash.h"

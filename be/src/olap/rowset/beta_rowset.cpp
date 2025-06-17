@@ -286,7 +286,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 
     const auto& local_fs = io::global_local_filesystem();
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error " << status;
@@ -579,7 +579,7 @@ Status BetaRowset::add_to_binlog() {
                               rowset_id().to_string(), segments_num);
 
     Status status;
-    std::vector<string> linked_success_files;
+    std::vector<std::string> linked_success_files;
     Defer remove_linked_files {[&]() { // clear linked files if errors happen
         if (!status.ok()) {
             LOG(WARNING) << "will delete linked success files due to error "

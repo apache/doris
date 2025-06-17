@@ -36,7 +36,6 @@
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
@@ -352,7 +351,7 @@ private:
                 ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
         result_col_map_vals_data->reserve(input_rows_count);
         // map offsets column
-        auto result_col_map_offsets = ColumnUInt64::create();
+        auto result_col_map_offsets = ColumnOffset64::create();
         result_col_map_offsets->reserve(input_rows_count);
 
         std::vector<std::string_view> kvs;

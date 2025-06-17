@@ -273,6 +273,13 @@ public:
         }
         return buf;
     }
+
+    // X is (maybe) a truncated prefix of string X'
+    // Y is (maybe) a truncated prefix of string Y'
+    // return true only if we can determine that X' is strictly less than Y'
+    // based on these maybe truncated prefixes
+    static bool lhs_is_strictly_less_than_rhs(Slice X, bool X_is_truncated, Slice Y,
+                                              bool Y_is_truncated);
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Slice& slice) {

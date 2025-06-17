@@ -50,7 +50,7 @@ TEST_F(FixLengthPlainDecoderTest, test_basic_decode) {
     decoder.set_type_length(_type_length);
     ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
 
-    MutableColumnPtr column = ColumnVector<int32_t>::create();
+    MutableColumnPtr column = ColumnInt32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // Create selection vector without filter
@@ -67,7 +67,7 @@ TEST_F(FixLengthPlainDecoderTest, test_basic_decode) {
 
     // Verify results
     ASSERT_EQ(column->size(), num_values);
-    auto* result_column = assert_cast<ColumnVector<int32_t>*>(column.get());
+    auto* result_column = assert_cast<ColumnInt32*>(column.get());
 
     EXPECT_EQ(result_column->get_data()[0], 123);
     EXPECT_EQ(result_column->get_data()[1], 456);
@@ -90,7 +90,7 @@ TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter) {
     decoder.set_type_length(_type_length);
     ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
 
-    MutableColumnPtr column = ColumnVector<int32_t>::create();
+    MutableColumnPtr column = ColumnInt32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // Create filter vector [1,0,1]
@@ -107,7 +107,7 @@ TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter) {
 
     // Verify results
     ASSERT_EQ(column->size(), 2); // 2 values after filtering
-    auto* result_column = assert_cast<ColumnVector<int32_t>*>(column.get());
+    auto* result_column = assert_cast<ColumnInt32*>(column.get());
 
     EXPECT_EQ(result_column->get_data()[0], 123);
     EXPECT_EQ(result_column->get_data()[1], 789);
@@ -129,7 +129,7 @@ TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter_and_null) {
     decoder.set_type_length(_type_length);
     ASSERT_TRUE(decoder.set_data(&_data_slice).ok());
 
-    MutableColumnPtr column = ColumnVector<int32_t>::create();
+    MutableColumnPtr column = ColumnInt32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // Create filter vector [1,0,1] and null vector [0,1,0]
@@ -149,7 +149,7 @@ TEST_F(FixLengthPlainDecoderTest, test_decode_with_filter_and_null) {
 
     // Verify results
     ASSERT_EQ(column->size(), 2); // 2 values after filtering
-    auto* result_column = assert_cast<ColumnVector<int32_t>*>(column.get());
+    auto* result_column = assert_cast<ColumnInt32*>(column.get());
 
     // Expected values after filtering and null handling
     std::vector<std::optional<int32_t>> expected_values = {123, 789};
@@ -183,7 +183,7 @@ TEST_F(FixLengthPlainDecoderTest, test_skip_value) {
     // Skip first 2 values
     ASSERT_TRUE(decoder.skip_values(2).ok());
 
-    MutableColumnPtr column = ColumnVector<int32_t>::create();
+    MutableColumnPtr column = ColumnInt32::create();
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // Create selection vector
@@ -200,7 +200,7 @@ TEST_F(FixLengthPlainDecoderTest, test_skip_value) {
 
     // Verify results
     ASSERT_EQ(column->size(), num_values);
-    auto* result_column = assert_cast<ColumnVector<int32_t>*>(column.get());
+    auto* result_column = assert_cast<ColumnInt32*>(column.get());
 
     EXPECT_EQ(result_column->get_data()[0], 789);
 }

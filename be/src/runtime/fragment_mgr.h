@@ -171,6 +171,10 @@ public:
 
     ThreadPool* get_thread_pool() { return _thread_pool.get(); }
 
+    // When fragment mgr is going to stop, the _stop_background_threads_latch is set to 0
+    // and other module that use fragment mgr's thread pool should get this signal and exit.
+    bool shutting_down() { return _stop_background_threads_latch.count() == 0; }
+
     int32_t running_query_num() { return _query_ctx_map.num_items(); }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
@@ -215,7 +219,7 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _cancel_thread;
-    // every job is a pool
+    // This pool is used as global async task pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
     std::shared_ptr<MetricEntity> _entity;

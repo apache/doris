@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
@@ -131,7 +132,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(IntersectCount.class, "intersect_count"),
             agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
             agg(LinearHistogram.class, "linear_histogram"),
-            agg(MapAgg.class, "map_agg"),
+            agg(MapAgg.class, "map_agg_v1"),
+            agg(MapAggV2.class, "map_agg_v2", "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
             agg(Median.class, "median"),

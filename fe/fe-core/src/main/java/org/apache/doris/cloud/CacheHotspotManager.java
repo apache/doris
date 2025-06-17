@@ -40,6 +40,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
@@ -609,6 +610,33 @@ public class CacheHotspotManager extends MasterDaemon {
             throw new RuntimeException("The cluster " + dstClusterName + " cache size is not enough");
         }
         return beToWarmUpTablets;
+    }
+
+    public long createJob(WarmUpClusterCommand command) throws AnalysisException {
+        if (runnableClusterSet.contains(command.getDstCluster())) {
+            throw new AnalysisException("cluster: " + command.getDstCluster() + " already has a runnable job");
+        }
+        Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
+        long jobId = Env.getCurrentEnv().getNextId();
+        if (!FeConstants.runningUnitTest) {
+            if (command.isWarmUpWithTable()) {
+                beToWarmUpTablets = warmUpNewClusterByTable(jobId, command.getDstCluster(), command.getTables(),
+                    command.isForce());
+            } else {
+                beToWarmUpTablets = warmUpNewClusterByCluster(command.getDstCluster(), command.getSrcCluster());
+            }
+        }
+
+        Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
+
+        CloudWarmUpJob.JobType jobType = command.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
+        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, command.getDstCluster(), beToTabletIdBatches, jobType);
+        addCloudWarmUpJob(warmUpJob);
+
+        Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);
+        LOG.info("finished to create cloud warm up job: {}", warmUpJob.getJobId());
+
+        return jobId;
     }
 
     public long createJob(WarmUpClusterStmt stmt) throws AnalysisException {

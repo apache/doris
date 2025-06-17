@@ -43,7 +43,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/core/block.h"
@@ -145,10 +144,11 @@ Status RowGroupReader::init(
 
     // Check if single slot can be filtered by dict.
     if (_slot_id_to_filter_conjuncts && !_slot_id_to_filter_conjuncts->empty()) {
-        const std::vector<string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
+        const std::vector<std::string>& predicate_col_names =
+                _lazy_read_ctx.predicate_columns.first;
         const std::vector<int>& predicate_col_slot_ids = _lazy_read_ctx.predicate_columns.second;
         for (size_t i = 0; i < predicate_col_names.size(); ++i) {
-            const string& predicate_col_name = predicate_col_names[i];
+            const std::string& predicate_col_name = predicate_col_names[i];
             int slot_id = predicate_col_slot_ids[i];
             auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
             if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
@@ -390,7 +390,7 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
         bool is_dict_filter = false;
         for (auto& _dict_filter_col : _dict_filter_cols) {
             if (_dict_filter_col.first == read_col_name) {
-                MutableColumnPtr dict_column = ColumnVector<Int32>::create();
+                MutableColumnPtr dict_column = ColumnInt32::create();
                 size_t pos = block->get_position_by_name(read_col_name);
                 if (column_type->is_nullable()) {
                     block->get_by_position(pos).type =
@@ -780,8 +780,10 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
             break;
         }
         if (read_range_rows + (range.last_row - range.first_row) > _total_read_rows) {
-            auto fi = std::max(_total_read_rows - read_range_rows, 0L) + range.first_row;
-            auto len = std::min(read_rows, (size_t)std::max(range.last_row - fi, 0L));
+            int64_t fi =
+                    std::max(_total_read_rows, read_range_rows) - read_range_rows + range.first_row;
+            size_t len = std::min(read_rows, (size_t)(std::max(range.last_row, fi) - fi));
+
             read_rows -= len;
 
             for (auto i = 0; i < len; i++) {

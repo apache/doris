@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -38,7 +37,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
     public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-    public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -53,7 +51,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_ESCAPE = "escape";
 
     private String headerType = "";
-    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private boolean trimDoubleQuotes;
@@ -61,16 +58,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     private byte enclose;
     private byte escape;
 
-    String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
-
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
-    }
-
-    public CsvFileFormatProperties(String defaultColumnSeparator, TTextSerdeType textSerdeType, String formatName) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
-        this.defaultColumnSeparator = defaultColumnSeparator;
-        this.textSerdeType = textSerdeType;
     }
 
     public CsvFileFormatProperties(String headerType, String formatName) {
@@ -78,14 +67,13 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         this.headerType = headerType;
     }
 
-
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
         try {
             // analyze properties specified by user
             columnSeparator = getOrDefault(formatProperties, PROP_COLUMN_SEPARATOR,
-                    defaultColumnSeparator, isRemoveOriginProperty);
+                    DEFAULT_COLUMN_SEPARATOR, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
@@ -161,10 +149,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public String getHeaderType() {
         return headerType;
-    }
-
-    public TTextSerdeType getTextSerdeType() {
-        return textSerdeType;
     }
 
     public String getColumnSeparator() {

@@ -77,7 +77,7 @@ enum TPrimitiveType {
   HLL,
   DECIMALV2,
   TIME,
-  OBJECT,
+  BITMAP,
   ARRAY,
   MAP,
   STRUCT,
@@ -97,7 +97,10 @@ enum TPrimitiveType {
   AGG_STATE,
   DECIMAL256,
   IPV4,
-  IPV6
+  IPV6,
+  UINT32, // only used in BE to represent offsets
+  UINT64,  // only used in BE to represent offsets
+  FIXED_LENGTH_OBJECT // only used in BE to represent fixed-length object
 }
 
 enum TTypeNodeType {
