@@ -33,12 +33,15 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -48,7 +51,8 @@ public class ShowCreateUserCommand extends ShowCommand {
     private static final Logger LOG = LogManager.getLogger(ShowCreateUserCommand.class);
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Create User", ScalarType.createVarchar(512)))
+                    .addColumn(new Column("User Identity", ScalarType.createVarchar(512)))
+                    .addColumn(new Column("Create Stmt", ScalarType.createVarchar(1024)))
                     .build();
     private UserIdentity userIdent;
     private boolean showAllUser;
@@ -62,7 +66,8 @@ public class ShowCreateUserCommand extends ShowCommand {
         this.showAllUser = showAllUser;
     }
 
-    private ShowResultSet handleShowCreateUser(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    @VisibleForTesting
+    protected ShowResultSet handleShowCreateUser(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (userIdent != null) {
             if (showAllUser) {
                 throw new AnalysisException("Can not specified keyword ALL when specified user");
@@ -86,18 +91,93 @@ public class ShowCreateUserCommand extends ShowCommand {
         if (userIdent != null && !Env.getCurrentEnv().getAccessManager().getAuth().doesUserExist(userIdent)) {
             throw new AnalysisException(String.format("User: %s does not exist", userIdent));
         }
-        Set<String> users = Env.getCurrentEnv().getAuth().getAllUsers();
-        List<List<String>> infos = Env.getCurrentEnv().getAuth().getAllUserInfo();
-        for (String user : users) {
-            List<User> alist = Env.getCurrentEnv().getAuth().getUserManager().getUserByName(user);
-            for (User a : alist) {
-                LOG.info("now user is : " + user + "; info is : " + a.toString());
+
+        // get all user identity
+        List<List<String>> infos = new ArrayList<>();
+        List<UserIdentity> userList = new ArrayList<>();
+        if (!showAllUser) {
+            if (userIdent != null) {
+                userList.add(userIdent);
             }
+        } else {
+            if (Env.getCurrentEnv().getAuth().getUserManager() != null) {
+                Map<String, List<User>> usersMap = Env.getCurrentEnv().getAuth().getUserManager().getNameToUsers();
+                for (List<User> users : usersMap.values()) {
+                    for (User user : users) {
+                        if (user == null) {
+                            continue;
+                        }
+                        userList.add(user.getUserIdentity());
+                    }
+                }
+            }
+        }
+
+        // get all user's create stmt
+        for (UserIdentity identity : userList) {
+            if (identity == null) {
+                continue;
+            }
+            List<String> userInfo = new ArrayList<>();
+            userInfo.add(identity.getQualifiedUser());
+            userInfo.add(toSql(identity));
+            infos.add(userInfo);
         }
 
         // order by UserIdentity
         infos.sort(Comparator.comparing(list -> list.isEmpty() ? "" : list.get(0)));
         return new ShowResultSet(getMetaData(), infos);
+    }
+
+    @VisibleForTesting
+    protected String toSql(UserIdentity user) {
+        if (user == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("CREATE USER ");
+
+        // user identity
+        sb.append(user);
+
+        // user password
+        sb.append(" IDENTIFIED BY *** \n");
+
+        // default role
+        Set<String> roles = Env.getCurrentEnv().getAuth().getRolesByUser(user, true);
+        if (roles != null && !roles.isEmpty()) {
+            sb.append(" DEFAULT ROLE '").append(String.join(",", roles)).append("' \n");
+        }
+
+        // password policy
+        if (Env.getCurrentEnv().getAuth().getPasswdPolicyManager() != null) {
+            List<List<String>> policies = Env.getCurrentEnv().getAuth().getPasswdPolicyManager().getPolicyInfo(user);
+            if (policies != null) {
+                if (policies.size() > 1) {
+                    List<String> expire = policies.get(0);
+                    sb.append(" PASSWORD_EXPIRE ").append(expire.get(1));
+                }
+                if (policies.size() > 3) {
+                    List<String> history = policies.get(2);
+                    sb.append(" PASSWORD_HISTORY ").append(history.get(1));
+                }
+                if (policies.size() > 7) {
+                    List<String> failedAttempts = policies.get(4);
+                    List<String> lockTime = policies.get(5);
+                    sb.append(" FAILED_LOGIN_ATTEMPTS ").append(failedAttempts.get(1))
+                            .append(" PASSWORD_LOCK_TIME ").append(lockTime.get(1))
+                            .append("\n");
+                }
+            }
+        }
+
+        // comment
+        if (Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user) != null) {
+            String comment = Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user).getComment();
+            if (comment != null) {
+                sb.append(comment);
+            }
+        }
+        return sb.toString();
     }
 
     @Override
