@@ -26,7 +26,7 @@
 namespace doris::io {
 class HttpClientCache {
 public:
-    std::unique_ptr<HttpClient> GetClient() {
+    std::shared_ptr<HttpClient> GetClient() {
         std::lock_guard<std::mutex> lck(lock);
         if (clients.size() == 0) {
             return nullptr;
@@ -36,10 +36,10 @@ public:
         clients.pop_back();
         return client;
     }
-    void StoreClient(std::unique_ptr<HttpClient> client) { clients.push_back(client); }
+    void StoreClient(std::shared_ptr<HttpClient> client) { clients.push_back(client); }
 
 protected:
-    std::vector<std::unique_ptr<HttpClient>> clients;
+    std::vector<std::shared_ptr<HttpClient>> clients;
     std::mutex lock;
 };
 } // namespace doris::io

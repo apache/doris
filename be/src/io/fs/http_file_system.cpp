@@ -17,9 +17,11 @@
 
 #include "io/fs/http_file_system.h"
 
-#include <fmt/format.h>
+
+#include <fstream>
 
 #include "common/status.h"
+#include "http/http_status.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -27,12 +29,11 @@
 
 namespace doris::io {
 HttpFileSystem::HttpFileSystem(Path&& root_path, std::string id)
-        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HTTP),
-          _client(std::make_shared<HttpClient>()) {}
+        : RemoteFileSystem(std::move(root_path), std::move(id), FileSystemType::HTTP) {}
 
 Status HttpFileSystem::init(const std::string& url) {
     _url = url;
-    return _client->init(_url);
+    return Status::OK();
 }
 
 Result<std::shared_ptr<HttpFileSystem>> HttpFileSystem::create(std::string id,
@@ -56,15 +57,33 @@ Status HttpFileSystem::open_file_internal(const Path& path, FileReaderSPtr* read
 }
 
 Status HttpFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
-    std::string url = remote_file.native();
-    std::string dest_path = local_file.native();
-    return _client->download(dest_path);
+    FileReaderSPtr reader;
+    RETURN_IF_ERROR(open_file(remote_file, &reader));
+
+    auto *http_reader = dynamic_cast<HttpFileReader*>(reader.get());
+    if(http_reader == nullptr) {
+        return Status::InternalError("Expected HttpFileReader");
+    }
+
+    int64_t total_size = http_reader->size();
+    std::vector<char> buffer(total_size);
+
+    RETURN_IF_ERROR(http_reader->read_range(0, total_size, buffer.data()));
+
+    std::ofstream ofs(local_file.native(), std::ios::binary);
+
+    if (!ofs) {
+        return Status::IOError("Failed to open local file: {}", local_file.native());
+    }
+
+    ofs.write(buffer.data(), total_size);
+    return Status::OK();
 }
 
 Status HttpFileSystem::file_size_impl(const Path& file, int64_t* file_size) const {
     FileReaderOptions opts;
     FileReaderSPtr reader;
-    RETURN_IF_ERROR(const_cast<HttpFileSystem*>(this)->open_file(file, &reader, opts));
+    RETURN_IF_ERROR(const_cast<HttpFileSystem*>(this)->open_file(file, &reader, &opts));
     *file_size = reader->size();
     RETURN_IF_ERROR(reader->close());
     return Status::OK();
@@ -76,7 +95,7 @@ Status HttpFileSystem::exists_impl(const Path& path, bool* res) const {
     if (st.ok()) {
         *res = true;
         return Status::OK();
-    } else if (st.code() == TStatusCode::NOT_FOUND) {
+    } else if (st.code() == HttpStatus::NOT_FOUND) {
         *res = false;
         return Status::OK();
     } else {
