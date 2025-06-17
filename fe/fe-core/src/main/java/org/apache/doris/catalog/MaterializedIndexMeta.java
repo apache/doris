@@ -355,7 +355,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                     defineStmt.originStmt);
             ConnectContext ctx = new ConnectContext();
-            ctx.setDatabase(dbName == null ? "__internal_schema" : dbName);
+            ctx.setDatabase(dbName);
             StatementContext statementContext = new StatementContext();
             statementContext.setConnectContext(ctx);
             ctx.setStatementContext(statementContext);
@@ -379,44 +379,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             } catch (Exception e) {
                 LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
             }
-            parseStmt1(analyzer);
-        } catch (Exception e) {
-            throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
-        }
-    }
-
-    public void parseStmt1(Analyzer analyzer) throws IOException {
-        // analyze define stmt
-        if (defineStmt == null) {
-            return;
-        }
-        // parse the define stmt to schema
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(defineStmt.originStmt),
-                SqlModeHelper.MODE_DEFAULT));
-        CreateMaterializedViewStmt stmt;
-        try {
-            stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
-            stmt.setIsReplay(true);
-            if (analyzer != null) {
-                try {
-                    stmt.analyze(analyzer);
-                } catch (Exception e) {
-                    LOG.warn("CreateMaterializedViewStmt analyze failed, mv=" + defineStmt.originStmt + ", reason=", e);
-                    return;
-                }
-            }
-
-            // setWhereClause(stmt.getWhereClause());
-            System.out.println(stmt.getWhereClause());
-            stmt.rewriteToBitmapWithCheck();
-            try {
-                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
-                System.out.println(columnNameToDefineExpr);
-                // setColumnsDefineExpr(columnNameToDefineExpr);
-            } catch (Exception e) {
-                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=", e);
-            }
-
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
         }

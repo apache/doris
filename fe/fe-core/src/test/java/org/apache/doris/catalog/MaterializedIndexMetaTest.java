@@ -18,19 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
@@ -43,7 +36,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Map;
 
 public class MaterializedIndexMetaTest {
 
@@ -56,13 +48,14 @@ public class MaterializedIndexMetaTest {
     }
 
     @Test
-    public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewStmt stmt)
+    public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewCommand command)
             throws IOException, AnalysisException {
         // 1. Write objects to file
         Files.createFile(path);
         DataOutputStream out = new DataOutputStream(Files.newOutputStream(path));
 
-        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_" + "k1";
+        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_"
+                + "k1";
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"));
         schema.add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"));
@@ -89,31 +82,16 @@ public class MaterializedIndexMetaTest {
         out.flush();
         out.close();
 
-        List<Expr> params = Lists.newArrayList();
-        SlotRef param1 = new SlotRef(new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, null, "test"), "c1");
-        params.add(param1);
-        Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
-        columnNameToDefineExpr.put(mvColumnName, new FunctionCallExpr(new FunctionName("to_bitmap"), params));
-        new Expectations() {
-            {
-                stmt.parseDefineExpr(null);
-                result = columnNameToDefineExpr;
-            }
-        };
-
-
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(Files.newInputStream(path));
         MaterializedIndexMeta readIndexMeta = MaterializedIndexMeta.read(in);
-        readIndexMeta.parseStmt(null);
         Assert.assertEquals(1, readIndexMeta.getIndexId());
         List<Column> resultColumns = readIndexMeta.getSchema();
+        Assert.assertEquals(14, resultColumns.size());
         for (Column column : resultColumns) {
             if (column.getName().equals(mvColumnName)) {
-                Assert.assertTrue(column.getDefineExpr() instanceof FunctionCallExpr);
                 Assert.assertEquals(Type.BITMAP, column.getType());
                 Assert.assertEquals(AggregateType.BITMAP_UNION, column.getAggregationType());
-                Assert.assertEquals("to_bitmap", ((FunctionCallExpr) column.getDefineExpr()).getFnName().getFunction());
             } else {
                 Assert.assertEquals(null, column.getDefineExpr());
             }
