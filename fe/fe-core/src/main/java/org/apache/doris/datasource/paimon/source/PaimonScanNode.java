@@ -269,8 +269,13 @@ public class PaimonScanNode extends FileQueryScanNode {
             selectedPartitionValues.add(partitionValue);
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
-
-            if (!forceJniScanner && supportNativeReader(optRawFiles)) {
+            if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
+                splitStat.setMergedRowCount(dataSplit.mergedRowCount());
+                PaimonSplit split = new PaimonSplit(dataSplit);
+                split.setRowCount(dataSplit.mergedRowCount());
+                splits.add(split);
+                ++paimonSplitNum;
+            } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
                 }
