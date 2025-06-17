@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
@@ -306,8 +305,6 @@ public class ShowExecutor {
             handleShowDbId();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
-        } else if (stmt instanceof DescribeStmt) {
-            handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
             handleShowCreateTable();
         } else if (stmt instanceof ShowCreateMTMVStmt) {
@@ -1007,12 +1004,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Describe statement
-    private void handleDescribe() throws AnalysisException {
-        DescribeStmt describeStmt = (DescribeStmt) stmt;
-        resultSet = new ShowResultSet(describeStmt.getMetaData(), describeStmt.getResultRows());
-    }
-
     // Show column statement.
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
@@ -1315,7 +1306,6 @@ public class ShowExecutor {
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
         resultSet = handleShowLoadWarningV2(showWarningsStmt, db);
-        return;
     }
 
     private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
@@ -1334,7 +1324,7 @@ public class ShowExecutor {
                         true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
-                return null;
+                throw new AnalysisException("Job does not exist");
             }
             List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
             for (List<Comparable> comparables : loadJobInfosByDb) {
@@ -1345,7 +1335,7 @@ public class ShowExecutor {
         }
         org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(showWarningsStmt.getJobId());
         if (loadJob == null) {
-            return null;
+            throw new AnalysisException("Job does not exist");
         }
         List<String> singleInfo;
         try {
