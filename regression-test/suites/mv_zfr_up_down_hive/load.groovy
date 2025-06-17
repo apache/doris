@@ -102,7 +102,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-07-15') values (7,7)"""
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-08-15') values (8,8)"""
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-09-15') values (9,9)"""
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-010-15') values (10,10)"""
+    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-10-15') values (10,10)"""
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-11-15') values (11,11)"""
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2017-12-15') values (12,12)"""
 
@@ -123,7 +123,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-07-15') values (7,7)"""
     hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-08-15') values (8,8)"""
     hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-09-15') values (9,9)"""
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-010-15') values (10,10)"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-10-15') values (10,10)"""
     hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-11-15') values (11,11)"""
     hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2017-12-15') values (12,12)"""
 
@@ -145,7 +145,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-07-15') values (7,7)"""
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-08-15') values (8,8)"""
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-09-15') values (9,9)"""
-    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-010-15') values (10,10)"""
+    hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-10-15') values (10,10)"""
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-11-15') values (11,11)"""
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-12-15') values (12,12)"""
 
@@ -177,7 +177,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-07-15') values (7,7)"""
     hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-08-15') values (8,8)"""
     hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-09-15') values (9,9)"""
-    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-010-15') values (10,10)"""
+    hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-10-15') values (10,10)"""
     hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-11-15') values (11,11)"""
     hive_docker """insert into ${dbName}.${tableName5} PARTITION(dt='2017-12-15') values (12,12)"""
 
@@ -199,7 +199,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-07-15') values (7,7)"""
     hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-08-15') values (8,8)"""
     hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-09-15') values (9,9)"""
-    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-010-15') values (10,10)"""
+    hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-10-15') values (10,10)"""
     hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-11-15') values (11,11)"""
     hive_docker """insert into ${dbName}.${tableName6} PARTITION(dt='2017-12-15') values (12,12)"""
 
@@ -242,7 +242,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
     hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-07-15') values (7,7)"""
     hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-08-15') values (8,8)"""
     hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-09-15') values (9,9)"""
-    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-010-15') values (10,10)"""
+    hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-10-15') values (10,10)"""
     hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-11-15') values (11,11)"""
     hive_docker """insert into ${dbName}.${tableName9} PARTITION(dt='2017-12-15') values (12,12)"""
 
