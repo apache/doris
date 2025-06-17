@@ -513,20 +513,49 @@ inline bool StringParser::string_to_bool_internal(const char* __restrict s, int 
                                                   ParseResult* result) {
     *result = PARSE_SUCCESS;
 
-    if (len >= 4 && (s[0] == 't' || s[0] == 'T')) {
-        bool match = (s[1] == 'r' || s[1] == 'R') && (s[2] == 'u' || s[2] == 'U') &&
-                     (s[3] == 'e' || s[3] == 'E');
-        if (match && LIKELY(is_all_whitespace(s + 4, len - 4))) {
+    if (len == 1) {
+        if (s[0] == '1' || s[0] == 't' || s[0] == 'T') {
             return true;
         }
-    } else if (len >= 5 && (s[0] == 'f' || s[0] == 'F')) {
-        bool match = (s[1] == 'a' || s[1] == 'A') && (s[2] == 'l' || s[2] == 'L') &&
-                     (s[3] == 's' || s[3] == 'S') && (s[4] == 'e' || s[4] == 'E');
-        if (match && LIKELY(is_all_whitespace(s + 5, len - 5))) {
+        if (s[0] == '0' || s[0] == 'f' || s[0] == 'F') {
+            return false;
+        }
+        *result = PARSE_FAILURE;
+        return false;
+    }
+
+    if (len == 2) {
+        if ((s[0] == 'o' || s[0] == 'O') && (s[1] == 'n' || s[1] == 'N')) {
+            return true;
+        }
+        if ((s[0] == 'n' || s[0] == 'N') && (s[1] == 'o' || s[1] == 'O')) {
             return false;
         }
     }
 
+    if (len == 3) {
+        if ((s[0] == 'y' || s[0] == 'Y') && (s[1] == 'e' || s[1] == 'E') &&
+            (s[2] == 's' || s[2] == 'S')) {
+            return true;
+        }
+        if ((s[0] == 'o' || s[0] == 'O') && (s[1] == 'f' || s[1] == 'F') &&
+            (s[2] == 'f' || s[2] == 'F')) {
+            return false;
+        }
+    }
+
+    if (len == 4 && (s[0] == 't' || s[0] == 'T') && (s[1] == 'r' || s[1] == 'R') &&
+        (s[2] == 'u' || s[2] == 'U') && (s[3] == 'e' || s[3] == 'E')) {
+        return true;
+    }
+
+    if (len == 5 && (s[0] == 'f' || s[0] == 'F') && (s[1] == 'a' || s[1] == 'A') &&
+        (s[2] == 'l' || s[2] == 'L') && (s[3] == 's' || s[3] == 'S') &&
+        (s[4] == 'e' || s[4] == 'E')) {
+        return false;
+    }
+
+    // No valid boolean value found
     *result = PARSE_FAILURE;
     return false;
 }

@@ -425,10 +425,6 @@ StringParser::ParseResult read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 p
 
 template <typename T>
 bool try_read_bool_text(T& x, ReadBuffer& buf) {
-    if (read_int_text_impl<T>(x, buf)) {
-        return x == 0 || x == 1;
-    }
-
     StringParser::ParseResult result;
     x = StringParser::string_to_bool(buf.position(), buf.count(), &result);
     if (UNLIKELY(result != StringParser::PARSE_SUCCESS)) {
@@ -508,10 +504,6 @@ bool try_read_datetime_v2_text(T& x, ReadBuffer& in, const cctz::time_zone& loca
 #include "common/compile_check_begin.h"
 
 bool inline try_read_bool_text(UInt8& x, StringRef& buf) {
-    ReadBuffer rb_buf((const unsigned char*)buf.data, buf.size);
-    if (read_int_text_impl<UInt8>(x, rb_buf)) {
-        return x == 0 || x == 1;
-    }
     StringParser::ParseResult result;
     x = StringParser::string_to_bool(buf.data, buf.size, &result);
     return result == StringParser::PARSE_SUCCESS;

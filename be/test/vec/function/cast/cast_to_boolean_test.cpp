@@ -93,7 +93,7 @@ TEST_F(FunctionCastTest, test_from_string_to_bool) {
             {{std::string("")}, Null()},
             {{std::string(" ")}, Null()},
             {{std::string(" 1")}, uint8_t(1)},
-            {{std::string(" 1.1111")}, uint8_t(1)},
+            {{std::string(" 1.1111")}, Null()},
             {{std::string(" 0")}, uint8_t(0)},
             {{std::string("  true")}, uint8_t(1)},
             {{std::string("  false")}, uint8_t(0)},
@@ -103,6 +103,39 @@ TEST_F(FunctionCastTest, test_from_string_to_bool) {
             {{std::string("  TrUE  ")}, uint8_t(1)},
             {{std::string("  fAlsE  ")}, uint8_t(0)},
 
+            {{std::string("t")}, uint8_t(1)},
+            {{std::string("T")}, uint8_t(1)},
+            {{std::string("f")}, uint8_t(0)},
+            {{std::string("F")}, uint8_t(0)},
+
+            {{std::string("on")}, uint8_t(1)},
+            {{std::string("ON")}, uint8_t(1)},
+            {{std::string("On")}, uint8_t(1)},
+            {{std::string("oN")}, uint8_t(1)},
+            {{std::string("no")}, uint8_t(0)},
+            {{std::string("NO")}, uint8_t(0)},
+            {{std::string("No")}, uint8_t(0)},
+            {{std::string("nO")}, uint8_t(0)},
+
+            {{std::string("yes")}, uint8_t(1)},
+            {{std::string("YES")}, uint8_t(1)},
+            {{std::string("Yes")}, uint8_t(1)},
+            {{std::string("yEs")}, uint8_t(1)},
+            {{std::string("off")}, uint8_t(0)},
+            {{std::string("OFF")}, uint8_t(0)},
+            {{std::string("Off")}, uint8_t(0)},
+            {{std::string("oFf")}, uint8_t(0)},
+
+            {{std::string(" t ")}, uint8_t(1)},
+            {{std::string(" on ")}, uint8_t(1)},
+            {{std::string(" yes ")}, uint8_t(1)},
+            {{std::string(" TRUE ")}, uint8_t(1)},
+
+            {{std::string("x")}, Null()},
+            {{std::string("tr")}, Null()},
+            {{std::string("tru")}, Null()},
+            {{std::string("fals")}, Null()},
+            {{std::string("truth")}, Null()},
     };
     check_function_for_cast<DataTypeBool>(input_types, data_set);
 }
@@ -111,19 +144,36 @@ TEST_F(FunctionCastTest, test_from_string_to_bool_strict_mode) {
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     {
         DataSet data_set = {
-                {{std::string("true")}, uint8_t(1)},      {{std::string("false")}, uint8_t(0)},
-                {{std::string("1")}, uint8_t(1)},         {{std::string("0")}, uint8_t(0)},
-                {{std::string(" 1")}, uint8_t(1)},        {{std::string(" 1.1111")}, uint8_t(1)},
-                {{std::string(" 0")}, uint8_t(0)},        {{std::string("  true")}, uint8_t(1)},
-                {{std::string("  false")}, uint8_t(0)},   {{std::string("  TrUE  ")}, uint8_t(1)},
-                {{std::string("  fAlsE  ")}, uint8_t(0)},
+                {{std::string("true")}, uint8_t(1)},     {{std::string("false")}, uint8_t(0)},
+                {{std::string("1")}, uint8_t(1)},        {{std::string("0")}, uint8_t(0)},
+                {{std::string(" 1")}, uint8_t(1)},       {{std::string(" 0")}, uint8_t(0)},
+                {{std::string("  true")}, uint8_t(1)},   {{std::string("  false")}, uint8_t(0)},
+                {{std::string("  TrUE  ")}, uint8_t(1)}, {{std::string("  fAlsE  ")}, uint8_t(0)},
 
+                {{std::string("t")}, uint8_t(1)},        {{std::string("T")}, uint8_t(1)},
+                {{std::string("f")}, uint8_t(0)},        {{std::string("F")}, uint8_t(0)},
+                {{std::string(" t ")}, uint8_t(1)},      {{std::string(" f ")}, uint8_t(0)},
+
+                {{std::string("on")}, uint8_t(1)},       {{std::string("ON")}, uint8_t(1)},
+                {{std::string("On")}, uint8_t(1)},       {{std::string("oN")}, uint8_t(1)},
+                {{std::string("no")}, uint8_t(0)},       {{std::string("NO")}, uint8_t(0)},
+                {{std::string("No")}, uint8_t(0)},       {{std::string("nO")}, uint8_t(0)},
+                {{std::string(" on ")}, uint8_t(1)},     {{std::string(" no ")}, uint8_t(0)},
+
+                {{std::string("yes")}, uint8_t(1)},      {{std::string("YES")}, uint8_t(1)},
+                {{std::string("Yes")}, uint8_t(1)},      {{std::string("yEs")}, uint8_t(1)},
+                {{std::string("off")}, uint8_t(0)},      {{std::string("OFF")}, uint8_t(0)},
+                {{std::string("Off")}, uint8_t(0)},      {{std::string("oFf")}, uint8_t(0)},
+                {{std::string(" yes ")}, uint8_t(1)},    {{std::string(" off ")}, uint8_t(0)},
+
+                {{std::string(" TRUE ")}, uint8_t(1)},   {{std::string(" FALSE ")}, uint8_t(0)},
         };
         check_function_for_cast_strict_mode<DataTypeBool>(input_types, data_set);
     }
+
     {
         check_function_for_cast_strict_mode<DataTypeBool>(
-                input_types, {{{std::string("null")}, Null()}}, "parse number fail");
+                input_types, {{{std::string(" 1.111")}, Null()}}, "parse number fail");
     }
     {
         check_function_for_cast_strict_mode<DataTypeBool>(
@@ -140,6 +190,26 @@ TEST_F(FunctionCastTest, test_from_string_to_bool_strict_mode) {
     {
         check_function_for_cast_strict_mode<DataTypeBool>(
                 input_types, {{{std::string(" ")}, Null()}}, "parse number fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeBool>(
+                input_types, {{{std::string("x")}, Null()}}, "parse number fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeBool>(
+                input_types, {{{std::string("tr")}, Null()}}, "parse number fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeBool>(
+                input_types, {{{std::string("tru")}, Null()}}, "parse number fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeBool>(
+                input_types, {{{std::string("fals")}, Null()}}, "parse number fail");
+    }
+    {
+        check_function_for_cast_strict_mode<DataTypeBool>(
+                input_types, {{{std::string("truth")}, Null()}}, "parse number fail");
     }
 }
 
