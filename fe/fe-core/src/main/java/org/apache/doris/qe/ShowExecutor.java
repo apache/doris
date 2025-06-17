@@ -42,7 +42,6 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowConfigStmt;
 import org.apache.doris.analysis.ShowConvertLSCStmt;
-import org.apache.doris.analysis.ShowCopyStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
@@ -66,7 +65,6 @@ import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
-import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
@@ -166,7 +164,6 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.BuildIndexProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
-import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
@@ -191,12 +188,9 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
-import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -264,7 +258,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -327,10 +320,6 @@ public class ShowExecutor {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
             handleShowColumn();
-        } else if (stmt instanceof ShowCopyStmt) {
-            handleShowCopy();
-        } else if (stmt instanceof ShowLoadStmt) {
-            handleShowLoad();
         } else if (stmt instanceof ShowStreamLoadStmt) {
             handleShowStreamLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
@@ -1141,90 +1130,6 @@ public class ShowExecutor {
                 resultSet = new ShowResultSet(helpStmt.getKeywordMetaData(), rows);
             }
         }
-    }
-
-    // Show copy statement.
-    private void handleShowCopy() throws AnalysisException {
-        Set<EtlJobType> jobTypes = Sets.newHashSet(EtlJobType.COPY);
-        handleShowLoad(jobTypes);
-    }
-
-    // Show load statement.
-    private void handleShowLoad() throws AnalysisException {
-        Set<EtlJobType> jobTypes = Sets.newHashSet(EnumSet.allOf(EtlJobType.class));
-        jobTypes.remove(EtlJobType.COPY);
-        handleShowLoad(jobTypes);
-    }
-
-    // Show load statement.
-    private void handleShowLoad(Set<EtlJobType> jobTypes) throws AnalysisException {
-        ShowLoadStmt showStmt = (ShowLoadStmt) stmt;
-
-        Util.prohibitExternalCatalog(ctx.getDefaultCatalog(), stmt.getClass().getSimpleName());
-        Env env = ctx.getEnv();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
-        long dbId = db.getId();
-        List<List<Comparable>> loadInfos = Lists.newArrayList();
-        Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
-                .map(entity -> entity.name())
-                .collect(Collectors.toSet());
-        if (!Config.isCloudMode()) {
-            loadInfos.addAll(env.getLoadManager()
-                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
-        } else {
-            loadInfos.addAll(((CloudLoadManager) env.getLoadManager())
-                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
-                        showStmt.isAccurateMatch(), statesValue, jobTypes, showStmt.getCopyIdValue(),
-                        showStmt.isCopyIdAccurateMatch(), showStmt.getTableNameValue(),
-                        showStmt.isTableNameAccurateMatch(),
-                        showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
-        }
-        // add the nereids load info
-        JobManager loadMgr = env.getJobManager();
-        loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
-                showStmt.isAccurateMatch(), showStmt.getStateV2(), db.getCatalog().getName()));
-
-        // order the result of List<LoadInfo> by orderByPairs in show stmt
-        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-        ListComparator<List<Comparable>> comparator;
-        if (orderByPairs != null) {
-            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
-        } else {
-            // sort by id asc
-            comparator = new ListComparator<>(0);
-        }
-        Collections.sort(loadInfos, comparator);
-
-        List<List<String>> rows = Lists.newArrayList();
-        for (List<Comparable> loadInfo : loadInfos) {
-            List<String> oneInfo = new ArrayList<>(loadInfo.size());
-
-            // replace QUORUM_FINISHED -> FINISHED
-            if (loadInfo.get(LoadProcDir.STATE_INDEX).equals(JobState.QUORUM_FINISHED.name())) {
-                loadInfo.set(LoadProcDir.STATE_INDEX, JobState.FINISHED.name());
-            }
-
-            for (Comparable element : loadInfo) {
-                oneInfo.add(element.toString());
-            }
-            rows.add(oneInfo);
-        }
-
-        // filter by limit
-        long limit = showStmt.getLimit();
-        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
-        if (offset >= rows.size()) {
-            rows = Lists.newArrayList();
-        } else if (limit != -1L) {
-            if ((limit + offset) < rows.size()) {
-                rows = rows.subList((int) offset, (int) (limit + offset));
-            } else {
-                rows = rows.subList((int) offset, rows.size());
-            }
-        }
-
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Show stream load statement.

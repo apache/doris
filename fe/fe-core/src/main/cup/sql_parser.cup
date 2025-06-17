@@ -4328,11 +4328,6 @@ show_param ::=
     {:
         RESULT = new ShowLoadWarningsStmt(null, url, null, null);
     :}
-    /* Show load statement */
-    | KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowLoadStmt(db, parser.where, orderByClause, limitClause);
-    :}
     /* Show stream load statement */
     | KW_STREAM KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
@@ -4599,11 +4594,6 @@ show_param ::=
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    /* Show copy statement */
-    | KW_COPY opt_db:db opt_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowCopyStmt(db, parser.where, orderByClause, limitClause);
     :}
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
