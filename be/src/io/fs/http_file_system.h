@@ -86,6 +86,7 @@ protected:
     }
 
     Status exists_impl(const Path& path, bool* res) const override;
+
 private:
     HttpFileSystem(Path&& root_path, std::string id);
     Status init(const std::string& url);
