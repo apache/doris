@@ -4158,11 +4158,6 @@ show_param ::=
     {:
         RESULT = new ShowWhiteListStmt();
     :}
-    /* show variables */
-    | opt_var_type:type KW_VARIABLES opt_wild_where
-    {:
-        RESULT = new ShowVariablesStmt(type, parser.wild, parser.where);
-    :}
     /* show open tables */
     | KW_OPEN KW_TABLES opt_db:db opt_wild_where
     {:

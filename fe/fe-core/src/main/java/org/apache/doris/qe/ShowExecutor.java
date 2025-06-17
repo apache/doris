@@ -104,7 +104,6 @@ import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowTypeCastStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
-import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractJob;
@@ -323,8 +322,6 @@ public class ShowExecutor {
             handleShowCreateFunction();
         } else if (stmt instanceof ShowEncryptKeysStmt) {
             handleShowEncryptKeys();
-        } else if (stmt instanceof ShowVariablesStmt) {
-            handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
             handleShowColumn();
         } else if (stmt instanceof ShowCopyStmt) {
@@ -897,18 +894,6 @@ public class ShowExecutor {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
-    }
-
-    // Show variables like
-    private void handleShowVariables() throws AnalysisException {
-        ShowVariablesStmt showStmt = (ShowVariablesStmt) stmt;
-        PatternMatcher matcher = null;
-        if (showStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                    CaseSensibility.VARIABLES.getCaseSensibility());
-        }
-        List<List<String>> rows = VariableMgr.dump(showStmt.getType(), ctx.getSessionVariable(), matcher);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     // Show create database
