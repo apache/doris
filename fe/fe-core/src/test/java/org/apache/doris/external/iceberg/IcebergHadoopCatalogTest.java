@@ -51,7 +51,7 @@ public class IcebergHadoopCatalogTest {
         Map<String, String> hadoopProps = PropertyConverter.convertToHadoopFSProperties(properties);
         String pathStr = "cosn://bucket1/namespace";
         DFSFileSystem fs = (DFSFileSystem) FileSystemFactory.get(hadoopProps);
-        nativeFs = fs.nativeFileSystem(pathStr);
+        nativeFs = fs.nativeFileSystem(new Path(pathStr));
 
         RemoteIterator<FileStatus> it = nativeFs.listStatusIterator(new Path(pathStr));
         while (it.hasNext()) {
