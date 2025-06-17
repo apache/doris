@@ -100,7 +100,7 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
-// If the external client cannot directly access priority_networks, set public_host to be accessible
+// If a the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
 // There are usually two usage scenarios:
 // 1. in production environment, it is often inconvenient to expose Doris BE nodes to the external network.
