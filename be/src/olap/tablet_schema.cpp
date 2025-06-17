@@ -959,6 +959,12 @@ void TabletSchema::clear_index_cache_handlers() {
     _index_cache_handlers.clear();
 }
 
+void TabletSchema::clear_index() {
+    clear_index_cache_handlers();
+    _indexes.clear();
+    _col_id_suffix_to_index.clear();
+}
+
 void TabletSchema::remove_index(int64_t index_id) {
     std::vector<TabletIndexPtr> indexes;
     std::unordered_map<IndexKey, int32_t, IndexKeyHash> col_id_suffix_to_index;
