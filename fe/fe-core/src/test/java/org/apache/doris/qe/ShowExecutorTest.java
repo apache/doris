@@ -18,9 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DbName;
-import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.ShowAuthorStmt;
@@ -55,6 +53,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabasesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
@@ -370,7 +369,6 @@ public class ShowExecutorTest {
     @Test
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();
-        Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         Env env = AccessTestUtil.fetchAdminCatalog();
 
         new MockUp<Env>() {
@@ -385,20 +383,13 @@ public class ShowExecutorTest {
             }
         };
 
-        DescribeStmt stmt = new DescribeStmt(new TableName(internalCtl, "testDb", "testTbl"), false);
+        TableNameInfo tableNameInfo = new TableNameInfo(internalCtl, "testDb", "testTbl");
+        DescribeCommand command = new DescribeCommand(tableNameInfo, false, null);
+        ShowResultSet resultSet = null;
         try {
-            stmt.analyze(analyzer);
-        } catch (Exception e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
-
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet;
-        try {
-            resultSet = executor.execute();
+            resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
             Assert.assertFalse(resultSet.next());
-        } catch (AnalysisException e) {
+        } catch (Exception e) {
             e.printStackTrace();
             Assert.fail();
         }

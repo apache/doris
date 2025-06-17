@@ -26,11 +26,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Triple;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -108,8 +107,7 @@ public class WarmUpClusterStmt extends StatementBase implements NotFallbackInPar
                     if (partitionName.length() != 0 && !table.containsPartition(partitionName)) {
                         throw new AnalysisException("The partition " + partitionName + " doesn't exist");
                     }
-                    Triple<String, String, String> part =
-                            new ImmutableTriple<>(dbName, tableName.getTbl(), partitionName);
+                    Triple<String, String, String> part = Triple.of(dbName, tableName.getTbl(), partitionName);
                     tables.add(part);
                 }
             }

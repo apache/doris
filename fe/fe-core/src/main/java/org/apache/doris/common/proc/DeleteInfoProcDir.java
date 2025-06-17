@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.Load;
 
 import com.google.common.collect.ImmutableList;
 
@@ -33,12 +32,10 @@ public class DeleteInfoProcDir implements ProcNodeInterface {
             .add("State")
             .build();
 
-    private Load load;
     private DeleteHandler deleteHandler;
     private long dbId;
 
-    public DeleteInfoProcDir(DeleteHandler deleteHandler, Load load, long dbId) {
-        this.load = load;
+    public DeleteInfoProcDir(DeleteHandler deleteHandler, long dbId) {
         this.deleteHandler = deleteHandler;
         this.dbId = dbId;
     }

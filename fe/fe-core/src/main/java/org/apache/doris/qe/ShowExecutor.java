@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
-import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
@@ -197,8 +196,6 @@ import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -308,8 +305,6 @@ public class ShowExecutor {
             handleShowDbId();
         } else if (stmt instanceof ShowTableIdStmt) {
             handleShowTableId();
-        } else if (stmt instanceof DescribeStmt) {
-            handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
             handleShowCreateTable();
         } else if (stmt instanceof ShowCreateMTMVStmt) {
@@ -1009,12 +1004,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Describe statement
-    private void handleDescribe() throws AnalysisException {
-        DescribeStmt describeStmt = (DescribeStmt) stmt;
-        resultSet = new ShowResultSet(describeStmt.getMetaData(), describeStmt.getResultRows());
-    }
-
     // Show column statement.
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
@@ -1175,11 +1164,7 @@ public class ShowExecutor {
         Env env = ctx.getEnv();
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
-        List<List<Comparable>> loadInfos;
-        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
-        Load load = env.getLoadInstance();
-        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
-                showStmt.isAccurateMatch(), showStmt.getStates());
+        List<List<Comparable>> loadInfos = Lists.newArrayList();
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
@@ -1194,7 +1179,7 @@ public class ShowExecutor {
                         showStmt.isTableNameAccurateMatch(),
                         showStmt.getFileValue(), showStmt.isFileAccurateMatch()));
         }
-        // add the nerieds load info
+        // add the nereids load info
         JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
                 showStmt.isAccurateMatch(), showStmt.getStateV2(), db.getCatalog().getName()));
@@ -1320,64 +1305,7 @@ public class ShowExecutor {
         }
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
-        ShowResultSet showResultSet = handleShowLoadWarningV2(showWarningsStmt, db);
-        if (showResultSet != null) {
-            resultSet = showResultSet;
-            return;
-        }
-
-        long dbId = db.getId();
-        Load load = env.getLoadInstance();
-        long jobId = 0;
-        LoadJob job = null;
-        String label = null;
-        if (showWarningsStmt.isFindByLabel()) {
-            jobId = load.getLatestJobIdByLabel(dbId, showWarningsStmt.getLabel());
-            job = load.getLoadJob(jobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("load_job_id={}", jobId);
-            }
-            jobId = showWarningsStmt.getJobId();
-            job = load.getLoadJob(jobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-            label = job.getLabel();
-            LOG.info("label={}", label);
-        }
-
-        // check auth
-        Set<String> tableNames = job.getTableNames();
-        if (tableNames.isEmpty()) {
-            // forward compatibility
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                            PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), db.getFullName());
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                                tblName, PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW LOAD WARNING",
-                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                            db.getFullName() + ": " + tblName);
-                }
-            }
-        }
-        List<List<String>> rows = Lists.newArrayList();
-        long limit = showWarningsStmt.getLimitNum();
-        if (limit != -1L && limit < rows.size()) {
-            rows = rows.subList(0, (int) limit);
-        }
-
-        resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+        resultSet = handleShowLoadWarningV2(showWarningsStmt, db);
     }
 
     private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
@@ -1396,7 +1324,7 @@ public class ShowExecutor {
                         true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
-                return null;
+                throw new AnalysisException("Job does not exist");
             }
             List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
             for (List<Comparable> comparables : loadJobInfosByDb) {
@@ -1407,7 +1335,7 @@ public class ShowExecutor {
         }
         org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(showWarningsStmt.getJobId());
         if (loadJob == null) {
-            return null;
+            throw new AnalysisException("Job does not exist");
         }
         List<String> singleInfo;
         try {

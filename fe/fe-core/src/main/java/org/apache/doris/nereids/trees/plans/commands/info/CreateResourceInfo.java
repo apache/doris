@@ -97,11 +97,8 @@ public class CreateResourceInfo {
         }
 
         resourceType = ResourceType.fromString(type);
-        if (resourceType == ResourceType.UNKNOWN) {
+        if (resourceType == ResourceType.UNKNOWN || resourceType == ResourceType.SPARK) {
             throw new AnalysisException("Unsupported resource type: " + type);
-        }
-        if (resourceType == ResourceType.SPARK && !isExternal) {
-            throw new AnalysisException("Spark is external resource");
         }
         if (resourceType == ResourceType.ODBC_CATALOG) {
             throw new AnalysisException("ODBC table is deprecated, use JDBC instead.");
