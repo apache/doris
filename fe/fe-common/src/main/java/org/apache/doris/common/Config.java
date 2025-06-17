@@ -3211,6 +3211,9 @@ public class Config extends ConfigBase {
     public static int cloud_warm_up_job_scheduler_interval_millisecond = 1000; // 1 seconds
 
     @ConfField(mutable = true, masterOnly = true)
+    public static boolean cloud_warm_up_force_all_partitions = false;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_fetch_cluster_cache_hotspot = true;
 
     @ConfField(mutable = true)

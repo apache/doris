@@ -40,6 +40,14 @@ public:
                                           PGetFileCacheMetaResponse* response,
                                           google::protobuf::Closure* done) override;
 
+    void warm_up_rowset(google::protobuf::RpcController* controller,
+                        const PWarmUpRowsetRequest* request, PWarmUpRowsetResponse* response,
+                        google::protobuf::Closure* done) override;
+
+    void recycle_cache(google::protobuf::RpcController* controller,
+                       const PRecycleCacheRequest* request, PRecycleCacheResponse* response,
+                       google::protobuf::Closure* done) override;
+
 private:
     CloudStorageEngine& _engine;
 };

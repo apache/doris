@@ -1480,17 +1480,17 @@ alter_stmt ::=
     ;
 
 warm_up_stmt ::=
-    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
+    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force opt_properties:properties
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force, properties);
     :}
     | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:
         RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
     :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
+    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force opt_properties:properties
     {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
+        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force, properties);
     :}
     | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
     {:

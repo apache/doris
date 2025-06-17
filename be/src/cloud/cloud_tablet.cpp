@@ -33,6 +33,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
+#include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
@@ -59,6 +60,28 @@ using namespace ErrorCode;
 bvar::Adder<int64_t> g_unused_rowsets_count("unused_rowsets_count");
 
 static constexpr int LOAD_INITIATOR_ID = -1;
+
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_size(
+        "file_cache_cloud_tablet_submitted_segment_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_segment_num(
+        "file_cache_cloud_tablet_submitted_segment_num");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_index_size(
+        "file_cache_cloud_tablet_submitted_index_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_submitted_index_num(
+        "file_cache_cloud_tablet_submitted_index_num");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_segment_size(
+        "file_cache_cloud_tablet_finished_segment_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_segment_num(
+        "file_cache_cloud_tablet_finished_segment_num");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_index_size(
+        "file_cache_cloud_tablet_finished_index_size");
+bvar::Adder<uint64_t> g_file_cache_cloud_tablet_finished_index_num(
+        "file_cache_cloud_tablet_finished_index_num");
+
+bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_segment_num(
+        "file_cache_recycle_cached_data_segment_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_segment_size(
+        "file_cache_recycle_cached_data_segment_size");
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
@@ -269,48 +292,82 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     ? 0
                                     : rowset_meta->newest_write_timestamp() +
                                               _tablet_meta->ttl_seconds();
-                    // clang-format off
+                    g_file_cache_cloud_tablet_submitted_segment_num << 1;
+                    if (rs->rowset_meta()->segment_file_size(seg_id) > 0) {
+                        g_file_cache_cloud_tablet_submitted_segment_size
+                                << rs->rowset_meta()->segment_file_size(seg_id);
+                    }
                     _engine.file_cache_block_downloader().submit_download_task(io::DownloadFileMeta {
-                            .path = storage_resource.value()->remote_segment_path(*rowset_meta, seg_id),
+                            .path = storage_resource.value()->remote_segment_path(*rowset_meta,
+                                                                                  seg_id),
                             .file_size = rs->rowset_meta()->segment_file_size(seg_id),
                             .file_system = storage_resource.value()->fs,
                             .ctx =
                                     {
                                             .expiration_time = expiration_time,
-                                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                            .is_dryrun = config::
+                                                    enable_reader_dryrun_when_download_file_cache,
                                     },
-                            .download_done {},
+                            .download_done {[](Status st) {
+                                if (!st) {
+                                    LOG_WARNING("add rowset warm up error ").error(st);
+                                }
+                            }},
                     });
 
-                    auto download_idx_file = [&](const io::Path& idx_path) {
+                    auto download_idx_file = [&](const io::Path& idx_path, int64_t idx_size) {
                         io::DownloadFileMeta meta {
                                 .path = idx_path,
-                                .file_size = -1,
+                                .file_size = idx_size,
                                 .file_system = storage_resource.value()->fs,
                                 .ctx =
                                         {
                                                 .expiration_time = expiration_time,
                                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                         },
-                                .download_done {},
+                                .download_done {[](Status st) {
+                                    if (!st) {
+                                        LOG_WARNING("add rowset warm up error ").error(st);
+                                    }
+                                }},
                         };
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                        g_file_cache_cloud_tablet_submitted_index_num << 1;
+                        g_file_cache_cloud_tablet_submitted_index_size << idx_size;
                     };
                     // clang-format on
                     auto schema_ptr = rowset_meta->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
+                        std::unordered_map<int64_t, int64_t> index_size_map;
+                        auto&& inverted_index_info = rowset_meta->inverted_index_file_info(seg_id);
+                        for (const auto& info : inverted_index_info.index_info()) {
+                            if (info.index_file_size() != -1) {
+                                index_size_map[info.index_id()] = info.index_file_size();
+                            } else {
+                                VLOG_DEBUG << "Invalid index_file_size for segment_id " << seg_id
+                                           << ", index_id " << info.index_id();
+                            }
+                        }
                         for (const auto& index : schema_ptr->inverted_indexes()) {
                             auto idx_path = storage_resource.value()->remote_idx_v1_path(
                                     *rowset_meta, seg_id, index->index_id(),
                                     index->get_index_suffix());
-                            download_idx_file(idx_path);
+                            download_idx_file(idx_path, index_size_map[index->index_id()]);
                         }
                     } else {
                         if (schema_ptr->has_inverted_index()) {
+                            auto&& inverted_index_info =
+                                    rowset_meta->inverted_index_file_info(seg_id);
+                            int64_t idx_size = 0;
+                            if (inverted_index_info.has_index_size()) {
+                                idx_size = inverted_index_info.index_size();
+                            } else {
+                                VLOG_DEBUG << "index_size is not set for segment " << seg_id;
+                            }
                             auto idx_path = storage_resource.value()->remote_idx_v2_path(
                                     *rowset_meta, seg_id);
-                            download_idx_file(idx_path);
+                            download_idx_file(idx_path, idx_size);
                         }
                     }
                 }
@@ -522,14 +579,29 @@ void CloudTablet::clear_cache() {
 }
 
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
+    std::vector<RowsetId> rowset_ids;
+    std::vector<int64_t> num_segments;
     for (const auto& rs : rowsets) {
         // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
         if (rs.use_count() > 2) {
             LOG(WARNING) << "Rowset " << rs->rowset_id().to_string() << " has " << rs.use_count()
                          << " references. File Cache won't be recycled when query is using it.";
-            return;
+            continue;
         }
         rs->clear_cache();
+        rowset_ids.push_back(rs->rowset_id());
+        num_segments.push_back(rs->num_segments());
+        int64_t segment_size_sum = 0;
+        for (int32_t i = 0; i < rs->num_segments(); i++) {
+            segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+        }
+        g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+        g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+    }
+    if (!rowsets.empty()) {
+        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+        manager.recycle_cache(rowsets.front()->rowset_meta()->tablet_id(), rowset_ids,
+                              num_segments);
     }
 }
 
