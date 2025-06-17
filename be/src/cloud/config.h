@@ -32,7 +32,7 @@ static inline bool is_cloud_mode() {
 
 // Set the endpoint of meta service.
 //
-// If meta services are deployed behind a load balancer, set this config to "host:port" of the load balancer.
+// If meta services are deployed behind a a load balancer, set this config to "host:port" of the load balancer.
 // Here is a set of configs to configure the connection behaviors:
 // - meta_service_connection_pooled: distribute the long connections to different RS of the VIP.
 // - meta_service_connection_age_base_seconds: expire the connection after a random time during [base, 2*base],
