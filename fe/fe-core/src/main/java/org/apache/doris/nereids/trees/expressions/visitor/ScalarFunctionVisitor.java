@@ -342,6 +342,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Pmod;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Pow;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Power;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.PreviousDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Protocol;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantilePercent;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
@@ -1755,6 +1756,10 @@ public interface ScalarFunctionVisitor<R, C> {
     default R visitPower(Power power, C context) {
         return visitScalarFunction(power, context);
     }
+
+	default R visitPreviousDay(PreviousDay previousDay, C context) {
+		return visitScalarFunction(previousDay, context);
+	}
 
     default R visitProtocol(Protocol protocol, C context) {
         return visitScalarFunction(protocol, context);
