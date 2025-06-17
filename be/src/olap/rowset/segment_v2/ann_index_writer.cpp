@@ -121,7 +121,7 @@ Status AnnIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t row
 }
 
 int64_t AnnIndexColumnWriter::size() const {
-    return 0; // TODO: 获取倒排索引的内存大小
+    return 0;
 }
 
 Status AnnIndexColumnWriter::finish() {
