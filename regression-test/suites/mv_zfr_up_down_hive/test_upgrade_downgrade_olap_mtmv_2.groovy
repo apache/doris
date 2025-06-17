@@ -442,7 +442,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT user_id, date, num FROM ${ctlName}.${dbName}.${tableName6};
+            SELECT user_id, num FROM ${ctlName}.${dbName}.${tableName6};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
 
