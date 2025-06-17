@@ -277,7 +277,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
                     .getLoadJobInfosByDb(db.getId(), label, true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
-                return null;
+                throw new AnalysisException("job does not exist");
             }
             List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
             for (List<Comparable> comparables : loadJobInfosByDb) {
@@ -288,7 +288,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         }
         org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(jobId);
         if (loadJob == null) {
-            return null;
+            throw new AnalysisException("job does not exist");
         }
         List<String> singleInfo;
         try {
