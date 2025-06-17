@@ -58,8 +58,11 @@ protected:
                  .region = "dummy-region",
                  .ak = accountName,
                  .sk = accountKey,
+                 .token = "",
                  .bucket = containerName,
-                 .provider = io::ObjStorageType::AZURE});
+                 .provider = io::ObjStorageType::AZURE,
+                 .role_arn = "",
+                 .external_id = ""});
     }
 
     void SetUp() override {
