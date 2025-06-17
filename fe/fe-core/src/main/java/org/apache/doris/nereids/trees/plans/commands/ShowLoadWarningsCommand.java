@@ -30,11 +30,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -68,7 +64,6 @@ import java.net.URLConnection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -282,7 +277,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
                     .getLoadJobInfosByDb(db.getId(), label, true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
-                return null;
+                throw new AnalysisException("job does not exist");
             }
             List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
             for (List<Comparable> comparables : loadJobInfosByDb) {
@@ -293,7 +288,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         }
         org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(jobId);
         if (loadJob == null) {
-            return null;
+            throw new AnalysisException("job does not exist");
         }
         List<String> singleInfo;
         try {
@@ -332,59 +327,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         }
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(dbName);
-        ShowResultSet showResultSet = handleShowLoadWarningV2(db);
-        if (showResultSet != null) {
-            return showResultSet;
-        }
-
-        long dbId = db.getId();
-        Load load = env.getLoadInstance();
-        long queryJobId = 0;
-        LoadJob job = null;
-        String label = null;
-        if (label != null) {
-            queryJobId = load.getLatestJobIdByLabel(dbId, label);
-            job = load.getLoadJob(queryJobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("load_job_id={}", queryJobId);
-            }
-            queryJobId = jobId;
-            job = load.getLoadJob(queryJobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-            label = job.getLabel();
-            LOG.info("label={}", label);
-        }
-
-        // check auth
-        Set<String> tableNames = job.getTableNames();
-        if (tableNames.isEmpty()) {
-            // forward compatibility
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                            PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), db.getFullName());
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                            tblName, PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW LOAD WARNING",
-                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                            db.getFullName() + ": " + tblName);
-                }
-            }
-        }
-        List<List<String>> rows = Lists.newArrayList();
-        rows = applyLimit(limit, offset, rows);
-        return new ShowResultSet(getMetaData(), rows);
+        return handleShowLoadWarningV2(db);
     }
 
     @Override
