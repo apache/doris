@@ -31,7 +31,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -71,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
@@ -789,8 +789,11 @@ public abstract class TestWithFeService {
     }
 
     protected void dropPolicy(String sql) throws Exception {
-        DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropRowPolicyCommand) {
+            ((DropRowPolicyCommand) parsed).doRun(connectContext, stmtExecutor);
+        }
     }
 
     protected void createSqlBlockRule(String sql) throws Exception {

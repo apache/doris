@@ -18,7 +18,6 @@
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.AlterPolicyStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -198,14 +197,6 @@ public class PolicyMgr implements Writable {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     * Drop policy through stmt.
-     **/
-    public void dropPolicy(DropPolicyStmt stmt) throws DdlException, AnalysisException {
-        DropPolicyLog dropPolicyLog = DropPolicyLog.fromDropStmt(stmt);
-        dropPolicy(dropPolicyLog, stmt.isIfExists());
     }
 
     /**
