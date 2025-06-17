@@ -279,6 +279,10 @@ public class NereidsPlanner extends Planner {
         }
 
         optimize(showPlanProcess);
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsMaterializedViewRewriteTime(statementContext.getMaterializedViewRewriteDuration());
+        }
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
