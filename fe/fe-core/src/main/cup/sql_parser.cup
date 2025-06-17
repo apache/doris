@@ -2833,13 +2833,6 @@ resume_routine_load_stmt ::=
     :}
     ;
 
-stop_routine_load_stmt ::=
-    KW_STOP KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new StopRoutineLoadStmt(jobLabel);
-    :}
-    ;
-
 show_routine_load_stmt ::=
     KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
