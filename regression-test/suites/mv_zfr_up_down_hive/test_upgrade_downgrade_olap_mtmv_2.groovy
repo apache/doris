@@ -181,12 +181,37 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
             mv_not_part_in(test_sql5, mtmvName5)
-
         }
         connect('root', context.config.jdbcPassword, master_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
             mv_not_part_in(test_sql5, mtmvName5)
+        }
+
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv5[0][2] == false)
+
+        // 刷新mtmv之后状态恢复正常
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} auto"""
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
         }
 
     }
@@ -352,6 +377,14 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             sql """use ${dbName}"""
             mv_not_part_in(test_sql3, mtmvName3)
         }
+
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv3[0][2] == false)
+
     }
 
     sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
