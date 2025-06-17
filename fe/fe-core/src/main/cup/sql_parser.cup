@@ -1976,10 +1976,6 @@ create_stmt ::=
     {:
         RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
     :}
-    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role opt_comment:comment
-    {:
-        RESULT = new CreateRoleStmt(ifNotExists, role, comment);
-    :}
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);

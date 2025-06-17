@@ -71,7 +71,6 @@ import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
-import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateStageStmt;
@@ -244,8 +243,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof RevokeStmt) {
             RevokeStmt stmt = (RevokeStmt) ddlStmt;
             env.getAuth().revoke(stmt);
-        } else if (ddlStmt instanceof CreateRoleStmt) {
-            env.getAuth().createRole((CreateRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoleStmt) {
             env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRoleStmt) {
