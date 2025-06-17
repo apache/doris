@@ -60,13 +60,8 @@ private:
     static constexpr size_t READ_BUFFER_SIZE = 4096;
     size_t _buffer_start = 0;
     size_t _buffer_end = 0;
-    size_t _buffer_pos = 0;
-    size_t _file_offset = 0;
-    size_t _buffer_available = 0;
     std::string _etag;
-    time_t _last_modified = 0;
     bool _initialized = false;
-    // int64_t _pos  = 0;
     size_t _file_size = -1;
     Path _path;
     std::string _url;
