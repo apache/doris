@@ -382,6 +382,8 @@ supportedShowStatement
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW STREAM? LOAD ((FROM | IN) database=identifier)? wildWhere?
         sortClause? limitClause?                                                    #showLoad
+    | SHOW LOAD WARNINGS ((((FROM | IN) database=identifier)?
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
@@ -475,8 +477,6 @@ lockTable
 
 unsupportedShowStatement
     : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
-    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
