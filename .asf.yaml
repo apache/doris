@@ -23,18 +23,18 @@ github:
     - query-engine
     - olap
     - lakehouse
-    - etl
+    - ai
+    - agent
     - elt
     - sql
     - snowflake
     - redshift
     - bigquery
-    - hive
     - iceberg
     - hudi
     - delta-lake
+    - paimon
     - spark
-    - hadoop
     - dbt
     - database
   enabled_merge_buttons:
