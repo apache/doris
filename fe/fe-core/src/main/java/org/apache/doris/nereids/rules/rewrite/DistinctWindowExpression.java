@@ -28,15 +28,18 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCou
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
-import org.apache.doris.plsql.Expression;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.List;
-import java.util.Map;
 
-public class DistinctWindowExpression  extends OneRewriteRuleFactory{
+/**
+ * count(distinct A) over(...)
+ * =>
+ * multi_distinct_count(A) over(...)
+ */
+
+public class DistinctWindowExpression extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalWindow()
@@ -47,7 +50,7 @@ public class DistinctWindowExpression  extends OneRewriteRuleFactory{
     private Plan rewrite(LogicalWindow<Plan> window) {
         List<NamedExpression> newWindowExpressions = Lists.newArrayList();
         boolean windExprChanged = false;
-        for (NamedExpression expr: window.getWindowExpressions()) {
+        for (NamedExpression expr : window.getWindowExpressions()) {
             boolean converted = false;
             if (expr instanceof Alias) {
                 Alias alias = (Alias) expr;

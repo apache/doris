@@ -2942,7 +2942,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (ctx.windowSpec() != null) {
                     if (isDistinct
                             && !("count".equalsIgnoreCase(functionName))
-                            && !("sum".equalsIgnoreCase(functionName)) ) {
+                            && !("sum".equalsIgnoreCase(functionName))) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
                     }
                     return withWindowSpec(ctx.windowSpec(), function);
