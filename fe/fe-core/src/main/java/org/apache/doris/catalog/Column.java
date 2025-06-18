@@ -128,6 +128,7 @@ public class Column implements GsonPostProcessable {
     // Currently, analyzed define expr is only used when creating materialized views,
     // so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
+    @SerializedName(value = "defineExpr")
     private Expr defineExpr; // use to define column in materialize view
     private String defineName = null;
     @SerializedName(value = "visible")
