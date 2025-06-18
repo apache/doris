@@ -131,7 +131,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         }
     }
     for (int i = 0; i < fe_res.size(); i++) {
-        if (fe_res[i][21].toString().indexOf(old_version) != -1) {
+        if (fe_res[i][17].toString().indexOf(old_version) != -1) {
             fe_old ++
         } else {
             fe_new++
@@ -159,6 +159,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     // success
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
     def test_sql5 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id"""
+    logger.info("state_mtmv5: " + state_mtmv5)
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
