@@ -998,7 +998,7 @@ grantUserIdentify
 
 explain
     : explainCommand planType?
-          level=(VERBOSE | TREE | GRAPH | PLAN | DUMP)?
+          level=(VERBOSE | TREE | GRAPH | PLAN | DUMP | CONVERT)?
           PROCESS?
     ;
 
