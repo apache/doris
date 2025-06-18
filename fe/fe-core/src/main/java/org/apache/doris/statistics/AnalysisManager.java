@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
-import org.apache.doris.analysis.DropCachedStatsStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -71,6 +70,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -523,7 +523,15 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
-        infoBuilder.setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0);
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
+        infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
@@ -602,7 +610,15 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
-        infoBuilder.setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0);
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
+        infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
@@ -903,13 +919,6 @@ public class AnalysisManager implements Writable {
 
     public void dropExpiredStats() {
         Env.getCurrentEnv().getStatisticsCleaner().clear();
-    }
-
-    public void dropCachedStats(DropCachedStatsStmt stmt) {
-        long catalogId = stmt.getCatalogIdId();
-        long dbId = stmt.getDbId();
-        long tblId = stmt.getTblId();
-        dropCachedStats(catalogId, dbId, tblId);
     }
 
     public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {

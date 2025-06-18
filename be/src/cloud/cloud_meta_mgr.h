@@ -69,10 +69,10 @@ public:
             CloudTablet* tablet, std::unique_lock<bthread::Mutex>& lock /* _sync_meta_lock */,
             const SyncOptions& options = {}, SyncRowsetStats* sync_stats = nullptr);
 
-    Status prepare_rowset(const RowsetMeta& rs_meta,
+    Status prepare_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
-    Status commit_rowset(const RowsetMeta& rs_meta,
+    Status commit_rowset(const RowsetMeta& rs_meta, const std::string& job_id,
                          std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
@@ -99,8 +99,6 @@ public:
     Status abort_tablet_job(const TabletJobInfoPB& job);
 
     Status lease_tablet_job(const TabletJobInfoPB& job);
-
-    Status update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema);
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap, int64_t txn_id = -1,
