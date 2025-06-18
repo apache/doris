@@ -24,12 +24,10 @@ import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetUserPropertyStmt;
@@ -656,25 +654,6 @@ public class Auth implements Writable {
         }
     }
 
-    // grant
-    public void grant(GrantStmt stmt) throws DdlException {
-        if (stmt.getTblPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                    stmt.getColPrivileges(), true /* err on non exist */, false /* not replay */);
-        } else if (stmt.getResourcePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
-                    true /* err on non exist */, false /* not replay */);
-        } else if (stmt.getWorkloadGroupPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
-                    true /* err on non exist */, false /* not replay */);
-        } else {
-            grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
-        }
-    }
-
     public void grantRoleCommand(GrantRoleCommand command) throws DdlException {
         grantInternal(command.getUserIdentity(), command.getRoles(), false);
     }
@@ -874,25 +853,6 @@ public class Auth implements Writable {
             return null;
         } finally {
             readUnlock();
-        }
-    }
-
-    // revoke
-    public void revoke(RevokeStmt stmt) throws DdlException {
-        if (stmt.getTblPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                    stmt.getColPrivileges(), true /* err on non exist */, false /* is replay */);
-        } else if (stmt.getResourcePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
-                    true /* err on non exist */, false /* is replay */);
-        } else if (stmt.getWorkloadGroupPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
-                    true /* err on non exist */, false /* is replay */);
-        } else {
-            revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
     }
 
