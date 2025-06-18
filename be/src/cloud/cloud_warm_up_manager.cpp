@@ -64,6 +64,8 @@ bvar::Adder<uint64_t> g_file_cache_once_or_periodic_warm_up_finished_index_num(
         "file_cache_once_or_periodic_warm_up_finished_index_num");
 bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_segment_num(
         "file_cache_recycle_cache_requested_segment_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_index_num(
+        "file_cache_recycle_cache_requested_index_num");
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
@@ -523,8 +525,10 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
     }
 }
 
-void CloudWarmUpManager::recycle_cache(int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
-                                       const std::vector<int64_t>& num_segments) {
+void CloudWarmUpManager::recycle_cache(
+        int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
+        const std::vector<int64_t>& num_segments,
+        const std::vector<std::vector<std::string>>& index_file_names) {
     LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowset_ids.size();
     auto replicas = get_replica_info(tablet_id);
     if (replicas.empty()) {
@@ -541,7 +545,11 @@ void CloudWarmUpManager::recycle_cache(int64_t tablet_id, const std::vector<Rows
         meta->set_tablet_id(tablet_id);
         meta->set_rowset_id(rowset_ids[i].to_string());
         meta->set_num_segments(num_segments[i]);
+        for (const auto& name : index_file_names[i]) {
+            meta->add_index_file_names(name);
+        }
         g_file_cache_recycle_cache_requested_segment_num << num_segments[i];
+        g_file_cache_recycle_cache_requested_index_num << index_file_names[i].size();
     }
     for (auto& replica : replicas) {
         // send sync request
