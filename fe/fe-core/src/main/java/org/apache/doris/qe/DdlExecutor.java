@@ -85,20 +85,9 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropEncryptKeyStmt;
-import org.apache.doris.analysis.DropFileStmt;
-import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
-import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.DropResourceStmt;
-import org.apache.doris.analysis.DropRoleStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
@@ -161,12 +150,8 @@ public class DdlExecutor {
             env.dropDb((DropDbStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFunctionStmt) {
             env.createFunction((CreateFunctionStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropFunctionStmt) {
-            env.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateEncryptKeyStmt) {
             EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropEncryptKeyStmt) {
-            EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             env.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableAsSelectStmt) {
@@ -230,9 +215,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);
-        } else if (ddlStmt instanceof DropUserStmt) {
-            DropUserStmt stmt = (DropUserStmt) ddlStmt;
-            env.getAuth().dropUser(stmt);
         } else if (ddlStmt instanceof GrantStmt) {
             GrantStmt stmt = (GrantStmt) ddlStmt;
             env.getAuth().grant(stmt);
@@ -243,8 +225,6 @@ public class DdlExecutor {
             env.getAuth().createRole((CreateRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoleStmt) {
             env.getAuth().alterRole((AlterRoleStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropRoleStmt) {
-            env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSystemStmt) {
@@ -273,8 +253,6 @@ public class DdlExecutor {
             env.cancelBackup((CancelBackupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRepositoryStmt) {
             env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropRepositoryStmt) {
-            env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
@@ -291,8 +269,6 @@ public class DdlExecutor {
             env.setTableStatus((AdminSetTableStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFileStmt) {
             env.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropFileStmt) {
-            env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
             env.installPlugin((InstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof UninstallPluginStmt) {
@@ -307,12 +283,8 @@ public class DdlExecutor {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceStmt) {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropResourceStmt) {
-            env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().createWorkloadGroup((CreateWorkloadGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
-            env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadSchedPolicyStmt) {
@@ -329,8 +301,6 @@ public class DdlExecutor {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
-            env.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
             env.alterDatabaseProperty((AlterDatabasePropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
@@ -343,8 +313,6 @@ public class DdlExecutor {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropPolicyStmt) {
-            env.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {
             env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
@@ -409,8 +377,6 @@ public class DdlExecutor {
             env.getStorageVaultMgr().createStorageVaultResource((CreateStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateStageStmt) {
             ((CloudEnv) env).createStage((CreateStageStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropStageStmt) {
-            ((CloudEnv) env).dropStage((DropStageStmt) ddlStmt);
         } else if (ddlStmt instanceof CopyStmt) {
             executeCopyStmt(env, (CopyStmt) ddlStmt);
         } else if (ddlStmt instanceof SetDefaultStorageVaultStmt) {
@@ -523,7 +489,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof RestoreStmt
                 || ddlStmt instanceof CancelBackupStmt
                 || ddlStmt instanceof CreateRepositoryStmt
-                || ddlStmt instanceof DropRepositoryStmt
                 || ddlStmt instanceof AdminRepairTableStmt
                 || ddlStmt instanceof AdminCancelRepairTableStmt
                 || ddlStmt instanceof AdminCompactTableStmt

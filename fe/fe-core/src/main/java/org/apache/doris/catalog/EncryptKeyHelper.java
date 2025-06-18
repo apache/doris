@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
-import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -46,12 +45,6 @@ public class EncryptKeyHelper {
         String dbName = encryptKey.getEncryptKeyName().getDb();
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         db.replayAddEncryptKey(encryptKey);
-    }
-
-    public static void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
-        EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(name.getDb());
-        db.dropEncryptKey(stmt.getEncryptKeysSearchDesc(), stmt.isIfExists());
     }
 
     public static void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws MetaNotFoundException {

@@ -57,7 +57,6 @@ import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
@@ -291,7 +290,6 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CleanTrashTask;
-import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PriorityMasterTaskExecutor;
@@ -6163,17 +6161,6 @@ public class Env {
         globalFunctionMgr.replayAddFunction(function);
     }
 
-    public void dropFunction(DropFunctionStmt stmt) throws UserException {
-        FunctionName name = stmt.getFunctionName();
-        if (SetType.GLOBAL.equals(stmt.getType())) {
-            globalFunctionMgr.dropFunction(stmt.getFunction(), stmt.isIfExists());
-        } else {
-            Database db = getInternalCatalog().getDbOrDdlException(name.getDb());
-            db.dropFunction(stmt.getFunction(), stmt.isIfExists());
-        }
-        cleanUDFCacheTask(stmt); // BE will cache classload, when drop function, BE need clear cache
-    }
-
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
         String dbName = functionSearchDesc.getName().getDb();
         Database db = getInternalCatalog().getDbOrMetaException(dbName);
@@ -6744,18 +6731,6 @@ public class Env {
             CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
             batchTask.addTask(cleanTrashTask);
             LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
-        }
-        AgentTaskExecutor.submit(batchTask);
-    }
-
-    public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
-        ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
-        String functionSignature = stmt.signatureString();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Backend backend : backendsInfo.values()) {
-            CleanUDFCacheTask cleanUDFCacheTask = new CleanUDFCacheTask(backend.getId(), functionSignature);
-            batchTask.addTask(cleanUDFCacheTask);
-            LOG.info("clean udf cache in be {}, beId {}", backend.getHost(), backend.getId());
         }
         AgentTaskExecutor.submit(batchTask);
     }
