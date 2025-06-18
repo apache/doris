@@ -194,7 +194,7 @@ public class CacheHotspotManager extends MasterDaemon {
 
         // Try to register the job atomically if absent
         Long existingJobId = clusterToRunningJobId.putIfAbsent(clusterName, jobId);
-        boolean success = (existingJobId == null);
+        boolean success = (existingJobId == null) || (existingJobId == jobId);
         if (!success) {
             LOG.info("Job {} skipped: waiting for job {} to finish on destination cluster {}",
                     jobId, existingJobId, clusterName);
