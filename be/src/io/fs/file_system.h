@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <butil/macros.h>
 #include <glog/logging.h>
 
 #include <cstdint>
@@ -30,23 +29,6 @@
 #include "io/fs/path.h"
 
 namespace doris::io {
-
-#ifndef FILESYSTEM_M
-#define FILESYSTEM_M(stmt)                                  \
-    do {                                                    \
-        Status _s;                                          \
-        if (bthread_self() == 0) {                          \
-            _s = (stmt);                                    \
-        } else {                                            \
-            auto task = [&] { _s = (stmt); };               \
-            AsyncIO::run_task(task, _type);                 \
-        }                                                   \
-        if (!_s) {                                          \
-            _s = Status::Error<false>(_s.code(), _s.msg()); \
-        }                                                   \
-        return _s;                                          \
-    } while (0);
-#endif
 
 enum class FileSystemType : uint8_t {
     LOCAL,

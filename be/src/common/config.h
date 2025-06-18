@@ -1032,8 +1032,6 @@ DECLARE_Bool(enable_time_lut);
 DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
-// number of s3 scanner thread pool size
-DECLARE_Int32(doris_remote_scanner_thread_pool_thread_num);
 // number of s3 scanner thread pool queue size
 DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 

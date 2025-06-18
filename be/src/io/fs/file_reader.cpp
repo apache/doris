@@ -22,7 +22,6 @@
 
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_system.h"
-#include "util/async_io.h"
 
 namespace doris::io {
 
