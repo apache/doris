@@ -63,7 +63,6 @@ import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
-import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -288,8 +287,6 @@ public class DdlExecutor {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetTableStatusStmt) {
             env.setTableStatus((AdminSetTableStatusStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateFileStmt) {
-            env.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
             env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {

@@ -1966,10 +1966,6 @@ create_stmt ::=
     {:
         RESULT = new AlterRoleStmt(role, comment);
     :}
-    | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new CreateFileStmt(fileName, db, properties);
-    :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
