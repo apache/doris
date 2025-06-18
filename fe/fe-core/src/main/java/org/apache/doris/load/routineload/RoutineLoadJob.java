@@ -56,6 +56,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -1952,13 +1953,20 @@ public abstract class RoutineLoadJob
                     origStmt.originStmt);
             CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
             ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+            StatementContext statementContext = new StatementContext();
+            statementContext.setConnectContext(ctx);
+            ctx.setStatementContext(statementContext);
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.getState().reset();
-            ctx.setThreadLocalInfo();
-            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
-            createRoutineLoadInfo.validate(ctx);
+            try {
+                ctx.setThreadLocalInfo();
+                createRoutineLoadInfo.validate(ctx);
+            } finally {
+                ctx.cleanup();
+            }
             setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
