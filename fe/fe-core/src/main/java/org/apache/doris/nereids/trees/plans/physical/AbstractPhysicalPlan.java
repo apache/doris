@@ -42,7 +42,8 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     protected final PhysicalProperties physicalProperties;
     private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
 
-    public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
+    public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties,
+            Plan... children) {
         this(type, Optional.empty(), logicalProperties, children);
     }
 

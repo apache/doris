@@ -124,7 +124,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
                         projectsBuilder.add(slot);
                     }
                 }
-                child = new LogicalProject<>(projectsBuilder.build(), child);
+                child = new LogicalProject<>(projectsBuilder.build(), child, child.getHintContext());
                 child = pushPlanUnderAnchor(child);
             }
             CascadesContext rewrittenCtx = CascadesContext.newSubtreeContext(
@@ -194,7 +194,8 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             }
         }
         if (!conjuncts.isEmpty()) {
-            LogicalPlan filter = new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.and(conjuncts)), child);
+            LogicalPlan filter = new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.and(conjuncts)), child,
+                    child.getHintContext());
             return pushPlanUnderAnchor(filter);
         }
         return child;

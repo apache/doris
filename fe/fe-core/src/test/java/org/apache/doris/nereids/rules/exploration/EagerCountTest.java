@@ -33,12 +33,14 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class EagerCountTest implements MemoPatternMatchSupported {
 
     private final LogicalOlapScan scan1 = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
-            PlanConstructor.student, ImmutableList.of(""));
+            PlanConstructor.student, ImmutableList.of(""), Optional.empty());
     private final LogicalOlapScan scan2 = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
-            PlanConstructor.score, ImmutableList.of(""));
+            PlanConstructor.score, ImmutableList.of(""), Optional.empty());
 
     @Test
     void singleSum() {

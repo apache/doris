@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ImmutableEqualSet;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -117,6 +118,6 @@ public class EliminateJoinByFK extends OneRewriteRuleFactory {
         if (predicates.isEmpty()) {
             return child;
         }
-        return new LogicalFilter<>(predicates, child);
+        return new LogicalFilter<>(predicates, child, PlanUtils.getHintContext(child));
     }
 }

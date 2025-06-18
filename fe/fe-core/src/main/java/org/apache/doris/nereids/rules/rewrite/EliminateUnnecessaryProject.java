@@ -51,7 +51,8 @@ public class EliminateUnnecessaryProject implements CustomRewriter {
     private Plan rewriteProject(LogicalProject<?> project) {
         if (project.child() instanceof LogicalEmptyRelation) {
             // eliminate unnecessary project
-            return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), project.getProjects());
+            return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), project.getProjects(),
+                    project.getHintContext());
         } else if (project.getOutputSet().equals(project.child().getOutputSet())) {
             // eliminate unnecessary project
             return rewrite(project.child());

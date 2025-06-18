@@ -91,7 +91,7 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                             return new Alias(s.getExprId(), new NullLiteral(s.getDataType()), s.getName());
                         }
                     }).collect(Collectors.toList());
-            newJoin = new LogicalProject<>(projects, newJoin);
+            newJoin = new LogicalProject<>(projects, newJoin, join.getHintContext());
         }
         return filter.withChildren(newJoin);
     }

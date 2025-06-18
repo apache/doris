@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,7 +37,8 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
                 logicalSubQueryAlias().thenApply(ctx -> {
                     LogicalProject project = new LogicalProject<>(
-                            ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child());
+                            ImmutableList.copyOf(ctx.root.getOutput()), ctx.root.child(),
+                            PlanUtils.getHintContext(ctx.root.child()));
                     return project;
                 })
         );

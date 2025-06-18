@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
+import org.apache.doris.nereids.hint.QbNameTreeNode;
 import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
+import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintQbName;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseCboRule;
@@ -34,13 +38,17 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * eliminate logical select hint and set them to cascade context
@@ -52,42 +60,50 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalSelectHint().thenApply(ctx -> {
             LogicalSelectHint<Plan> selectHintPlan = ctx.root;
+            Plan newPlan = null;
             for (SelectHint hint : selectHintPlan.getHints()) {
-                String hintName = hint.getHintName();
-                if (hintName.equalsIgnoreCase("SET_VAR")) {
+                if (hint instanceof SelectHintSetVar) {
                     ((SelectHintSetVar) hint).setVarOnceInSql(ctx.statementContext);
-                } else if (hintName.equalsIgnoreCase("ORDERED")) {
+                } else if (hint instanceof SelectHintOrdered) {
                     if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
-                                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {
+                            .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {
                         throw new RuntimeException("set DISABLE_JOIN_REORDER=true once failed");
                     }
                     OrderedHint ordered = new OrderedHint("Ordered");
                     ordered.setStatus(Hint.HintStatus.SUCCESS);
                     ctx.cascadesContext.getHintMap().put("Ordered", ordered);
                     ctx.statementContext.addHint(ordered);
-                } else if (hintName.equalsIgnoreCase("LEADING")) {
+                } else if (hint instanceof SelectHintLeading) {
                     extractLeading((SelectHintLeading) hint, ctx.cascadesContext,
                             ctx.statementContext, selectHintPlan);
-                } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")) {
+                } else if (hint instanceof SelectHintUseCboRule) {
                     extractRule((SelectHintUseCboRule) hint, ctx.statementContext);
-                } else if (hintName.equalsIgnoreCase("USE_MV")) {
+                } else if (hint instanceof SelectHintUseMv) {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
-                } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
-                    extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
-                } else if (hintName.equalsIgnoreCase("QBNAME")) {
-                    storeQbNameForAllRelations(selectHintPlan, ((SelectHintQbName) hint).getQbName(),
-                            ConnectContext.get().getStatementContext());
+                } else if (hint instanceof SelectHintQbName) {
+                    if (newPlan != null) {
+                        continue;
+                    }
+                    Optional<String> hintContext = Optional.of(((SelectHintQbName) hint).getQbName());
+                    QbNameTreeNode currentQbName = ctx.statementContext.findQbNameNode(hintContext);
+                    if (currentQbName == null) {
+                        QbNameTreeNode parentQbName = ctx.statementContext
+                                .findOrGetRootQbNameNode(ctx.cascadesContext.getOuterQbName());
+                        currentQbName = parentQbName.addChildQbName(hintContext);
+                    }
+                    newPlan = setQbNameForAllPlanNodes(selectHintPlan.child(), hintContext, currentQbName,
+                            ctx.statementContext);
                 } else {
                     logger.warn("Can not process select hint '{}' and skip it", hint.getHintName());
                 }
             }
-            return selectHintPlan.child();
+            return newPlan != null ? newPlan : selectHintPlan.child();
         }).toRule(RuleType.ELIMINATE_LOGICAL_SELECT_HINT);
     }
 
     private void extractLeading(SelectHintLeading selectHint, CascadesContext context,
-                                    StatementContext statementContext, LogicalSelectHint<Plan> selectHintPlan) {
-        if (selectHint.isSyntaxError()) {
+            StatementContext statementContext, LogicalSelectHint<Plan> selectHintPlan) {
+        if (selectHint.getErrorMessage() != null) {
             LeadingHint hint = new LeadingHint("Leading", selectHint.toString());
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
             hint.setErrorMessage(selectHint.getErrorMessage());
@@ -95,7 +111,8 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             context.setLeadingJoin(false);
             return;
         }
-        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.toString());
+        LeadingHint hint = new LeadingHint("Leading", selectHint.getParameters(), selectHint.getStrToHint(),
+                selectHint.toString());
         if (context.getHintMap().get("Leading") != null) {
             hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
             context.getHintMap().get("Leading").setStatus(Hint.HintStatus.UNUSED);
@@ -150,10 +167,42 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         statementContext.addHint(useMvHint);
     }
 
-    private void storeQbNameForAllRelations(LogicalSelectHint<Plan> rootPlan, String qbName,
+    private Plan setQbNameForAllPlanNodes(Plan root, Optional<String> qbName, QbNameTreeNode parentQbName,
             StatementContext statementContext) {
-        rootPlan.collect(LogicalRelation.class::isInstance).stream().forEach(relation -> statementContext
-                .addRelationIdToQbName(((LogicalRelation) relation).getRelationId(), qbName));
+        if (root instanceof LogicalSelectHint) {
+            parentQbName.addChildQbName(getHintName((LogicalSelectHint<?>) root));
+            return root;
+        }
+        int childCount = root.children().size();
+        if (childCount > 0) {
+            List<Plan> children = new ArrayList<>(childCount);
+            for (Plan child : root.children()) {
+                int oldChildCount = parentQbName.getChildCount();
+                Plan newChild = setQbNameForAllPlanNodes(child, qbName, parentQbName, statementContext);
+                children.add(newChild);
+                if (newChild instanceof LogicalSubQueryAlias) {
+                    LogicalSubQueryAlias logicalSubQueryAlias = (LogicalSubQueryAlias) newChild;
+                    int newChildCount = parentQbName.getChildCount();
+                    if (newChildCount != oldChildCount && newChildCount > 0) {
+                        statementContext.addSubqueryAliasToQbName(Pair.of(qbName, logicalSubQueryAlias.getAlias()),
+                                parentQbName.getChildSubList(oldChildCount, newChildCount));
+                    }
+
+                }
+            }
+            return root.withChildrenAndHintContext(children, Optional.of(new HintContext(qbName)));
+        } else {
+            return root.withHintContext(Optional.of(new HintContext(qbName)));
+        }
+    }
+
+    private static Optional<String> getHintName(LogicalSelectHint<?> logicalSelectHint) {
+        for (SelectHint hint : logicalSelectHint.getHints()) {
+            if (hint instanceof SelectHintQbName) {
+                return Optional.of(((SelectHintQbName) hint).getQbName());
+            }
+        }
+        return Optional.empty();
     }
 
 }

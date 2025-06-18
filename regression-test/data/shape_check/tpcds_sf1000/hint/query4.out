@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------hashJoin[INNER_JOIN shuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk,ss_customer_sk,ws_bill_customer_sk]
+------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[cs_bill_customer_sk,ss_customer_sk,ws_bill_customer_sk]
 --------PhysicalProject
 ----------PhysicalUnion
 ------------PhysicalProject
@@ -74,7 +74,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 Hint log:
-Used: leading(t_w_secyear { t_w_firstyear { t_s_secyear t_s_firstyear t_c_firstyear t_c_secyear } } )
+Used: leading(t_w_secyear (t_w_firstyear (t_s_secyear t_s_firstyear t_c_firstyear t_c_secyear) ))
 UnUsed: 
 SyntaxError:
 

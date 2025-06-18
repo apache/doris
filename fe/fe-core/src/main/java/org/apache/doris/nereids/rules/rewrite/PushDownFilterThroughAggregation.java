@@ -74,7 +74,7 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
             if (pushDownPredicates.isEmpty()) {
                 return null;
             }
-            Plan bottomFilter = new LogicalFilter<>(pushDownPredicates, aggregate.child(0));
+            Plan bottomFilter = new LogicalFilter<>(pushDownPredicates, aggregate.child(0), filter.getHintContext());
             aggregate = aggregate.withChildren(ImmutableList.of(bottomFilter));
             return PlanUtils.filterOrSelf(filterPredicates, aggregate);
         }).toRule(RuleType.PUSH_DOWN_PREDICATE_THROUGH_AGGREGATION);

@@ -44,7 +44,7 @@ sql 'set be_number_for_test=3'
     qt_select """
     explain shape plan
     select  
-    /*+ leading(lineitem {orders shuffle customer}) */
+    /*+ leading(lineitem (orders [shuffle] customer)) */
         l_orderkey,
         sum(l_extendedprice * (1 - l_discount)) as revenue,
         o_orderdate,

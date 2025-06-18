@@ -101,7 +101,8 @@ public class EagerSplit extends OneExplorationRuleFactory {
                     List<NamedExpression> leftBottomAggOutput = ImmutableList.<NamedExpression>builder()
                             .addAll(leftBottomAggGroupBy).addAll(leftBottomSums).add(leftCnt).build();
                     LogicalAggregate<GroupPlan> leftBottomAgg = new LogicalAggregate<>(
-                            ImmutableList.copyOf(leftBottomAggGroupBy), leftBottomAggOutput, join.left());
+                            ImmutableList.copyOf(leftBottomAggGroupBy), leftBottomAggOutput, join.left(),
+                            agg.getHintContext());
 
                     // right bottom agg
                     Set<Slot> rightBottomAggGroupBy = new HashSet<>();
@@ -120,7 +121,8 @@ public class EagerSplit extends OneExplorationRuleFactory {
                     List<NamedExpression> rightBottomAggOutput = ImmutableList.<NamedExpression>builder()
                             .addAll(rightBottomAggGroupBy).addAll(rightBottomSums).add(rightCnt).build();
                     LogicalAggregate<GroupPlan> rightBottomAgg = new LogicalAggregate<>(
-                            ImmutableList.copyOf(rightBottomAggGroupBy), rightBottomAggOutput, join.right());
+                            ImmutableList.copyOf(rightBottomAggGroupBy), rightBottomAggOutput, join.right(),
+                            agg.getHintContext());
 
                     Plan newJoin = join.withChildren(leftBottomAgg, rightBottomAgg);
 

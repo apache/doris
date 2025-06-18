@@ -26,6 +26,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.Objects;
+import java.util.Optional;
 import javax.annotation.Nullable;
 
 /**
@@ -92,12 +93,12 @@ public class Constraint {
     }
 
     public LogicalPlan toProject() {
-        return new LogicalProject<>(ImmutableList.copyOf(slots), curTable);
+        return new LogicalProject<>(ImmutableList.copyOf(slots), curTable, Optional.empty());
     }
 
     public LogicalPlan toReferenceProject() {
         Preconditions.checkArgument(referenceSlots != null, "Reference slot set of foreign key cannot be null");
-        return new LogicalProject<>(ImmutableList.copyOf(referenceSlots), referenceTable);
+        return new LogicalProject<>(ImmutableList.copyOf(referenceSlots), referenceTable, Optional.empty());
     }
 
     @Override

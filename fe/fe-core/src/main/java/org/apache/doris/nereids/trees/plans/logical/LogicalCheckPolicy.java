@@ -26,6 +26,7 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -58,13 +59,13 @@ import java.util.Optional;
 public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
         implements PropagateFuncDeps {
 
-    public LogicalCheckPolicy(CHILD_TYPE child) {
-        super(PlanType.LOGICAL_CHECK_POLICY, child);
+    public LogicalCheckPolicy(CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_CHECK_POLICY, child, hintContext);
     }
 
     public LogicalCheckPolicy(Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_CHECK_POLICY, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_CHECK_POLICY, groupExpression, logicalProperties, child, hintContext);
     }
 
     @Override
@@ -106,20 +107,31 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCheckPolicy<>(groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCheckPolicy<>(groupExpression, Optional.of(getLogicalProperties()), child(), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalCheckPolicy<>(groupExpression, Optional.of(getLogicalProperties()), child(), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalCheckPolicy<>(children.get(0), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCheckPolicy<>(groupExpression, logicalProperties, children.get(0));
+        return new LogicalCheckPolicy<>(groupExpression, logicalProperties, children.get(0), hintContext);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCheckPolicy<>(children.get(0));
+        return new LogicalCheckPolicy<>(children.get(0), hintContext);
     }
 
     /**

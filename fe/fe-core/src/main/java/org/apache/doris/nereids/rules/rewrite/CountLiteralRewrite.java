@@ -75,7 +75,7 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
                             for (NamedExpression aggFunc : aggFuncs) {
                                 projectFuncs.add(aggFunc.toSlot());
                             }
-                            plan = new LogicalProject<>(projectFuncs, plan);
+                            plan = new LogicalProject<>(projectFuncs, plan, agg.getHintContext());
                         }
                         return plan;
                     }

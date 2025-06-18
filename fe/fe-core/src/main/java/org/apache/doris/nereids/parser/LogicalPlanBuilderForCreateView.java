@@ -50,8 +50,9 @@ import java.util.Map;
 
 /**LogicalPlanBuilderForCreateView*/
 public class LogicalPlanBuilderForCreateView extends LogicalPlanBuilder {
-    public LogicalPlanBuilderForCreateView(Map<Integer, ParserRuleContext> selectHintMap) {
-        super(selectHintMap);
+    public LogicalPlanBuilderForCreateView(Map<Integer, ParserRuleContext> selectHintMap,
+            Map<Integer, String> errorHintMap) {
+        super(selectHintMap, errorHintMap);
     }
 
     @Override

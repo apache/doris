@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -163,7 +164,7 @@ public class PushDownExpressionsInHashCondition extends OneRewriteRuleFactory {
         intersectionSlots.retainAll(join.getOutputSet());
         intersectionSlots.addAll(conditionUsedExprs);
         return new LogicalProject(intersectionSlots.stream()
-                .collect(ImmutableList.toImmutableList()), plan);
+                .collect(ImmutableList.toImmutableList()), plan, PlanUtils.getHintContext(plan));
     }
 
     private static void generateReplaceMapAndProjectExprs(Expression expr, Map<Expression, NamedExpression> replaceMap,

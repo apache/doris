@@ -94,10 +94,10 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), a, c, null);
+                            new DistributeHint(DistributeType.NONE), a, c, null, leftJoin.getHintContext());
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
-                            new DistributeHint(DistributeType.NONE), b, d, null);
+                            new DistributeHint(DistributeType.NONE), b, d, null, rightJoin.getHintContext());
                     Set<ExprId> topUsedExprIds = new HashSet<>();
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
@@ -107,7 +107,7 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
                             new DistributeHint(DistributeType.NONE),
-                            left, right, null);
+                            left, right, null, topJoin.getHintContext());
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return topProject.withChildren(newTopJoin);

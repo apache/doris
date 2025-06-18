@@ -69,7 +69,8 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
                                         Expression newExpr = FunctionReplacer.INSTANCE.replace(expr, noGroupBy);
                                         newConjuncts.add(newExpr);
                                     }
-                                    return new LogicalHaving<>(newConjuncts.build(), having.child());
+                                    return new LogicalHaving<>(newConjuncts.build(), having.child(),
+                                            having.getHintContext());
                                 })
                 )
         );

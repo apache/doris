@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -54,7 +55,7 @@ import java.util.Set;
 public class PartitionPruneExpressionExtractorTest {
     private static final NereidsParser PARSER = new NereidsParser();
     private final CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-        new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        new UnboundRelation(new RelationId(1), ImmutableList.of("tbl"), Optional.empty()));
     private final Map<String, Slot> slotMemo = Maps.newHashMap();
     private final Set<Slot> partitionSlots;
     private final PartitionPruneExpressionExtractor.ExpressionEvaluableDetector evaluableDetector;

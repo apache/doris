@@ -245,7 +245,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv(), Optional.empty());
             if (predicates.getPredicates().containsKey(table)) {
                 return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
-                        unboundRelation);
+                        unboundRelation, Optional.empty());
             }
             return unboundRelation;
         }
@@ -264,7 +264,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 );
                 rewrittenSubQueryAlias.add(subQueryAlias.withChildren(subQueryAliasChildren));
             }
-            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child()), predicates);
+            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child(), Optional.empty()),
+                    predicates);
         }
 
         @Override
@@ -288,7 +289,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                 if (predicates.getPredicates().containsKey(table)) {
                     return new LogicalFilter<>(
                             ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
-                            catalogRelation);
+                            catalogRelation, Optional.empty());
                 }
             }
             if (predicates.getPartition() != null && predicates.getPartitionName() != null) {
@@ -334,7 +335,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         Set<Expression> partitionExpressions =
                                 constructPredicates(partitionHasDataItems, partitionSlot);
                         return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(partitionExpressions)),
-                                catalogRelation);
+                                catalogRelation, Optional.empty());
                     }
                 }
             }

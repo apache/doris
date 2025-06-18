@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class OtherJoinTest extends TPCHTestBase {
@@ -53,7 +54,7 @@ public class OtherJoinTest extends TPCHTestBase {
         HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
         Plan plan = hyperGraphBuilder
                 .randomBuildPlanWith(tableNum, edgeNum);
-        plan = new LogicalProject(plan.getOutput(), plan);
+        plan = new LogicalProject(plan.getOutput(), plan, Optional.empty());
         Set<List<String>> res1 = hyperGraphBuilder.evaluate(plan);
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
         hyperGraphBuilder.initStats("tpch", cascadesContext);

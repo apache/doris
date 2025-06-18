@@ -296,7 +296,7 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
         LogicalGenerate<Plan> ret = new LogicalGenerate<>(
-                boundGenerators.build(), outputSlots.build(), generate.child());
+                boundGenerators.build(), outputSlots.build(), generate.child(), generate.getHintContext());
         if (!expandAlias.isEmpty()) {
             // we need a project to deal with explode(map) to struct with field alias
             // project should contains: generator.child slot + expandAlias
@@ -304,7 +304,7 @@ public class BindExpression implements AnalysisRuleFactory {
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
             allProjectSlots.addAll(expandAlias);
-            return new LogicalProject<>(allProjectSlots, ret);
+            return new LogicalProject<>(allProjectSlots, ret, generate.getHintContext());
         }
         return ret;
     }
@@ -335,7 +335,8 @@ public class BindExpression implements AnalysisRuleFactory {
             if (childrenProjections.get(i).stream().allMatch(SlotReference.class::isInstance)) {
                 newChild = setOperation.child(i);
             } else {
-                newChild = new LogicalProject<>(childrenProjections.get(i), setOperation.child(i));
+                newChild = new LogicalProject<>(childrenProjections.get(i), setOperation.child(i),
+                        PlanUtils.getHintContext(setOperation.child(i)));
             }
             newChildren.add(newChild);
             childrenOutputs.add((List<SlotReference>) (List) newChild.getOutput());
@@ -351,7 +352,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
         SimpleExprAnalyzer analyzer = buildSimpleExprAnalyzer(oneRowRelation, cascadesContext, ImmutableList.of());
         List<NamedExpression> projects = analyzer.analyzeToList(oneRowRelation.getProjects());
-        return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
+        return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects, oneRowRelation.getHintContext());
     }
 
     private LogicalPlan bindInlineTable(MatchingContext<InlineTable> ctx) {
@@ -368,7 +369,8 @@ public class BindExpression implements AnalysisRuleFactory {
                             + " can't exist in SELECT statement at row " + (i + 1));
                 }
             }
-            relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), row));
+            relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), row,
+                    PlanUtils.getHintContext(inlineTable)));
         }
         // construct union all tree
         return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1, relations, Qualifier.ALL);
@@ -514,7 +516,7 @@ public class BindExpression implements AnalysisRuleFactory {
             analyzedHaving.add(havingAnalyzer.analyze(expression, rewriteContext));
         }
 
-        return new LogicalHaving<>(analyzedHaving.build(), having.child());
+        return new LogicalHaving<>(analyzedHaving.build(), having.child(), having.getHintContext());
     }
 
     private LogicalHaving<Plan> bindHavingByScopes(
@@ -539,7 +541,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         checkIfOutputAliasNameDuplicatedForGroupBy(boundConjuncts.build(),
                 child instanceof LogicalProject ? ((LogicalProject<?>) child).getOutputs() : child.getOutput());
-        return new LogicalHaving<>(boundConjuncts.build(), child);
+        return new LogicalHaving<>(boundConjuncts.build(), child, having.getHintContext());
     }
 
     private LogicalSort<LogicalSetOperation> bindSortWithSetOperation(
@@ -554,7 +556,7 @@ public class BindExpression implements AnalysisRuleFactory {
             Expression boundKey = bindWithOrdinal(orderKey.getExpr(), analyzer, childOutput);
             boundKeys.add(orderKey.withExpression(boundKey));
         }
-        return new LogicalSort<>(boundKeys.build(), sort.child());
+        return new LogicalSort<>(boundKeys.build(), sort.child(), sort.getHintContext());
     }
 
     private LogicalJoin<Plan, Plan> bindJoin(MatchingContext<LogicalJoin<Plan, Plan>> ctx) {
@@ -583,7 +585,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalJoin<>(join.getJoinType(),
                 hashJoinConjuncts.build(), otherJoinConjuncts.build(),
                 join.getDistributeHint(), join.getMarkJoinSlotReference(), join.getExceptAsteriskOutputs(),
-                join.children(), null);
+                join.children(), null, join.getHintContext());
     }
 
     private void checkConflictAlias(Plan plan) {
@@ -654,7 +656,7 @@ public class BindExpression implements AnalysisRuleFactory {
                 using.getJoinType() == JoinType.CROSS_JOIN ? JoinType.INNER_JOIN : using.getJoinType(),
                 hashEqExprs.build(), ImmutableList.of(),
                 using.getDistributeHint(), Optional.empty(), rightConjunctsSlots,
-                using.children(), null);
+                using.children(), null, using.getHintContext());
     }
 
     private Plan bindProject(MatchingContext<LogicalProject<Plan>> ctx) {
@@ -819,7 +821,7 @@ public class BindExpression implements AnalysisRuleFactory {
             boundConjunct = TypeCoercionUtils.castIfNotSameType(boundConjunct, BooleanType.INSTANCE);
             boundConjuncts.add(boundConjunct);
         }
-        return new LogicalFilter<>(boundConjuncts.build(), filter.child());
+        return new LogicalFilter<>(boundConjuncts.build(), filter.child(), filter.getHintContext());
     }
 
     private Plan bindPreFilter(MatchingContext<LogicalPreFilter<Plan>> ctx) {
@@ -895,7 +897,7 @@ public class BindExpression implements AnalysisRuleFactory {
         } else {
             bindQualifyByProject(project, cascadesContext, qualify, boundConjuncts);
         }
-        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child(), qualify.getHintContext());
     }
 
     /**
@@ -929,7 +931,7 @@ public class BindExpression implements AnalysisRuleFactory {
             bindQualifyByProject((LogicalProject<? extends Plan>) having.child(), cascadesContext, qualify,
                     boundConjuncts);
         }
-        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child(), qualify.getHintContext());
     }
 
     /**
@@ -945,7 +947,7 @@ public class BindExpression implements AnalysisRuleFactory {
         ImmutableSet.Builder<Expression> boundConjuncts = ImmutableSet.builderWithExpectedSize(
                 qualify.getConjuncts().size());
         bindQualifyByAggregate(aggregate, cascadesContext, qualify, boundConjuncts);
-        return new LogicalQualify<>(boundConjuncts.build(), qualify.child());
+        return new LogicalQualify<>(boundConjuncts.build(), qualify.child(), qualify.getHintContext());
     }
 
     private void bindQualifyByProject(LogicalProject<? extends Plan> project, CascadesContext cascadesContext,
@@ -1289,7 +1291,7 @@ public class BindExpression implements AnalysisRuleFactory {
             }
             boundOrderKeys.add(orderKey.withExpression(boundKey));
         }
-        return new LogicalSort<>(boundOrderKeys.build(), sort.child());
+        return new LogicalSort<>(boundOrderKeys.build(), sort.child(), sort.getHintContext());
     }
 
     private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
@@ -1310,7 +1312,8 @@ public class BindExpression implements AnalysisRuleFactory {
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
+        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first,
+                unboundTVFRelation.getHintContext());
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,

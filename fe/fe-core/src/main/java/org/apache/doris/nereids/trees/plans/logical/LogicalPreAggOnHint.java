@@ -51,7 +51,7 @@ public class LogicalPreAggOnHint<CHILD_TYPE extends Plan> extends LogicalUnary<C
      */
     public LogicalPreAggOnHint(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_COMMON_HINT, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_COMMON_HINT, groupExpression, logicalProperties, child, Optional.empty());
     }
 
     @Override

@@ -64,7 +64,7 @@ limit 100"""
     qt_ds_shape_72 '''
     explain shape plan
     select  
-    /*+ leading( inventory shuffle { catalog_returns shuffle {catalog_sales  shuffle {d3 broadcast d1} broadcast household_demographics shuffle customer_demographics broadcast promotion shuffle item} broadcast d2} broadcast warehouse) */ 
+    /*+ leading( inventory [shuffle] ( catalog_returns [shuffle] (catalog_sales  [shuffle] (d3 [broadcast] d1) [broadcast] household_demographics [shuffle] customer_demographics [broadcast] promotion [shuffle] item) [broadcast] d2) [broadcast] warehouse) */ 
     i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq

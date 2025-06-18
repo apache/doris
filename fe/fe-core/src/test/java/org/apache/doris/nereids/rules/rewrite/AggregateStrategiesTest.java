@@ -65,7 +65,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
     @BeforeAll
     public final void beforeAll() {
         rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
+                ImmutableList.of(""), Optional.empty());
     }
 
     /**
@@ -87,7 +87,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 rStudent.getOutput().get(2).toSlot(),
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         Expression localOutput0 = rStudent.getOutput().get(2).toSlot();
         Sum localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
@@ -139,7 +139,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 new Alias(new Sum(rStudent.getOutput().get(0)), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         Sum localOutput0 = new Sum(false, true, rStudent.getOutput().get(0).toSlot());
 
@@ -183,7 +183,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         List<NamedExpression> outputExpressionList = Lists.newArrayList(
                 new Alias(new Sum(rStudent.getOutput().get(0).toSlot()), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         Expression localOutput0 = rStudent.getOutput().get(2).toSlot();
         Sum localOutput1 = new Sum(rStudent.getOutput().get(0).toSlot());
@@ -235,7 +235,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 new Add(new Count(true, rStudent.getOutput().get(2).toSlot()),
                         new IntegerLiteral(2)), "c"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                false, Optional.empty(), rStudent);
+                false, Optional.empty(), rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyBottomUp(new NormalizeAggregate())
@@ -269,7 +269,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 new Alias(new Count(true, name), "c"),
                 new Alias(new Sum(id.toSlot()), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         // check local:
         // id
@@ -323,7 +323,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 new Alias(new Count(true, name), "c"),
                 new Alias(new Sum(id), "sum"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         // check local:
         // count
@@ -391,7 +391,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 new Alias(new Count(true, id), "count_id"),
                 new Alias(new Sum(id), "sum_id"));
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
-                true, Optional.empty(), rStudent);
+                true, Optional.empty(), rStudent, Optional.empty());
 
         // select count(distinct id), sum(id) from t;
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)

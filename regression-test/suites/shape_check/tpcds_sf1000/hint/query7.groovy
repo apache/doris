@@ -37,7 +37,7 @@ suite("query7") {
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     def ds = """select  
-/*+ leading(store_sales broadcast customer_demographics broadcast date_dim broadcast promotion shuffle item) */
+/*+ leading(store_sales [broadcast] customer_demographics [broadcast] date_dim [broadcast] promotion [shuffle] item) */
 i_item_id, 
         avg(ss_quantity) agg1,
         avg(ss_list_price) agg2,
@@ -59,7 +59,7 @@ i_item_id,
     qt_ds_shape_7 '''
     explain shape plan
     select  
-    /*+ leading(store_sales broadcast customer_demographics broadcast date_dim broadcast promotion shuffle item) */
+    /*+ leading(store_sales [broadcast] customer_demographics [broadcast] date_dim [broadcast] promotion [shuffle] item) */
     i_item_id, 
         avg(ss_quantity) agg1,
         avg(ss_list_price) agg2,

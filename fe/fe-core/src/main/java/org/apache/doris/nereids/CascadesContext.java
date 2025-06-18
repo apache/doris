@@ -122,6 +122,9 @@ public class CascadesContext implements ScheduleContext {
     private int distinctAggLevel;
     private final boolean isEnableExprTrace;
 
+    // only used for view, subquery and cte analyze
+    private Optional<String> outerQbName = Optional.empty();
+
     /**
      * Constructor of OptimizerContext.
      *
@@ -194,6 +197,14 @@ public class CascadesContext implements ScheduleContext {
             PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
             cteContext, requireProperties, isLeadingDisableJoinReorder);
+    }
+
+    public void setOuterQbName(Optional<String> outerQbName) {
+        this.outerQbName = outerQbName;
+    }
+
+    public Optional<String> getOuterQbName() {
+        return outerQbName;
     }
 
     public CascadesContext getRoot() {

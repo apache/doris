@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.plans.DummyPlan;
 import org.apache.doris.nereids.util.Utils;
 
@@ -24,6 +25,7 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * LogicalHintTable
@@ -36,7 +38,8 @@ public class LogicalHintTable extends DummyPlan {
     }
 
     @Override
-    public void collectParamsForLeadingHint(List<String> params) {
+    public void collectParamsForLeadingHint(List<String> params, Map<String, DistributeHint> strToHint,
+            List<String> errs) {
         params.add(StringUtils.join(nameParts, '.'));
     }
 

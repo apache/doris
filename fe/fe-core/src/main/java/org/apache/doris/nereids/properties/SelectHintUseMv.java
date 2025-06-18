@@ -27,8 +27,8 @@ public class SelectHintUseMv extends SelectHint {
 
     private final boolean isUseMv;
 
-    public SelectHintUseMv(String hintName, List<List<String>> tables, boolean isUseMv) {
-        super(hintName);
+    public SelectHintUseMv(String hintName, List<List<String>> tables, boolean isUseMv, String err) {
+        super(hintName, err);
         this.tables = tables;
         this.isUseMv = isUseMv;
     }

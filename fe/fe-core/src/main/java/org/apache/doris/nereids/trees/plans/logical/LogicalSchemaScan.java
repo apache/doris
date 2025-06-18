@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,8 +41,8 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     private final Optional<String> schemaDatabase;
     private final Optional<String> schemaTable;
 
-    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
-        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier);
+    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, hintContext);
         this.filterPushed = false;
         this.schemaCatalog = Optional.empty();
         this.schemaDatabase = Optional.empty();
@@ -51,8 +52,8 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             boolean filterPushed, Optional<String> schemaCatalog, Optional<String> schemaDatabase,
-            Optional<String> schemaTable) {
-        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
+            Optional<String> schemaTable, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties, hintContext);
         this.filterPushed = filterPushed;
         this.schemaCatalog = schemaCatalog;
         this.schemaDatabase = schemaDatabase;
@@ -89,26 +90,32 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSchemaScan(relationId, table, qualifier,
                 groupExpression, Optional.of(getLogicalProperties()), filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable);
+                schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSchemaScan(relationId, table, qualifier, groupExpression, logicalProperties, filterPushed,
-            schemaCatalog, schemaDatabase, schemaTable);
+            schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
         return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), filterPushed,
-            schemaCatalog, schemaDatabase, schemaTable);
+            schemaCatalog, schemaDatabase, schemaTable, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     public LogicalSchemaScan withSchemaIdentifier(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
-            Optional<String> schemaTable) {
+                                                  Optional<String> schemaTable) {
         return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(),
-            Optional.of(getLogicalProperties()), true, schemaCatalog, schemaDatabase, schemaTable);
+            Optional.of(getLogicalProperties()), true, schemaCatalog, schemaDatabase, schemaTable, hintContext);
     }
 
     @Override

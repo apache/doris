@@ -19,15 +19,15 @@ package org.apache.doris.nereids.properties;
 
 /**
  * select hint.
- * e.g. qbName(xxx)
+ * e.g. QB_NAME(xxx)
  */
 public class SelectHintQbName extends SelectHint {
-    public static final String HINT_NAME = "qbname";
+    public static final String HINT_NAME = "QB_NAME";
     public static final String DEFAULT_QB_NAME_PREFIX = "SEL#";
     private final String qbName;
 
-    public SelectHintQbName(String qbName) {
-        super(HINT_NAME);
+    public SelectHintQbName(String qbName, String err) {
+        super(HINT_NAME, err);
         this.qbName = qbName;
     }
 

@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class JoinEstimateTest {
 
@@ -81,7 +82,7 @@ public class JoinEstimateTest {
                     }
                 }, () -> DataTrait.EMPTY_TRAIT)));
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(eq),
-                left, right, null);
+                left, right, null, Optional.empty());
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
         ColumnStatistic outAStats = outputStats.findColumnStatistics(a);
         Assertions.assertNotNull(outAStats);
@@ -129,7 +130,7 @@ public class JoinEstimateTest {
                     }
                 }, () -> DataTrait.EMPTY_TRAIT)));
         LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(eq),
-                left, right, null);
+                left, right, null, Optional.empty());
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
         ColumnStatistic outAStats = outputStats.findColumnStatistics(a);
         Assertions.assertNotNull(outAStats);

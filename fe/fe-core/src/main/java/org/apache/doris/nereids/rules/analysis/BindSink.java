@@ -268,7 +268,7 @@ public class BindSink implements AnalysisRuleFactory {
                     .filter(p -> !(p instanceof DefaultValueSlot))
                     .collect(ImmutableList.toImmutableList()));
         }
-        LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child);
+        LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child, child.getHintContext());
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
@@ -304,7 +304,8 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         if (!castExprs.equals(fullOutputExprs)) {
-            fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject);
+            fullOutputProject = new LogicalProject<Plan>(castExprs, fullOutputProject,
+                    fullOutputProject.getHintContext());
         }
         return fullOutputProject;
     }
@@ -878,7 +879,7 @@ public class BindSink implements AnalysisRuleFactory {
             Scope scope = new Scope(Lists.newArrayList(nereidsSlotReplaceMap.values()));
             StatementContext statementContext = new StatementContext();
             LogicalEmptyRelation dummyPlan = new LogicalEmptyRelation(
-                    statementContext.getNextRelationId(), new ArrayList<>());
+                    statementContext.getNextRelationId(), new ArrayList<>(), Optional.empty());
             CascadesContext cascadesContext = CascadesContext.initContext(
                     statementContext, dummyPlan, PhysicalProperties.ANY);
             ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);

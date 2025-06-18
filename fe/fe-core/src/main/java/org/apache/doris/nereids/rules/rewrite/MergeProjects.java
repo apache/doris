@@ -50,6 +50,7 @@ public class MergeProjects extends OneRewriteRuleFactory {
     public static Plan mergeProjects(LogicalProject<?> project) {
         LogicalProject<? extends Plan> childProject = (LogicalProject<?>) project.child();
         List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
-        return project.withProjectsAndChild(projectExpressions, childProject.child(0));
+        return project.withProjectsAndChild(projectExpressions, childProject.child(0))
+                .withHintContext(project.getHintContext());
     }
 }

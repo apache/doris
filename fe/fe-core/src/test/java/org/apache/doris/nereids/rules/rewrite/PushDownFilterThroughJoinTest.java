@@ -38,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -55,8 +56,8 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
     @BeforeEach
     public final void beforeEach() {
         rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
-        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+                ImmutableList.of(""), Optional.empty());
+        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""), Optional.empty());
     }
 
     @Test
