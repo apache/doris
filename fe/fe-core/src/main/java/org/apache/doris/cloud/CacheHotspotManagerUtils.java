@@ -216,11 +216,15 @@ public class CacheHotspotManagerUtils {
         Database db = Env.getCurrentInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         if (db == null) {
             LOG.warn("{} database doesn't exist", FeConstants.INTERNAL_DB_NAME);
+            throw new Exception(
+                    String.format("Database %s doesn't exist", FeConstants.INTERNAL_DB_NAME));
         }
 
         Table t = db.getTableNullable(FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
         if (t == null) {
             LOG.warn("{} table doesn't exist", FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
+            throw new Exception(
+                    String.format("Table %s doesn't exist", FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME));
         }
         INTERNAL_TABLE_ID = String.valueOf(t.getId());
     }
