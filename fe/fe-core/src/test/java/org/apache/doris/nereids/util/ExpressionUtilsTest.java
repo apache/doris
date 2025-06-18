@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -29,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

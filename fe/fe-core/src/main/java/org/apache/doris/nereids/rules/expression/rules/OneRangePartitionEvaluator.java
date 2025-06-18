@@ -419,7 +419,8 @@ public class OneRangePartitionEvaluator<K>
         EvaluateRangeResult result = evaluateChildrenThenThis(or, context);
         if (result.result.equals(BooleanLiteral.FALSE)) {
             return result;
-        }         List<EvaluateRangeResult> nonFalseResults = new ArrayList<>();
+        }
+        List<EvaluateRangeResult> nonFalseResults = new ArrayList<>();
         for (EvaluateRangeResult evaluateRangeResult : result.childrenResult) {
             if (!evaluateRangeResult.result.equals(BooleanLiteral.FALSE)) {
                 nonFalseResults.add(evaluateRangeResult);
