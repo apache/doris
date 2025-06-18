@@ -18,9 +18,11 @@
 #include "olap/rowset/segment_v2/page_io.h"
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 #include <stdint.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <ostream>
@@ -98,14 +100,20 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     footer.SerializeToString(&footer_buf);
     put_fixed32_le(&footer_buf, static_cast<uint32_t>(footer_buf.size()));
 
-    std::vector<Slice> page = body;
-    page.emplace_back(footer_buf);
-
-    // checksum
+    faststring page_buf;
+    for (const auto& s : body) {
+        page_buf.append(s.data, s.size);
+    }
+    page_buf.append(footer_buf);
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = crc32c::Value(page);
+    uint32_t checksum =
+            crc32c::Value(reinterpret_cast<const char*>(page_buf.data()), page_buf.length());
     encode_fixed32_le(checksum_buf, checksum);
-    page.emplace_back(checksum_buf, sizeof(uint32_t));
+    page_buf.append(checksum_buf, sizeof(uint32_t));
+
+    std::vector<Slice> page;
+    auto buf = page_buf.build();
+    page.emplace_back(buf.slice());
 
     uint64_t offset = writer->bytes_appended();
 
@@ -114,17 +122,24 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
         break;
     }
     case 1: {
-        EncryptionUtil::encrypt(
-                EncryptionMode::AES_256_CTR, reinterpret_cast<unsigned char*>(page[0].data),
-                page[0].size, reinterpret_cast<unsigned const char*>("DORIS_ENCRYPTION_KEY"), 21,
-                "DORIS_IV", 9, true, reinterpret_cast<unsigned char*>(page[0].data));
+        CHECK_EQ(page.size(), 1);
+        for (auto& s : page) {
+            EncryptionUtil::encrypt(EncryptionMode::AES_256_CTR,
+                                    reinterpret_cast<unsigned char*>(s.data), s.size,
+                                    reinterpret_cast<unsigned const char*>("DORIS_ENCRYPTION_KEY"),
+                                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"),
+                                    true, reinterpret_cast<unsigned char*>(s.mutable_data()));
+        }
         break;
     }
     case 2: {
-        EncryptionUtil::encrypt(
-                EncryptionMode::SM4_128_CTR, reinterpret_cast<unsigned char*>(page[0].data),
-                page[0].size, reinterpret_cast<unsigned const char*>("DORIS_ENCRYPTION_KEY"), 21,
-                "DORIS_IV", 9, true, reinterpret_cast<unsigned char*>(page[0].data));
+        for (auto& s : page) {
+            EncryptionUtil::encrypt(EncryptionMode::SM4_128_CTR,
+                                    reinterpret_cast<unsigned char*>(s.data), s.size,
+                                    reinterpret_cast<unsigned const char*>("DORIS_ENCRYPTION_KEY"),
+                                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"),
+                                    true, reinterpret_cast<unsigned char*>(s.mutable_data()));
+        }
         break;
     }
     }
@@ -198,16 +213,18 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
             EncryptionUtil::decrypt(
                     EncryptionMode::AES_256_CTR,
                     reinterpret_cast<const unsigned char*>(page_slice.data), page_slice.size,
-                    reinterpret_cast<const unsigned char*>("DORIS_ENCRYPTION_KEY"), 21, "DORIS_IV",
-                    9, true, reinterpret_cast<unsigned char*>(page_slice.data));
+                    reinterpret_cast<const unsigned char*>("DORIS_ENCRYPTION_KEY"),
+                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"), true,
+                    reinterpret_cast<unsigned char*>(page_slice.mutable_data()));
             break;
         }
         case 2: {
             EncryptionUtil::decrypt(
                     EncryptionMode::SM4_128_CTR,
                     reinterpret_cast<const unsigned char*>(page_slice.data), page_slice.size,
-                    reinterpret_cast<const unsigned char*>("DORIS_ENCRYPTION_KEY"), 21, "DORIS_IV",
-                    9, true, reinterpret_cast<unsigned char*>(page_slice.data));
+                    reinterpret_cast<const unsigned char*>("DORIS_ENCRYPTION_KEY"),
+                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"), true,
+                    reinterpret_cast<unsigned char*>(page_slice.mutable_data()));
             break;
         }
         }
