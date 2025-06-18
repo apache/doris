@@ -875,6 +875,7 @@ TabletSchema::TabletSchema() = default;
 
 TabletSchema::~TabletSchema() {
     clear_column_cache_handlers();
+    clear_index_cache_handlers();
 }
 
 int64_t TabletSchema::get_metadata_size() const {
@@ -1126,6 +1127,7 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _cols.clear();
     // notice : do not ref columns
     _column_cache_handlers.clear();
+    _index_cache_handlers.clear();
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
@@ -1191,6 +1193,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _skip_bitmap_col_idx = -1;
     _cluster_key_uids.clear();
     clear_column_cache_handlers();
+    clear_index_cache_handlers();
     for (const auto& i : ori_tablet_schema._cluster_key_uids) {
         _cluster_key_uids.push_back(i);
     }
