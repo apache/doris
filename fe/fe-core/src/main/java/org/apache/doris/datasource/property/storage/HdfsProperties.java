@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -29,6 +30,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class HdfsProperties extends HdfsCompatibleProperties {
 
@@ -63,7 +65,18 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             description = "Whether to allow fallback to simple authentication.")
     private String allowFallbackToSimpleAuth = "";
 
+
+    @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
+    protected String fsDefaultFS = "";
+
+    @ConnectorProperty(names = {"hadoop.config.resources"},
+            required = false,
+            description = "The xml files of Hadoop configuration.")
+    protected String hadoopConfigResources = "";
+
     private Map<String, String> backendConfigProperties;
+
+    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
 
     /**
      * The final HDFS configuration map that determines the effective settings.
@@ -74,11 +87,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
      */
     private Map<String, String> userOverriddenHdfsConfig;
 
-    public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
-
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
-            "hadoop.security.authentication", "hadoop.username",
-            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices");
+            "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
+            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices",
+            "hdfs.config.resources");
 
     public HdfsProperties(Map<String, String> origProps) {
         super(Type.HDFS, origProps);
@@ -88,28 +100,21 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (MapUtils.isEmpty(props)) {
             return false;
         }
-        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props)) {
+        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
             return true;
         }
         if (HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)) {
             return true;
         }
-        // This logic is somewhat hacky due to the shared usage of base parameters
-        // between native HDFS and HDFS-compatible implementations (such as OSS_HDFS).
-        // Since both may contain keys defined in HDFS_COMPATIBLE_PROPERTIES_KEYS,
-        // we cannot reliably determine whether the configuration belongs to native HDFS
-        // based on the presence of those keys alone.
-        // To work around this, we explicitly exclude OSS_HDFS by checking
-        // !OSSHdfsProperties.guessIsMe(props).
-        // This is currently the most practical way to differentiate native HDFS
-        // from HDFS-compatible systems using shared configuration.
-        return HDFS_COMPATIBLE_PROPERTIES_KEYS.stream().anyMatch(props::containsKey)
-                && (!OSSHdfsProperties.guessIsMe(props));
+        return false;
     }
 
     @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps, supportSchema);
+        }
         extractUserOverriddenHdfsConfig(origProps);
         initHadoopConfiguration();
         initBackendConfigProperties();
@@ -135,20 +140,11 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             throw new IllegalArgumentException("HDFS authentication type is kerberos, "
                     + "but principal or keytab is not set.");
         }
-        // If fsDefaultFS is not explicitly provided, we attempt to infer it from the 'uri' field.
-        // However, the 'uri' is not a dedicated HDFS-specific property and may be present
-        // even when the user is configuring multiple storage backends.
-        // Additionally, since we are not using FileSystem.get(Configuration conf),
-        // fsDefaultFS is not strictly required here.
-        // This is a best-effort fallback to populate fsDefaultFS when possible.
-        if (StringUtils.isBlank(fsDefaultFS)) {
-            this.fsDefaultFS = HdfsPropertiesUtils.extractDefaultFsFromUri(origProps);
-        }
     }
 
     private void initHadoopConfiguration() {
         Configuration conf = new Configuration(true);
-        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        Map<String, String> allProps = loadConfigFromFile(hadoopConfigResources);
         allProps.forEach(conf::set);
         if (MapUtils.isNotEmpty(userOverriddenHdfsConfig)) {
             userOverriddenHdfsConfig.forEach(conf::set);
@@ -193,12 +189,12 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return HdfsPropertiesUtils.convertUrlToFilePath(url);
+        return HdfsPropertiesUtils.convertUrlToFilePath(url, supportSchema);
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return HdfsPropertiesUtils.validateAndGetUri(loadProps);
+        return HdfsPropertiesUtils.validateAndGetUri(loadProps, supportSchema);
     }
 
     @Override

@@ -41,8 +41,11 @@ public class OSSPropertiesTest {
         origProps.put(StorageProperties.FS_OSS_SUPPORT, "true");
         Map<String, String> finalOrigProps = origProps;
         Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> StorageProperties.createPrimary(finalOrigProps), "Property oss.endpoint is required.");
-        origProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        origProps.put("oss.endpoint", "oss-cn-shenzhen-finance-1-internal.aliyuncs.com");
         Map<String, String> finalOrigProps1 = origProps;
+        OSSProperties ossProperties = (OSSProperties) StorageProperties.createPrimary(finalOrigProps1);
+        Assertions.assertEquals("oss-cn-shenzhen-finance-1-internal.aliyuncs.com", ossProperties.getEndpoint());
+        Assertions.assertEquals("cn-shenzhen-finance-1", ossProperties.getRegion());
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(finalOrigProps1));
         origProps = new HashMap<>();
         origProps.put("oss.endpoint", "https://oss.aliyuncs.com");
