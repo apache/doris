@@ -8,8 +8,8 @@
 #include <cstddef>
 #include <utility> // IWYU pragma: keep
 
-#include "gutil/atomicops.h"
 #include "butil/macros.h"
+#include "gutil/atomicops.h"
 #include "gutil/threading/thread_collision_warner.h"
 
 namespace doris {
@@ -254,7 +254,7 @@ public:
 
     T* get() const { return ptr_; }
 
-    typedef T* scoped_refptr::*Testable;
+    typedef T* scoped_refptr::* Testable;
     operator Testable() const { return ptr_ ? &scoped_refptr::ptr_ : NULL; }
 
     T* operator->() const {

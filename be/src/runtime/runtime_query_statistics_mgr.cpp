@@ -114,7 +114,7 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
 
 TReportExecStatusParams RuntimeQueryStatisticsMgr::create_report_exec_status_params(
         const TUniqueId& query_id,
-        std::unordered_map<int32, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
+        std::unordered_map<int32_t, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
                 fragment_id_to_profile,
         std::vector<std::shared_ptr<TRuntimeProfileTree>> load_channel_profiles, bool is_done) {
     // This function will clear the data of fragment_id_to_profile and load_channel_profiles.

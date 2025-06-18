@@ -155,7 +155,7 @@ private:
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
     std::unique_ptr<segment_v2::BloomFilter> _bf;
     size_t _bf_num = 0;
-    uint64 _bf_bytes = 0;
+    uint64_t _bf_bytes = 0;
 };
 
 } // namespace doris

@@ -504,7 +504,7 @@ public:
         // This may because the magnitude of the data is not large enough(in q60, only about 80k rows data is filtered for largest table)
         // So we may need more test here.
         mutable HashValueContainer _hash_values;
-        mutable std::vector<uint8> _compute_hash_value_flags;
+        mutable std::vector<uint8_t> _compute_hash_value_flags;
         IColumn::Permutation _perm;
         size_t _total_str_len;
     };

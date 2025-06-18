@@ -411,8 +411,8 @@ int ColumnNullable::compare_at(size_t n, size_t m, const IColumn& rhs_,
 }
 
 void ColumnNullable::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
-                                      int direction, std::vector<uint8>& cmp_res,
-                                      uint8* __restrict filter) const {
+                                      int direction, std::vector<uint8_t>& cmp_res,
+                                      uint8_t* __restrict filter) const {
     const auto& rhs_null_column = assert_cast<const ColumnNullable&>(rhs);
     const bool right_is_null = rhs.is_null_at(rhs_row_id);
     const bool left_contains_null = has_null();

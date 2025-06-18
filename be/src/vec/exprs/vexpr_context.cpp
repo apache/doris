@@ -203,7 +203,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
 
                 size_t input_rows =
                         rows -
-                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+                        (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
 
                 if (accept_null) {
                     for (size_t i = 0; i < rows; ++i) {
@@ -217,7 +217,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
 
                 size_t output_rows =
                         rows -
-                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+                        (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
 
                 if (is_rf_wrapper) {
                     ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
@@ -243,7 +243,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
 
             size_t input_rows =
                     rows -
-                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+                    (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
 
             for (size_t i = 0; i < rows; ++i) {
                 result_filter_data[i] &= filter_data[i];
@@ -251,7 +251,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
 
             size_t output_rows =
                     rows -
-                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+                    (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
 
             if (is_rf_wrapper) {
                 ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
