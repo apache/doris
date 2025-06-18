@@ -518,6 +518,85 @@ public class MetadataViewer {
         return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
+    public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNamesInfo partitionNamesInfo)
+        throws DdlException {
+        DecimalFormat df = new DecimalFormat("00.00 %");
+
+        List<List<String>> result = Lists.newArrayList();
+        Env env = Env.getCurrentEnv();
+
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+
+        if (olapTable.getPartitionNames().isEmpty()) {
+            throw new DdlException("Can not find any partition from " + dbName + "." + tblName);
+        }
+
+        // patition -> isTmep
+        Map<String, Boolean> allPartionNames = new HashMap<>();
+        if (partitionNamesInfo == null) {
+            for (Partition p : olapTable.getPartitions()) {
+                allPartionNames.put(p.getName(), false);
+            }
+            for (Partition p : olapTable.getAllTempPartitions()) {
+                allPartionNames.put(p.getName(), true);
+            }
+        } else {
+            for (String name : partitionNamesInfo.getPartitionNames()) {
+                allPartionNames.put(name, partitionNamesInfo.isTemp());
+            }
+        }
+
+        olapTable.readLock();
+        try {
+            Partition partition = null;
+            // check partition
+            for (Map.Entry<String, Boolean> partName : allPartionNames.entrySet()) {
+                partition = olapTable.getPartition(partName.getKey(), partName.getValue());
+                if (partition == null) {
+                    throw new DdlException("Partition does not exist: " + partName);
+                }
+                DistributionInfo distributionInfo = partition.getDistributionInfo();
+                List<Long> rowCountTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+                List<Long> dataSizeTabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+                for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
+                    rowCountTabletInfos.add(0L);
+                    dataSizeTabletInfos.add(0L);
+                }
+
+                long totalSize = 0;
+                for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    List<Long> tabletIds = mIndex.getTabletIdsInOrder();
+                    for (int i = 0; i < tabletIds.size(); i++) {
+                        Tablet tablet = mIndex.getTablet(tabletIds.get(i));
+                        long rowCount = tablet.getRowCount(true);
+                        long dataSize = tablet.getDataSize(true);
+                        rowCountTabletInfos.set(i, rowCountTabletInfos.get(i) + rowCount);
+                        dataSizeTabletInfos.set(i, dataSizeTabletInfos.get(i) + dataSize);
+                        totalSize += dataSize;
+                    }
+                }
+
+                // graph
+                for (int i = 0; i < distributionInfo.getBucketNum(); i++) {
+                    List<String> row = Lists.newArrayList();
+                    row.add(partName.getKey());
+                    row.add(String.valueOf(i));
+                    row.add(rowCountTabletInfos.get(i).toString());
+                    row.add(dataSizeTabletInfos.get(i).toString());
+                    row.add(graph(dataSizeTabletInfos.get(i), totalSize));
+                    row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
+                        df.format((double) dataSizeTabletInfos.get(i) / totalSize));
+                    result.add(row);
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        return result;
+    }
+
     public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
