@@ -81,7 +81,7 @@ static void calc_table_stats(std::unordered_map<int64_t, TabletIndexPB>& tablet_
 void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                                 const BeginTxnRequest* request, BeginTxnResponse* response,
                                 ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(begin_txn);
+    RPC_PREPROCESS(begin_txn, get, put);
     if (!request->has_txn_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn info";
@@ -150,9 +150,8 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
         msg = ss.str();
         return;
     }
-    stats.get_counter << txn->num_get_keys();
-    stats.put_counter << txn->num_put_keys();
-    stats.del_counter << txn->num_del_keys();
+    stats.get_counter += txn->num_get_keys();
+    stats.put_counter += txn->num_put_keys();
     //2. Get txn id from version stamp
     txn.reset();
 
@@ -361,7 +360,7 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
                                     const PrecommitTxnRequest* request,
                                     PrecommitTxnResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(precommit_txn);
+    RPC_PREPROCESS(precommit_txn, get, put);
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
     if ((txn_id < 0 && db_id < 0)) {
@@ -601,7 +600,7 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
                                                 const GetRLTaskCommitAttachRequest* request,
                                                 GetRLTaskCommitAttachResponse* response,
                                                 ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_rl_task_commit_attach);
+    RPC_PREPROCESS(get_rl_task_commit_attach, get);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -669,7 +668,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
                                         const ResetRLProgressRequest* request,
                                         ResetRLProgressResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(reset_rl_progress);
+    RPC_PREPROCESS(reset_rl_progress, get, put, del);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -784,9 +783,7 @@ void scan_tmp_rowset(
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
         if (stats) {
-            stats->get_counter << txn->num_get_keys();
-            stats->put_counter << txn->num_put_keys();
-            stats->del_counter << txn->num_del_keys();
+            stats->get_counter += txn->num_get_keys();
         }
     });
 
@@ -1027,9 +1024,9 @@ void commit_txn_immediately(
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.get_counter << txn->num_get_keys();
-            stats.put_counter << txn->num_put_keys();
-            stats.del_counter << txn->num_del_keys();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
         });
 
         // Get txn info with db_id and txn_id
@@ -1199,6 +1196,7 @@ void commit_txn_immediately(
         version_values.clear();
 
         if (last_pending_txn_id > 0) {
+            stats.get_counter += txn->num_get_keys();
             txn.reset();
             TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::advance_last_pending_txn_id",
                                      &last_pending_txn_id);
@@ -1610,9 +1608,9 @@ void commit_txn_eventually(
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.get_counter << txn->num_get_keys();
-            stats.put_counter << txn->num_put_keys();
-            stats.del_counter << txn->num_del_keys();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
         });
 
         // tablet_id -> {table/index/partition}_id
@@ -1630,6 +1628,7 @@ void commit_txn_eventually(
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::need_repair_tablet_idx",
                                  &need_repair_tablet_idx);
         if (need_repair_tablet_idx) {
+            stats.get_counter += txn->num_get_keys();
             txn.reset();
             repair_tablet_index(txn_kv, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta);
             if (code != MetaServiceCode::OK) {
@@ -1694,6 +1693,7 @@ void commit_txn_eventually(
         if (last_pending_txn_id > 0) {
             TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::advance_last_pending_txn_id",
                                      &last_pending_txn_id);
+            stats.get_counter += txn->num_get_keys();
             txn.reset();
             std::shared_ptr<TxnLazyCommitTask> task =
                     txn_lazy_committer->submit(instance_id, last_pending_txn_id);
@@ -1977,9 +1977,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats.get_counter << txn->num_get_keys();
-        stats.put_counter << txn->num_put_keys();
-        stats.del_counter << txn->num_del_keys();
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
     });
 
     // Get db id with txn id
@@ -2073,7 +2073,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                    << " tmp_rowsets_meta.size()=" << tmp_rowsets_meta.size();
         sub_txn_to_tmp_rowsets_meta.emplace(sub_txn_id, std::move(tmp_rowsets_meta));
     }
-
+    stats.get_counter += txn->num_get_keys();
     // Create a read/write txn for guarantee consistency
     txn.reset();
     err = txn_kv->create_txn(&txn);
@@ -2561,7 +2561,7 @@ static bool force_txn_lazy_commit() {
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(commit_txn);
+    RPC_PREPROCESS(commit_txn, get, put, del);
     if (!request->has_txn_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid argument, missing txn id";
@@ -2845,7 +2845,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
 void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
                                 const AbortTxnRequest* request, AbortTxnResponse* response,
                                 ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(abort_txn);
+    RPC_PREPROCESS(abort_txn, get, put, del);
     // Get txn id
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     std::string label = request->has_label() ? request->label() : "";
@@ -2894,7 +2894,7 @@ void MetaServiceImpl::abort_txn(::google::protobuf::RpcController* controller,
 void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
                               const GetTxnRequest* request, GetTxnResponse* response,
                               ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_txn);
+    RPC_PREPROCESS(get_txn, get);
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
     std::string label = request->has_label() ? request->label() : "";
@@ -3022,7 +3022,7 @@ void MetaServiceImpl::get_current_max_txn_id(::google::protobuf::RpcController* 
                                              const GetCurrentMaxTxnRequest* request,
                                              GetCurrentMaxTxnResponse* response,
                                              ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_current_max_txn_id);
+    RPC_PREPROCESS(get_current_max_txn_id, get);
     // TODO: For auth
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
@@ -3079,7 +3079,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
                                     const BeginSubTxnRequest* request,
                                     BeginSubTxnResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(begin_sub_txn);
+    RPC_PREPROCESS(begin_sub_txn, get, put, del);
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t sub_txn_num = request->has_sub_txn_num() ? request->sub_txn_num() : -1;
     int64_t db_id = request->has_db_id() ? request->db_id() : -1;
@@ -3145,8 +3145,8 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
         msg = ss.str();
         return;
     }
-    stats.get_counter << txn->num_get_keys();
-    stats.put_counter << txn->num_put_keys();
+    stats.get_counter += txn->num_get_keys();
+    stats.put_counter += txn->num_put_keys();
 
     // 2. Get sub txn id from version stamp
     txn.reset();
@@ -3278,7 +3278,7 @@ void MetaServiceImpl::abort_sub_txn(::google::protobuf::RpcController* controlle
                                     const AbortSubTxnRequest* request,
                                     AbortSubTxnResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(abort_sub_txn);
+    RPC_PREPROCESS(abort_sub_txn, get, put);
     int64_t txn_id = request->has_txn_id() ? request->txn_id() : -1;
     int64_t sub_txn_id = request->has_sub_txn_id() ? request->sub_txn_id() : -1;
     int64_t sub_txn_num = request->has_sub_txn_num() ? request->sub_txn_num() : -1;
@@ -3392,7 +3392,7 @@ void MetaServiceImpl::abort_txn_with_coordinator(::google::protobuf::RpcControll
                                                  const AbortTxnWithCoordinatorRequest* request,
                                                  AbortTxnWithCoordinatorResponse* response,
                                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(abort_txn_with_coordinator);
+    RPC_PREPROCESS(abort_txn_with_coordinator, get);
     if (!request->has_id() || !request->has_ip() || !request->has_start_time()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid coordinate id, coordinate ip or coordinate start time.";
@@ -3504,7 +3504,7 @@ void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* cont
                                          const CheckTxnConflictRequest* request,
                                          CheckTxnConflictResponse* response,
                                          ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(check_txn_conflict);
+    RPC_PREPROCESS(check_txn_conflict, get);
     if (!request->has_db_id() || !request->has_end_txn_id() || (request->table_ids_size() <= 0)) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "invalid db id, end txn id or table_ids.";
@@ -3654,9 +3654,9 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
         return err;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats.get_counter << txn->num_get_keys();
-        stats.put_counter << txn->num_put_keys();
-        stats.del_counter << txn->num_del_keys();
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
     });
 
     err = txn->get(label_key, &label_val);
@@ -3773,7 +3773,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                                       const CleanTxnLabelRequest* request,
                                       CleanTxnLabelResponse* response,
                                       ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(clean_txn_label);
+    RPC_PREPROCESS(clean_txn_label, get, put, del);
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db id";
@@ -3813,11 +3813,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                           << " end=" << hex(end_label_key);
                 return;
             }
-            std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-                stats.get_counter << txn->num_get_keys();
-                stats.put_counter << txn->num_put_keys();
-                stats.del_counter << txn->num_del_keys();
-            });
+            std::unique_ptr<int, std::function<void(int*)>> defer_stats(
+                    (int*)0x01, [&](int*) { stats.get_counter += txn->num_get_keys(); });
 
             err = txn->get(begin_label_key, end_label_key, &it, snapshot, limit);
             if (err != TxnErrorCode::TXN_OK) {
@@ -3872,7 +3869,7 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
 void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
                                  const GetTxnIdRequest* request, GetTxnIdResponse* response,
                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(get_txn_id);
+    RPC_PREPROCESS(get_txn_id, get);
     if (!request->has_db_id()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "missing db id";

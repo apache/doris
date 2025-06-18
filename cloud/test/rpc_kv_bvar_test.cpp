@@ -512,7 +512,7 @@ void finish_schema_change_job(
 }
 
 // create_tablets
-TEST(RpcKvBvarTest, DISABLED_CreateTablets) {
+TEST(RpcKvBvarTest, CreateTablets) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10021, index_id = 10022, partition_id = 10023, tablet_id = 10024;
@@ -526,11 +526,10 @@ TEST(RpcKvBvarTest, DISABLED_CreateTablets) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_tablets_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_tablets_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_create_tablets_del_counter.get_value());
 }
 
 // get_tablet
-TEST(RpcKvBvarTest, DISABLED_GetTablet) {
+TEST(RpcKvBvarTest, GetTablet) {
     std::string cloud_unique_id = "test_cloud_unique_id";
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -551,12 +550,10 @@ TEST(RpcKvBvarTest, DISABLED_GetTablet) {
     LOG(INFO) << "GetTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_tablet_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_tablet_del_counter.get_value());
 }
 
 // get_tablet_stats
-TEST(RpcKvBvarTest, DISABLED_GetTabletStats) {
+TEST(RpcKvBvarTest, GetTabletStats) {
     std::string cloud_unique_id = "test_cloud_unique_id";
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -573,12 +570,10 @@ TEST(RpcKvBvarTest, DISABLED_GetTabletStats) {
     LOG(INFO) << "GetTabletStats: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_stats_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_tablet_stats_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_tablet_stats_del_counter.get_value());
 }
 
 // update_tablet
-TEST(RpcKvBvarTest, DISABLED_UpdateTablet) {
+TEST(RpcKvBvarTest, UpdateTablet) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -602,12 +597,11 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTablet) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tablet_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tablet_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_tablet_del_counter.get_value());
 }
 
 // update_tablet_schema
 // should not call update_tablet_schema
-// TEST(RpcKvBvarTest, DISABLED_UpdateTabletSchema) {
+// TEST(RpcKvBvarTest, UpdateTabletSchema) {
 //     auto meta_service = get_meta_service();
 //     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 //     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -636,7 +630,7 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTablet) {
 // }
 
 // begin_txn
-TEST(RpcKvBvarTest, DISABLED_BeginTxn) {
+TEST(RpcKvBvarTest, BeginTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -656,11 +650,10 @@ TEST(RpcKvBvarTest, DISABLED_BeginTxn) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_txn_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_txn_del_counter.get_value());
 }
 
 // commit_txn
-TEST(RpcKvBvarTest, DISABLED_CommitTxn) {
+TEST(RpcKvBvarTest, CommitTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -684,7 +677,7 @@ TEST(RpcKvBvarTest, DISABLED_CommitTxn) {
 }
 
 // precommit_txn
-TEST(RpcKvBvarTest, DISABLED_PrecommitTxn) {
+TEST(RpcKvBvarTest, PrecommitTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     const int64_t db_id = 563413;
@@ -739,11 +732,10 @@ TEST(RpcKvBvarTest, DISABLED_PrecommitTxn) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_precommit_txn_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_precommit_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_precommit_txn_del_counter.get_value());
 }
 
 // abort_txn
-TEST(RpcKvBvarTest, DISABLED_AbortTxn) {
+TEST(RpcKvBvarTest, AbortTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -775,7 +767,7 @@ TEST(RpcKvBvarTest, DISABLED_AbortTxn) {
 }
 
 // get_txn
-TEST(RpcKvBvarTest, DISABLED_GetTxn) {
+TEST(RpcKvBvarTest, GetTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -802,12 +794,10 @@ TEST(RpcKvBvarTest, DISABLED_GetTxn) {
     LOG(INFO) << "GetTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_txn_del_counter.get_value());
 }
 
 // get_txn_id
-TEST(RpcKvBvarTest, DISABLED_GetTxnId) {
+TEST(RpcKvBvarTest, GetTxnId) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 100201;
@@ -835,12 +825,10 @@ TEST(RpcKvBvarTest, DISABLED_GetTxnId) {
     LOG(INFO) << "GetTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_id_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_txn_id_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_txn_id_del_counter.get_value());
 }
 
 // prepare_rowset
-TEST(RpcKvBvarTest, DISABLED_PrepareRowset) {
+TEST(RpcKvBvarTest, PrepareRowset) {
     int64_t db_id = 100201;
     std::string label = "test_prepare_rowset";
     auto meta_service = get_meta_service();
@@ -865,11 +853,10 @@ TEST(RpcKvBvarTest, DISABLED_PrepareRowset) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_rowset_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_rowset_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_prepare_rowset_del_counter.get_value());
 }
 
 // get_rowset
-TEST(RpcKvBvarTest, DISABLED_GetRowset) {
+TEST(RpcKvBvarTest, GetRowset) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -891,12 +878,10 @@ TEST(RpcKvBvarTest, DISABLED_GetRowset) {
     LOG(INFO) << "GetRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rowset_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_rowset_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_rowset_del_counter.get_value());
 }
 
 // update_tmp_rowset
-TEST(RpcKvBvarTest, DISABLED_UpdateTmpRowset) {
+TEST(RpcKvBvarTest, UpdateTmpRowset) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -937,11 +922,10 @@ TEST(RpcKvBvarTest, DISABLED_UpdateTmpRowset) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tmp_rowset_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tmp_rowset_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_tmp_rowset_del_counter.get_value());
 }
 
 // commit_rowset
-TEST(RpcKvBvarTest, DISABLED_CommitRowset) {
+TEST(RpcKvBvarTest, CommitRowset) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -965,7 +949,7 @@ TEST(RpcKvBvarTest, DISABLED_CommitRowset) {
 }
 
 // get_version
-TEST(RpcKvBvarTest, DISABLED_GetVersion) {
+TEST(RpcKvBvarTest, GetVersion) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -990,12 +974,10 @@ TEST(RpcKvBvarTest, DISABLED_GetVersion) {
     LOG(INFO) << "GetVersion: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_version_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_version_del_counter.get_value());
 }
 
 // get_schema_dict
-TEST(RpcKvBvarTest, DISABLED_GetSchemaDict) {
+TEST(RpcKvBvarTest, GetSchemaDict) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr auto table_id = 10001, index_id = 10002, partition_id = 10003, tablet_id = 10004;
@@ -1023,12 +1005,10 @@ TEST(RpcKvBvarTest, DISABLED_GetSchemaDict) {
     LOG(INFO) << "GetSchemaDict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_schema_dict_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_schema_dict_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_schema_dict_del_counter.get_value());
 }
 
 // get_delete_bitmap_update_lock
-TEST(RpcKvBvarTest, DISABLED_GetDeleteBitmapUpdateLock) {
+TEST(RpcKvBvarTest, GetDeleteBitmapUpdateLock) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1062,7 +1042,7 @@ TEST(RpcKvBvarTest, DISABLED_GetDeleteBitmapUpdateLock) {
 }
 
 // update_delete_bitmap
-TEST(RpcKvBvarTest, DISABLED_UpdateDeleteBitmap) {
+TEST(RpcKvBvarTest, UpdateDeleteBitmap) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1101,7 +1081,7 @@ TEST(RpcKvBvarTest, DISABLED_UpdateDeleteBitmap) {
 }
 
 // get_delete_bitmap
-TEST(RpcKvBvarTest, DISABLED_GetDeleteBitmap) {
+TEST(RpcKvBvarTest, GetDeleteBitmap) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 99999;
@@ -1145,12 +1125,10 @@ TEST(RpcKvBvarTest, DISABLED_GetDeleteBitmap) {
     LOG(INFO) << "GetDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_delete_bitmap_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_delete_bitmap_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_delete_bitmap_del_counter.get_value());
 }
 
 // remove_delete_bitmap_update_lock
-TEST(RpcKvBvarTest, DISABLED_RemoveDeleteBitmapUpdateLock) {
+TEST(RpcKvBvarTest, RemoveDeleteBitmapUpdateLock) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1196,7 +1174,7 @@ TEST(RpcKvBvarTest, DISABLED_RemoveDeleteBitmapUpdateLock) {
 }
 
 // remove_delete_bitmap
-TEST(RpcKvBvarTest, DISABLED_RemoveDeleteBitmap) {
+TEST(RpcKvBvarTest, RemoveDeleteBitmap) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 99999;
@@ -1237,13 +1215,11 @@ TEST(RpcKvBvarTest, DISABLED_RemoveDeleteBitmap) {
 
     LOG(INFO) << "RemoveDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_remove_delete_bitmap_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_remove_delete_bitmap_put_counter.get_value());
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_remove_delete_bitmap_del_counter.get_value());
 }
 
 // start_tablet_job
-TEST(RpcKvBvarTest, DISABLED_StartTabletJob) {
+TEST(RpcKvBvarTest, StartTabletJob) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     constexpr int64_t table_id = 10001;
@@ -1264,11 +1240,10 @@ TEST(RpcKvBvarTest, DISABLED_StartTabletJob) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_start_tablet_job_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_start_tablet_job_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_start_tablet_job_del_counter.get_value());
 }
 
 // finish_tablet_job
-TEST(RpcKvBvarTest, DISABLED_FinishTabletJob) {
+TEST(RpcKvBvarTest, FinishTabletJob) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -1319,7 +1294,7 @@ TEST(RpcKvBvarTest, DISABLED_FinishTabletJob) {
 }
 
 // prepare_index
-TEST(RpcKvBvarTest, DISABLED_PrepareIndex) {
+TEST(RpcKvBvarTest, PrepareIndex) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1360,11 +1335,10 @@ TEST(RpcKvBvarTest, DISABLED_PrepareIndex) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_index_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_index_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_prepare_index_del_counter.get_value());
 }
 
 // commit_index
-TEST(RpcKvBvarTest, DISABLED_CommitIndex) {
+TEST(RpcKvBvarTest, CommitIndex) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1411,7 +1385,7 @@ TEST(RpcKvBvarTest, DISABLED_CommitIndex) {
 }
 
 // drop_index
-TEST(RpcKvBvarTest, DISABLED_DropIndex) {
+TEST(RpcKvBvarTest, DropIndex) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 4524364;
@@ -1474,11 +1448,10 @@ TEST(RpcKvBvarTest, DISABLED_DropIndex) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_index_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_index_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_drop_index_del_counter.get_value());
 }
 
 // prepare_partition
-TEST(RpcKvBvarTest, DISABLED_PreparePartition) {
+TEST(RpcKvBvarTest, PreparePartition) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1521,11 +1494,10 @@ TEST(RpcKvBvarTest, DISABLED_PreparePartition) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_partition_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_partition_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_prepare_partition_del_counter.get_value());
 }
 
 // commit_partition
-TEST(RpcKvBvarTest, DISABLED_CommitPartition) {
+TEST(RpcKvBvarTest, CommitPartition) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_cloud_instance_id";
@@ -1572,7 +1544,7 @@ TEST(RpcKvBvarTest, DISABLED_CommitPartition) {
 }
 
 // check_kv
-TEST(RpcKvBvarTest, DISABLED_CheckKv) {
+TEST(RpcKvBvarTest, CheckKv) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_instance";
@@ -1607,12 +1579,10 @@ TEST(RpcKvBvarTest, DISABLED_CheckKv) {
     LOG(INFO) << "CheckKv: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_kv_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_check_kv_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_check_kv_del_counter.get_value());
 }
 
 // drop_partition
-TEST(RpcKvBvarTest, DISABLED_DropPartition) {
+TEST(RpcKvBvarTest, DropPartition) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     std::string instance_id = "test_instance";
@@ -1644,11 +1614,10 @@ TEST(RpcKvBvarTest, DISABLED_DropPartition) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_partition_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_partition_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_drop_partition_del_counter.get_value());
 }
 
 // get_obj_store_info
-TEST(RpcKvBvarTest, DISABLED_GetObjStoreInfo) {
+TEST(RpcKvBvarTest, GetObjStoreInfo) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1676,12 +1645,10 @@ TEST(RpcKvBvarTest, DISABLED_GetObjStoreInfo) {
     LOG(INFO) << "GetObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_obj_store_info_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_obj_store_info_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_obj_store_info_del_counter.get_value());
 }
 
 // alter_storage_vault
-TEST(RpcKvBvarTest, DISABLED_AlterStorageVault) {
+TEST(RpcKvBvarTest, AlterStorageVault) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1721,7 +1688,7 @@ TEST(RpcKvBvarTest, DISABLED_AlterStorageVault) {
 }
 
 // alter_obj_store_info
-TEST(RpcKvBvarTest, DISABLED_AlterObjStoreInfo) {
+TEST(RpcKvBvarTest, AlterObjStoreInfo) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1777,13 +1744,12 @@ TEST(RpcKvBvarTest, DISABLED_AlterObjStoreInfo) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_obj_store_info_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_obj_store_info_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_obj_store_info_del_counter.get_value());
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
 // update_ak_sk
-TEST(RpcKvBvarTest, DISABLED_UpdateAkSk) {
+TEST(RpcKvBvarTest, UpdateAkSk) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1843,14 +1809,13 @@ TEST(RpcKvBvarTest, DISABLED_UpdateAkSk) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_ak_sk_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_ak_sk_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_ak_sk_del_counter.get_value());
 
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
 
 // create_instance
-TEST(RpcKvBvarTest, DISABLED_CreateInstance) {
+TEST(RpcKvBvarTest, CreateInstance) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1893,8 +1858,6 @@ TEST(RpcKvBvarTest, DISABLED_CreateInstance) {
     LOG(INFO) << "CreateInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_instance_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_instance_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_create_instance_del_counter.get_value());
 
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -1902,7 +1865,7 @@ TEST(RpcKvBvarTest, DISABLED_CreateInstance) {
 }
 
 // get_instance
-TEST(RpcKvBvarTest, DISABLED_GetInstance) {
+TEST(RpcKvBvarTest, GetInstance) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -1952,8 +1915,6 @@ TEST(RpcKvBvarTest, DISABLED_GetInstance) {
     LOG(INFO) << "GetInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_instance_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_instance_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_instance_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -1982,12 +1943,10 @@ TEST(RpcKvBvarTest, DISABLED_GetInstance) {
 //     LOG(INFO) << "AlterCluster: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
 //               << mem_kv->del_count_;
 //     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_cluster_get_counter.get_value());
-//     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_cluster_put_counter.get_value());
-//     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_cluster_del_counter.get_value());
 // }
 
 // get_cluster
-TEST(RpcKvBvarTest, DISABLED_GetCluster) {
+TEST(RpcKvBvarTest, GetCluster) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     InstanceKeyInfo key_info {mock_instance};
@@ -2029,11 +1988,10 @@ TEST(RpcKvBvarTest, DISABLED_GetCluster) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_cluster_del_counter.get_value());
 }
 
 // create_stage
-TEST(RpcKvBvarTest, DISABLED_CreateStage) {
+TEST(RpcKvBvarTest, CreateStage) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2120,14 +2078,13 @@ TEST(RpcKvBvarTest, DISABLED_CreateStage) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_stage_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_stage_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_create_stage_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // get_stage
-TEST(RpcKvBvarTest, DISABLED_GetStage) {
+TEST(RpcKvBvarTest, GetStage) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2227,15 +2184,13 @@ TEST(RpcKvBvarTest, DISABLED_GetStage) {
     LOG(INFO) << "GetStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_stage_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_stage_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_stage_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // get_iam
-TEST(RpcKvBvarTest, DISABLED_GetIam) {
+TEST(RpcKvBvarTest, GetIam) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2315,15 +2270,13 @@ TEST(RpcKvBvarTest, DISABLED_GetIam) {
     LOG(INFO) << "GetIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_iam_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_iam_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_iam_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // alter_iam
-TEST(RpcKvBvarTest, DISABLED_AlterIam) {
+TEST(RpcKvBvarTest, AlterIam) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2361,11 +2314,10 @@ TEST(RpcKvBvarTest, DISABLED_AlterIam) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_iam_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_iam_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_iam_del_counter.get_value());
 }
 
 // alter_ram_user
-TEST(RpcKvBvarTest, DISABLED_AlterRamUser) {
+TEST(RpcKvBvarTest, AlterRamUser) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2438,14 +2390,13 @@ TEST(RpcKvBvarTest, DISABLED_AlterRamUser) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_ram_user_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_ram_user_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_ram_user_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // begin_copy
-TEST(RpcKvBvarTest, DISABLED_BeginCopy) {
+TEST(RpcKvBvarTest, BeginCopy) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2494,14 +2445,13 @@ TEST(RpcKvBvarTest, DISABLED_BeginCopy) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_copy_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_copy_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_copy_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // get_copy_job
-TEST(RpcKvBvarTest, DISABLED_GetCopyJob) {
+TEST(RpcKvBvarTest, GetCopyJob) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2561,15 +2511,13 @@ TEST(RpcKvBvarTest, DISABLED_GetCopyJob) {
     LOG(INFO) << "GetCopyJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_job_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_copy_job_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_copy_job_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // finish_copy
-TEST(RpcKvBvarTest, DISABLED_FinishCopy) {
+TEST(RpcKvBvarTest, FinishCopy) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2638,7 +2586,7 @@ TEST(RpcKvBvarTest, DISABLED_FinishCopy) {
 }
 
 // get_copy_files
-TEST(RpcKvBvarTest, DISABLED_GetCopyFiles) {
+TEST(RpcKvBvarTest, GetCopyFiles) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2695,15 +2643,13 @@ TEST(RpcKvBvarTest, DISABLED_GetCopyFiles) {
     LOG(INFO) << "GetCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_files_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_copy_files_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_copy_files_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // filter_copy_files
-TEST(RpcKvBvarTest, DISABLED_FilterCopyFiles) {
+TEST(RpcKvBvarTest, FilterCopyFiles) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     brpc::Controller cntl;
@@ -2766,15 +2712,13 @@ TEST(RpcKvBvarTest, DISABLED_FilterCopyFiles) {
     LOG(INFO) << "FilterCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_filter_copy_files_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_filter_copy_files_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_filter_copy_files_del_counter.get_value());
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
 }
 
 // get_cluster_status
-TEST(RpcKvBvarTest, DISABLED_GetClusterStatus) {
+TEST(RpcKvBvarTest, GetClusterStatus) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -2832,12 +2776,10 @@ TEST(RpcKvBvarTest, DISABLED_GetClusterStatus) {
     LOG(INFO) << "GetClusterStatus: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_status_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_status_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_cluster_status_del_counter.get_value());
 }
 
 // get_current_max_txn_id
-TEST(RpcKvBvarTest, DISABLED_GetCurrentMaxTxnId) {
+TEST(RpcKvBvarTest, GetCurrentMaxTxnId) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     const int64_t db_id = 123;
@@ -2882,12 +2824,10 @@ TEST(RpcKvBvarTest, DISABLED_GetCurrentMaxTxnId) {
     LOG(INFO) << "GetCurrentMaxTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_current_max_txn_id_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_current_max_txn_id_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_current_max_txn_id_del_counter.get_value());
 }
 
 // begin_sub_txn
-TEST(RpcKvBvarTest, DISABLED_BeginSubTxn) {
+TEST(RpcKvBvarTest, BeginSubTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 98131;
@@ -2952,7 +2892,7 @@ TEST(RpcKvBvarTest, DISABLED_BeginSubTxn) {
 }
 
 // abort_sub_txn
-TEST(RpcKvBvarTest, DISABLED_AbortSubTxn) {
+TEST(RpcKvBvarTest, AbortSubTxn) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 98131;
@@ -3027,11 +2967,10 @@ TEST(RpcKvBvarTest, DISABLED_AbortSubTxn) {
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_sub_txn_get_counter.get_value());
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_sub_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_sub_txn_del_counter.get_value());
 }
 
 // abort_txn_with_coordinator
-TEST(RpcKvBvarTest, DISABLED_AbortTxnWithCoordinator) {
+TEST(RpcKvBvarTest, AbortTxnWithCoordinator) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     const int64_t db_id = 666;
@@ -3088,12 +3027,10 @@ TEST(RpcKvBvarTest, DISABLED_AbortTxnWithCoordinator) {
     LOG(INFO) << "AbortTxnWithCoordinator: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
               << ", " << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_del_counter.get_value());
 }
 
 // check_txn_conflict
-TEST(RpcKvBvarTest, DISABLED_CheckTxnConflict) {
+TEST(RpcKvBvarTest, CheckTxnConflict) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
 
@@ -3149,12 +3086,10 @@ TEST(RpcKvBvarTest, DISABLED_CheckTxnConflict) {
     LOG(INFO) << "CheckTxnConflict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_txn_conflict_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_check_txn_conflict_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_check_txn_conflict_del_counter.get_value());
 }
 
 // clean_txn_label
-TEST(RpcKvBvarTest, DISABLED_CleanTxnLabel) {
+TEST(RpcKvBvarTest, CleanTxnLabel) {
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
     int64_t db_id = 1987211;
@@ -3192,37 +3127,4 @@ TEST(RpcKvBvarTest, DISABLED_CleanTxnLabel) {
     ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_clean_txn_label_put_counter.get_value());
     ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_clean_txn_label_del_counter.get_value());
 }
-
-// get_rl_task_commit_attach
-TEST(RpcKvBvarTest, GetRlTaskCommitAttach) {
-    auto meta_service = get_meta_service();
-    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
-
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
-
-    LOG(INFO) << "GetRlTaskCommitAttach: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
-              << ", " << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rl_task_commit_attach_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_rl_task_commit_attach_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_get_rl_task_commit_attach_del_counter.get_value());
-}
-
-// reset_rl_progress
-TEST(RpcKvBvarTest, ResetRlProgress) {
-    auto meta_service = get_meta_service();
-    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
-
-    mem_kv->get_count_ = 0;
-    mem_kv->put_count_ = 0;
-    mem_kv->del_count_ = 0;
-
-    LOG(INFO) << "ResetRlProgress: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_reset_rl_progress_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_reset_rl_progress_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_reset_rl_progress_del_counter.get_value());
-}
-
 } // namespace doris::cloud

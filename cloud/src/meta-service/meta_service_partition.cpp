@@ -80,7 +80,7 @@ static TxnErrorCode check_recycle_key_exist(Transaction* txn, const std::string&
 void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controller,
                                     const IndexRequest* request, IndexResponse* response,
                                     ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(prepare_index);
+    RPC_PREPROCESS(prepare_index, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -166,7 +166,7 @@ void MetaServiceImpl::prepare_index(::google::protobuf::RpcController* controlle
 void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller,
                                    const IndexRequest* request, IndexResponse* response,
                                    ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(commit_index);
+    RPC_PREPROCESS(commit_index, get, put, del);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -249,7 +249,7 @@ void MetaServiceImpl::commit_index(::google::protobuf::RpcController* controller
 void MetaServiceImpl::drop_index(::google::protobuf::RpcController* controller,
                                  const IndexRequest* request, IndexResponse* response,
                                  ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(drop_index);
+    RPC_PREPROCESS(drop_index, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -350,7 +350,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
                                         const PartitionRequest* request,
                                         PartitionResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(prepare_partition);
+    RPC_PREPROCESS(prepare_partition, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -439,7 +439,7 @@ void MetaServiceImpl::prepare_partition(::google::protobuf::RpcController* contr
 void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* controller,
                                        const PartitionRequest* request, PartitionResponse* response,
                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(commit_partition);
+    RPC_PREPROCESS(commit_partition, get, put, del);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -526,7 +526,7 @@ void MetaServiceImpl::commit_partition(::google::protobuf::RpcController* contro
 void MetaServiceImpl::drop_partition(::google::protobuf::RpcController* controller,
                                      const PartitionRequest* request, PartitionResponse* response,
                                      ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(drop_partition);
+    RPC_PREPROCESS(drop_partition, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -631,7 +631,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats(
-            (int*)0x01, [&](int*) { stats.get_counter << txn->num_get_keys(); });
+            (int*)0x01, [&](int*) { stats.get_counter += txn->num_get_keys(); });
     auto& [keys, hint, key_func] = get_check_info(request);
     if (keys.empty()) {
         *code = MetaServiceCode::INVALID_ARGUMENT;
@@ -651,7 +651,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
             *msg = "prepare and commit rpc not match, recycle key remained";
             return;
         } else if (err == TxnErrorCode::TXN_TOO_OLD) {
-            stats.get_counter << txn->num_get_keys();
+            stats.get_counter += txn->num_get_keys();
             //  separate it to several txn for rubustness
             txn.reset();
             TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -677,7 +677,7 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
 void MetaServiceImpl::check_kv(::google::protobuf::RpcController* controller,
                                const CheckKVRequest* request, CheckKVResponse* response,
                                ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(check_kv);
+    RPC_PREPROCESS(check_kv, get);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;

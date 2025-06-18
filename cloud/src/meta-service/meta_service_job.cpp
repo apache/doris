@@ -408,7 +408,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
                                        const StartTabletJobRequest* request,
                                        StartTabletJobResponse* response,
                                        ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(start_tablet_job);
+    RPC_PREPROCESS(start_tablet_job, get, put);
     std::string cloud_unique_id = request->cloud_unique_id();
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
@@ -1475,7 +1475,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                                         const FinishTabletJobRequest* request,
                                         FinishTabletJobResponse* response,
                                         ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(finish_tablet_job);
+    RPC_PREPROCESS(finish_tablet_job, get, put, del);
     std::string cloud_unique_id = request->cloud_unique_id();
     instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
     if (instance_id.empty()) {
