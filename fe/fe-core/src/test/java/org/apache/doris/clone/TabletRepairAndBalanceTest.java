@@ -209,28 +209,34 @@ public class TabletRepairAndBalanceTest {
 
         // Test set tag without location type, expect throw exception
         Backend be1 = backends.get(0);
-        String alterString = "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
-                + "\" set ('tag.compute' = 'abc')";
+        String hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
+        Map<String, String> properties = new HashMap<>();
+        properties.put("tag.compution", "abc");
+        ModifyBackendOp op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+        AlterSystemCommand command0 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.NEED_LOCATION_TAG_MSG,
-                () -> UtFrameUtils.parseAndAnalyzeStmt(alterString, connectContext));
+                () -> command0.validate(connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is false
         Config.enable_multi_tags = false;
-        String alterString2 = "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
-                + "\" set ('tag.location' = 'zone3', 'tag.compution' = 'abc')";
+        hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
+        properties = new HashMap<>();
+        properties.put("tag.location", "zone3");
+        properties.put("tag.compution", "abc");
+        op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+        final AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, BackendClause.MUTLI_TAG_DISABLED_MSG,
-                () -> UtFrameUtils.parseAndAnalyzeStmt(alterString2, connectContext));
+                () -> command.validate(connectContext));
 
         // Test set multi tag for a Backend when Config.enable_multi_tags is true
         Config.enable_multi_tags = true;
-        // "alter system modify backend \"" + be1.getHost() + ":" + be1.getHeartbeatPort()
-        //        + "\" set ('tag.location' = 'zone1', 'tag.compute' = 'c1')";
-        String hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
-        Map<String, String> properties = new HashMap<>();
+        hostPort = be1.getHost() + ":" + be1.getHeartbeatPort();
+        properties = new HashMap<>();
         properties.put("tag.location", "zone1");
-        ModifyBackendOp op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
-        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
-        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
+        properties.put("tag.compute", "c1");
+        op = new ModifyBackendOp(ImmutableList.of(hostPort), properties);
+        AlterSystemCommand command1 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        command1.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Map<String, String> tagMap = be1.getTagMap();
         Assert.assertEquals(2, tagMap.size());
@@ -336,14 +342,12 @@ public class TabletRepairAndBalanceTest {
         // set tag for all backends. 0-2 to zone1, 4 and 5 to zone2
         // and wait all replica reallocating to correct backend
         Backend be = backends.get(2);
-        // "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-        //        + "\" set ('tag.location' = 'zone2')";
         hostPort = be.getHost() + ":" + be.getHeartbeatPort();
         Map<String, String> properties1 = new HashMap<>();
         properties1.put("tag.location", "zone2");
         op = new ModifyBackendOp(ImmutableList.of(hostPort), properties1);
-        command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
-        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
+        AlterSystemCommand command2 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        command2.doRun(connectContext, new StmtExecutor(connectContext, ""));
         Assert.assertEquals(tag2, be.getLocationTag());
         Thread.sleep(5000);
         checkTableReplicaAllocation(tbl);
@@ -402,14 +406,12 @@ public class TabletRepairAndBalanceTest {
         // [0, 1, 4]: zone1
         // [2, 3]:    zone2
         be = backends.get(4);
-        // "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-        //        + "\" set ('tag.location' = 'zone1')";
         hostPort = be.getHost() + ":" + be.getHeartbeatPort();
         Map<String, String> properties2 = new HashMap<>();
         properties2.put("tag.location", "zone1");
         op = new ModifyBackendOp(ImmutableList.of(hostPort), properties2);
-        command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
-        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
+        AlterSystemCommand command3 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+        command3.doRun(connectContext, new StmtExecutor(connectContext, ""));
         Assert.assertEquals(tag1, be.getLocationTag());
         Thread.sleep(5000);
         tbl.checkReplicaAllocation();
@@ -465,8 +467,8 @@ public class TabletRepairAndBalanceTest {
             Map<String, String> properties3 = new HashMap<>();
             properties3.put("tag.location", "default");
             op = new ModifyBackendOp(ImmutableList.of(hostPort), properties3);
-            command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
-            command.doRun(connectContext, new StmtExecutor(connectContext, ""));
+            AlterSystemCommand command4 = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_MODIFY_BACKEND);
+            command4.doRun(connectContext, new StmtExecutor(connectContext, ""));
         }
         Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(0).getLocationTag());
         Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(1).getLocationTag());
@@ -541,12 +543,10 @@ public class TabletRepairAndBalanceTest {
 
 
         //test cancel decommission backend by ids
-
-        // "alter system decommission backend \"" + be.getHost() + ":" + be.getHeartbeatPort() + "\"";
         hostPort = be.getHost() + ":" + be.getHeartbeatPort();
-        DecommissionBackendOp op4 = new DecommissionBackendOp(ImmutableList.of(hostPort));
-        command = new AlterSystemCommand(op4, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
-        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
+        DecommissionBackendOp op1 = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command5 = new AlterSystemCommand(op1, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command5.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         String stmtStr5 = "cancel decommission backend \"" + be.getId() + "\"";
         CancelAlterSystemStmt cancelAlterSystemStmt = (CancelAlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr5, connectContext);
