@@ -85,7 +85,8 @@ void BitmapFilterFunc<type>::insert_many(const std::vector<const BitmapValue*>& 
 }
 
 template <PrimitiveType type>
-uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
+uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data,
+                                                            const uint8_t* nullmap,
                                                             uint16_t* offsets, int number) {
     uint16_t new_size = 0;
     for (int i = 0; i < number; i++) {

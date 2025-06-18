@@ -551,8 +551,8 @@ PriorTaskWorkerPool::PriorTaskWorkerPool(
         std::function<void(const TAgentTaskRequest& task)> callback)
         : _callback(std::move(callback)) {
     for (int i = 0; i < normal_worker_count; ++i) {
-        auto st = Thread::create(
-                "Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
+        auto st =
+                Thread::create("Normal", name, [this] { normal_loop(); }, &_workers.emplace_back());
         CHECK(st.ok()) << name << ": " << st;
     }
 
@@ -1983,8 +1983,8 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) 
     }
     doris::g_fragment_executing_count << -1;
     int64_t now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }
@@ -2009,8 +2009,8 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
     }
     doris::g_fragment_executing_count << -1;
     int64_t now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_last_active_time.set_value(now);
     remove_task_info(req.task_type, req.signature);
 }

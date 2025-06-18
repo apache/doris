@@ -202,8 +202,9 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
                 size_t input_rows =
-                        rows -
-                        (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
+                        rows - (is_rf_wrapper
+                                        ? simd::count_zero_num((int8_t*)result_filter_data, rows)
+                                        : 0);
 
                 if (accept_null) {
                     for (size_t i = 0; i < rows; ++i) {
@@ -216,8 +217,9 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 }
 
                 size_t output_rows =
-                        rows -
-                        (is_rf_wrapper ? simd::count_zero_num((int8_t*)result_filter_data, rows) : 0);
+                        rows - (is_rf_wrapper
+                                        ? simd::count_zero_num((int8_t*)result_filter_data, rows)
+                                        : 0);
 
                 if (is_rf_wrapper) {
                     ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);

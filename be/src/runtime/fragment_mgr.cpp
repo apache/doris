@@ -655,8 +655,8 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     int64_t now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
@@ -859,8 +859,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
         int64_t now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
         g_fragment_executing_count << 1;
         g_fragment_last_active_time.set_value(now);
 

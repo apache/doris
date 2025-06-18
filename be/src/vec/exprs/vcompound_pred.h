@@ -388,7 +388,7 @@ private:
     }
 
     std::pair<uint8_t*, uint8_t*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                         bool has_nullable_column) const {
+                                                             bool has_nullable_column) const {
         if (has_nullable_column) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
             auto* data_column =

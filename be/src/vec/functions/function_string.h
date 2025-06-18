@@ -2858,7 +2858,7 @@ public:
 //
 //    Return value: string
 // ----------------------------------------------------------------------
-template<typename T>
+template <typename T>
 char* SimpleItoaWithCommas(T i, char* buffer, int32_t buffer_size) {
     char* p = buffer + buffer_size;
     // Need to use unsigned T instead of T to correctly handle
