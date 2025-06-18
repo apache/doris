@@ -134,7 +134,6 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.statistics.StatisticsRepository;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
