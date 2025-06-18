@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -279,13 +278,6 @@ public class RepositoryTest {
         } finally {
             localFile.delete();
         }
-    }
-
-    @Test
-    public void testGetInfo() {
-        repo = new Repository(10000, "repo", false, location, fileSystem);
-        List<String> infos = repo.getInfo();
-        Assert.assertTrue(infos.size() == ShowRepositoriesStmt.TITLE_NAMES.size());
     }
 
     @Test

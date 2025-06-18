@@ -96,7 +96,7 @@ public class HMSProperties extends MetastoreProperties {
     @Override
     protected void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
-        hiveConfParams = loadConfigFromFile(getResourceConfigPropName());
+        hiveConfParams = loadConfigFromFile(hiveConfResourcesConfig);
         initHmsConnectionProperties();
     }
 
@@ -113,7 +113,7 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     private void checkHiveConfResourcesConfig() {
-        loadConfigFromFile(getResourceConfigPropName());
+        loadConfigFromFile(hiveConfResourcesConfig);
     }
 
     public void toPaimonOptionsAndConf(Options options) {
@@ -125,10 +125,10 @@ public class HMSProperties extends MetastoreProperties {
     }
 
     protected Map<String, String> loadConfigFromFile(String resourceConfig) {
-        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
+        if (Strings.isNullOrEmpty(resourceConfig)) {
             return Maps.newHashMap();
         }
-        HiveConf conf = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(origProps.get(resourceConfig));
+        HiveConf conf = CatalogConfigFileUtils.loadHiveConfFromHiveConfDir(resourceConfig);
         Map<String, String> confMap = Maps.newHashMap();
         for (Map.Entry<String, String> entry : conf) {
             confMap.put(entry.getKey(), entry.getValue());
