@@ -322,6 +322,7 @@ public:
         nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
                                             arguments_raw.data(), &arena);
         nested_func->insert_result_into(get_nested_place(place), to);
+        nested_func->reset(get_nested_place(place));
     }
 
     size_t size_of_data() const override { return prefix_size + nested_func->size_of_data(); }

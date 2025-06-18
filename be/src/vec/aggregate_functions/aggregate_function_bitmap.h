@@ -50,7 +50,6 @@ struct AggregateFunctionBitmapUnionOp {
     template <typename T>
     static void add(BitmapValue& res, const T& data, bool& is_first) {
         res.add(data);
-        is_first = false;
     }
 
     static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
@@ -64,7 +63,6 @@ struct AggregateFunctionBitmapUnionOp {
 
     static void add_batch(BitmapValue& res, std::vector<const BitmapValue*>& data, bool& is_first) {
         res.fastunion(data);
-        is_first = false;
     }
 
     static void merge(BitmapValue& res, const BitmapValue& data, bool& is_first) {
