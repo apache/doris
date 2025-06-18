@@ -65,7 +65,6 @@ struct RegexpCountImpl {
             result_data[i] = _execute_inner_loop(context, str_col, pattern_col, null_map, i);
         }
     }
-
     static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
                                    const ColumnString* pattern_col, NullMap& null_map,
                                    const size_t index_now) {
@@ -84,11 +83,7 @@ struct RegexpCountImpl {
             }
             re = scoped_re.get();
         }
-        const auto& test_col = pattern_col->get_data_at(index_now);
-        for (int i = 0; i < 10; i++) {
-            LOG(INFO) << "jianhao pattern value = -----------------!  " << test_col.to_string()
-                      << "\n";
-        }
+
         const auto& str = str_col->get_data_at(index_now);
 
         int count = 0;
@@ -170,11 +165,12 @@ public:
         auto& result_data = result_data_column->get_data();
 
         ColumnPtr argument_columns[2];
-        argument_columns[0] = block.get_by_position(arguments[0]).column;
-        argument_columns[1] = block.get_by_position(arguments[1]).column;
 
-        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                      result_null_map->get_data());
+        argument_columns[0] = block.get_by_position(arguments[0]).column;
+        
+        argument_columns[1] = block.get_by_position(arguments[1]).column;
+        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count,
+                                                result_data, result_null_map->get_data());
         bool is_nullable = false;
         for (const auto& arg_idx : arguments) {
             if (block.get_by_position(arg_idx).type->is_nullable()) {
