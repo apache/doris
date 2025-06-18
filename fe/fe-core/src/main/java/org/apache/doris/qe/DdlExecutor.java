@@ -60,7 +60,6 @@ import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
-import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -137,7 +136,6 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
 
 import com.google.common.collect.Lists;
@@ -385,26 +383,6 @@ public class DdlExecutor {
             env.getAnalysisManager().dropCachedStats((DropCachedStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof KillAnalysisJobStmt) {
             env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
-        } else if (ddlStmt instanceof CleanQueryStatsStmt) {
-            CleanQueryStatsStmt stmt = (CleanQueryStatsStmt) ddlStmt;
-            CleanQueryStatsInfo cleanQueryStatsInfo = null;
-            switch (stmt.getScope()) {
-                case ALL:
-                    cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                            CleanQueryStatsStmt.Scope.ALL, env.getCurrentCatalog().getName(), null, null);
-                    break;
-                case DB:
-                    cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.DB,
-                            env.getCurrentCatalog().getName(), stmt.getDbName(), null);
-                    break;
-                case TABLE:
-                    cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.TABLE,
-                            env.getCurrentCatalog().getName(), stmt.getDbName(), stmt.getTableName().getTbl());
-                    break;
-                default:
-                    throw new DdlException("Unknown scope: " + stmt.getScope());
-            }
-            env.cleanQueryStats(cleanQueryStatsInfo);
         } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
             DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
             Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);

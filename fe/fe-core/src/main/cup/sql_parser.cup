@@ -1313,18 +1313,6 @@ clean_stmt ::=
     {:
         RESULT = new CleanProfileStmt();
     :}
-    | KW_CLEAN KW_QUERY KW_STATS KW_FOR ident:db
-    {:
-        RESULT = new CleanQueryStatsStmt(db, CleanQueryStatsStmt.Scope.DB);
-    :}
-    | KW_CLEAN KW_ALL KW_QUERY KW_STATS
-    {:
-        RESULT = new CleanQueryStatsStmt();
-    :}
-    | KW_CLEAN KW_QUERY KW_STATS from_or_in table_name:tbl
-    {:
-        RESULT = new CleanQueryStatsStmt(tbl, CleanQueryStatsStmt.Scope.TABLE);
-    :}
     ;
 
 // plugin statement
