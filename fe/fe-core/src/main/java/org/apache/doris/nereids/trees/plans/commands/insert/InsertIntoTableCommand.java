@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -491,7 +490,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     public StmtType stmtType() {
         return StmtType.INSERT;
     }
-
 
     @Override
     public RedirectStatus toRedirectStatus() {
