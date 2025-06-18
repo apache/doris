@@ -649,7 +649,7 @@ TEST_F(HybridSetTest, StringValueSet) {
     auto nullable_column2 =
             vectorized::ColumnNullable::create(string_column, nullmap_column->clone());
 
-    string_value_set->insert_fixed_len(std::move(nullable_column2.clone()), 0);
+    string_value_set->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_value_set->size(), nullable_column2->size() - 3);
 
     string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
@@ -658,7 +658,7 @@ TEST_F(HybridSetTest, StringValueSet) {
     }
 
     // insert duplicated strings
-    string_value_set->insert_fixed_len(std::move(nullable_column2.clone()), 0);
+    string_value_set->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_value_set->size(), nullable_column2->size() - 3);
 
     string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
