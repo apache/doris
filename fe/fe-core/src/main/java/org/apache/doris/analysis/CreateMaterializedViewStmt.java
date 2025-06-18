@@ -272,6 +272,7 @@ public class CreateMaterializedViewStmt extends DdlStmt implements NotFallbackIn
             SelectListItem selectListItem = selectList.getItems().get(i);
 
             Expr selectListItemExpr = selectListItem.getExpr();
+            selectListItemExpr.disableTableName();
             Expr realItem = selectListItemExpr.unwrapExpr(false);
             if (!(realItem instanceof SlotRef) && !(realItem instanceof FunctionCallExpr)
                     && !(realItem instanceof ArithmeticExpr)) {
