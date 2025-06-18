@@ -54,7 +54,6 @@ import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
@@ -372,11 +371,6 @@ public class DdlExecutor {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterUserStmt) {
             env.getAuth().alterUser((AlterUserStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelCloudWarmUpStmt) {
-            if (Config.isCloudMode()) {
-                CancelCloudWarmUpStmt stmt = (CancelCloudWarmUpStmt) ddlStmt;
-                ((CloudEnv) env).cancelCloudWarmUp(stmt);
-            }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof DropStatsStmt) {

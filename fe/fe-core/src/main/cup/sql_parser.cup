@@ -4845,10 +4845,6 @@ cancel_param ::=
     {:
         RESULT = new CancelBackupStmt(db, true);
     :}
-    | KW_WARM KW_UP KW_JOB opt_wild_where
-    {:
-        RESULT = new CancelCloudWarmUpStmt(parser.where);
-    :}
     ;
 
 opt_detailed ::=
