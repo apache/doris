@@ -66,6 +66,8 @@ public class ColStatsData {
     public final long dataSizeInBytes;
     @SerializedName("updateTime")
     public final String updateTime;
+    @SerializedName("hotValues")
+    public final String hotValues;
 
     @VisibleForTesting
     public ColStatsData() {
@@ -77,6 +79,7 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = null;
+        hotValues = null;
     }
 
     public ColStatsData(StatsId statsId) {
@@ -88,6 +91,7 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        hotValues = null;
     }
 
     public ColStatsData(ResultRow row) {
@@ -99,10 +103,11 @@ public class ColStatsData {
         this.maxLit = row.get(11);
         this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));
         this.updateTime = row.get(13);
+        this.hotValues = row.get(14);
     }
 
     public ColStatsData(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId,
-                        ColumnStatistic columnStatistic) {
+                        String hotValues, ColumnStatistic columnStatistic) {
         this.statsId = new StatsId(id, catalogId, dbId, tblId, idxId, colId, partId);
         this.count = Math.round(columnStatistic.count);
         this.ndv = Math.round(columnStatistic.ndv);
@@ -111,6 +116,7 @@ public class ColStatsData {
         this.maxLit = columnStatistic.maxExpr == null ? null : columnStatistic.maxExpr.getStringValue();
         this.dataSizeInBytes = Math.round(columnStatistic.dataSize);
         this.updateTime = columnStatistic.updatedTime;
+        this.hotValues = hotValues;
     }
 
     public String toSQL(boolean roundByParentheses) {
@@ -127,6 +133,7 @@ public class ColStatsData {
         sj.add(maxLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(maxLit) + "'");
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
+        sj.add(hotValues == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(hotValues) + "'");
         return sj.toString();
     }
 
@@ -174,6 +181,7 @@ public class ColStatsData {
                 columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(updateTime);
+            columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(hotValues, col.getType()));
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to convert column statistics.", e);

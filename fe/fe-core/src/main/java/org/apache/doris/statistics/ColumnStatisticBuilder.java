@@ -21,6 +21,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
+import java.util.Map;
+
 public class ColumnStatisticBuilder {
     private double count;
     private double ndv;
@@ -37,6 +39,7 @@ public class ColumnStatisticBuilder {
     private ColumnStatistic original;
 
     private String updatedTime;
+    private Map<LiteralExpr, Float> hotValues;
 
     public ColumnStatisticBuilder() {
     }
@@ -54,6 +57,7 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
+        this.hotValues = columnStatistic.hotValues;
     }
 
     // ATTENTION: DON'T USE FOLLOWING TWO DURING STATS DERIVING EXCEPT FOR INITIALIZATION
@@ -74,6 +78,7 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
+        this.hotValues = columnStatistic.hotValues;
     }
 
     public ColumnStatisticBuilder setNdv(double ndv) {
@@ -126,6 +131,11 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public ColumnStatisticBuilder setHotValues(Map<LiteralExpr, Float> hotValues) {
+        this.hotValues = hotValues;
+        return this;
+    }
+
     public double getCount() {
         return count;
     }
@@ -175,16 +185,20 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public Map<LiteralExpr, Float> getHotValues() {
+        return hotValues;
+    }
+
     public ColumnStatistic build() {
         dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
         if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
                     dataSize, minValue, maxValue, minExpr, maxExpr,
-                    isUnknown, updatedTime);
+                    isUnknown, updatedTime, hotValues);
         }
         ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
                 dataSize, minValue, maxValue, minExpr, maxExpr,
-                isUnknown, updatedTime);
+                isUnknown, updatedTime, hotValues);
         return colStats;
     }
 
