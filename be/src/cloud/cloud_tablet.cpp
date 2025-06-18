@@ -84,6 +84,8 @@ bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_segment_num(
         "file_cache_recycle_cached_data_segment_num");
 bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_segment_size(
         "file_cache_recycle_cached_data_segment_size");
+bvar::Adder<uint64_t> g_file_cache_recycle_cached_data_index_num(
+        "file_cache_recycle_cached_data_index_num");
 
 CloudTablet::CloudTablet(CloudStorageEngine& engine, TabletMetaSharedPtr tablet_meta)
         : BaseTablet(std::move(tablet_meta)), _engine(engine) {}
@@ -629,6 +631,7 @@ void CloudTablet::clear_cache() {
 void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets) {
     std::vector<RowsetId> rowset_ids;
     std::vector<int64_t> num_segments;
+    std::vector<std::vector<std::string>> index_file_names;
     for (const auto& rs : rowsets) {
         // rowsets and tablet._rs_version_map each hold a rowset shared_ptr, so at this point, the reference count of the shared_ptr is at least 2.
         if (rs.use_count() > 2) {
@@ -639,17 +642,20 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
         rs->clear_cache();
         rowset_ids.push_back(rs->rowset_id());
         num_segments.push_back(rs->num_segments());
+        auto index_names = rs->get_index_file_names();
+        index_file_names.push_back(index_names);
         int64_t segment_size_sum = 0;
         for (int32_t i = 0; i < rs->num_segments(); i++) {
             segment_size_sum += rs->rowset_meta()->segment_file_size(i);
         }
         g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
         g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+        g_file_cache_recycle_cached_data_index_num << index_names.size();
     }
     if (!rowsets.empty()) {
         auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-        manager.recycle_cache(rowsets.front()->rowset_meta()->tablet_id(), rowset_ids,
-                              num_segments);
+        manager.recycle_cache(rowsets.front()->rowset_meta()->tablet_id(), rowset_ids, num_segments,
+                              index_file_names);
     }
 }
 
