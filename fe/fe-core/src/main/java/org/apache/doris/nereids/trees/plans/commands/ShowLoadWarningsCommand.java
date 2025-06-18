@@ -79,7 +79,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
                 .build();
     private static final String LABEL = "label";
     private static final String LOAD_JOB_ID = "load_job_id";
-    private static final String JOB_ID = "job_id";
+    private static final String JOB_ID = "JobId";
     private String dbName;
     private URL url;
     private String label;
@@ -152,7 +152,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
 
         if (hasLoadJobId) {
             if (!(subExpr.child(1) instanceof IntegerLikeLiteral)) {
-                LOG.warn("load_job_id/job_id is not IntLiteral. value: {}", subExpr.toSql());
+                LOG.warn("load_job_id/jobid is not IntLiteral. value: {}", subExpr.toSql());
                 return false;
             }
             jobId = ((IntegerLikeLiteral) subExpr.child(1)).getLongValue();
@@ -161,7 +161,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         return true;
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         if (rawUrl != null) {
             // get load error from url
             if (rawUrl.isEmpty()) {
@@ -191,7 +191,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             // analyze where clause if not null
             if (wildWhere == null) {
                 throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
-                    + " or LOAD_JOB_ID/JOB_ID = $job_id");
+                    + " or LOAD_JOB_ID/JOBID = $job_id");
             }
             boolean valid = true;
             if (wildWhere instanceof CompoundPredicate) {
@@ -206,7 +206,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             }
             if (!valid) {
                 throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
-                    + " or LOAD_JOB_ID/JOB_ID = $job_id");
+                    + " or LOAD_JOB_ID/JOBID = $job_id");
             }
         }
     }
