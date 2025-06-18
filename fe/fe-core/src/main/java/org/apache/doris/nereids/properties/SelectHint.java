@@ -25,17 +25,21 @@ import java.util.Objects;
  */
 public class SelectHint {
     // e.g. set_var
-    private String hintName;
+    private final String hintName;
 
-    public SelectHint(String hintName) {
+    private final String errorMessage;
+
+    public SelectHint(String hintName, String errorMessage) {
         this.hintName = Objects.requireNonNull(hintName, "hintName can not be null");
-    }
-
-    public void setHintName(String hintName) {
-        this.hintName = hintName;
+        this.errorMessage = errorMessage;
     }
 
     public String getHintName() {
         return hintName;
     }
+
+    public String getErrorMessage() {
+        return errorMessage;
+    }
+
 }

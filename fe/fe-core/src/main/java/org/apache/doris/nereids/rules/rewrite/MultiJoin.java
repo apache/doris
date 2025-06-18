@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -72,8 +73,8 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
     private final List<Expression> notInnerJoinConditions;
 
     public MultiJoin(List<Plan> inputs, List<Expression> joinFilter, JoinType joinType,
-            List<Expression> notInnerJoinConditions) {
-        super(PlanType.LOGICAL_MULTI_JOIN, inputs);
+            List<Expression> notInnerJoinConditions, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_MULTI_JOIN, inputs, hintContext);
         this.joinFilter = Objects.requireNonNull(joinFilter);
         this.joinType = joinType;
         this.notInnerJoinConditions = Objects.requireNonNull(notInnerJoinConditions);
@@ -93,7 +94,7 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
 
     @Override
     public MultiJoin withChildren(List<Plan> children) {
-        return new MultiJoin(children, joinFilter, joinType, notInnerJoinConditions);
+        return new MultiJoin(children, joinFilter, joinType, notInnerJoinConditions, hintContext);
     }
 
     @Override
@@ -173,6 +174,11 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         throw new RuntimeException("multiJoin can't invoke withGroupExprLogicalPropChildren");
+    }
+
+    @Override
+    public MultiJoin withHintContext(Optional<HintContext> hintContext) {
+        return new MultiJoin(children, joinFilter, joinType, notInnerJoinConditions, hintContext);
     }
 
     @Override

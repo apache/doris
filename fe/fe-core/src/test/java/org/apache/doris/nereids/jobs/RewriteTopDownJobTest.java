@@ -71,10 +71,11 @@ public class RewriteTopDownJobTest {
 
     @Test
     public void testSimplestScene() {
-        Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"));
+        Plan leaf = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), Lists.newArrayList("test"),
+                Optional.empty());
         LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(
                 new SlotReference("name", StringType.INSTANCE, true, ImmutableList.of("test"))),
-                leaf
+                leaf, Optional.empty()
         );
         PlanChecker.from(MemoTestUtils.createConnectContext(), project)
                 .applyBottomUp(new FakeRule())
@@ -106,13 +107,13 @@ public class RewriteTopDownJobTest {
 
         public LogicalBoundRelation(TableIf table, List<String> qualifier) {
             super(StatementScopeIdGenerator.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
-                    Optional.empty(), Optional.empty());
+                    Optional.empty(), Optional.empty(), Optional.empty());
         }
 
         public LogicalBoundRelation(TableIf table, List<String> qualifier, Optional<GroupExpression> groupExpression,
                 Optional<LogicalProperties> logicalProperties) {
             super(StatementScopeIdGenerator.newRelationId(), PlanType.LOGICAL_BOUND_RELATION, table, qualifier,
-                    groupExpression, logicalProperties);
+                    groupExpression, logicalProperties, Optional.empty());
         }
 
         @Override

@@ -22,6 +22,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.nereids.util.PlanUtils;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -35,7 +38,8 @@ public class LogicalSubQueryAliasToLogicalProject extends OneRewriteRuleFactory 
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
                 logicalSubQueryAlias().then(subQueryAlias ->
                         new LogicalProject<>(
-                                Utils.fastToImmutableList(subQueryAlias.getOutput()), subQueryAlias.child()
+                                Utils.fastToImmutableList(subQueryAlias.getOutput()), subQueryAlias.child(),
+                                PlanUtils.getHintContext(subQueryAlias.child())
                         )
                 )
         );

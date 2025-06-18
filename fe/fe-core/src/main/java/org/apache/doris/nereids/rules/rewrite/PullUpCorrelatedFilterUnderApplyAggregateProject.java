@@ -114,7 +114,7 @@ public class PullUpCorrelatedFilterUnderApplyAggregateProject implements Rewrite
         LogicalProject<Plan> newProject = project.withProjectsAndChild(newProjects,
                 filterPredicates.isEmpty() ? filter.child()
                         : filter.withConjuncts(filterPredicates));
-        LogicalFilter<Plan> newFilter = new LogicalFilter<>(pullUpPredicates, newProject);
+        LogicalFilter<Plan> newFilter = new LogicalFilter<>(pullUpPredicates, newProject, filter.getHintContext());
         LogicalAggregate<Plan> newAgg = agg.withChildren(ImmutableList.of(newFilter));
         return (LogicalApply<?, ?>) (apply.withChildren(apply.left(),
                 isRightChildAgg ? newAgg : apply.right().withChildren(newAgg)));

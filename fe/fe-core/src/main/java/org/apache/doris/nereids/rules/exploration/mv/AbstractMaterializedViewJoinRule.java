@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -69,7 +70,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                         .map(expression -> expression instanceof NamedExpression ? expression : new Alias(expression))
                         .map(NamedExpression.class::cast)
                         .collect(Collectors.toList()),
-                tempRewritedPlan);
+                tempRewritedPlan, PlanUtils.getHintContext(tempRewritedPlan));
     }
 
     /**

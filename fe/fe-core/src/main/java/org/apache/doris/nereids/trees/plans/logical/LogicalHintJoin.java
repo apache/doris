@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.DummyPlan;
@@ -27,6 +28,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * LogicalHintJoin
@@ -41,21 +43,32 @@ public class LogicalHintJoin extends DummyPlan {
     }
 
     @Override
-    public void collectParamsForLeadingHint(List<String> params) {
-        children.get(0).collectParamsForLeadingHint(params);
+    public void collectParamsForLeadingHint(List<String> params, Map<String, DistributeHint> strToHint,
+            List<String> errs) {
+        children.get(0).collectParamsForLeadingHint(params, strToHint, errs);
+        if (distributeHint.getStatus() == Hint.HintStatus.SYNTAX_ERROR) {
+            errs.add(distributeHint.getErrorMessage());
+            return;
+        }
         if (distributeHint.distributeType != DistributeType.NONE) {
+            String distType = null;
             if (distributeHint.distributeType == DistributeType.BROADCAST_RIGHT) {
-                params.add(LeadingHint.BROADCAST);
+                distType = LeadingHint.BROADCAST;
             } else if (distributeHint.distributeType == DistributeType.SHUFFLE_RIGHT) {
-                params.add(LeadingHint.SHUFFLE);
+                distType = LeadingHint.SHUFFLE;
+            }
+            if (distType != null) {
+                distType = String.format("%s_%d", distType, params.size());
+                strToHint.put(distType, distributeHint);
+                params.add(distType);
             }
         }
         if (children.get(1) instanceof LogicalHintJoin) {
             params.add("(");
-            children.get(1).collectParamsForLeadingHint(params);
+            children.get(1).collectParamsForLeadingHint(params, strToHint, errs);
             params.add(")");
         } else {
-            children.get(1).collectParamsForLeadingHint(params);
+            children.get(1).collectParamsForLeadingHint(params, strToHint, errs);
         }
     }
 

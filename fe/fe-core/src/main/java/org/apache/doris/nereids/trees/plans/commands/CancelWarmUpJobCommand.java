@@ -36,6 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.ArrayList;
+import java.util.Optional;
 
 /**
  * cancel warm up job command
@@ -82,7 +83,7 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
 
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
+                new ArrayList<>(), Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);

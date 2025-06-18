@@ -44,6 +44,6 @@ public class QueryBlockId extends Id<QueryBlockId> {
 
     @Override
     public String toString() {
-        return "QueryBlockId#" + id;
+        return String.format("%d", id);
     }
 }

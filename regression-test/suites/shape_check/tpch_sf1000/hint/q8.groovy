@@ -42,7 +42,7 @@ suite("q8") {
     qt_select """
     explain shape plan
     select 
-    /*+ leading( supplier { orders {lineitem broadcast part}  {customer broadcast {n1 broadcast region}}} broadcast n2) */ 
+    /*+ leading( supplier ( orders (lineitem [broadcast] part)  (customer [broadcast] (n1 [broadcast] region))) [broadcast] n2) */ 
         o_year,
         sum(case
             when nation = 'BRAZIL' then volume

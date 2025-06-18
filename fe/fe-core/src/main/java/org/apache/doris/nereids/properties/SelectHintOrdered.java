@@ -21,8 +21,8 @@ package org.apache.doris.nereids.properties;
  * select hint.
  */
 public class SelectHintOrdered extends SelectHint {
-    public SelectHintOrdered(String hintName) {
-        super(hintName);
+    public SelectHintOrdered(String hintName, String err) {
+        super(hintName, err);
     }
 
     @Override

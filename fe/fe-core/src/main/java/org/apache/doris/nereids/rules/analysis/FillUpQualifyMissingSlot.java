@@ -104,10 +104,14 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                         checkWindow(qualify);
                         LogicalProject<Plan> project = qualify.child();
                         return createPlan(project, qualify.getConjuncts(), (newConjuncts, projects) -> {
-                            LogicalProject<Plan> bottomProject = new LogicalProject<>(projects, project.child());
-                            LogicalQualify<Plan> logicalQualify = new LogicalQualify<>(newConjuncts, bottomProject);
-                            ImmutableList<NamedExpression> copyOutput = ImmutableList.copyOf(project.getOutput());
-                            return new LogicalProject<>(copyOutput, project.isDistinct(), logicalQualify);
+                            LogicalProject<Plan> bottomProject = new LogicalProject<>(projects,
+                                    project.child(), qualify.getHintContext());
+                            LogicalQualify<Plan> logicalQualify = new LogicalQualify<>(newConjuncts,
+                                    bottomProject, qualify.getHintContext());
+                            ImmutableList<NamedExpression> copyOutput = ImmutableList
+                                    .copyOf(project.getOutput());
+                            return new LogicalProject<>(copyOutput, project.isDistinct(), logicalQualify,
+                                    qualify.getHintContext());
                         });
                     })
             ),
@@ -127,7 +131,8 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                         if (notChanged && a.equals(agg)) {
                             return null;
                         }
-                        return notChanged ? qualify.withChildren(a) : new LogicalQualify<>(newConjuncts, a);
+                        return notChanged ? qualify.withChildren(a)
+                                : new LogicalQualify<>(newConjuncts, a, qualify.getHintContext());
                     });
                 })
             ),
@@ -149,7 +154,7 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                             return null;
                         }
                         return notChanged ? qualify.withChildren(having.withChildren(a)) :
-                            new LogicalQualify<>(newConjuncts, having.withChildren(a));
+                            new LogicalQualify<>(newConjuncts, having.withChildren(a), qualify.getHintContext());
                     });
                 })
             ),
@@ -172,12 +177,15 @@ public class FillUpQualifyMissingSlot extends FillUpMissingSlots {
                                     .collect(Collectors.toSet());
                             List<NamedExpression> output = ImmutableList.<NamedExpression>builder()
                                     .addAll(projects).addAll(missingSlots).build();
-                            LogicalQualify<LogicalProject<Plan>> logicalQualify =
-                                    new LogicalQualify<>(newConjuncts, new LogicalProject<>(output, project.child()));
+                            LogicalQualify<LogicalProject<Plan>> logicalQualify = new LogicalQualify<>(
+                                    newConjuncts,
+                                    new LogicalProject<>(output, project.child(), qualify.getHintContext()),
+                                    qualify.getHintContext());
                             return having.withChildren(project.withProjects(copyOutput).withChildren(logicalQualify));
                         } else {
                             return new LogicalProject<>(copyOutput, new LogicalQualify<>(newConjuncts,
-                                    having.withChildren(project.withProjects(projects))));
+                                    having.withChildren(project.withProjects(projects)),
+                                    qualify.getHintContext()), qualify.getHintContext());
                         }
                     });
                 })

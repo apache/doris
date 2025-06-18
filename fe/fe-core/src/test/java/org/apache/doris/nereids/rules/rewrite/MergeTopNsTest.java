@@ -29,11 +29,13 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 /**
  * MergeConsecutiveProjects ut
  */
 class MergeTopNsTest implements MemoPatternMatchSupported {
-    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score, Optional.empty());
 
     @Test
     void testMergeSameOrderBy() {

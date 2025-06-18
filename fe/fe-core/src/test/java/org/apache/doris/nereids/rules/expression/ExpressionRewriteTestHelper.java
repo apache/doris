@@ -49,6 +49,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     protected static final NereidsParser PARSER = new NereidsParser();
@@ -58,7 +59,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
 
     public ExpressionRewriteTestHelper() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+                new UnboundRelation(null, new RelationId(1), ImmutableList.of("tbl"), Optional.empty()));
         context = new ExpressionRewriteContext(cascadesContext);
     }
 

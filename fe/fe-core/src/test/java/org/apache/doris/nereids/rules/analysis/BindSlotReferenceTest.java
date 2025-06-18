@@ -47,6 +47,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 class BindSlotReferenceTest implements MemoPatternMatchSupported {
 
@@ -58,7 +59,7 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
     @Test
     public void testCannotFindSlot() {
         LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(new UnboundSlot("foo")),
-                new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student));
+                new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, Optional.empty()), Optional.empty());
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
         Assertions.assertEquals("Unknown column 'foo' in 'table list' in PROJECT clause", exception.getMessage());
@@ -69,16 +70,16 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         String qualifiedName = "internal.db.student";
         List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
         LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                qualifier);
+                qualifier, Optional.empty());
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> aliasedScan2 = new LogicalSubQueryAlias<>("scan2_alias", scan2);
+                qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> aliasedScan2 = new LogicalSubQueryAlias<>("scan2_alias", scan2, Optional.empty());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, scan1, aliasedScan2, null);
+                JoinType.CROSS_JOIN, scan1, aliasedScan2, null, Optional.empty());
 
         LogicalProject<LogicalPlan> project = new LogicalProject<>(
-                ImmutableList.of(new UnboundSlot("id")), join);
+                ImmutableList.of(new UnboundSlot("id")), join, Optional.empty());
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(project));
@@ -96,17 +97,17 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         String qualifiedName = "internal.db.student";
         List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
         LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1);
+                qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1, Optional.empty());
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
+                qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2, Optional.empty());
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
-                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null);
+                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null, Optional.empty());
         LogicalAggregate<?> aggregate = new LogicalAggregate<>(
                 Lists.newArrayList(new UnboundSlot("id")), //group by
                 Lists.newArrayList(new UnboundSlot("t1", "id")), //output
-                join
+                join, Optional.empty()
         );
         PlanChecker checker = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(aggregate);
         LogicalAggregate<?> plan = (LogicalAggregate<?>) ((LogicalProject<?>) checker.getCascadesContext()
@@ -127,17 +128,17 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         String qualifiedName = "internal.db.student";
         List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
         LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1);
+                qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1, Optional.empty());
         LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-                qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
+                qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2, Optional.empty());
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
-                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null);
+                new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null, Optional.empty());
         LogicalAggregate<LogicalJoin<?, ?>> aggregate = new LogicalAggregate<>(
                 Lists.newArrayList(new UnboundSlot("id")), //group by
                 Lists.newArrayList(new Alias(new Count(new IntegerLiteral(1)), "count(1)")), //output
-                join
+                join, Optional.empty()
         );
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(aggregate));
@@ -149,24 +150,24 @@ class BindSlotReferenceTest implements MemoPatternMatchSupported {
         String qualifiedName = "internal.db.student";
         List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
         LogicalOlapScan scan1 = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1);
+                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1, Optional.empty());
         LogicalOlapScan scan2 = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
+                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2, Optional.empty());
         LogicalOlapScan scan3 = new LogicalOlapScan(
-                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier);
-        LogicalSubQueryAlias<LogicalOlapScan> sub3 = new LogicalSubQueryAlias<>("t3", scan3);
+                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, qualifier, Optional.empty());
+        LogicalSubQueryAlias<LogicalOlapScan> sub3 = new LogicalSubQueryAlias<>("t3", scan3, Optional.empty());
 
         DistributeHint hint = new DistributeHint(DistributeType.NONE);
         LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>
                 using1 = new LogicalUsingJoin<>(JoinType.LEFT_OUTER_JOIN, sub1,
-                sub2, ImmutableList.of(new UnboundSlot("id")), hint);
+                sub2, ImmutableList.of(new UnboundSlot("id")), hint, Optional.empty());
 
         LogicalUsingJoin<LogicalUsingJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>>,
                             LogicalSubQueryAlias<LogicalOlapScan>> using2 = new LogicalUsingJoin<>(
                                     JoinType.LEFT_OUTER_JOIN, using1, sub3,
-                ImmutableList.of(new UnboundSlot("id")), hint);
+                ImmutableList.of(new UnboundSlot("id")), hint, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext())
                 .analyze(using2)

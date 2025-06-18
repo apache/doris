@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -144,7 +145,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                             ? (NamedExpression) expression : new Alias(expression));
                 }
                 if (isRewrittenQueryExpressionValid) {
-                    return new LogicalProject<>(projects, tempRewritedPlan);
+                    return new LogicalProject<>(projects, tempRewritedPlan,
+                            PlanUtils.getHintContext(tempRewritedPlan));
                 }
             }
             // if fails, record the reason and then try to roll up aggregate function
@@ -266,10 +268,11 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 }
             }
             LogicalRepeat<Plan> repeat = new LogicalRepeat<>(rewrittenGroupSetsExpressions,
-                    finalOutputExpressions, tempRewritedPlan);
+                    finalOutputExpressions, tempRewritedPlan, PlanUtils.getHintContext(tempRewritedPlan));
             return NormalizeRepeat.doNormalize(repeat);
         }
-        return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan);
+        return new LogicalAggregate<>(finalGroupExpressions, finalOutputExpressions, tempRewritedPlan,
+                PlanUtils.getHintContext(tempRewritedPlan));
     }
 
     /**
@@ -563,7 +566,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
             viewProjects.add(chosenExpression instanceof NamedExpression
                     ? (NamedExpression) chosenExpression : new Alias(chosenExpression));
         }
-        LogicalProject<LogicalAggregate<Plan>> viewProject = new LogicalProject<>(viewProjects, viewAggregate);
+        LogicalProject<LogicalAggregate<Plan>> viewProject = new LogicalProject<>(viewProjects, viewAggregate,
+                viewAggregate.getHintContext());
         // try to eliminate view group by expression which is not in query group by expression
         Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                 childContext -> {

@@ -90,7 +90,7 @@ public class DeriveStatsJobTest {
             }};
 
         return (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
-                Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
+                Collections.emptyList(), Optional.empty()).withGroupExprLogicalPropChildren(Optional.empty(),
                 Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> DataTrait.EMPTY_TRAIT)), ImmutableList.of());
     }
 
@@ -99,6 +99,6 @@ public class DeriveStatsJobTest {
         groupByExprList.add(slot1);
         AggregateFunction sum = new Sum(slot1);
         Alias alias = new Alias(sum, "a");
-        return new LogicalAggregate<>(groupByExprList, Collections.singletonList(alias), child);
+        return new LogicalAggregate<>(groupByExprList, Collections.singletonList(alias), child, Optional.empty());
     }
 }

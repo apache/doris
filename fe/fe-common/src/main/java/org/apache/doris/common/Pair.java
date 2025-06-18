@@ -24,6 +24,7 @@ import com.google.gson.annotations.SerializedName;
 
 import java.util.Comparator;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The equivalent of C++'s std::pair<>.
@@ -94,6 +95,19 @@ public class Pair<F, S> {
         @Override
         public int compare(T o1, T o2) {
             return o1.second.compareTo(o2.second);
+        }
+    }
+
+    public static class NewPairComparator<T extends Pair<Optional<String>, ? extends Comparable>>
+            implements Comparator<T> {
+        @Override
+        public int compare(T o1, T o2) {
+            int res = o1.first.get().compareTo(o2.first.get());
+            if (res == 0) {
+                return o1.second.compareTo(o2.second);
+            } else {
+                return res;
+            }
         }
     }
 }

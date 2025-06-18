@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -74,13 +75,13 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
                         if (!ctx.leftAlias.isEmpty()) {
                             List<NamedExpression> newProjects = Lists.newArrayList(left.getOutput());
                             newProjects.addAll(ctx.leftAlias);
-                            left = new LogicalProject<>(newProjects, left);
+                            left = new LogicalProject<>(newProjects, left, PlanUtils.getHintContext(left));
                         }
                         Plan right = join.right();
                         if (!ctx.rightAlias.isEmpty()) {
                             List<NamedExpression> newProjects = Lists.newArrayList(right.getOutput());
                             newProjects.addAll(ctx.rightAlias);
-                            right = new LogicalProject<>(newProjects, right);
+                            right = new LogicalProject<>(newProjects, right, PlanUtils.getHintContext(right));
                         }
                         return join.withJoinConjuncts(join.getHashJoinConjuncts(),
                                 newOtherConjuncts, join.getJoinReorderContext())

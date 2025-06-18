@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
+import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
@@ -56,8 +57,8 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
     @BeforeAll
     final void beforeAll() {
         rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
-                ImmutableList.of(""));
-        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
+                ImmutableList.of(""), Optional.empty());
+        rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""), Optional.empty());
         rStudentSlots = rStudent.getOutput();
         rScoreSlots = rScore.getOutput();
     }

@@ -93,7 +93,7 @@ suite("query54") {
     explain shape plan
     with my_customers as (
  select 
- /*+ leading(customer {cs_or_ws_sales item date_dim}) */
+ /*+ leading(customer (cs_or_ws_sales item date_dim)) */
  distinct c_customer_sk
         , c_current_addr_sk
  from   
@@ -120,7 +120,7 @@ suite("query54") {
  )
  , my_revenue as (
  select 
- /*+ leading(store_sales {customer_address {my_customers store}} date_dim) */
+ /*+ leading(store_sales (customer_address (my_customers store)) date_dim) */
  c_customer_sk,
         sum(ss_ext_sales_price) as revenue
  from   my_customers,

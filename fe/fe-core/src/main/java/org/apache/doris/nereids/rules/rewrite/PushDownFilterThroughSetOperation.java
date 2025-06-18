@@ -78,7 +78,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     List<NamedExpression> setOutputs = setOperation.getOutputs();
                     if (newChildren.isEmpty() && newConstantExprs.isEmpty()) {
                         return new LogicalEmptyRelation(
-                                statementContext.getNextRelationId(), setOutputs
+                                statementContext.getNextRelationId(), setOutputs, filter.getHintContext()
                         );
                     } else if (newChildren.isEmpty() && newConstantExprs.size() == 1) {
                         ImmutableList.Builder<NamedExpression> newOneRowRelationOutput
@@ -97,7 +97,8 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                             newOneRowRelationOutput.add(oneRowRelationOutput);
                         }
                         return new LogicalOneRowRelation(
-                                ctx.statementContext.getNextRelationId(), newOneRowRelationOutput.build()
+                                ctx.statementContext.getNextRelationId(), newOneRowRelationOutput.build(),
+                                filter.getHintContext()
                         );
                     }
 
@@ -108,7 +109,8 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     }
 
                     return new LogicalUnion(setOperation.getQualifier(), setOutputs,
-                            newChildrenOutput.build(), newConstantExprs, false, newChildren);
+                            newChildrenOutput.build(), newConstantExprs, false, newChildren,
+                            setOperation.getHintContext());
                 }
 
                 addFiltersToNewChildren(setOperation, filter, setOperation.children(),
@@ -136,7 +138,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     .map(conjunct -> ExpressionUtils.replace(conjunct, replaceMap))
                     .collect(ImmutableSet.toImmutableSet());
             Plan newChild = newChildBuilder.apply(children.get(childIdx));
-            LogicalFilter<Plan> newFilter = new LogicalFilter<>(newFilterPredicates, newChild);
+            LogicalFilter<Plan> newFilter = new LogicalFilter<>(newFilterPredicates, newChild, filter.getHintContext());
             if (newChild instanceof LogicalOneRowRelation) {
                 Plan eliminateFilter = EliminateFilter.eliminateFilterOnOneRowRelation(
                         (LogicalFilter) newFilter, cascadesContext);

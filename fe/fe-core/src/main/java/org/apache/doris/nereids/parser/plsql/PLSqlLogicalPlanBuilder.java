@@ -37,7 +37,7 @@ import java.util.List;
 public class PLSqlLogicalPlanBuilder extends LogicalPlanBuilder {
 
     public PLSqlLogicalPlanBuilder() {
-        super(null);
+        super(null, null);
     }
 
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {

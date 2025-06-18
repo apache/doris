@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.constraint.TableIdentifier;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -45,6 +47,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -110,8 +113,9 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                     }
 
                     Map<SlotReference, List<Integer>> commonSlotToProjectsIndex = new HashMap<>();
+                    Optional<HintContext> hintContext = union.getHintContext();
                     LogicalUnion newUnion = constructNewUnion(joinsAndCommonSides, otherOutputsList,
-                            commonSlotToOtherSlotMaps, joinCommonSlots, commonSlotToProjectsIndex);
+                            commonSlotToOtherSlotMaps, joinCommonSlots, commonSlotToProjectsIndex, hintContext);
                     LogicalJoin<LogicalUnion, Plan> newJoin = constructNewJoin(newUnion,
                             commonSlotToProjectsIndex, joinsAndCommonSides);
                     LogicalProject newProject = constructNewProject(union, newJoin, upperProjectExpressionOrIndex);
@@ -138,7 +142,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                         newUnionOutput.get(pair.second.indexOfNewUnionOutput), originOutput.get(i).getName()));
             }
         }
-        return new LogicalProject<>(upperProjects, newJoin);
+        return new LogicalProject<>(upperProjects, newJoin, newJoin.getHintContext());
     }
 
     private LogicalJoin<LogicalUnion, Plan> constructNewJoin(LogicalUnion union,
@@ -165,7 +169,8 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
     private LogicalUnion constructNewUnion(List<Pair<LogicalJoin<?, ?>, Plan>> joinsAndCommonSides,
             List<List<NamedExpression>> otherOutputsList,
             List<Map<SlotReference, List<SlotReference>>> commonSlotToOtherSlotMaps,
-            Set<SlotReference> joinCommonSlots, Map<SlotReference, List<Integer>> commonSlotToProjectsIndex) {
+            Set<SlotReference> joinCommonSlots, Map<SlotReference, List<Integer>> commonSlotToProjectsIndex,
+            Optional<HintContext> hintContext) {
         List<Plan> newChildren = new ArrayList<>();
         for (int i = 0; i < joinsAndCommonSides.size(); ++i) {
             Pair<LogicalJoin<?, ?>, Plan> pair = joinsAndCommonSides.get(i);
@@ -193,12 +198,13 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                     projects.add(otherSlot);
                 }
             }
-            LogicalProject<Plan> logicalProject = new LogicalProject<>(projects, otherSide);
+            LogicalProject<Plan> logicalProject = new LogicalProject<>(projects, otherSide,
+                    PlanUtils.getHintContext(otherSide));
             newChildren.add(logicalProject);
         }
 
         //2. construct new union
-        LogicalUnion newUnion = new LogicalUnion(Qualifier.ALL, newChildren);
+        LogicalUnion newUnion = new LogicalUnion(Qualifier.ALL, newChildren, hintContext);
         List<List<SlotReference>> childrenOutputs = newChildren.stream()
                 .map(p -> p.getOutput().stream()
                         .map(SlotReference.class::cast)

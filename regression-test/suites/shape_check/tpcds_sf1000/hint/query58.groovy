@@ -149,7 +149,7 @@ suite("query58") {
   and ws_sold_date_sk   = d_date_sk
  group by i_item_id)
   select 
-  /*+ leading( ws_items {ss_items cs_items} ) */
+  /*+ leading( ws_items (ss_items cs_items) ) */
    ss_items.item_id
        ,ss_item_rev
        ,ss_item_rev/((ss_item_rev+cs_item_rev+ws_item_rev)/3) * 100 ss_dev

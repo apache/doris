@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -57,13 +58,15 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
 
     private final List<NamedExpression> projects;
 
-    public LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
-        this(relationId, projects, Optional.empty(), Optional.empty());
+    public LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
+            Optional<HintContext> hintContext) {
+        this(relationId, projects, Optional.empty(), Optional.empty(), hintContext);
     }
 
     private LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties, hintContext);
         this.projects = Utils.fastToImmutableList(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -93,13 +96,20 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties()),
+                hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties()),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties);
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
@@ -108,7 +118,7 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     public LogicalOneRowRelation withRelationIdAndProjects(RelationId relationId, List<NamedExpression> projects) {
-        return new LogicalOneRowRelation(relationId, projects);
+        return new LogicalOneRowRelation(relationId, projects, hintContext);
     }
 
     @Override
@@ -146,7 +156,8 @@ public class LogicalOneRowRelation extends LogicalRelation implements OneRowRela
     }
 
     public LogicalOneRowRelation withProjects(List<NamedExpression> namedExpressions) {
-        return new LogicalOneRowRelation(relationId, namedExpressions, Optional.empty(), Optional.empty());
+        return new LogicalOneRowRelation(relationId, namedExpressions, Optional.empty(), Optional.empty(),
+                hintContext);
     }
 
     @Override

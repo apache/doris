@@ -21,6 +21,6 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: leading(store_sales { store_returns reason })
+UnUsed: leading(store_sales ( store_returns reason)) 
 SyntaxError:
 

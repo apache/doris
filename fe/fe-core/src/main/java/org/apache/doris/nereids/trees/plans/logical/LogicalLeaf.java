@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -35,8 +36,8 @@ import java.util.function.Supplier;
 public abstract class LogicalLeaf extends AbstractLogicalPlan implements LeafPlan, OutputSavePoint {
 
     protected LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(nodeType, groupExpression, logicalProperties, ImmutableList.of());
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(nodeType, groupExpression, logicalProperties, ImmutableList.of(), hintContext);
     }
 
     protected LogicalLeaf(PlanType nodeType, Optional<GroupExpression> groupExpression,

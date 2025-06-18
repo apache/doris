@@ -324,7 +324,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // create normalized plan
         Plan bottomPlan;
         if (!bottomProjects.isEmpty()) {
-            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child());
+            bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), aggregate.child(),
+                    aggregate.getHintContext());
         } else {
             bottomPlan = aggregate.child();
         }
@@ -344,7 +345,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 return project.withChildren(ImmutableList.of(
                         new LogicalHaving<>(
                                 ExpressionUtils.replace(having.get().getConjuncts(), project.getAliasToProducer()),
-                                project.child()
+                                project.child(), aggregate.getHintContext()
                         )));
             } else {
                 return (LogicalPlan) having.get().withChildren(project);
@@ -430,7 +431,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // 1. Find the expressions in group by that can be folded into constants and build a map(slot, literal)
         Map<Expression, NormalizeToSlotTriplet> replaceMap = groupByExprContext.getNormalizeToSlotMap();
         if (replaceMap.isEmpty()) {
-            return new LogicalProject<>(upperProjects, newAggregate);
+            return new LogicalProject<>(upperProjects, newAggregate, aggregate.getHintContext());
         }
         Map<Slot, Expression> slotToLiteral = new HashMap<>();
         for (Map.Entry<Expression, NormalizeToSlotTriplet> entry : replaceMap.entrySet()) {
@@ -440,7 +441,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
         }
         if (slotToLiteral.isEmpty()) {
-            return new LogicalProject<>(upperProjects, newAggregate);
+            return new LogicalProject<>(upperProjects, newAggregate, aggregate.getHintContext());
         }
         // 2. Regenerate a group by list without constant key
         List<Expression> newNormalizedGroupExprs = new ArrayList<>();
@@ -450,7 +451,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
         }
         if (newNormalizedGroupExprs.size() == normalizedGroupExprs.size()) {
-            return new LogicalProject<>(upperProjects, newAggregate);
+            return new LogicalProject<>(upperProjects, newAggregate, aggregate.getHintContext());
         }
         if (newNormalizedGroupExprs.isEmpty()) {
             Alias tinyInt = new Alias(new TinyIntLiteral((byte) 1));
@@ -486,7 +487,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     builder.add(bottomProject);
                 }
             }
-            bottomPlan = new LogicalProject<>(builder.build(), aggregate.child());
+            bottomPlan = new LogicalProject<>(builder.build(), aggregate.child(), aggregate.getHintContext());
         } else {
             bottomPlan = aggregate.child();
         }
@@ -509,6 +510,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             }
             newUpperProjects.add(upperProject);
         }
-        return new LogicalProject<>(newUpperProjects.build(), newAggAfterEliminate);
+        return new LogicalProject<>(newUpperProjects.build(), newAggAfterEliminate, aggregate.getHintContext());
     }
 }

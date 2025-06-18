@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -310,4 +311,12 @@ public interface Plan extends TreeNode<Plan> {
     void computeEqualSet(DataTrait.Builder builder);
 
     void computeFd(DataTrait.Builder builder);
+
+    default Plan withHintContext(Optional<HintContext> hintContext) {
+        return this;
+    }
+
+    default Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        return this;
+    }
 }

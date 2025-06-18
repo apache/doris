@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.nereids.hint.DistributeHint;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -29,37 +32,26 @@ public class SelectHintLeading extends SelectHint {
     private final List<String> parameters;
     private final String originalLeadingText;
 
-    private boolean isSyntaxError;
-    private String errorMessage;
+    private final Map<String, DistributeHint> strToHint;
 
-    public SelectHintLeading(String hintName, List<String> parameters, String originalLeadingText) {
-        super(hintName);
+    public SelectHintLeading(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint,
+            String originalLeadingText, String err) {
+        super(hintName, err);
         this.parameters = parameters;
+        this.strToHint = strToHint;
         this.originalLeadingText = originalLeadingText;
-        this.isSyntaxError = false;
     }
 
     public SelectHintLeading(String hintName, List<String> parameters) {
-        this(hintName, parameters, null);
+        this(hintName, parameters, null, null, null);
     }
 
     public List<String> getParameters() {
         return parameters;
     }
 
-    public boolean isSyntaxError() {
-        return isSyntaxError;
-    }
-
-    public String getErrorMessage() {
-        return errorMessage;
-    }
-
-    public void setErrorMessage(String errorMessage) {
-        if (errorMessage != null) {
-            isSyntaxError = true;
-            this.errorMessage = errorMessage;
-        }
+    public Map<String, DistributeHint> getStrToHint() {
+        return strToHint;
     }
 
     @Override

@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
@@ -115,7 +116,8 @@ public class MaterializedViewUtils {
         if (timeUnit != null) {
             Expression dateTrunc = new DateTrunc(columnExpr, new VarcharLiteral(timeUnit));
             columnExpr = new Alias(dateTrunc);
-            materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan);
+            materializedViewPlan = new LogicalProject<>(ImmutableList.of(columnExpr), materializedViewPlan,
+                    PlanUtils.getHintContext(materializedViewPlan));
         }
         // Collect table relation map which is used to identify self join
         List<CatalogRelation> catalogRelations = materializedViewPlan.collectToList(CatalogRelation.class::isInstance);
@@ -232,7 +234,8 @@ public class MaterializedViewUtils {
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(),
+                Optional.empty());
         return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
                 olapScan.getTable());
     }
@@ -294,7 +297,7 @@ public class MaterializedViewUtils {
         // If project order change, return rewrittenPlan with reordered projects
         return new LogicalProject<>(originalRewrittenPlanExprIds.stream()
                 .map(exprId -> (NamedExpression) exprIdToNewRewrittenSlot.get(exprId)).collect(Collectors.toList()),
-                rewrittenPlan);
+                rewrittenPlan, Optional.empty());
     }
 
     /**

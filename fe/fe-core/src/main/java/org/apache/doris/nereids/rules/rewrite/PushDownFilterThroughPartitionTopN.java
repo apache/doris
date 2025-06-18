@@ -83,7 +83,8 @@ public class PushDownFilterThroughPartitionTopN extends OneRewriteRuleFactory {
                 return null;
             }
 
-            LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(bottomConjuncts, partitionTopN.child());
+            LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(bottomConjuncts, partitionTopN.child(),
+                    filter.getHintContext());
             partitionTopN = (LogicalPartitionTopN<Plan>) partitionTopN.withChildren(bottomFilter);
             if (upperConjuncts.isEmpty()) {
                 return partitionTopN;

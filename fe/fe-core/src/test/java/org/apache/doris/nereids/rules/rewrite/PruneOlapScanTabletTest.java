@@ -53,6 +53,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSupported {
 
@@ -130,7 +131,7 @@ class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSup
             }
         };
 
-        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable, Optional.empty());
 
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(scan.getOutput().get(0),
                 new DateLiteral("2019-08-22"));
@@ -144,7 +145,7 @@ class PruneOlapScanTabletTest extends SqlTestBase implements MemoPatternMatchSup
         EqualTo equalTo = new EqualTo(scan.getOutput().get(4), Literal.of(10));
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
                 ImmutableSet.of(greaterThanEqual, lessThanEqual, inPredicate1, inPredicate2, inPredicate3, equalTo),
-                scan);
+                scan, Optional.empty());
 
         Assertions.assertEquals(0, filter.child().getSelectedTabletIds().size());
 
