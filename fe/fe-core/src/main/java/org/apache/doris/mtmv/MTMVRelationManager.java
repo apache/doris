@@ -45,6 +45,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +86,7 @@ public class MTMVRelationManager implements MTMVHookService {
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
         Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                ctx.getStatementContext());
+                ctx.getStatementContext(), new BitSet());
         for (MTMV mtmv : candidateMTMVs) {
             if (predicate.test(ctx, mtmv)) {
                 continue;
