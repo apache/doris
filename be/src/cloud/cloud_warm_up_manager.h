@@ -72,7 +72,8 @@ public:
     void warm_up_rowset(RowsetMeta& rs_meta);
 
     void recycle_cache(int64_t tablet_id, const std::vector<RowsetId>& rowset_ids,
-                       const std::vector<int64_t>& num_segments);
+                       const std::vector<int64_t>& num_segments,
+                       const std::vector<std::vector<std::string>>& index_file_names);
 
 private:
     void handle_jobs();

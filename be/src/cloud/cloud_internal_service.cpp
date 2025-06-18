@@ -269,6 +269,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
 bvar::Adder<uint64_t> g_file_cache_recycle_cache_finished_segment_num(
         "file_cache_recycle_cache_finished_segment_num");
+bvar::Adder<uint64_t> g_file_cache_recycle_cache_finished_index_num(
+        "file_cache_recycle_cache_finished_index_num");
 
 void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* controller
                                              [[maybe_unused]],
@@ -277,14 +279,23 @@ void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* co
                                              google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
 
-    if (config::enable_file_cache) {
-        for (const auto& meta : request->cache_metas()) {
-            for (int64_t segment_id = 0; segment_id < meta.num_segments(); segment_id++) {
-                auto file_key = Segment::file_cache_key(meta.rowset_id(), segment_id);
-                auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->remove_if_cached_async(file_key);
-                g_file_cache_recycle_cache_finished_segment_num << 1;
-            }
+    if (!config::enable_file_cache) {
+        return;
+    }
+    for (const auto& meta : request->cache_metas()) {
+        for (int64_t segment_id = 0; segment_id < meta.num_segments(); segment_id++) {
+            auto file_key = Segment::file_cache_key(meta.rowset_id(), segment_id);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+            g_file_cache_recycle_cache_finished_segment_num << 1;
+        }
+
+        // inverted index
+        for (const auto& file_name : meta.index_file_names()) {
+            auto file_key = io::BlockFileCache::hash(file_name);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+            g_file_cache_recycle_cache_finished_index_num << 1;
         }
     }
 }

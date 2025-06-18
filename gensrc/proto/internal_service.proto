@@ -848,6 +848,7 @@ message RecycleCacheMeta {
     optional int64 tablet_id = 1;
     optional string rowset_id = 2;
     optional int64 num_segments = 3;
+    repeated string index_file_names = 4;
 }
 
 message PRecycleCacheRequest {
