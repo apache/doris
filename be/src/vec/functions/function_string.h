@@ -45,6 +45,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
+#include "gutil/port.h" // For endian macros
 #include "gutil/strings/numbers.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_search.hpp"
