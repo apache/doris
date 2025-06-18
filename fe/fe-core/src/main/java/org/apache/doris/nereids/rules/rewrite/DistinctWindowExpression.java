@@ -24,7 +24,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -32,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * count(distinct A) over(...)
@@ -58,18 +62,13 @@ public class DistinctWindowExpression extends OneRewriteRuleFactory {
                     WindowExpression windowExpression = (WindowExpression) expr.child(0);
                     if (windowExpression.getFunction() instanceof AggregateFunction) {
                         AggregateFunction aggregateFunction = (AggregateFunction) windowExpression.getFunction();
-                        if (aggregateFunction.isDistinct()) {
-                            if (aggregateFunction instanceof Count || aggregateFunction instanceof Sum) {
-                                // replace count(distinct xx) by multi_distinct_count(xx)
-                                converted = true;
-                                windExprChanged = true;
-                                Alias newAlias = (Alias) alias.withChildren(
-                                        windowExpression.withFunction(
-                                                new MultiDistinctCount(false, aggregateFunction.child(0))
-                                        )
-                                );
-                                newWindowExpressions.add(newAlias);
-                            }
+                        Optional<AggregateFunction> multiDistinct = convertToMultiDistinctFunction(aggregateFunction);
+                        if (multiDistinct.isPresent()) {
+                            converted = true;
+                            windExprChanged = true;
+                            Alias newAlias = (Alias) alias.withChildren(
+                                    windowExpression.withFunction(multiDistinct.get()));
+                            newWindowExpressions.add(newAlias);
                         }
                     }
                 }
@@ -82,5 +81,18 @@ public class DistinctWindowExpression extends OneRewriteRuleFactory {
             return window.withExpressionsAndChild(newWindowExpressions, window.child());
         }
         return null;
+    }
+
+    private Optional<AggregateFunction> convertToMultiDistinctFunction(AggregateFunction func) {
+        if (func.isDistinct()) {
+            if (func instanceof Count) {
+                return Optional.of(new MultiDistinctCount(false, func.child(0)));
+            } else if (func instanceof Sum) {
+                return Optional.of(new MultiDistinctSum(false, ((Sum) func).child()));
+            } else if (func instanceof GroupConcat) {
+                return Optional.of(new MultiDistinctGroupConcat(false, func.children()));
+            }
+        }
+        return Optional.empty();
     }
 }
