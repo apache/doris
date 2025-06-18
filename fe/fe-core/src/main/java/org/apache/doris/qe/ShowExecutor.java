@@ -38,8 +38,6 @@ import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
-import org.apache.doris.analysis.ShowRoutineLoadStmt;
-import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
@@ -66,11 +64,8 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
@@ -79,18 +74,13 @@ import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -114,7 +104,6 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -179,10 +168,6 @@ public class ShowExecutor {
             handleShowStreamLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
-        } else if (stmt instanceof ShowRoutineLoadStmt) {
-            handleShowRoutineLoad();
-        } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
-            handleShowRoutineLoadTask();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
         } else if (stmt instanceof ShowUserPropertyStmt) {
@@ -574,127 +559,6 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
-    }
-
-    private void handleShowRoutineLoad() throws AnalysisException {
-        ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        List<RoutineLoadJob> routineLoadJobList;
-        try {
-            PatternMatcher matcher = null;
-            if (showRoutineLoadStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showRoutineLoadStmt.getPattern(),
-                        CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
-            }
-            routineLoadJobList = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(showRoutineLoadStmt.getDbFullName(), showRoutineLoadStmt.getName(),
-                            showRoutineLoadStmt.isIncludeHistory(), matcher);
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-
-        if (routineLoadJobList != null) {
-            String dbFullName = showRoutineLoadStmt.getDbFullName();
-            String tableName = null;
-            for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
-                // check auth
-                try {
-                    tableName = routineLoadJob.getTableName();
-                } catch (MetaNotFoundException e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                            .add("error_msg", "The table metadata of job has been changed. "
-                                    + "The job will be cancelled automatically")
-                            .build(), e);
-                }
-                if (routineLoadJob.isMultiTable()) {
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                                    PrivPredicate.LOAD)) {
-                        LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
-                                        "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
-                                .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
-                                .add("table_name", tableName).add("error_msg", "The database access denied"));
-                        continue;
-                    }
-                    rows.add(routineLoadJob.getShowInfo());
-                    continue;
-                }
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                                tableName, PrivPredicate.LOAD)) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
-                                    "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
-                            .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
-                            .add("table_name", tableName).add("error_msg", "The table access denied"));
-                    continue;
-                }
-                // get routine load info
-                rows.add(routineLoadJob.getShowInfo());
-            }
-        }
-
-        if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
-            // if the jobName has been specified
-            throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
-                    + " in db " + showRoutineLoadStmt.getDbFullName()
-                    + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
-        }
-        // sort by create time
-        rows.sort(Comparator.comparing(x -> x.get(2)));
-        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
-    }
-
-    private void handleShowRoutineLoadTask() throws AnalysisException {
-        ShowRoutineLoadTaskStmt showRoutineLoadTaskStmt = (ShowRoutineLoadTaskStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        RoutineLoadJob routineLoadJob;
-        try {
-            routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(showRoutineLoadTaskStmt.getDbFullName(), showRoutineLoadTaskStmt.getJobName());
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        if (routineLoadJob == null) {
-            throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
-                    + "or job state is stopped or cancelled");
-        }
-
-        // check auth
-        String dbFullName = showRoutineLoadTaskStmt.getDbFullName();
-        String tableName;
-        try {
-            tableName = routineLoadJob.getTableName();
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException("The table metadata of job has been changed."
-                    + " The job will be cancelled automatically", e);
-        }
-        if (routineLoadJob.isMultiTable()) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                            PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        dbFullName);
-            }
-            rows.addAll(routineLoadJob.getTasksShowInfo());
-            resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
-            return;
-        }
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName, tableName,
-                        PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    dbFullName + ": " + tableName);
-        }
-
-        // get routine load task info
-        rows.addAll(routineLoadJob.getTasksShowInfo());
-        resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
     }
 
     // Show user property statement
