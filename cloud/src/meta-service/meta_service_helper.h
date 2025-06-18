@@ -263,7 +263,8 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     std::unique_ptr<int, std::function<void(int*)>> defer_count((int*)0x01, [&stats](int*) {  \
         if (config::use_detailed_metrics) {                                                   \
             GET_RPCKVCOUNT_MACRO(_0, ##__VA_ARGS__, RPCKVCOUNT_3, RPCKVCOUNT_2, RPCKVCOUNT_1, \
-                                 RPCKVCOUNT_0)(func_name, ##__VA_ARGS__)                      \
+                                 RPCKVCOUNT_0)                                                \
+            (func_name, ##__VA_ARGS__)                                                        \
         }                                                                                     \
     });                                                                                       \
     std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {      \
