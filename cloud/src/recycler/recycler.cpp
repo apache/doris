@@ -161,7 +161,7 @@ static inline void check_recycle_task(const std::string& instance_id, const std:
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         if (cost > config::recycle_task_threshold_seconds) {
-            LOG_INFO("recycle task cost too much time cost={}s", cost)
+            LOG_WARNING("recycle task cost too much time cost={}s", cost)
                     .tag("instance_id", instance_id)
                     .tag("task", task_name)
                     .tag("num_scanned", num_scanned)
@@ -273,7 +273,7 @@ void Recycler::recycle_callback() {
             recycling_instance_map_.emplace(instance_id, instance_recycler);
         }
         if (stopped()) return;
-        LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
+        LOG_WARNING("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         ret = instance_recycler->do_recycle();
         // If instance recycler has been aborted, don't finish this job
@@ -288,7 +288,7 @@ void Recycler::recycle_callback() {
         auto elpased_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
                 ctime_ms;
-        LOG_INFO("finish recycle instance")
+        LOG_WARNING("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);
     }
@@ -681,16 +681,16 @@ int InstanceRecycler::do_recycle() {
  * 3. remove instance kv
  */
 int InstanceRecycler::recycle_deleted_instance() {
-    LOG_INFO("begin to recycle deleted instance").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle deleted instance").tag("instance_id", instance_id_);
 
     int ret = 0;
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG(INFO) << (ret == 0 ? "successfully" : "failed to")
-                  << " recycle deleted instance, cost=" << cost
-                  << "s, instance_id=" << instance_id_;
+        LOG(WARNING) << (ret == 0 ? "successfully" : "failed to")
+                     << " recycle deleted instance, cost=" << cost
+                     << "s, instance_id=" << instance_id_;
     });
 
     // delete all remote data
@@ -794,7 +794,7 @@ int InstanceRecycler::recycle_indexes() {
     recycle_index_key(index_key_info0, &index_key0);
     recycle_index_key(index_key_info1, &index_key1);
 
-    LOG_INFO("begin to recycle indexes").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle indexes").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -803,7 +803,7 @@ int InstanceRecycler::recycle_indexes() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle indexes finished, cost={}s", cost)
+        LOG_WARNING("recycle indexes finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -1011,7 +1011,7 @@ int InstanceRecycler::recycle_partitions() {
     recycle_partition_key(part_key_info0, &part_key0);
     recycle_partition_key(part_key_info1, &part_key1);
 
-    LOG_INFO("begin to recycle partitions").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle partitions").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -1020,7 +1020,7 @@ int InstanceRecycler::recycle_partitions() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle partitions finished, cost={}s", cost)
+        LOG_WARNING("recycle partitions finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -1165,13 +1165,13 @@ int InstanceRecycler::recycle_versions() {
     int64_t num_scanned = 0;
     int64_t num_recycled = 0;
 
-    LOG_INFO("begin to recycle table and partition versions").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle table and partition versions").tag("instance_id", instance_id_);
 
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle table and partition versions finished, cost={}s", cost)
+        LOG_WARNING("recycle table and partition versions finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_recycled", num_recycled);
@@ -1915,7 +1915,7 @@ int InstanceRecycler::recycle_rowsets() {
     recycle_rowset_key(recyc_rs_key_info0, &recyc_rs_key0);
     recycle_rowset_key(recyc_rs_key_info1, &recyc_rs_key1);
 
-    LOG_INFO("begin to recycle rowsets").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle rowsets").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -1924,7 +1924,7 @@ int InstanceRecycler::recycle_rowsets() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle rowsets finished, cost={}s", cost)
+        LOG_WARNING("recycle rowsets finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -2226,7 +2226,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     meta_rowset_tmp_key(tmp_rs_key_info0, &tmp_rs_key0);
     meta_rowset_tmp_key(tmp_rs_key_info1, &tmp_rs_key1);
 
-    LOG_INFO("begin to recycle tmp rowsets").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle tmp rowsets").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -2235,7 +2235,7 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle tmp rowsets finished, cost={}s", cost)
+        LOG_WARNING("recycle tmp rowsets finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -2421,7 +2421,7 @@ int InstanceRecycler::abort_timeout_txn() {
     txn_running_key(txn_running_key_info0, &begin_txn_running_key);
     txn_running_key(txn_running_key_info1, &end_txn_running_key);
 
-    LOG_INFO("begin to abort timeout txn").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to abort timeout txn").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -2430,7 +2430,7 @@ int InstanceRecycler::abort_timeout_txn() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("end to abort timeout txn, cost={}s", cost)
+        LOG_WARNING("end to abort timeout txn, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_timeout", num_timeout)
@@ -2562,7 +2562,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
     recycle_txn_key(recycle_txn_key_info1, &end_recycle_txn_key);
     std::vector<std::string> recycle_txn_info_keys;
 
-    LOG_INFO("begin to recycle expired txn").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle expired txn").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -2570,7 +2570,7 @@ int InstanceRecycler::recycle_expired_txn_label() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("end to recycle expired txn, cost={}s", cost)
+        LOG_WARNING("end to recycle expired txn, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
@@ -2800,8 +2800,8 @@ private:
             copy_file_keys_.clear();
             batch_count_++;
         });
-        LOG_INFO("begin to delete {} internal stage objects in batch {}", paths_.size(),
-                 batch_count_);
+        LOG_WARNING("begin to delete {} internal stage objects in batch {}", paths_.size(),
+                    batch_count_);
         StopWatch sw;
         // TODO(yuejing): 在accessor的delete_objets的实现里可以考虑如果_paths数量不超过10个的话，就直接发10个delete objection operation而不是发post
         if (0 != accessor_->delete_files(paths_)) {
@@ -2809,8 +2809,8 @@ private:
                         paths_.size(), batch_count_, sw.elapsed_us());
             return;
         }
-        LOG_INFO("succeed to delete {} internal stage objects in batch {} and it takes {} us",
-                 paths_.size(), batch_count_, sw.elapsed_us());
+        LOG_WARNING("succeed to delete {} internal stage objects in batch {} and it takes {} us",
+                    paths_.size(), batch_count_, sw.elapsed_us());
         // delete fdb's keys
         for (auto& file_keys : copy_file_keys_) {
             auto& [log_trace, keys] = file_keys.second;
@@ -2860,7 +2860,7 @@ int InstanceRecycler::recycle_copy_jobs() {
     uint64_t batch_count = 0;
     const std::string task_name = "recycle_copy_jobs";
 
-    LOG_INFO("begin to recycle copy jobs").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle copy jobs").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -2869,7 +2869,7 @@ int InstanceRecycler::recycle_copy_jobs() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle copy jobs finished, cost={}s", cost)
+        LOG_WARNING("recycle copy jobs finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_finished", num_finished)
@@ -3101,7 +3101,7 @@ int InstanceRecycler::recycle_stage() {
     int64_t num_recycled = 0;
     const std::string task_name = "recycle_stage";
 
-    LOG_INFO("begin to recycle stage").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle stage").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
     register_recycle_task(task_name, start_time);
@@ -3110,7 +3110,7 @@ int InstanceRecycler::recycle_stage() {
         unregister_recycle_task(task_name);
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle stage, cost={}s", cost)
+        LOG_WARNING("recycle stage, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_recycled", num_recycled);
@@ -3163,7 +3163,7 @@ int InstanceRecycler::recycle_stage() {
             return ret;
         }
 
-        LOG_INFO("begin to delete objects of dropped internal stage")
+        LOG_WARNING("begin to delete objects of dropped internal stage")
                 .tag("instance_id", instance_id_)
                 .tag("stage_id", recycle_stage.stage().stage_id())
                 .tag("user_name", recycle_stage.stage().mysql_user_name()[0])
@@ -3199,14 +3199,15 @@ int InstanceRecycler::recycle_stage() {
 }
 
 int InstanceRecycler::recycle_expired_stage_objects() {
-    LOG_INFO("begin to recycle expired stage objects").tag("instance_id", instance_id_);
+    LOG_WARNING("begin to recycle expired stage objects").tag("instance_id", instance_id_);
 
     int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         int64_t cost =
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
-        LOG_INFO("recycle expired stage objects, cost={}s", cost).tag("instance_id", instance_id_);
+        LOG_WARNING("recycle expired stage objects, cost={}s", cost)
+                .tag("instance_id", instance_id_);
     });
     int ret = 0;
     for (const auto& stage : instance_info_.stages()) {
