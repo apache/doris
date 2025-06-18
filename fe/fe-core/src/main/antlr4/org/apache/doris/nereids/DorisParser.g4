@@ -77,7 +77,6 @@ unsupportedStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
-    | unsupportedShowStatement
     | unsupportedOtherStatement
     ;
 
@@ -473,11 +472,6 @@ unsupportedOtherStatement
 lockTable
     : name=multipartIdentifier (AS alias=identifierOrText)?
         (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
-    ;
-
-unsupportedShowStatement
-    : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
-    | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
 createRoutineLoad
