@@ -1948,10 +1948,6 @@ public abstract class RoutineLoadJob
             }
         });
         try {
-            NereidsParser nereidsParser = new NereidsParser();
-            CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
-                    origStmt.originStmt);
-            CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
             ConnectContext ctx = new ConnectContext();
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
             StatementContext statementContext = new StatementContext();
@@ -1963,11 +1959,15 @@ public abstract class RoutineLoadJob
             ctx.getState().reset();
             try {
                 ctx.setThreadLocalInfo();
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                        origStmt.originStmt);
+                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
                 createRoutineLoadInfo.validate(ctx);
+                setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {
                 ctx.cleanup();
             }
-            setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
