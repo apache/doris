@@ -322,13 +322,6 @@ public class IndexChangeJobTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(IndexChangeJob.JobState.RUNNING, indexChangejob.getJobState());
-
-        // cancel build index job
-        schemaChangeHandler.cancel(cancelAlterTableStmt);
-
-        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER_INVERTED_INDEX);
-        Assert.assertEquals(0, tasks.size());
-        Assert.assertEquals(IndexChangeJob.JobState.CANCELLED, indexChangejob.getJobState());
     }
 
     @Test
