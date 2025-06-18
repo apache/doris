@@ -368,7 +368,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
                 Map<String, Expr> columnNameToDefineExpr = Maps.newHashMap();
                 for (MVColumnItem item : mvColumnItemList) {
-                    columnNameToDefineExpr.put(item.getName(), item.getDefineExpr());
+                    Expr defineExpr = item.getDefineExpr();
+                    defineExpr.setDisableTableName(true);
+                    columnNameToDefineExpr.put(item.getName(), defineExpr);
                 }
                 setColumnsDefineExpr(columnNameToDefineExpr);
             } catch (Exception e) {
