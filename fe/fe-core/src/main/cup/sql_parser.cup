@@ -1430,16 +1430,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStatsStmt(tbl, map);
     :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
-      KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterColumnStatsStmt(tbl, null, columnName, map, partitionNames);
-    :}
-    | KW_ALTER KW_TABLE table_name:tbl KW_INDEX ident:idx KW_MODIFY KW_COLUMN ident:columnName
-      KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
-    {:
-        RESULT = new AlterColumnStatsStmt(tbl, idx, columnName, map, partitionNames);
-    :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
@@ -1448,14 +1438,6 @@ alter_stmt ::=
     | KW_ALTER KW_STORAGE KW_POLICY ident_or_text:policyName opt_properties:properties
     {:
         RESULT = new AlterPolicyStmt(policyName, properties);
-    :}
-    | KW_ALTER KW_USER
-      opt_if_exists:ifExists
-      grant_user:user
-      opt_password_option:passwdOptions
-      opt_comment_null:comment
-    {:
-        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment);
     :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
@@ -1983,10 +1965,6 @@ create_stmt ::=
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);
-    :}
-    | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new CreateFileStmt(fileName, db, properties);
     :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
     {:
@@ -2884,13 +2862,6 @@ show_create_load_stmt ::=
     :}
     ;
 
-show_create_reporitory_stmt ::=
-    KW_SHOW KW_CREATE KW_REPOSITORY KW_FOR ident:repoName
-    {:
-        RESULT = new ShowCreateRepositoryStmt(repoName);
-    :}
-    ;
-
 // analyze statment
 analyze_stmt ::=
     // statistics
@@ -3216,10 +3187,6 @@ drop_stmt ::=
     | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
         RESULT = new DropStatsStmt(tbl, cols, partitionNames);
-    :}
-    | KW_DROP KW_CACHED KW_STATS table_name:tbl
-    {:
-        RESULT = new DropCachedStatsStmt(tbl);
     :}
     | KW_DROP KW_EXPIRED KW_STATS
     {:
@@ -4106,14 +4073,6 @@ show_stmt ::=
     {:
         RESULT = stmt;
     :}
-    | KW_SHOW KW_SQL_BLOCK_RULE KW_FOR ident:ruleName
-    {:
-        RESULT = new ShowSqlBlockRuleStmt(ruleName);
-    :}
-    | KW_SHOW KW_SQL_BLOCK_RULE
-    {:
-        RESULT = new ShowSqlBlockRuleStmt(null);
-    :}
     | KW_SHOW KW_ROW KW_POLICY KW_FOR user_identity:user
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, user, null);
@@ -4130,98 +4089,18 @@ show_stmt ::=
     {:
         RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
     :}
-    | KW_SHOW KW_STORAGE KW_POLICY KW_USING
-    {:
-        RESULT = new ShowStoragePolicyUsingStmt(null);
-    :}
-    | KW_SHOW KW_STORAGE KW_POLICY KW_USING KW_FOR ident_or_text:policy
-    {:
-        RESULT = new ShowStoragePolicyUsingStmt(policy);
-    :}
-    /* show stage */
-    | KW_SHOW KW_STAGES
-    {:
-        RESULT = new ShowStageStmt();
-    :}
-    | KW_SHOW KW_STORAGE KW_VAULT
-    {:
-        RESULT = new ShowStorageVaultStmt();
-    :}
-    | KW_SHOW KW_STORAGE KW_VAULTS
-    {:
-        RESULT = new ShowStorageVaultStmt();
-    :}
     ;
 
 show_param ::=
-    KW_WHITELIST
-    {:
-        RESULT = new ShowWhiteListStmt();
-    :}
     /* show variables */
-    | opt_var_type:type KW_VARIABLES opt_wild_where
+    opt_var_type:type KW_VARIABLES opt_wild_where
     {:
         RESULT = new ShowVariablesStmt(type, parser.wild, parser.where);
-    :}
-    /* show open tables */
-    | KW_OPEN KW_TABLES opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowOpenTableStmt();
-    :}
-    /* show tables */
-    | opt_full KW_TABLES opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, null, parser.isVerbose, parser.wild, parser.where);
-    :}
-    /* show tables */
-    | opt_full KW_TABLES from_or_in ident:ctl DOT ident:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, parser.wild, parser.where);
-    :}
-    /* show views */
-    | opt_full KW_VIEWS opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, null, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
-    :}
-    /* show views */
-    | opt_full KW_VIEWS from_or_in ident:ctl DOT ident:db opt_wild_where
-    {:
-        RESULT = new ShowTableStmt(db, ctl, parser.isVerbose, TableType.VIEW, parser.wild, parser.where);
-    :}
-    /* show table id */
-    | KW_TABLE INTEGER_LITERAL:tableId
-    {:
-        RESULT = new ShowTableIdStmt(tableId);
-    :}
-    /* show processlist */
-    | opt_full KW_PROCESSLIST
-    {:
-        RESULT = new ShowProcesslistStmt(parser.isVerbose);
     :}
     /* routine */
     | procedure_or_function KW_STATUS opt_wild_where
     {:
         RESULT = new ShowProcedureStmt();
-    :}
-    /* status */
-    | opt_var_type KW_STATUS opt_wild_where
-    {:
-        RESULT = new ShowStatusStmt();
-    :}
-    /* triggers */
-    | opt_full KW_TRIGGERS opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTriggersStmt();
-    :}
-    /* events */
-    | KW_EVENTS opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowEventsStmt();
-    :}
-    /* plugins */
-    | KW_PLUGINS
-    {:
-        RESULT = new ShowPluginsStmt();
     :}
     /* engines */
     | opt_storage KW_ENGINES
@@ -4233,90 +4112,15 @@ show_param ::=
     {:
         RESULT = new ShowAuthorStmt();
     :}
-    /* Create table */
-    | KW_CREATE KW_TABLE table_name:table
-    {:
-        RESULT = new ShowCreateTableStmt(table);
-    :}
-    | KW_BRIEF KW_CREATE KW_TABLE table_name:table
-    {:
-        RESULT = new ShowCreateTableStmt(table, true);
-    :}
-    | KW_CREATE KW_VIEW table_name:table
-    {:
-        RESULT = new ShowCreateTableStmt(table, true, false);
-    :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
     {:
         RESULT = new ShowCreateMTMVStmt(table);
-    :}
-    /* Create database */
-    | KW_CREATE KW_DATABASE db_name:db
-    {:
-        RESULT = new ShowCreateDbStmt(db);
-    :}
-    | KW_CREATE KW_SCHEMA db_name:db
-    {:
-        RESULT = new ShowCreateDbStmt(db);
-    :}
-    | KW_CREATE KW_CATALOG ident:catalogName
-        {:
-            RESULT = new ShowCreateCatalogStmt(catalogName);
-        :}
-    /* Create Function */
-    | KW_CREATE opt_var_type:type KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN opt_db:dbName
-    {:
-        RESULT = new ShowCreateFunctionStmt(type, dbName, functionName, args);
     :}
     /* Database */
     /* show database id */
     | KW_DATABASE INTEGER_LITERAL:dbId
     {:
         RESULT = new ShowDbIdStmt(dbId);
-    :}
-    /* show all data types */
-    | KW_DATA KW_TYPES
-    {:
-        RESULT = new ShowDataTypesStmt();
-    :}
-    /* Catalog */
-    | KW_CATALOGS opt_wild_where
-    {:
-        RESULT = new ShowCatalogStmt(null, parser.wild);
-    :}
-    /* show Catalog name */
-    | KW_CATALOG ident:catalogName
-    {:
-        RESULT = new ShowCatalogStmt(catalogName, null);
-    :}
-    /* Dynamic Partition */
-    | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
-    {:
-        RESULT = new ShowDynamicPartitionStmt(db);
-    :}
-    /* Columns */
-    | opt_full KW_COLUMNS from_or_in table_name:table opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
-    :}
-    | opt_full KW_FIELDS from_or_in table_name:table opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowColumnStmt(table, db, parser.wild, parser.isVerbose, parser.where);
-    :}
-    /* collation */
-    | KW_COLLATION opt_wild_where
-    {:
-        RESULT = new ShowCollationStmt(parser.wild);
-    :}
-    /* Show charset */
-    | charset opt_wild_where
-    {:
-        RESULT = new ShowCharsetStmt(parser.wild);
-    :}
-    /* Show proc */
-    | KW_PROC STRING_LITERAL:path
-    {:
-        RESULT = new ShowProcStmt(path);
     :}
     /* Show Warnings */
     | KW_COUNT LPAREN STAR RPAREN KW_WARNINGS
@@ -4348,51 +4152,15 @@ show_param ::=
     {:
         RESULT = new ShowLoadWarningsStmt(null, url, null, null);
     :}
-    /* Show load statement */
-    | KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowLoadStmt(db, parser.where, orderByClause, limitClause);
-    :}
     /* Show stream load statement */
     | KW_STREAM KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowStreamLoadStmt(db, parser.where, orderByClause, limitClause);
     :}
-    /* Show export statement */
-    | KW_EXPORT opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowExportStmt(db, parser.where, orderByClause, limitClause);
-    :}
-    | KW_EXPORT from_or_in ident:ctl DOT ident:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowExportStmt(ctl, db, parser.where, orderByClause, limitClause);
-    :}
-    /* Show delete statement */
-    | KW_DELETE opt_db:db
-    {:
-        RESULT = new ShowDeleteStmt(db);
-    :}
     /* Show alter table statement: used to show process of alter table statement */
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
-    | KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
-    {:
-        RESULT = new ShowDataSkewStmt(table_ref);
-    :}
-    | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
-    {:
-        RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause, tmp);
-    :}
-    /* show partition id */
-    | KW_PARTITION INTEGER_LITERAL:partitionId
-    {:
-        RESULT = new ShowPartitionIdStmt(partitionId);
-    :}
-    | KW_TABLETS KW_BELONG integer_list:tabletIds
-    {:
-        RESULT = new ShowTabletsBelongStmt(tabletIds);
     :}
     | KW_PROPERTY opt_user:user opt_wild_where
     {:
@@ -4402,93 +4170,13 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
-    | KW_BACKUP opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowBackupStmt(db, parser.where);
-    :}
-    | KW_RESTORE opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowRestoreStmt(db, parser.where);
-    :}
-    | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowRestoreStmt(db, parser.where, true);
-    :}
-    | KW_BROKER
-    {:
-        RESULT = new ShowBrokerStmt();
-    :}
-    | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowResourcesStmt(parser.wild, parser.where, orderByClause, limitClause);
-    :}
     | KW_WORKLOAD KW_GROUPS opt_wild_where
     {:
         RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
     :}
-    | KW_BACKENDS
-    {:
-        RESULT = new ShowBackendsStmt();
-    :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
         RESULT = new ShowTrashDiskStmt(backend);
-    :}
-    | KW_TRASH 
-    {:
-        RESULT = new ShowTrashStmt();
-    :}
-    | KW_FRONTENDS
-    {:
-        RESULT = new ShowFrontendsStmt();
-    :}
-    | KW_FRONTENDS ident:name
-    {:
-        RESULT = new ShowFrontendsStmt(name);
-    :}
-    | KW_REPOSITORIES
-    {:
-       RESULT = new ShowRepositoriesStmt();
-    :}
-    | KW_SNAPSHOT KW_ON ident:repo opt_wild_where
-    {:
-        RESULT = new ShowSnapshotStmt(repo, parser.where);
-    :}
-    | KW_ALL KW_GRANTS
-    {:
-        RESULT = new ShowGrantsStmt(null, true);
-    :}
-    | KW_GRANTS
-    {:
-        RESULT = new ShowGrantsStmt(null, false);
-    :}
-    | KW_GRANTS KW_FOR user_identity:userIdent
-    {:
-        RESULT = new ShowGrantsStmt(userIdent, false);
-    :}
-    | KW_ROLES
-    {:
-        RESULT = new ShowRolesStmt();
-    :}
-    | KW_PRIVILEGES
-    {:
-        RESULT = new ShowPrivilegesStmt();
-    :}
-    | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
-    :}
-    | KW_GLOBAL opt_full KW_FUNCTIONS opt_wild_where
-    {:
-        RESULT = new ShowFunctionsStmt(parser.isVerbose, parser.wild, parser.where);
-    :}
-    | KW_TYPECAST opt_db:dbName
-    {:
-        RESULT = new ShowTypeCastStmt(dbName, parser.where);
-    :}
-    | KW_FILE opt_db:dbName
-    {:
-        RESULT = new ShowSmallFilesStmt(dbName);
     :}
     | keys_or_index from_or_in table_name:dbTblName opt_db:dbName
     {:
@@ -4498,21 +4186,9 @@ show_param ::=
     {:
         RESULT = new ShowTransactionStmt(dbName, parser.where);
     :}
-    | KW_QUERY KW_PROFILE STRING_LITERAL:queryIdPath
-    {:
-        RESULT = new ShowQueryProfileStmt(queryIdPath);
-    :}
-    | KW_LOAD KW_PROFILE STRING_LITERAL:loadIdPath
-    {:
-        RESULT = new ShowLoadProfileStmt(loadIdPath);
-    :}
     | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
     {:
         RESULT = new ShowCacheHotSpotStmt(tablePath);
-    :}
-    | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowEncryptKeysStmt(dbName, parser.wild);
     :}
     /* show table stats */
     | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
@@ -4533,20 +4209,6 @@ show_param ::=
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
         RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
-    :}
-    /* show table creation statement */
-    | KW_TABLE KW_CREATION opt_db:db opt_wild_where
-    {:
-        RESULT = new ShowTableCreationStmt(db, parser.wild);
-    :}
-    /* show last insert */
-    | KW_LAST KW_INSERT
-    {:
-        RESULT = new ShowLastInsertStmt();
-    :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_ON table_name:tableName
-    {:
-        RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     /* show analyze job */
     | KW_ANALYZE opt_table_name:tbl opt_wild_where
@@ -4569,32 +4231,9 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeTaskStatus(jobId);
     :}
-    /* show build index job */
-    | KW_BUILD KW_INDEX opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowBuildIndexStmt(db, parser.where, orderByClause, limitClause);
-    :}
-    /* Cloud Cluster */
-    | KW_CLUSTERS
-    {:
-        RESULT = new ShowClusterStmt(false);
-    :}
-    /* Compute Group */
-    | KW_COMPUTE KW_GROUPS
-    {:
-        RESULT = new ShowClusterStmt(true);
-    :}
-    | KW_CONVERT_LSC opt_db:db
-    {:
-        RESULT = new ShowConvertLSCStmt(db);
-    :}
     | KW_REPLICA KW_STATUS KW_FROM base_table_ref:table_ref opt_wild_where
     {:
         RESULT = new ShowReplicaStatusStmt(table_ref, parser.where);
-    :}
-    | KW_REPLICA KW_DISTRIBUTION KW_FROM base_table_ref:table_ref
-    {:
-        RESULT = new ShowReplicaDistributionStmt(table_ref);
     :}
     | KW_FRONTEND KW_CONFIG opt_wild_where
     {:
@@ -4608,22 +4247,9 @@ show_param ::=
     {:
         RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild, backendId);
     :}
-    | KW_TABLET KW_STORAGE KW_FORMAT
-    {:
-        RESULT = new ShowTabletStorageFormatStmt(false);
-    :}
-    | KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
-    {:
-        RESULT = new ShowTabletStorageFormatStmt(true);
-    :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    /* Show copy statement */
-    | KW_COPY opt_db:db opt_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowCopyStmt(db, parser.where, orderByClause, limitClause);
     :}
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
@@ -4810,32 +4436,6 @@ opt_explain_options ::=
     | KW_GRAPH
     {:
         RESULT = new ExplainOptions(false, false, true);
-    :}
-    ;
-
-// Describe statement
-describe_stmt ::=
-    describe_command table_name:table opt_partition_names:partitionNames
-    {:
-        RESULT = new DescribeStmt(table, false, partitionNames);
-    :}
-    | describe_command KW_FUNCTION table_valued_function_ref:tvf
-    {:
-        RESULT = new DescribeStmt(tvf);
-    :}
-    | describe_command table_name:table KW_ALL
-    {:
-        RESULT = new DescribeStmt(table, true);
-    :}
-    | describe_command opt_explain_options:options query_stmt:query
-    {:
-        query.setIsExplain(options);
-        RESULT = query;
-    :}   
-    | describe_command opt_explain_options:options insert_stmt:stmt
-    {:
-        stmt.getQueryStmt().setIsExplain(options);
-        RESULT = stmt;
     :}
     ;
 
@@ -7713,11 +7313,6 @@ admin_stmt ::=
     {:
         RESULT = new ShowReplicaStatusStmt(table_ref, parser.where);
     :}
-    // deprecated
-    | KW_ADMIN KW_SHOW KW_REPLICA KW_DISTRIBUTION KW_FROM base_table_ref:table_ref
-    {:
-        RESULT = new ShowReplicaDistributionStmt(table_ref);
-    :}
     | KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
     {:
         RESULT = new AdminSetReplicaStatusStmt(prop);
@@ -7799,16 +7394,6 @@ admin_stmt ::=
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    // deprecated
-    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT
-    {:
-        RESULT = new ShowTabletStorageFormatStmt(false);
-    :}
-    // deprecated
-    | KW_ADMIN KW_SHOW KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
-    {:
-        RESULT = new ShowTabletStorageFormatStmt(true);
     :}
     | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
     {:

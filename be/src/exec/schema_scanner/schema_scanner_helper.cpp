@@ -20,6 +20,7 @@
 #include "cctz/time_zone.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/common/string_ref.h"
@@ -31,7 +32,7 @@ namespace doris {
 void SchemaScannerHelper::insert_string_value(int col_index, std::string str_val,
                                               vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
     assert_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(), str_val.size());
@@ -41,7 +42,7 @@ void SchemaScannerHelper::insert_string_value(int col_index, std::string str_val
 void SchemaScannerHelper::insert_datetime_value(int col_index, const std::vector<void*>& datas,
                                                 vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
     auto data = datas[0];
@@ -54,7 +55,7 @@ void SchemaScannerHelper::insert_datetime_value(int col_index, int64_t timestamp
                                                 const cctz::time_zone& ctz,
                                                 vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
 
@@ -68,10 +69,30 @@ void SchemaScannerHelper::insert_datetime_value(int col_index, int64_t timestamp
     nullable_column->get_null_map_data().emplace_back(0);
 }
 
+void SchemaScannerHelper::insert_bool_value(int col_index, bool bool_val,
+                                            vectorized::Block* block) {
+    vectorized::MutableColumnPtr mutable_col_ptr;
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
+    auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+    vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+    assert_cast<vectorized::ColumnBool*>(col_ptr)->insert_value(bool_val);
+    nullable_column->get_null_map_data().emplace_back(0);
+}
+
+void SchemaScannerHelper::insert_int32_value(int col_index, int32_t int_val,
+                                             vectorized::Block* block) {
+    vectorized::MutableColumnPtr mutable_col_ptr;
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
+    auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
+    vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+    assert_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(int_val);
+    nullable_column->get_null_map_data().emplace_back(0);
+}
+
 void SchemaScannerHelper::insert_int64_value(int col_index, int64_t int_val,
                                              vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
     assert_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(int_val);
@@ -81,7 +102,7 @@ void SchemaScannerHelper::insert_int64_value(int col_index, int64_t int_val,
 void SchemaScannerHelper::insert_double_value(int col_index, double double_val,
                                               vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
-    mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
+    mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
     assert_cast<vectorized::ColumnFloat64*>(col_ptr)->insert_value(double_val);

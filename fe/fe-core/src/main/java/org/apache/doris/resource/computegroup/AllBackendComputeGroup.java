@@ -27,9 +27,11 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 public class AllBackendComputeGroup extends ComputeGroup {
 
@@ -70,10 +72,15 @@ public class AllBackendComputeGroup extends ComputeGroup {
         if (beList.size() == 0) {
             throw new RuntimeException("No backend available for Workload Group " + wgName);
         }
+        Set<String> cgSet = Sets.newHashSet();
         for (Backend backend : beList) {
             // in cloud mode, name is cluster id.
             // in no-cloud mode, name is resource tag's name
             String computeGroup = backend.getComputeGroup();
+            if (cgSet.contains(computeGroup)) {
+                continue;
+            }
+            cgSet.add(computeGroup);
             WorkloadGroup wg = wgMgr.getWorkloadGroupByComputeGroup(
                     WorkloadGroupKey.get(computeGroup, wgName));
             if (wg == null) {
