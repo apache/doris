@@ -259,10 +259,9 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     nullmap_column->get_data()[3] = 1;
     nullable_column =
             vectorized::ColumnNullable::create(column_string->clone(), nullmap_column->clone());
+    ASSERT_TRUE(nullable_column->has_null());
 
     bloom_filter_func2.insert_fixed_len(std::move(nullable_column), 0);
-
-    ASSERT_TRUE(nullable_column->has_null());
 
     ASSERT_TRUE(bloom_filter_func2.contain_null());
 
