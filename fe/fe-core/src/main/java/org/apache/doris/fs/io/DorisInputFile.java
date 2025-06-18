@@ -27,9 +27,9 @@ import java.io.IOException;
  */
 public interface DorisInputFile {
     /**
-     * Returns the path of this file as a DorisPath object.
+     * Returns the path of this file as a ParsedPath object.
      *
-     * @return the DorisPath representing the file location
+     * @return the ParsedPath representing the file location
      */
     ParsedPath path();
 

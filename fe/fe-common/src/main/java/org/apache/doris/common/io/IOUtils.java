@@ -270,17 +270,4 @@ public class IOUtils {
         }
         return null;
     }
-
-    // Same as Math.clamp in JDK 21
-    public static long clamp(long value, long min, long max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    // Same as Objects.checkFromIndexSize in JDK 9
-    public static int checkFromIndexSize(int fromIndex, int size, int length) {
-        if ((length | fromIndex | size) < 0 || size > length - fromIndex) {
-            throw new IndexOutOfBoundsException("Index out of range: " + fromIndex + ", " + size + ", " + length);
-        }
-        return fromIndex;
-    }
 }

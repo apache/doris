@@ -29,11 +29,11 @@ import java.util.Objects;
 
 /**
  * HdfsOutputStream provides an output stream implementation for writing data to HDFS
- * using DorisPath and FSDataOutputStream.
+ * using ParsedPath and FSDataOutputStream.
  * It extends FSDataOutputStream and adds additional checks and Kerberos authentication handling.
  */
 public class HdfsOutputStream extends FSDataOutputStream {
-    // The DorisPath representing the file location in HDFS.
+    // The ParsedPath representing the file location in HDFS.
     private final ParsedPath path;
     // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
@@ -43,9 +43,9 @@ public class HdfsOutputStream extends FSDataOutputStream {
     private boolean closed;
 
     /**
-     * Constructs a HdfsOutputStream with the given DorisPath, FSDataOutputStream, and DFSFileSystem.
+     * Constructs a HdfsOutputStream with the given ParsedPath, FSDataOutputStream, and DFSFileSystem.
      *
-     * @param path the DorisPath representing the file location
+     * @param path the ParsedPath representing the file location
      * @param out the underlying Hadoop FSDataOutputStream
      * @param dfs the DFSFileSystem used to interact with HDFS
      */

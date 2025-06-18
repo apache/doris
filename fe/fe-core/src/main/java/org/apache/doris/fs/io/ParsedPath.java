@@ -17,13 +17,12 @@
 
 package org.apache.doris.fs.io;
 
-import org.apache.doris.common.util.S3URI;
-
 import org.apache.hadoop.fs.Path;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-
+/**
+ * This is temporary class to isolate the path parsing logic from the rest of the codebase.
+ * Maybe refactored later
+ */
 public class ParsedPath {
     private String origPath;
 
@@ -38,13 +37,5 @@ public class ParsedPath {
 
     public Path toHadoopPath() {
         return new Path(origPath);
-    }
-
-    public S3URI toS3URI() {
-        try {
-            return S3URI.create(origPath);
-        } catch (Exception e) {
-            throw new UncheckedIOException("Invalid S3 URI: " + origPath, new IOException(e));
-        }
     }
 }

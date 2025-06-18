@@ -24,9 +24,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.io.DorisInputFile;
-import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -114,15 +111,5 @@ public class S3FileSystem extends ObjFileSystem {
                 throw new RuntimeException(e);
             }
         }
-    }
-
-    @Override
-    public DorisOutputFile newOutputFile(ParsedPath path) {
-        return objStorage.newOutputFile(path.toS3URI(), UPLOAD_EXECUTOR);
-    }
-
-    @Override
-    public DorisInputFile newInputFile(ParsedPath path, long length) {
-        return objStorage.newInputFile(path.toS3URI(), length, -1);
     }
 }

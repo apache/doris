@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.fs.io.ParsedPath;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -77,7 +76,6 @@ public class S3URI {
     private static final Set<String> OS_SCHEMES = ImmutableSet.of("s3", "s3a", "s3n",
             "bos", "oss", "cos", "cosn", "obs", "azure");
 
-    private String originLocation;
     private URI uri;
 
     private String bucket;
@@ -117,7 +115,6 @@ public class S3URI {
         if (Strings.isNullOrEmpty(location)) {
             throw new UserException("s3 location can not be null");
         }
-        this.originLocation = location;
         this.isPathStyle = isPathStyle;
         parseUri(location, forceParsingByStandardUri);
     }
@@ -334,9 +331,5 @@ public class S3URI {
         sb.append(", queryParams=").append(queryParams);
         sb.append('}');
         return sb.toString();
-    }
-
-    public ParsedPath toDorisPath() {
-        return new ParsedPath(originLocation);
     }
 }

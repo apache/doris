@@ -32,10 +32,10 @@ import java.util.Objects;
 
 /**
  * HdfsInputFile provides an implementation of DorisInputFile for reading data from HDFS.
- * It wraps a DorisPath and DFSFileSystem to open files and retrieve file metadata from HDFS.
+ * It wraps a ParsedPath and DFSFileSystem to open files and retrieve file metadata from HDFS.
  */
 public class HdfsInputFile implements DorisInputFile {
-    // The DorisPath representing the file location in HDFS.
+    // The ParsedPath representing the file location in HDFS.
     private final ParsedPath path;
     // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
@@ -48,9 +48,9 @@ public class HdfsInputFile implements DorisInputFile {
     private FileStatus status;
 
     /**
-     * Constructs a HdfsInputFile with the given DorisPath, file length, and DFSFileSystem.
+     * Constructs a HdfsInputFile with the given ParsedPath, file length, and DFSFileSystem.
      *
-     * @param path the DorisPath representing the file location
+     * @param path the ParsedPath representing the file location
      * @param length the length of the file, or -1 if unknown
      * @param dfs the DFSFileSystem used to interact with HDFS
      */
@@ -121,9 +121,9 @@ public class HdfsInputFile implements DorisInputFile {
     }
 
     /**
-     * Returns the DorisPath associated with this input file.
+     * Returns the ParsedPath associated with this input file.
      *
-     * @return the DorisPath
+     * @return the ParsedPath
      */
     @Override
     public ParsedPath path() {

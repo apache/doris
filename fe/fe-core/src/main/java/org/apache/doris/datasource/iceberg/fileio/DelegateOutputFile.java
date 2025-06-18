@@ -47,10 +47,10 @@ public class DelegateOutputFile implements OutputFile {
     private final DorisOutputFile outputFile;
 
     /**
-     * Constructs a DelegateOutputFile with the specified FileSystem and DorisPath.
+     * Constructs a DelegateOutputFile with the specified FileSystem and ParsedPath.
      *
      * @param fileSystem the Doris file system to delegate operations to
-     * @param path the DorisPath representing the file location
+     * @param path the ParsedPath representing the file location
      */
     public DelegateOutputFile(FileSystem fileSystem, ParsedPath path) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");

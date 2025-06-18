@@ -28,11 +28,11 @@ import java.util.Objects;
 
 /**
  * HdfsInputStream provides an input stream implementation for reading data from HDFS
- * using DorisPath and FSDataInputStream.
+ * using ParsedPath and FSDataInputStream.
  * It extends DorisInputStream and wraps Hadoop's FSDataInputStream, providing additional checks and error handling.
  */
 public class HdfsInputStream extends DorisInputStream {
-    // The DorisPath representing the file location in HDFS.
+    // The ParsedPath representing the file location in HDFS.
     private final ParsedPath path;
     // The underlying Hadoop FSDataInputStream used for reading.
     private final FSDataInputStream stream;
@@ -40,9 +40,9 @@ public class HdfsInputStream extends DorisInputStream {
     private boolean closed;
 
     /**
-     * Constructs a HdfsInputStream with the given DorisPath and FSDataInputStream.
+     * Constructs a HdfsInputStream with the given ParsedPath and FSDataInputStream.
      *
-     * @param path the DorisPath representing the file location
+     * @param path the ParsedPath representing the file location
      * @param stream the underlying Hadoop FSDataInputStream
      */
     HdfsInputStream(ParsedPath path, FSDataInputStream stream) {
