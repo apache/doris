@@ -200,8 +200,19 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
-import org.apache.doris.nereids.trees.plans.commands.*;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -4338,7 +4349,7 @@ public class Env {
             throw new DdlException("DropTableStmt is null");
         }
         dropTable(command.getCatalogName(), command.getDbName(), command.getTableName(), command.isView(),
-            command.isMaterializedView(), command.isSetIfExists(), command.isForceDrop());
+                command.isMaterializedView(), command.isSetIfExists(), command.isForceDrop());
     }
 
     // Drop table
