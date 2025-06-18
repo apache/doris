@@ -26,7 +26,6 @@ import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
@@ -134,7 +133,6 @@ public class RuntimeFilterTranslator {
                 if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
                     targetExpr = new CastExpr(src.getType(), targetExpr);
                 }
-
                 TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
@@ -176,7 +174,7 @@ public class RuntimeFilterTranslator {
             }
         } catch (Exception e) {
             LOG.info("failed to translate runtime filter: " + e.getMessage());
-         }
+        }
     }
 
     private org.apache.doris.planner.RuntimeFilter finalize(org.apache.doris.planner.RuntimeFilter origFilter) {
