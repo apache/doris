@@ -241,10 +241,8 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     nullmap_column->get_data()[3] = 1;
     auto nullable_column =
             vectorized::ColumnNullable::create(std::move(column), std::move(nullmap_column));
-
-    bloom_filter_func.insert_fixed_len(nullable_column, 0);
-
     ASSERT_TRUE(nullable_column->has_null());
+    bloom_filter_func.insert_fixed_len(std::move(nullable_column), 0);
     bloom_filter_func.set_contain_null(true);
     ASSERT_TRUE(bloom_filter_func.contain_null());
 
@@ -262,7 +260,7 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     nullable_column =
             vectorized::ColumnNullable::create(column_string->clone(), nullmap_column->clone());
 
-    bloom_filter_func2.insert_fixed_len(nullable_column, 0);
+    bloom_filter_func2.insert_fixed_len(std::move(nullable_column), 0);
 
     ASSERT_TRUE(nullable_column->has_null());
 
