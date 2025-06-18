@@ -1439,14 +1439,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterPolicyStmt(policyName, properties);
     :}
-    | KW_ALTER KW_USER
-      opt_if_exists:ifExists
-      grant_user:user
-      opt_password_option:passwdOptions
-      opt_comment_null:comment
-    {:
-        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment);
-    :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
         RESULT = new AlterRepositoryStmt(repoName, properties);
