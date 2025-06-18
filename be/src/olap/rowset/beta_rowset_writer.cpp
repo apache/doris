@@ -90,7 +90,8 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     rowset_meta.set_num_segments(spec_rowset_meta.num_segments());
     rowset_meta.set_segments_overlap(spec_rowset_meta.segments_overlap());
     rowset_meta.set_rowset_state(spec_rowset_meta.rowset_state());
-
+    rowset_meta.set_segments_key_bounds_truncated(
+            spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
@@ -686,6 +687,7 @@ Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _num_segment += cast_set<int32_t>(rowset->num_segments());
     // append key_bounds to current rowset
     RETURN_IF_ERROR(rowset->get_segments_key_bounds(&_segments_encoded_key_bounds));
+    _segments_key_bounds_truncated = rowset->rowset_meta()->is_segments_key_bounds_truncated();
 
     // TODO update zonemap
     if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -897,6 +899,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     }
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
+    }
+    if (_segments_key_bounds_truncated.has_value()) {
+        rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
     }
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
     // the overlap property when key bounds are empty.

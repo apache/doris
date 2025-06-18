@@ -19,39 +19,58 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
-import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
-import com.google.common.annotations.VisibleForTesting;
-import org.apache.hadoop.fs.FileSystem;
-
+import java.io.IOException;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 public class AzureFileSystem extends ObjFileSystem {
-    public AzureFileSystem(Map<String, String> properties) {
-        super(StorageType.AZURE.name(), StorageType.S3, new AzureObjStorage(properties));
-        initFsProperties();
-    }
 
-    @VisibleForTesting
-    public AzureFileSystem(AzureObjStorage storage) {
-        super(StorageType.AZURE.name(), StorageType.S3, storage);
-        initFsProperties();
-    }
+    private final AzureProperties azureProperties;
 
-    private void initFsProperties() {
-        this.properties.putAll(((AzureObjStorage) objStorage).getProperties());
+    public AzureFileSystem(AzureProperties azureProperties) {
+        super(StorageType.AZURE.name(), StorageType.AZURE, new AzureObjStorage(azureProperties));
+        this.azureProperties = azureProperties;
+        this.properties.putAll(azureProperties.getOrigProps());
     }
 
     @Override
-    protected FileSystem nativeFileSystem(String remotePath) throws UserException {
-        return null;
+    public Status renameDir(String origFilePath, String destFilePath) {
+        throw new UnsupportedOperationException("Renaming directories is not supported in Azure File System.");
+    }
+
+    @Override
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
+        throw new UnsupportedOperationException("Listing files is not supported in Azure File System.");
     }
 
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         return azureObjStorage.globList(remotePath, result, fileNameOnly);
+    }
+
+    @Override
+    public Status listDirectories(String remotePath, Set<String> result) {
+        throw new UnsupportedOperationException("Listing directories is not supported in Azure File System.");
+    }
+
+    @Override
+    public StorageProperties getStorageProperties() {
+        return azureProperties;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (closed.compareAndSet(false, true)) {
+            try {
+                objStorage.close();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 }

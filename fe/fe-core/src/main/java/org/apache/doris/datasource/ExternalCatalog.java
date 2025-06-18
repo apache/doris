@@ -183,6 +183,8 @@ public abstract class ExternalCatalog
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
 
+    private volatile boolean isInitializing = false;
+
     public ExternalCatalog() {
     }
 
@@ -228,14 +230,13 @@ public abstract class ExternalCatalog
     }
 
     /**
-     * set some default properties when creating catalog
+     * Lists all database names in this catalog.
      *
      * @return list of database names in this catalog
      */
     protected List<String> listDatabaseNames() {
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Unsupported operation: "
-                    + "listDatabaseNames from remote client when init catalog with " + logType.name());
+            throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
         } else {
             return metadataOps.listDatabaseNames();
         }
@@ -306,38 +307,46 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
-        initLocalObjects();
-        if (!initialized) {
-            if (useMetaCache.get()) {
-                if (metaCache == null) {
-                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                            name,
-                            OptionalLong.of(86400L),
-                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_meta_object_cache_num,
-                            ignored -> getFilteredDatabaseNames(),
-                            localDbName -> Optional.ofNullable(
-                                    buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
-                                            true)),
-                            (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
-                }
-                setLastUpdateTime(System.currentTimeMillis());
-            } else {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                    try {
-                        remoteExecutor.forward(id, -1);
-                    } catch (Exception e) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("failed to forward init catalog %s operation to master.", name), e);
+        if (isInitializing) {
+            return;
+        }
+        isInitializing = true;
+        try {
+            initLocalObjects();
+            if (!initialized) {
+                if (useMetaCache.get()) {
+                    if (metaCache == null) {
+                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                                name,
+                                OptionalLong.of(86400L),
+                                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                                Config.max_meta_object_cache_num,
+                                ignored -> getFilteredDatabaseNames(),
+                                localDbName -> Optional.ofNullable(
+                                        buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
+                                                true)),
+                                (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                     }
-                    return;
+                    setLastUpdateTime(System.currentTimeMillis());
+                } else {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        // Forward to master and wait the journal to replay.
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
+                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                        try {
+                            remoteExecutor.forward(id, -1);
+                        } catch (Exception e) {
+                            Util.logAndThrowRuntimeException(LOG,
+                                    String.format("failed to forward init catalog %s operation to master.", name), e);
+                        }
+                        return;
+                    }
+                    init();
                 }
-                init();
+                initialized = true;
             }
-            initialized = true;
+        } finally {
+            isInitializing = false;
         }
     }
 
@@ -1004,8 +1013,7 @@ public abstract class ExternalCatalog
     public void createDb(CreateDbStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createDb not implemented");
-            return;
+            throw new DdlException("Create database is not supported for catalog: " + getName());
         }
         try {
             metadataOps.createDb(stmt);
@@ -1021,8 +1029,7 @@ public abstract class ExternalCatalog
     public void createDb(CreateDatabaseCommand command) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createDb not implemented");
-            return;
+            throw new DdlException("Create database is not supported for catalog: " + getName());
         }
         try {
             metadataOps.createDb(command);
@@ -1044,8 +1051,7 @@ public abstract class ExternalCatalog
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("dropDb not implemented");
-            return;
+            throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
             metadataOps.dropDb(getName(), dbName, ifExists, force);
@@ -1067,8 +1073,7 @@ public abstract class ExternalCatalog
     public boolean createTable(CreateTableStmt stmt) throws UserException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("createTable not implemented");
-            return false;
+            throw new DdlException("Create table is not supported for catalog: " + getName());
         }
         try {
             boolean res = metadataOps.createTable(stmt);
@@ -1104,8 +1109,7 @@ public abstract class ExternalCatalog
                           boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            LOG.warn("dropTable not implemented");
-            return;
+            throw new DdlException("Drop table is not supported for catalog: " + getName());
         }
         try {
             metadataOps.dropTable(dbName, tableName, ifExists);
@@ -1210,7 +1214,7 @@ public abstract class ExternalCatalog
     public void truncateTable(TruncateTableStmt stmt) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+            throw new DdlException("Truncate table is not supported for catalog: " + getName());
         }
         try {
             TableRef tableRef = stmt.getTblRef();
@@ -1235,7 +1239,7 @@ public abstract class ExternalCatalog
     public void truncateTable(TruncateTableCommand command) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
-            throw new UnsupportedOperationException("Truncate table not supported in " + getName());
+            throw new DdlException("Truncate table is not supported for catalog: " + getName());
         }
         try {
             String db = command.getTableNameInfo().getDb();
