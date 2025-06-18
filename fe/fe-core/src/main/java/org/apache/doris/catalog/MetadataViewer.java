@@ -302,8 +302,8 @@ public class MetadataViewer {
     }
 
     public static List<List<String>> getTabletDistribution(
-        String dbName, String tblName, PartitionNamesInfo partitionNamesInfo)
-        throws DdlException {
+            String dbName, String tblName, PartitionNamesInfo partitionNamesInfo)
+            throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
 
         List<List<String>> result = Lists.newArrayList();
@@ -354,9 +354,9 @@ public class MetadataViewer {
                                 continue;
                             }
                             countMap.put(beId,
-                                countMap.get(beId) + 1);
+                                    countMap.get(beId) + 1);
                             sizeMap.put(beId,
-                                sizeMap.get(beId) + replica.getDataSize());
+                                    sizeMap.get(beId) + replica.getDataSize());
                             totalReplicaNum++;
                             totalReplicaSize += replica.getDataSize();
                         }
@@ -373,10 +373,10 @@ public class MetadataViewer {
                 row.add(String.valueOf(sizeMap.get(beId)));
                 row.add(graph(countMap.get(beId), totalReplicaNum));
                 row.add(totalReplicaNum == countMap.get(beId) ? (totalReplicaNum == 0 ? "0.00%" : "100.00%")
-                    : df.format((double) countMap.get(beId) / totalReplicaNum));
+                        : df.format((double) countMap.get(beId) / totalReplicaNum));
                 row.add(graph(sizeMap.get(beId), totalReplicaSize));
                 row.add(totalReplicaSize == sizeMap.get(beId) ? (totalReplicaSize == 0 ? "0.00%" : "100.00%")
-                    : df.format((double) sizeMap.get(beId) / totalReplicaSize));
+                        : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 if (Config.isNotCloudMode()) {
                     row.add("");
                     row.add("");
@@ -513,7 +513,7 @@ public class MetadataViewer {
     }
 
     public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNamesInfo partitionNamesInfo)
-        throws DdlException {
+            throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
 
         List<List<String>> result = Lists.newArrayList();
@@ -580,7 +580,7 @@ public class MetadataViewer {
                     row.add(dataSizeTabletInfos.get(i).toString());
                     row.add(graph(dataSizeTabletInfos.get(i), totalSize));
                     row.add(totalSize == dataSizeTabletInfos.get(i) ? (totalSize == 0L ? "0.00%" : "100.00%") :
-                        df.format((double) dataSizeTabletInfos.get(i) / totalSize));
+                            df.format((double) dataSizeTabletInfos.get(i) / totalSize));
                     result.add(row);
                 }
             }
