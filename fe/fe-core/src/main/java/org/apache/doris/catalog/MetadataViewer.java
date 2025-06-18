@@ -508,10 +508,6 @@ public class MetadataViewer {
         return sb.toString();
     }
 
-    public static List<List<String>> getDataSkew(ShowDataSkewStmt stmt) throws DdlException {
-        return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
-    }
-
     public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNamesInfo partitionNamesInfo)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
