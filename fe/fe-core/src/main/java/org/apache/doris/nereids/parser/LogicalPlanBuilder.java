@@ -2997,11 +2997,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private WindowExpression withWindowSpec(WindowSpecContext ctx, Expression function) {
         List<Expression> partitionKeyList = Lists.newArrayList();
         // boolean isSkew = false;
-        // if (ctx.partitionClause() != null) {
-        //     isSkew = hasSkewHint(ctx.partitionClause().BY().getSymbol().getStopIndex(),
-        //             ctx.partitionClause().expression().get(0).getStart().getStartIndex());
-        //     partitionKeyList = visit(ctx.partitionClause().expression(), Expression.class);
-        // }
+        if (ctx.partitionClause() != null) {
+            // isSkew = hasSkewHint(ctx.partitionClause().BY().getSymbol().getStopIndex(),
+            //        ctx.partitionClause().expression().get(0).getStart().getStartIndex());
+            partitionKeyList = visit(ctx.partitionClause().expression(), Expression.class);
+        }
 
         List<OrderExpression> orderKeyList = Lists.newArrayList();
         if (ctx.sortClause() != null) {
