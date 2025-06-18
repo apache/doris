@@ -2446,7 +2446,9 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
 
     if (code != MetaServiceCode::OK) return;
 
-    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] { notify_refresh_instance(txn_kv, instance_id); });
+    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
+        notify_refresh_instance(txn_kv, instance_id);
+    });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
         LOG(WARNING) << "notify refresh instance inplace, instance_id=" << request->instance_id();
