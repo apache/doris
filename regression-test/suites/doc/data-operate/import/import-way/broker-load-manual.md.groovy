@@ -31,11 +31,6 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
             }
         }
         sql "CLEAN LABEL FROM demo;"
-        multi_sql """
-            CREATE DATABASE IF NOT EXISTS example_db;
-            USE example_db;
-                CLEAN LABEL FROM example_db;
-        """
 
         multi_sql """
             DROP TABLE IF EXISTS load_hdfs_file_test;
@@ -102,6 +97,9 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
             order_qt_sql "SELECT * FROM load_hdfs_file_test"
 
             multi_sql """
+                CREATE DATABASE IF NOT EXISTS example_db;
+                USE example_db;
+                CLEAN LABEL FROM example_db;
                 DROP TABLE IF EXISTS my_table1;
                 CREATE TABLE IF NOT EXISTS my_table1 (
                     k1 INT,
@@ -425,6 +423,9 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
 
 
         multi_sql """
+            CREATE DATABASE IF NOT EXISTS example_db;
+            USE example_db;
+            CLEAN LABEL FROM example_db;
             DROP TABLE IF EXISTS load_test;
             CREATE TABLE IF NOT EXISTS load_test (
                 k1 INT,
