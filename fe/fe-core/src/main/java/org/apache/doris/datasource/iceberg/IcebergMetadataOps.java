@@ -393,3 +393,4 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         return dorisCatalog.getThreadPoolExecutor();
     }
 }
+
