@@ -1127,6 +1127,7 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _cols.clear();
     // notice : do not ref columns
     _column_cache_handlers.clear();
+    _index_cache_handlers.clear();
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
