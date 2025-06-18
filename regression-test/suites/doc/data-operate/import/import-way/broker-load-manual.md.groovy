@@ -31,6 +31,11 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
             }
         }
         sql "CLEAN LABEL FROM demo;"
+        multi_sql """
+            CREATE DATABASE IF NOT EXISTS example_db;
+            USE example_db;
+                CLEAN LABEL FROM example_db;
+        """
 
         multi_sql """
             DROP TABLE IF EXISTS load_hdfs_file_test;
@@ -97,9 +102,6 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
             order_qt_sql "SELECT * FROM load_hdfs_file_test"
 
             multi_sql """
-                CREATE DATABASE IF NOT EXISTS example_db;
-                USE example_db;
-                CLEAN LABEL FROM example_db;
                 DROP TABLE IF EXISTS my_table1;
                 CREATE TABLE IF NOT EXISTS my_table1 (
                     k1 INT,
@@ -453,7 +455,7 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
             );
         """
         waitForBrokerLoadDone("example_label_1")
-        qt_sql "SELECT COUNT() FROM load_test"
+        qt_sql_s3 "SELECT COUNT() FROM load_test"
     } catch (Throwable t) {
         Assertions.fail("examples in docs/data-operate/import/import-way/broker-load-manual.md failed to exec, please fix it", t)
     }
