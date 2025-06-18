@@ -7764,10 +7764,6 @@ admin_stmt ::=
     {:
         RESULT = new ShowTabletStorageFormatStmt(true);
     :}
-    | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
-    {:
-        RESULT = new AdminCopyTabletStmt(tabletId, properties);
-    :}
     | KW_ADMIN KW_SET KW_TABLE table_name:name KW_STATUS opt_properties:properties
     {:
         RESULT = new AdminSetTableStatusStmt(name, properties);

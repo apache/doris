@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminCopyTabletStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DiagnoseTabletStmt;
 import org.apache.doris.analysis.Expr;
@@ -130,7 +129,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StorageVault;
@@ -158,7 +156,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
@@ -220,17 +217,12 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.NodeType;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TShowProcessListRequest;
 import org.apache.doris.thrift.TShowProcessListResult;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -273,7 +265,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 // Execute one show statement.
@@ -446,8 +437,6 @@ public class ShowExecutor {
             handleShowQueuedAnalyzeJobs();
         } else if (stmt instanceof ShowTabletsBelongStmt) {
             handleShowTabletsBelong();
-        } else if (stmt instanceof AdminCopyTabletStmt) {
-            handleCopyTablet();
         } else if (stmt instanceof ShowTypeCastStmt) {
             handleShowTypeCastStmt();
         } else if (stmt instanceof ShowBuildIndexStmt) {
@@ -2722,105 +2711,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleCopyTablet() throws AnalysisException {
-        AdminCopyTabletStmt copyStmt = (AdminCopyTabletStmt) stmt;
-        long tabletId = copyStmt.getTabletId();
-        long version = copyStmt.getVersion();
-        long backendId = copyStmt.getBackendId();
-
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        if (tabletMeta == null) {
-            throw new AnalysisException("Unknown tablet: " + tabletId);
-        }
-
-        // 1. find replica
-        Replica replica = null;
-        if (backendId != -1) {
-            replica = invertedIndex.getReplica(tabletId, backendId);
-        } else {
-            List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
-            if (!replicas.isEmpty()) {
-                replica = replicas.get(0);
-            }
-        }
-        if (replica == null) {
-            throw new AnalysisException("Replica not found on backend: " + backendId);
-        }
-        backendId = replica.getBackendIdWithoutException();
-        Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
-        if (be == null || !be.isAlive()) {
-            throw new AnalysisException("Unavailable backend: " + backendId);
-        }
-
-        // 2. find version
-        if (version != -1 && replica.getVersion() < version) {
-            throw new AnalysisException("Version is larger than replica max version: " + replica.getVersion());
-        }
-        version = version == -1 ? replica.getVersion() : version;
-
-        // 3. get create table stmt
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tabletMeta.getDbId());
-        OlapTable tbl = (OlapTable) db.getTableNullable(tabletMeta.getTableId());
-        if (tbl == null) {
-            throw new AnalysisException("Failed to find table: " + tabletMeta.getTableId());
-        }
-
-        List<String> createTableStmt = Lists.newArrayList();
-        tbl.readLock();
-        try {
-            Env.getDdlStmt(tbl, createTableStmt, null, null, false, true /* hide password */, version);
-        } finally {
-            tbl.readUnlock();
-        }
-
-        // 4. create snapshot task
-        SnapshotTask task = new SnapshotTask(null, backendId, tabletId, -1, tabletMeta.getDbId(),
-                tabletMeta.getTableId(), tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletId, version, 0,
-                copyStmt.getExpirationMinutes() * 60 * 1000, false);
-        task.setIsCopyTabletTask(true);
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(1);
-        countDownLatch.addMark(backendId, tabletId);
-        task.setCountDownLatch(countDownLatch);
-
-        // 5. send task and wait
-        AgentBatchTask batchTask = new AgentBatchTask();
-        batchTask.addTask(task);
-        try {
-            AgentTaskQueue.addBatchTask(batchTask);
-            AgentTaskExecutor.submit(batchTask);
-
-            boolean ok = false;
-            try {
-                ok = countDownLatch.await(10, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                LOG.warn("InterruptedException: ", e);
-                ok = false;
-            }
-
-            if (!ok) {
-                throw new AnalysisException(
-                        "Failed to make snapshot for tablet " + tabletId + " on backend: " + backendId);
-            }
-
-            // send result
-            List<List<String>> resultRowSet = Lists.newArrayList();
-            List<String> row = Lists.newArrayList();
-            row.add(String.valueOf(tabletId));
-            row.add(String.valueOf(backendId));
-            row.add(be.getHost());
-            row.add(task.getResultSnapshotPath());
-            row.add(String.valueOf(copyStmt.getExpirationMinutes()));
-            row.add(createTableStmt.get(0));
-            resultRowSet.add(row);
-
-            ShowResultSetMetaData showMetaData = copyStmt.getMetaData();
-            resultSet = new ShowResultSet(showMetaData, resultRowSet);
-        } finally {
-            AgentTaskQueue.removeBatchTask(batchTask, TTaskType.MAKE_SNAPSHOT);
-        }
-    }
-
     private void handleShowTypeCastStmt() throws AnalysisException {
         ShowTypeCastStmt showStmt = (ShowTypeCastStmt) stmt;
 
@@ -2999,8 +2889,7 @@ public class ShowExecutor {
         }
 
         if (stmt instanceof ShowTabletStorageFormatStmt
-                || stmt instanceof DiagnoseTabletStmt
-                || stmt instanceof AdminCopyTabletStmt) {
+                || stmt instanceof DiagnoseTabletStmt) {
             LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
             throw new AnalysisException("Unsupported operation");
         }
