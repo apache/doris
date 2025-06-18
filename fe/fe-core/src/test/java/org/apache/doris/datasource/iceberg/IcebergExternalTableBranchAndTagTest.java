@@ -177,7 +177,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 icebergTable.currentSnapshot().snapshotId(),
                 false, null, null, 2L);
 
-        Assertions.assertEquals(3, icebergTable.refs().size());
+        Assertions.assertEquals(4, icebergTable.refs().size());
     }
 
     @Test
