@@ -436,7 +436,7 @@ fi
 
 # patch simdjson, change simdjson::dom::element_type::BOOL to BOOLEAN to avoid conflict with odbc macro BOOL
 if [[ " ${TP_ARCHIVES[*]} " =~ " SIMDJSON " ]]; then
-    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.0.1" ]]; then
+    if [[ "${SIMDJSON_SOURCE}" = "simdjson-3.11.6" ]]; then
         cd "${TP_SOURCE_DIR}/${SIMDJSON_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
             patch -p1 <"${TP_PATCH_DIR}/simdjson-3.0.1.patch"
