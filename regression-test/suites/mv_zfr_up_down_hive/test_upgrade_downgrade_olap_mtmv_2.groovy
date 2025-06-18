@@ -221,6 +221,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2018-01-15') values (13,13)"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
     def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
+    logger.info("state_mtmv2: " + state_mtmv2)
 
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv2[0][0] == "NORMAL")
@@ -344,6 +345,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     // mtmv3: insert data
     hive_docker """insert into ${dbName}.${tableName3} PARTITION(dt='2017-01-15') values (20,20)"""
     def state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    logger.info("state_mtmv3: " + state_mtmv3)
     def test_sql3 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName3} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"""
 
     if (step == 1 || step == 2 || step == 3) {
@@ -382,6 +384,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """refresh catalog ${ctlName}"""
 
         state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
         assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv3[0][2] == false)
 
@@ -389,6 +392,10 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
     waitingMTMVTaskFinishedByMvName(mtmvName3)
+
+    state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    logger.info("state_mtmv3: " + state_mtmv3)
+
     assertTrue(state_mtmv3[0][0] == "NORMAL")
     assertTrue(state_mtmv3[0][2] == true)
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
@@ -449,6 +456,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     hive_docker """ drop table if exists ${dbName}.${tableName7} """
     def state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
     def test_sql6 = """SELECT * FROM ${ctlName}.${dbName}.${tableName6}"""
+    logger.info("state_mtmv6:" + state_mtmv6)
+
     assertTrue(state_mtmv6[0][0] == "NORMAL")
     assertTrue(state_mtmv6[0][2] == true)
     connect('root', context.config.jdbcPassword, follower_jdbc_url) {
