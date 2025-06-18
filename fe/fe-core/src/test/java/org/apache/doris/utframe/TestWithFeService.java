@@ -31,8 +31,6 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -759,11 +757,6 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected void dropPolicy(String sql) throws Exception {
-        DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
-    }
-
     protected void createSqlBlockRule(String sql) throws Exception {
         Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .createSqlBlockRule((CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
@@ -772,11 +765,6 @@ public abstract class TestWithFeService {
     protected void alterSqlBlockRule(String sql) throws Exception {
         Env.getCurrentEnv().getSqlBlockRuleMgr()
                 .alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
-    }
-
-    protected void dropSqlBlockRule(String sql) throws Exception {
-        Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .dropSqlBlockRule((DropSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {

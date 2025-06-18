@@ -3119,37 +3119,15 @@ drop_stmt ::=
     {:
         RESULT = new DropCatalogStmt(ifExists, catalogName);
     :}
-    /* Function */
-    | KW_DROP opt_var_type:type KW_FUNCTION opt_if_exists:ifExists function_name:functionName LPAREN func_args_def:args RPAREN
-    {:
-        RESULT = new DropFunctionStmt(type, ifExists, functionName, args);
-    :}
     /* Table */
     | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name opt_force:force
     {:
         RESULT = new DropTableStmt(ifExists, name, force);
     :}
-    /* User */
-    | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
-    {:
-        RESULT = new DropUserStmt(ifExists, userId);
-    :}
     /* View */
     | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
     {:
         RESULT = new DropTableStmt(ifExists, name, true, false);
-    :}
-    | KW_DROP KW_REPOSITORY ident:repoName
-    {:
-        RESULT = new DropRepositoryStmt(repoName);
-    :}
-    | KW_DROP KW_ROLE opt_if_exists:ifExists ident:role
-    {:
-        RESULT = new DropRoleStmt(ifExists, role);
-    :}
-    | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new DropFileStmt(fileName, dbName, properties);
     :}
     | KW_DROP KW_INDEX opt_if_exists:ifExists ident:indexName KW_ON table_name:tableName
     {:
@@ -3159,41 +3137,9 @@ drop_stmt ::=
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
-    | KW_DROP KW_RESOURCE opt_if_exists:ifExists ident_or_text:resourceName
-    {:
-        RESULT = new DropResourceStmt(ifExists, resourceName);
-    :}
-    | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
-    {:
-        RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
-    :}
     | KW_DROP KW_WORKLOAD KW_POLICY opt_if_exists:ifExists ident_or_text:policyName
     {:
         RESULT = new DropWorkloadSchedPolicyStmt(ifExists, policyName);
-    :}
-    | KW_DROP KW_ENCRYPTKEY opt_if_exists:ifExists encryptkey_name:keyName
-    {:
-        RESULT = new DropEncryptKeyStmt(ifExists, keyName);
-    :}
-    | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
-    {:
-        RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null, null);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user, null);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR KW_ROLE ident:role
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null, role);
-    :}
-    | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
     | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -3207,10 +3153,6 @@ drop_stmt ::=
     | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
     {:
         RESULT = new DropAnalyzeJobStmt(job_id);
-    :}
-    | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
-    {:
-        RESULT = new DropStageStmt(ifExists, stageName);
     :}
     ;
 

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
-import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.StorageBackend;
@@ -351,8 +350,5 @@ public class BackupHandlerTest {
 
         // cancel restore
         handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
-
-        // drop repo
-        handler.dropRepository(new DropRepositoryStmt("repo"));
     }
 }
