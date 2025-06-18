@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -34,6 +35,7 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -59,10 +61,12 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,6 +74,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * insert into select command implementation
@@ -216,7 +222,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
             stmtExecutor.setCoord(insertExecutor.getCoordinator());
             // for prepare and execute, avoiding normalization for every execute command
-            this.originalLogicalQuery = this.logicalQuery;
+            this.originLogicalQuery = this.logicalQuery.get();
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
@@ -282,17 +288,12 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                             () -> new OlapTxnInsertExecutor(ctx, olapTable, label, planner, insertCtx, emptyInsert)
                     );
                 } else if (ctx.isGroupCommit()) {
-                    Backend groupCommitBackend = Env.getCurrentEnv()
-                            .getGroupCommitManager()
-                            .selectBackendForGroupCommit(targetTableIf.getId(), ctx);
-                    // set groupCommitBackend for Nereids's DistributePlanner
-                    planner.getCascadesContext().getStatementContext().setGroupCommitMergeBackend(groupCommitBackend);
                     executorFactory = ExecutorFactory.from(
                             planner,
                             dataSink,
                             physicalSink,
                             () -> new OlapGroupCommitInsertExecutor(
-                                    ctx, olapTable, label, planner, insertCtx, emptyInsert, groupCommitBackend
+                                    ctx, olapTable, label, planner, insertCtx, emptyInsert
                             )
                     );
                 } else {
@@ -374,39 +375,11 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             ConnectContext ctx, StmtExecutor stmtExecutor,
             LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
-
         boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
-        // the key logical when use new coordinator:
-        // 1. use NereidsPlanner to generate PhysicalPlan
-        // 2. use PhysicalPlan to select InsertExecutorFactory, some InsertExecutors want to control
-        //    which backend should be used, for example, OlapGroupCommitInsertExecutor need select
-        //    a backend to do group commit.
-        //    Note: we can not initialize InsertExecutor at this time, because the DistributePlans
-        //    have not been generated, so the NereidsSqlCoordinator can not initial too,
-        // 3. NereidsPlanner use PhysicalPlan and the provided backend to generate DistributePlan
-        // 4. ExecutorFactory use the DistributePlan to generate the NereidsSqlCoordinator and InsertExecutor
-
-        AtomicReference<ExecutorFactory> executorFactoryRef = new AtomicReference<>();
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
-                ctx.getStatementContext(), supportFastInsertIntoValues) {
-            @Override
-            protected void doDistribute(boolean canUseNereidsDistributePlanner) {
-                // when enter this method, the step 1 already executed
-
-                // step 2
-                executorFactoryRef.set(
-                        selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf)
-                );
-                // step 3
-                super.doDistribute(canUseNereidsDistributePlanner);
-            }
-        };
-
-        // step 1, 2, 3
+                ctx.getStatementContext(), supportFastInsertIntoValues);
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
-        // step 4
-        return executorFactoryRef.get().build();
+        return selectInsertExecutorFactory(planner, ctx, stmtExecutor, targetTableIf).build();
     }
 
     private void runInternal(ConnectContext ctx, StmtExecutor executor) throws Exception {
@@ -426,7 +399,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * get the target table of the insert command
      */
     public TableIf getTable(ConnectContext ctx) throws Exception {
-        TableIf targetTableIf = InsertUtils.getTargetTable(originalLogicalQuery, ctx);
+        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), targetTableIf.getDatabase().getCatalog().getName(),
                         targetTableIf.getDatabase().getFullName(), targetTableIf.getName(),
@@ -442,13 +415,13 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * get the target columns of the insert command
      */
     public List<String> getTargetColumns() {
-        if (originalLogicalQuery instanceof UnboundTableSink) {
+        if (originLogicalQuery instanceof UnboundTableSink) {
             UnboundLogicalSink<? extends Plan> unboundTableSink
-                    = (UnboundTableSink<? extends Plan>) originalLogicalQuery;
+                    = (UnboundTableSink<? extends Plan>) originLogicalQuery;
             return CollectionUtils.isEmpty(unboundTableSink.getColNames()) ? null : unboundTableSink.getColNames();
         } else {
             throw new AnalysisException(
-                    "the root of plan should be [UnboundTableSink], but it is " + originalLogicalQuery.getType());
+                    "the root of plan should be [UnboundTableSink], but it is " + originLogicalQuery.getType());
         }
     }
 

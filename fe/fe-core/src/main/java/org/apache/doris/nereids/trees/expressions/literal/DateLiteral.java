@@ -30,7 +30,6 @@ import org.apache.doris.nereids.util.DateUtils;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
@@ -274,7 +273,7 @@ public class DateLiteral extends Literal {
     }
 
     /** parseDateLiteral */
-    public static Result<DateLiteral, ? extends Exception> parseDateLiteral(String s) {
+    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
         Result<TemporalAccessor, ? extends Exception> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
             return parseResult.cast();
@@ -354,10 +353,6 @@ public class DateLiteral extends Literal {
             }
 
             return Result.ok(dateTime);
-        } catch (DateTimeException e) {
-            return Result.err(() ->
-                    new DateTimeException("date/datetime literal [" + originalString + "] is invalid", e)
-            );
         } catch (Exception ex) {
             return Result.err(() -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid"));
         }
