@@ -134,17 +134,9 @@ public class RuntimeFilterTranslator {
                 if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
                     targetExpr = new CastExpr(src.getType(), targetExpr);
                 }
-                SlotRef targetSlot;
-                if (filter.getTargetScans().get(i) instanceof PhysicalCTEConsumer) {
-                    targetSlot = targetSlotRef.unwrapSlotRef();
-                } else {
-                    targetSlot = targetSlotRef.getSrcSlotRef();
-                }
-                if (targetSlot == null) {
-                    return;
-                }
-                TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
-                SlotId targetSlotId = targetSlot.getSlotId();
+
+                TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
+                SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
