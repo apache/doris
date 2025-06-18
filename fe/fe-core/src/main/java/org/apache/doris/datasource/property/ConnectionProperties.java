@@ -85,10 +85,7 @@ public abstract class ConnectionProperties {
         if (Strings.isNullOrEmpty(resourceConfig)) {
             return new HashMap<>();
         }
-        if (Strings.isNullOrEmpty(origProps.get(resourceConfig))) {
-            return Maps.newHashMap();
-        }
-        Configuration conf = CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir(origProps.get(resourceConfig));
+        Configuration conf = CatalogConfigFileUtils.loadConfigurationFromHadoopConfDir(resourceConfig);
         Map<String, String> confMap = Maps.newHashMap();
         for (Map.Entry<String, String> entry : conf) {
             confMap.put(entry.getKey(), entry.getValue());
