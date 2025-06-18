@@ -516,10 +516,10 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
                     "name:{}, search_str:{}",
                     column_name, search_str);
         } else {
-            LOG(ERROR) << "CLuceneError occured, error msg: " << e.what()
+            LOG(ERROR) << "CLuceneError occurred, error msg: " << e.what()
                        << ", column name: " << column_name << ", search_str: " << search_str;
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occured, error msg: {}, column name: {}, search_str: {}",
+                    "CLuceneError occurred, error msg: {}, column name: {}, search_str: {}",
                     e.what(), column_name, search_str);
         }
     }
