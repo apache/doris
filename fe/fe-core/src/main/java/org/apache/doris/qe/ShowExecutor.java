@@ -1681,6 +1681,7 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         try {
             URLConnection urlConnection = url.openConnection();
+            urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
             InputStream inputStream = urlConnection.getInputStream();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
                 int limit = 100;
@@ -2518,6 +2519,7 @@ public class ShowExecutor {
             try {
                 URL url = new URL(urlString);
                 URLConnection urlConnection = url.openConnection();
+                urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
                 InputStream inputStream = urlConnection.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
                 while (reader.ready()) {
