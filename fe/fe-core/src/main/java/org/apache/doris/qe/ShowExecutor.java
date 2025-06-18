@@ -43,7 +43,6 @@ import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -169,8 +168,6 @@ public class ShowExecutor {
             handleShowAlter();
         } else if (stmt instanceof ShowUserPropertyStmt) {
             handleShowUserProperty();
-        } else if (stmt instanceof ShowWorkloadGroupsStmt) {
-            handleShowWorkloadGroups();
         } else if (stmt instanceof ShowTrashDiskStmt) {
             handleShowTrashDisk();
         } else if (stmt instanceof ShowReplicaStatusStmt) {
@@ -579,17 +576,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowWorkloadGroups() throws AnalysisException {
-        ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
-        PatternMatcher matcher = null;
-        if (showStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                    CaseSensibility.WORKLOAD_GROUP.getCaseSensibility());
-        }
-        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo(matcher);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
     private void handleShowTrashDisk() {

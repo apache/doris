@@ -4145,10 +4145,6 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
-    | KW_WORKLOAD KW_GROUPS opt_wild_where
-    {:
-        RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
-    :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
         RESULT = new ShowTrashDiskStmt(backend);
