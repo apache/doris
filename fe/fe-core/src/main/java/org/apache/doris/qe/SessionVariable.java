@@ -916,7 +916,7 @@ public class SessionVariable implements Serializable, Writable {
     public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
-    public boolean disableStreamPreaggregations = false;
+    public boolean disableStreamPreaggregations = true;
 
     @VariableMgr.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
