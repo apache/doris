@@ -80,6 +80,38 @@ public class DropTableCommand extends Command implements ForwardWithSync {
                 isMaterializedView, ifExists, forceDrop);
     }
 
+    public boolean isSetIfExists() {
+        return ifExists;
+    }
+
+    public String getDbName() {
+        return tableName.getDb();
+    }
+
+    public String getTableName() {
+        return tableName.getTbl();
+    }
+
+    public String getCatalogName() {
+        return tableName.getCtl();
+    }
+
+    public boolean isView() {
+        return isView;
+    }
+
+    public boolean isForceDrop() {
+        return this.forceDrop;
+    }
+
+    public boolean isMaterializedView() {
+        return this.isMaterializedView;
+    }
+
+    public void setMaterializedView(boolean isMaterializedView) {
+        this.isMaterializedView = isMaterializedView;
+    }
+
     @Override
     public StmtType stmtType() {
         return StmtType.DROP;
