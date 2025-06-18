@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewComma
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -941,17 +942,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             NereidsParser nereidsParser = new NereidsParser();
             command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                     origStmt.originStmt);
-            ConnectContext ctx = new ConnectContext();
-            ctx.setDatabase(db.getFullName());
-            StatementContext statementContext = new StatementContext();
-            statementContext.setConnectContext(ctx);
-            ctx.setStatementContext(statementContext);
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
-            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-            ctx.getState().reset();
+            ConnectContext ctx = ConnectContextUtil.getDummyCtx(db.getFullName());
             try {
-                ctx.setThreadLocalInfo();
                 command.validate(ctx);
             } finally {
                 ctx.cleanup();

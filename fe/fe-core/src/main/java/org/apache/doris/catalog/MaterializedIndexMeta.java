@@ -23,16 +23,14 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
@@ -349,20 +347,18 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             NereidsParser nereidsParser = new NereidsParser();
             CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                     defineStmt.originStmt);
-            ConnectContext ctx = new ConnectContext();
-            ctx.setDatabase(dbName);
-            StatementContext statementContext = new StatementContext();
-            statementContext.setConnectContext(ctx);
-            ctx.setStatementContext(statementContext);
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setQualifiedUser(Auth.ADMIN_USER);
-            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-            ctx.getState().reset();
+            boolean tmpCreate = false;
+            ConnectContext ctx = ConnectContext.get();
             try {
-                ctx.setThreadLocalInfo();
+                if (ctx == null) {
+                    tmpCreate = true;
+                    ctx = ConnectContextUtil.getDummyCtx(dbName);
+                }
                 command.validate(ctx);
             } finally {
-                ctx.cleanup();
+                if (tmpCreate) {
+                    ctx.cleanup();
+                }
             }
 
             if (command.getWhereClauseItem() != null) {
