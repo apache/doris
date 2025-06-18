@@ -95,6 +95,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public static final String AGG_FOREACH_SUFFIX = "_foreach";
     public static final String DEFAULT_EXPR_NAME = "expr";
 
+    protected boolean disableTableName = false;
+
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
 
@@ -918,12 +920,22 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public String toSql() {
+        if (disableTableName) {
+            return toSqlWithoutTbl();
+        }
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
     public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
         return (printSqlInParens) ? "(" + toSqlImpl(disableTableName, needExternalSql, tableType, table) + ")"
                 : toSqlImpl(disableTableName, needExternalSql, tableType, table);
+    }
+
+    public void disableTableName() {
+        disableTableName = true;
+        for (Expr child : children) {
+            child.disableTableName();
+        }
     }
 
     public String toSqlWithoutTbl() {
