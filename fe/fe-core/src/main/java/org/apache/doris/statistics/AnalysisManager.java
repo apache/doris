@@ -22,7 +22,6 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
-import org.apache.doris.analysis.DropCachedStatsStmt;
 import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -920,13 +919,6 @@ public class AnalysisManager implements Writable {
 
     public void dropExpiredStats() {
         Env.getCurrentEnv().getStatisticsCleaner().clear();
-    }
-
-    public void dropCachedStats(DropCachedStatsStmt stmt) {
-        long catalogId = stmt.getCatalogIdId();
-        long dbId = stmt.getDbId();
-        long tblId = stmt.getTblId();
-        dropCachedStats(catalogId, dbId, tblId);
     }
 
     public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {

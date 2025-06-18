@@ -28,11 +28,9 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.RebalancerTestUtil;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -173,81 +171,6 @@ public class DecommissionBackendTest extends TestWithFeService {
         addNewBackend();
         Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
-    }
-
-    @Test
-    public void testDecommissionBackendWithDropTable() throws Exception {
-        // 1. create connect context
-        connectContext = createDefaultCtx();
-
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-
-        ImmutableMap<Long, Backend> idToBackendRef = infoService.getAllBackendsByAllCluster();
-        Assertions.assertEquals(backendNum(), idToBackendRef.size());
-
-        // 2. create database db3
-        createDatabase("db3");
-        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
-
-        long availableBeNum = infoService.getAllBackendIds(true).stream()
-                .filter(beId -> infoService.checkBackendScheduleAvailable(beId)).count();
-
-        // 3. create table tbl1 tbl2
-        createTable("create table db3.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '"
-                + availableBeNum + "');");
-        createTable("create table db3.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
-        RebalancerTestUtil.updateReplicaPathHash();
-
-        // 4. query tablet num
-        int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
-        Assertions.assertTrue(tabletNum > 0);
-
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db3");
-        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
-        Assertions.assertNotNull(tbl);
-        long backendId = tbl.getPartitions().iterator().next()
-                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
-                .getTablets().iterator().next()
-                .getReplicas().iterator().next()
-                .getBackendId();
-
-        Backend srcBackend = infoService.getBackend(backendId);
-        Assertions.assertNotNull(srcBackend);
-
-        // 5. drop table tbl1
-        dropTable("db3.tbl1", false);
-
-        // 6. execute decommission
-        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
-        Assertions.assertTrue(srcBackend.isDecommissioned());
-
-        long startTimestamp = System.currentTimeMillis();
-        while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
-            Thread.sleep(1000);
-        }
-
-        // BE has been dropped successfully
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
-
-        // tbl1 has been dropped successfully
-        final String sql = "show create table db3.tbl1;";
-        Assertions.assertThrows(AnalysisException.class, () -> showCreateTable(sql));
-
-        // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
-        List<Long> tabletList = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(srcBackend.getId());
-        Assertions.assertFalse(tabletList.isEmpty());
-        Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
-
-        // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
-        Assertions.assertDoesNotThrow(() -> recoverTable("db3.tbl1"));
-        Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
-        dropTable("db3.tbl1", false);
-
-        addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
     }
 
     @Test

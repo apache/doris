@@ -307,14 +307,8 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-#ifdef BE_TEST
-        // the S3Client may shared by many threads.
-        // So need to set the number of connections large enough.
-        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
-#else
-        aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
-#endif
+        // AWS SDK max concurrent tcp connections for a single http client to use. Default 25.
+        aws_config.maxConnections = std::max(config::doris_scanner_thread_pool_thread_num, 25);
     }
 
     aws_config.requestTimeoutMs = 30000;
