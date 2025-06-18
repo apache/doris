@@ -33,7 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.task.LoadTaskInfo;
@@ -203,7 +203,8 @@ public class LoadScanProvider {
             }
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
-        Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
+        LoadExprTransformUtils.initColumns(fileGroupInfo.getTargetTable(), columnDescs,
+                context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 context.fileGroup.getFileFormatProperties().getFileFormatType(), fileGroupInfo.getHiddenColumns(),
                 fileGroupInfo.getUniqueKeyUpdateMode());

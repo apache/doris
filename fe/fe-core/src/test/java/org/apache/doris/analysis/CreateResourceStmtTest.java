@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -61,16 +60,8 @@ public class CreateResourceStmtTest {
         };
 
         Map<String, String> properties = Maps.newHashMap();
-        properties.put("type", "spark");
-        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName1, properties);
-        stmt.analyze(analyzer);
-        Assert.assertEquals(resourceName1, stmt.getResourceName());
-        Assert.assertEquals(Resource.ResourceType.SPARK, stmt.getResourceType());
-        Assert.assertEquals("CREATE EXTERNAL RESOURCE 'spark0' PROPERTIES(\"type\"  =  \"spark\")", stmt.toSql());
-
-        properties = Maps.newHashMap();
         properties.put("type", "s3");
-        stmt = new CreateResourceStmt(true, false, resourceName3, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, false, resourceName3, properties);
         stmt.analyze(analyzer);
         Assert.assertEquals(resourceName3, stmt.getResourceName());
         Assert.assertEquals(ResourceType.S3, stmt.getResourceType());
