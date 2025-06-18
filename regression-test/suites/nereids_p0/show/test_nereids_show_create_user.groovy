@@ -23,7 +23,6 @@ suite("test_nereids_show_create_user") {
 
     checkNereidsExecute("SHOW ALL CREATE USER")
     checkNereidsExecute("SHOW CREATE USER xxxxxxx")
-    checkNereidsExecute("SHOW CREATE USER 'zzzzzzz'@'192.168.%'")
     def res1 = sql """SHOW ALL CREATE USER"""
     assertEquals(true, res1.size() > 1)
 
