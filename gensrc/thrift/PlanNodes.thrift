@@ -538,10 +538,8 @@ struct TDataGenScanRange {
 
 
 struct TIcebergMetadataParams {
-  1: optional Types.TIcebergQueryType iceberg_query_type
-  2: optional string catalog
-  3: optional string database
-  4: optional string table
+  1: optional string serialized_task
+  2: optional map<string, string> hadoop_props
 }
 
 struct THudiMetadataParams {

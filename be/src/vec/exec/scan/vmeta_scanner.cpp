@@ -24,10 +24,9 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
 #include <ostream>
 #include <string>
-#include <utility>
+#include <unordered_map>
 
 #include "common/logging.h"
 #include "runtime/client_cache.h"
@@ -35,15 +34,14 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/types.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
+#include "vec/exec/format/table/iceberg_sys_table_jni_reader.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -63,10 +61,19 @@ VMetaScanner::VMetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* lo
           _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
-Status VMetaScanner::open(RuntimeState* state) {
-    VLOG_CRITICAL << "VMetaScanner::open";
-    RETURN_IF_ERROR(VScanner::open(state));
-    RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
+Status MetaScanner::open(RuntimeState* state) {
+    VLOG_CRITICAL << "MetaScanner::open";
+    RETURN_IF_ERROR(Scanner::open(state));
+    if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
+        // TODO: refactor this code
+        auto reader = IcebergSysTableJniReader::create_unique(
+                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.iceberg_params);
+        const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
+        RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
+        _reader = std::move(reader);
+    } else {
+        RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
+    }
     return Status::OK();
 }
 
@@ -82,6 +89,12 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
     if (nullptr == state || nullptr == block || nullptr == eof) {
         return Status::InternalError("input is NULL pointer");
     }
+    if (_reader) {
+        // TODO: This is a temporary workaround; the code is planned to be refactored later.
+        size_t read_rows = 0;
+        return _reader->get_next_block(block, &read_rows, eof);
+    }
+
     if (_meta_eos == true) {
         *eof = true;
         return Status::OK();
@@ -529,9 +542,12 @@ Status VMetaScanner::_build_partition_values_metadata_request(
     return Status::OK();
 }
 
-Status VMetaScanner::close(RuntimeState* state) {
-    VLOG_CRITICAL << "VMetaScanner::close";
-    RETURN_IF_ERROR(VScanner::close(state));
+Status MetaScanner::close(RuntimeState* state) {
+    VLOG_CRITICAL << "MetaScanner::close";
+    if (_reader) {
+        RETURN_IF_ERROR(_reader->close());
+    }
+    RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
 
