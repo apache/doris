@@ -46,6 +46,7 @@ import java.util.Set;
  */
 public class PushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
     public static PushDownVisitor INSTANCE = new PushDownVisitor();
+
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
         boolean pushed = false;
