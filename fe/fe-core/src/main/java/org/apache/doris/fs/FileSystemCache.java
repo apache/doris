@@ -47,8 +47,8 @@ public class FileSystemCache {
         fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
     }
 
-    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) throws UserException {
-        return FileSystemFactory.get(key.type, key.properties, key.bindBrokerName);
+    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
+        return FileSystemFactory.get(key.properties);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {
@@ -56,24 +56,13 @@ public class FileSystemCache {
     }
 
     public static class FileSystemCacheKey {
-        private final FileSystemType type;
         // eg: hdfs://nameservices1
         private final String fsIdent;
         private final StorageProperties properties;
-        private final String bindBrokerName;
 
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                StorageProperties properties,
-                String bindBrokerName) {
-            this.type = fs.first;
-            this.fsIdent = fs.second;
+        public FileSystemCacheKey(String fsIdent, StorageProperties properties) {
+            this.fsIdent = fsIdent;
             this.properties = properties;
-            this.bindBrokerName = bindBrokerName;
-        }
-
-        public FileSystemCacheKey(Pair<FileSystemType, String> fs,
-                                  StorageProperties properties, String bindBrokerName) {
-            this(fs, properties, bindBrokerName);
         }
 
         @Override
@@ -86,21 +75,15 @@ public class FileSystemCache {
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
             //fixme 需要重写吗
-            boolean equalsWithoutBroker = type.equals(o.type)
-                    && fsIdent.equals(o.fsIdent)
+            boolean equalsWithoutBroker =
+                   fsIdent.equals(o.fsIdent)
                     && properties.equals(o.properties);
-            if (bindBrokerName == null) {
-                return equalsWithoutBroker && o.bindBrokerName == null;
-            }
-            return equalsWithoutBroker && bindBrokerName.equals(o.bindBrokerName);
+            return equalsWithoutBroker;
         }
 
         @Override
         public int hashCode() {
-            if (bindBrokerName == null) {
-                return Objects.hash(properties, fsIdent, type);
-            }
-            return Objects.hash(properties, fsIdent, type, bindBrokerName);
+            return Objects.hash(properties, fsIdent);
         }
     }
 }

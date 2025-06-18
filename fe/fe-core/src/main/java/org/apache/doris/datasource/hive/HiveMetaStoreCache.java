@@ -35,6 +35,7 @@ import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.LocationPath2;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -345,20 +346,17 @@ public class HiveMetaStoreCache {
     }
 
     // Get File Status by using FileSystem API.
-    private FileCacheValue getFileCache(String location, String inputFormat,
-            JobConf jobConf,
+    private FileCacheValue getFileCache(LocationPath2 path, String inputFormat,
             List<String> partitionValues,
-            String bindBrokerName,
             DirectoryLister directoryLister,
             TableIf table) throws UserException {
         FileCacheValue result = new FileCacheValue();
-        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                new FileSystemCache.FileSystemCacheKey(LocationPath.getFSIdentity(
-                        location, properties, bindBrokerName),
-                        properties,
-                        bindBrokerName, jobConf));
-        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, location));
+     
+        FileSystemCache.FileSystemCacheKey fileSystemCacheKey=new FileSystemCache.FileSystemCacheKey(
+                path.getFsIdentifier(), path.getStorageProperties()
+        );
+        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(fileSystemCacheKey);
+        result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, path.getNormalizedLocation()));
         // For Tez engine, it may generate subdirectoies for "union" query.
         // So there may be files and directories in the table directory at the same time. eg:
         //      /user/hive/warehouse/region_tmp_union_all2/000000_0
@@ -370,7 +368,7 @@ public class HiveMetaStoreCache {
                 catalog.getProperties().getOrDefault("hive.recursive_directories", "false"));
         try {
             RemoteIterator<RemoteFile> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
-                    table, location);
+                    table, path.getNormalizedLocation());
             while (iterator.hasNext()) {
                 RemoteFile remoteFile = iterator.next();
                 String srcPath = remoteFile.getPath().toString();
@@ -382,10 +380,10 @@ public class HiveMetaStoreCache {
                 // User may manually remove partition under HDFS, in this case,
                 // Hive doesn't aware that the removed partition is missing.
                 // Here is to support this case without throw an exception.
-                LOG.warn(String.format("File %s not exist.", location));
+                LOG.warn(String.format("File %s not exist.", path.getNormalizedLocation()));
                 if (!Boolean.valueOf(catalog.getProperties()
                         .getOrDefault("hive.ignore_absent_partitions", "true"))) {
-                    throw new UserException("Partition location does not exist: " + location);
+                    throw new UserException("Partition location does not exist: " + path.getNormalizedLocation());
                 }
             } else {
                 throw new RuntimeException(e);
@@ -401,11 +399,18 @@ public class HiveMetaStoreCache {
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             Map<String, String> props = catalog.getCatalogProperty().getProperties();
-            LocationPath finalLocation = new LocationPath(key.location, props);
+            LocationPath2 finalLocation = null;
+            try {
+                LocationPath abc = new LocationPath(key.getLocation(), props);
+                
+                finalLocation = LocationPath2.of(key.getLocation(), catalog.getCatalogProperty().getStoragePropertiesMap());
+            } catch (UserException e) {
+                throw new RuntimeException(e);
+            }
             // disable the fs cache in FileSystem, or it will always from new FileSystem
             // and save it in cache when calling FileInputFormat.setInputPaths().
             try {
-                URI uri = finalLocation.getPath().toUri();
+                URI uri = URI.create(finalLocation.getNormalizedLocation());
                 if (uri.getScheme() != null) {
                     String scheme = uri.getScheme();
                     if (jobConf.get("fs." + scheme + ".impl") == null) {
@@ -418,10 +423,10 @@ public class HiveMetaStoreCache {
                 LOG.warn("unknown scheme in path: " + finalLocation, e);
             }
             // NOTICE: the setInputPaths has 2 overloads, the 2nd arg should be Path not String
-            FileInputFormat.setInputPaths(jobConf, finalLocation.getPath());
+            FileInputFormat.setInputPaths(jobConf, finalLocation.getNormalizedLocation());
             try {
-                FileCacheValue result = getFileCache(finalLocation.get(), key.inputFormat, jobConf,
-                        key.getPartitionValues(), key.bindBrokerName, directoryLister, table);
+                FileCacheValue result = getFileCache(finalLocation, key.inputFormat,
+                        key.getPartitionValues(),directoryLister, table);
                 // Replace default hive partition with a null_string.
                 for (int i = 0; i < result.getValuesSize(); i++) {
                     if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
@@ -765,10 +770,10 @@ public class HiveMetaStoreCache {
             Map<String, String> properties = catalog.getCatalogProperty().getProperties();
             for (HivePartition partition : partitions) {
                 //Get filesystem multiple times, Reason: https://github.com/apache/doris/pull/23409.
-                RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                RemoteFileSystem fileSystem = null;/*Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                         new FileSystemCache.FileSystemCacheKey(
                                 LocationPath.getFSIdentity(partition.getPath(), properties, bindBrokerName),
-                                properties, bindBrokerName, jobConf));
+                                properties, bindBrokerName, jobConf));*/
 
                 AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(jobConf);
                 HadoopAuthenticator hadoopAuthenticator =
