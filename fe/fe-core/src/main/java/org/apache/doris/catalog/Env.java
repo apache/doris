@@ -212,6 +212,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -4347,7 +4348,7 @@ public class Env {
     // Drop table
     public void dropTable(DropTableCommand command) throws DdlException {
         if (command == null) {
-            throw new DdlException("DropTableStmt is null");
+            throw new DdlException("DropTableCommand is null");
         }
         dropTable(command.getCatalogName(), command.getDbName(), command.getTableName(), command.isView(),
                 command.isMaterializedView(), command.isSetIfExists(), command.isForceDrop());
