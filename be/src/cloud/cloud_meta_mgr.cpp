@@ -134,8 +134,11 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
 namespace {
 constexpr int kBrpcRetryTimes = 3;
 
-bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+bvar::LatencyRecorder _get_rowset_latency("doris_cloud_meta_mgr_get_rowset");
 bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_rpc_timeout_count("cloud_meta_mgr_rpc_timeout_count");
+bvar::Window<bvar::Adder<uint64_t>> g_cloud_ms_rpc_timeout_count_window(
+        "cloud_meta_mgr_rpc_timeout_qps", &g_cloud_meta_mgr_rpc_timeout_count, 30);
 
 class MetaServiceProxy {
 public:
@@ -397,6 +400,10 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
                                                                    res->status().msg());
         } else {
             error_msg = res->status().msg();
+        }
+
+        if (error_code == brpc::ERPCTIMEDOUT) {
+            g_cloud_meta_mgr_rpc_timeout_count << 1;
         }
 
         ++retry_times;
