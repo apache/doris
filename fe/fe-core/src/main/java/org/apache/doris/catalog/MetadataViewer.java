@@ -19,8 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ShowDataSkewStmt;
-import org.apache.doris.analysis.ShowReplicaDistributionStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
@@ -301,10 +299,6 @@ public class MetadataViewer {
         } else {
             return status == statusFilter;
         }
-    }
-
-    public static List<List<String>> getTabletDistribution(ShowReplicaDistributionStmt stmt) throws DdlException {
-        return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
     public static List<List<String>> getTabletDistribution(
