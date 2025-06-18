@@ -590,8 +590,7 @@ void CloudTablet::remove_unused_rowsets() {
     std::vector<std::vector<std::string>> index_file_names;
     // 1. remove unused rowsets's cache data and delete bitmap
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-        // it->second is std::shared_ptr<Rowset>
-        auto&& rs = it->second;
+        std::shared_ptr<Rowset> rs = it->second;
         if (rs.use_count() > 1) {
             LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id() << " has "
                          << rs.use_count() << " references, it cannot be removed";
