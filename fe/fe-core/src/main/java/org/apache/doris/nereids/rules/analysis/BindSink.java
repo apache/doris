@@ -866,6 +866,7 @@ public class BindSink implements AnalysisRuleFactory {
             long baseIndexId = olapTable.getBaseIndexId();
             for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
                 if (entry.getKey() != baseIndexId && entry.getValue().getWhereClause() != null) {
+                    entry.getValue().getWhereClause().setDisableTableName(true);
                     mvWhereClauses.put(entry.getKey(), analyze(entry.getValue().getWhereClause().toSql()));
                 }
             }
