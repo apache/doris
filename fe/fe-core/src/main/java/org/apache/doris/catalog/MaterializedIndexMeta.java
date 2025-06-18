@@ -358,9 +358,13 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             ctx.setQualifiedUser(Auth.ADMIN_USER);
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.getState().reset();
-            ctx.setThreadLocalInfo();
+            try {
+                ctx.setThreadLocalInfo();
+                command.validate(ctx);
+            } finally {
+                ctx.cleanup();
+            }
 
-            command.validate(ctx);
             if (command.getWhereClauseItem() != null) {
                 setWhereClause(command.getWhereClauseItem().getDefineExpr());
             }
