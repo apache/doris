@@ -1200,6 +1200,13 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
     public static String analyzeStorageVaultName(Map<String, String> properties) {
         String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {

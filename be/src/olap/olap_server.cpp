@@ -288,10 +288,6 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
                             .set_max_threads(max_checkpoint_thread_num)
                             .build(&_tablet_meta_checkpoint_thread_pool));
 
-    RETURN_IF_ERROR(ThreadPoolBuilder("MultiGetTaskThreadPool")
-                            .set_min_threads(config::multi_get_max_threads)
-                            .set_max_threads(config::multi_get_max_threads)
-                            .build(&_bg_multi_get_thread_pool));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },

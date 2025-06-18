@@ -200,6 +200,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
@@ -6225,6 +6226,36 @@ public class Env {
                 if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
                     throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
                             fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
+                }
+            }
+        }
+    }
+
+    public void setConfig(AdminSetFrontendConfigCommand command) throws Exception {
+        Map<String, String> configs = command.getConfigs();
+        Preconditions.checkState(configs.size() == 1);
+
+        for (Map.Entry<String, String> entry : configs.entrySet()) {
+            try {
+                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
+            } catch (ConfigException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
+
+        if (command.isApplyToAll()) {
+            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
+                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+                    continue;
+                }
+
+                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+                FEOpExecutor executor = new FEOpExecutor(feAddr, command.getLocalSetStmt(),
+                        ConnectContext.get(), false);
+                executor.execute();
+                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
+                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
+                        fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
                 }
             }
         }

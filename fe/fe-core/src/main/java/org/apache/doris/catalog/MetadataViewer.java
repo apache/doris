@@ -19,8 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ShowDataSkewStmt;
-import org.apache.doris.analysis.ShowReplicaDistributionStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
@@ -302,10 +300,6 @@ public class MetadataViewer {
         }
     }
 
-    public static List<List<String>> getTabletDistribution(ShowReplicaDistributionStmt stmt) throws DdlException {
-        return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
-    }
-
     public static List<List<String>> getTabletDistribution(
             String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
@@ -412,10 +406,6 @@ public class MetadataViewer {
             sb.append(">");
         }
         return sb.toString();
-    }
-
-    public static List<List<String>> getDataSkew(ShowDataSkewStmt stmt) throws DdlException {
-        return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
     public static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
