@@ -17,13 +17,9 @@
 
 #include "common/bvars.h"
 
-<<<<<<< kv_bvar
-#include <bvar/reducer.h>
-=======
 #include <bvar/multi_dimension.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
->>>>>>> master
 
 #include <cstdint>
 #include <stdexcept>
