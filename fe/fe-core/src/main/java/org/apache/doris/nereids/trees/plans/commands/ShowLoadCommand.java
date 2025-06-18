@@ -35,7 +35,6 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -202,10 +201,7 @@ public class ShowLoadCommand extends ShowCommand {
         Env env = ctx.getEnv();
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
         long dbId = db.getId();
-        List<List<Comparable>> loadInfos;
-        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
-        Load load = env.getLoadInstance();
-        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), labelValue, isAccurateMatch, getStates());
+        List<List<Comparable>> loadInfos = Lists.newArrayList();
         Set<String> statesValue = getStates() == null ? null : getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
@@ -321,73 +317,66 @@ public class ShowLoadCommand extends ShowCommand {
             return true;
         }
 
-        boolean valid = true;
         boolean hasLabel = false;
         boolean hasState = false;
 
-        CHECK: {
-            if (!(expr instanceof EqualTo) && !(expr instanceof Like)) {
-                valid = false;
-                break CHECK;
-            }
+        if (!(expr instanceof EqualTo) && !(expr instanceof Like)) {
+            return false;
+        }
 
-            // left child
-            if (!(expr.child(0) instanceof UnboundSlot)) {
-                valid = false;
-                break CHECK;
-            }
-            String leftKey = ((UnboundSlot) expr.child(0)).getName();
-            if (leftKey.equalsIgnoreCase("label")) {
-                hasLabel = true;
-            } else if (leftKey.equalsIgnoreCase("state")) {
-                hasState = true;
-            } else {
-                valid = false;
-                break CHECK;
-            }
+        // left child
+        if (!(expr.child(0) instanceof UnboundSlot)) {
+            return false;
+        }
 
-            if (hasState && !(expr instanceof EqualTo)) {
-                valid = false;
-                break CHECK;
-            }
+        String leftKey = ((UnboundSlot) expr.child(0)).getName();
+        if (leftKey.equalsIgnoreCase("label")) {
+            hasLabel = true;
+        } else if (leftKey.equalsIgnoreCase("state")) {
+            hasState = true;
+        } else {
+            return false;
+        }
 
-            if (hasLabel && expr instanceof EqualTo) {
-                isAccurateMatch = true;
-            }
+        if (hasState && !(expr instanceof EqualTo)) {
+            return false;
+        }
 
-            // right child
-            if (!(expr.child(1) instanceof StringLikeLiteral)) {
-                valid = false;
-                break CHECK;
-            }
-            String rightValue = ((StringLikeLiteral) expr.child(1)).getStringValue();
-            if (Strings.isNullOrEmpty(rightValue)) {
-                valid = false;
-                break CHECK;
-            }
+        if (hasLabel && expr instanceof EqualTo) {
+            isAccurateMatch = true;
+        }
 
-            if (hasLabel && !isAccurateMatch && !rightValue.contains("%")) {
-                rightValue = "%" + rightValue + "%";
-            }
-            if (hasLabel) {
-                labelValue = rightValue;
-            } else if (hasState) {
-                stateValue = rightValue.toUpperCase();
+        // right child
+        if (!(expr.child(1) instanceof StringLikeLiteral)) {
+            return false;
+        }
 
-                try {
-                    if (isStreamLoad) {
-                        ShowStreamLoadStmt.StreamLoadState.valueOf(stateValue);
-                    } else {
-                        LoadJob.JobState.valueOf(stateValue);
-                    }
-                } catch (Exception e) {
-                    valid = false;
-                    break CHECK;
+        String rightValue = ((StringLikeLiteral) expr.child(1)).getStringValue();
+        if (Strings.isNullOrEmpty(rightValue)) {
+            return false;
+        }
+
+        if (hasLabel && !isAccurateMatch && !rightValue.contains("%")) {
+            rightValue = "%" + rightValue + "%";
+        }
+
+        if (hasLabel) {
+            labelValue = rightValue;
+        } else if (hasState) {
+            stateValue = rightValue.toUpperCase();
+
+            try {
+                if (isStreamLoad) {
+                    ShowStreamLoadStmt.StreamLoadState.valueOf(stateValue);
+                } else {
+                    LoadJob.JobState.valueOf(stateValue);
                 }
+            } catch (Exception e) {
+                return false;
             }
         }
 
-        return valid;
+        return true;
     }
 
     @Override
