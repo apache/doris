@@ -30,7 +30,6 @@
 #include "service/brpc.h"
 #include "testutil/test_util.h"
 #include "util/proto_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"

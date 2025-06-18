@@ -36,7 +36,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
@@ -199,10 +198,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         }
         case TYPE_DECIMALV2: {
             DecimalV2Value value =
-                    (DecimalV2Value)
-                            assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>&>(
-                                    *column)
-                                    .get_data()[row];
+                    (DecimalV2Value)assert_cast<const vectorized::ColumnDecimal128V2&>(*column)
+                            .get_data()[row];
             fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
             break;
         }

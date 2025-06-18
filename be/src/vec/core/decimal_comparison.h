@@ -22,7 +22,6 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/block.h"

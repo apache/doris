@@ -60,7 +60,7 @@ public:
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
     }
-    const char* get_family_name() const override { return "DateV2"; }
+    const std::string get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
@@ -124,7 +124,7 @@ public:
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
-    const char* get_family_name() const override { return "DateTimeV2"; }
+    const std::string get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
     bool equals(const IDataType& rhs) const override;

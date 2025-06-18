@@ -453,7 +453,7 @@ public class LocationPath {
             case OSS_HDFS: // if hdfs service is enabled on oss, use hdfs lib to access oss.
             case VIEWFS:
             case GFS:
-                fsType = FileSystemType.DFS;
+                fsType = FileSystemType.HDFS;
                 break;
             case JFS:
                 fsType = FileSystemType.JFS;

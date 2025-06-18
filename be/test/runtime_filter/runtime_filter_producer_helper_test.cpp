@@ -26,7 +26,6 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {

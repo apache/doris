@@ -35,7 +35,6 @@
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/column_numbers.h"

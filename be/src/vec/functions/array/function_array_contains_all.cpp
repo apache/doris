@@ -21,6 +21,8 @@
 #include <type_traits>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"

@@ -427,8 +427,12 @@ public class HiveScanNode extends FileQueryScanNode {
                             + "table " + hmsTable.getName()
                             + " is not a string column.");
                 }
-            } else {
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_CSV_SERDE)) {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
+            } else {
+                throw new UserException("Unsupported hive table serde: " + serDeLib);
             }
         }
         return type;
@@ -446,7 +450,6 @@ public class HiveScanNode extends FileQueryScanNode {
         // set skip header count
         // TODO: support skip footer count
         fileAttributes.setSkipLines(HiveProperties.getSkipHeaderCount(table));
-        // TODO: separate hive text table and OpenCsv table
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
         if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
@@ -478,6 +481,8 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setEnclose(HiveProperties.getQuoteChar(table).getBytes()[0]);
             // 4. set escape char
             textParams.setEscape(HiveProperties.getEscapeChar(table).getBytes()[0]);
+            // 5. set null format with empty string to make csv reader not use "\\N" to represent null
+            textParams.setNullFormat("");
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
             if (textParams.isSetEnclose()) {

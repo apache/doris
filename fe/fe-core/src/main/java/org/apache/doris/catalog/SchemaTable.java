@@ -324,7 +324,8 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_COMMENT", ScalarType.createStringType())
                                     .column("NODEGROUP", ScalarType.createVarchar(256))
                                     .column("TABLESPACE_NAME", ScalarType.createVarchar(268))
-                                    .column("DATA_SIZE", ScalarType.createStringType())
+                                    .column("LOCAL_DATA_SIZE", ScalarType.createStringType())
+                                    .column("REMOTE_DATA_SIZE", ScalarType.createStringType())
                                     .column("STATE", ScalarType.createStringType())
                                     .column("REPLICA_ALLOCATION", ScalarType.createStringType())
                                     .column("REPLICA_NUM", ScalarType.createType(PrimitiveType.INT))
@@ -477,7 +478,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("QUERY_TYPE",  ScalarType.createVarchar(256))
+                                    .column("QUERY_TYPE", ScalarType.createVarchar(256))
                                     .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
@@ -514,6 +515,14 @@ public class SchemaTable extends Table {
                             .column("READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("REMOTE_READ_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                             .build()))
+            .put("backend_configuration",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "backend_configuration", TableType.SCHEMA,
+                            builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CONFIG_NAME", ScalarType.createStringType())
+                                    .column("CONFIG_TYPE", ScalarType.createStringType())
+                                    .column("CONFIG_VALUE", ScalarType.createStringType())
+                                    .column("IS_MUTABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .build()))
             .put("processlist",
                     new SchemaTable(SystemIdGenerator.getNextId(), "processlist", TableType.SCHEMA,
                             builder().column("CURRENT_CONNECTED", ScalarType.createVarchar(16))
@@ -636,6 +645,27 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_ABORT_TASK_NUM", ScalarType.createType(PrimitiveType.INT))
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
+            )
+            .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
+                    builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("REPLICA_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_PATH", ScalarType.createStringType())
+                            .column("TABLET_LOCAL_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_REMOTE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("VERSION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SEGMENT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NUM_COLUMNS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("ROW_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMPACTION_SCORE", ScalarType.createType(PrimitiveType.INT))
+                            .column("COMPRESS_KIND", ScalarType.createStringType())
+                            .column("IS_USED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("IS_ALTER_FAILED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .build())
             )
             .put("backends",
                     new SchemaTable(SystemIdGenerator.getNextId(), "backends", TableType.SCHEMA,

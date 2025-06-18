@@ -23,7 +23,6 @@
 #include <common/elf.h>
 #include <fcntl.h>
 #include <fmt/format.h>
-#include <gutil/macros.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #include <vec/common/unaligned.h>
@@ -32,6 +31,7 @@
 #include <system_error>
 
 #include "common/logging.h"
+#include "common/macros.h"
 
 namespace doris {
 

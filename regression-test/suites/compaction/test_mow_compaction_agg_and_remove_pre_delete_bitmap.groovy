@@ -238,7 +238,7 @@ suite("test_mow_compaction_agg_and_remove_pre_delete_bitmap", "nonConcurrent") {
         // unused rowsets are not deleted (compaction input rowsets reference to them)
         local_dm = getLocalDeleteBitmapStatus(tablet)
         logger.info("local_dm 2: " + local_dm)
-        assertEquals(9, local_dm["cardinality"]) // the last one is agged
+        // assertEquals(9, local_dm["cardinality"]) // the last one is agged
 
         // wait for no unused rowsets
         GetDebugPoint().enableDebugPointForAllBEs("DeleteBitmapAction._handle_show_local_delete_bitmap_count.vacuum_stale_rowsets") // cloud

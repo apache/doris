@@ -40,7 +40,7 @@
 namespace doris {
 
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 class Arena;
 #include "common/compile_check_begin.h"
@@ -114,14 +114,13 @@ private:
     int precision;
     int scale;
     const typename FieldType::NativeType scale_multiplier;
-    mutable char buf[FieldType::max_string_length()];
 };
 
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
                                                    int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);
-    const auto* col = check_and_get_column<ColumnDecimal<FieldType>>(column);
+    const auto* col = check_and_get_column<ColumnDecimal<T>>(column);
     auto* ptype = result.mutable_type();
     if constexpr (T == TYPE_DECIMALV2) {
         ptype->set_id(PGenericType::DECIMAL128);
@@ -148,7 +147,7 @@ template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto old_column_size = column.size();
     column.resize(old_column_size + arg.bytes_value_size());
-    auto& data = reinterpret_cast<ColumnDecimal<FieldType>&>(column).get_data();
+    auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
         data[old_column_size + i] = *(FieldType*)(arg.bytes_value(i).c_str());
     }
@@ -189,7 +188,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
-    auto& col = reinterpret_cast<ColumnDecimal<FieldType>&>(column);
+    auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (T == TYPE_DECIMALV2) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (T == TYPE_DECIMAL128I) {

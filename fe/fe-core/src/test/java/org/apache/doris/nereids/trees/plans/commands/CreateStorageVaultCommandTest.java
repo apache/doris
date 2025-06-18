@@ -22,7 +22,6 @@ import org.apache.doris.catalog.StorageVault;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -39,7 +38,7 @@ public class CreateStorageVaultCommandTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        vaultName = "hdfs";
+        vaultName = "hdfs_nereids";
         FeConstants.runningUnitTest = true;
     }
 
@@ -47,13 +46,17 @@ public class CreateStorageVaultCommandTest extends TestWithFeService {
     public void testValidateNormal(@Mocked AccessControllerManager accessManager) {
         new Expectations() {
             {
+                Env.getCurrentEnv().getAccessManager();
+                minTimes = 0;
                 result = accessManager;
+
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                minTimes = 0;
                 result = true;
             }
         };
 
-        Config.cloud_unique_id = "not_empty";
+        Config.cloud_unique_id = "not_empty_nereids";
         ImmutableMap<String, String> properties = ImmutableMap.<String, String>builder()
                 .put("type", "hdfs")
                 .build();
@@ -61,27 +64,13 @@ public class CreateStorageVaultCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(() -> command.validate());
         Assertions.assertEquals(vaultName, command.getVaultName());
         Assertions.assertEquals(StorageVault.StorageVaultType.HDFS, command.getVaultType());
-        Config.cloud_unique_id = "";
-    }
 
-    @Test
-    public void testUnsupportedResourceType(@Mocked Env env, @Mocked AccessControllerManager accessManager)
-            throws UserException {
-        new Expectations() {
-            {
-                env.getAccessManager();
-                result = accessManager;
-                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
-                result = true;
-            }
-        };
-
-        Config.cloud_unique_id = "not_empty";
-        ImmutableMap<String, String> properties = ImmutableMap.<String, String>builder()
+        // testUnsupportedResourceType
+        ImmutableMap<String, String> properties1 = ImmutableMap.<String, String>builder()
                 .put("type", "hadoop")
                 .build();
-        CreateStorageVaultCommand command = new CreateStorageVaultCommand(true, vaultName, properties);
-        Assertions.assertThrows(AnalysisException.class, () -> command.validate());
+        CreateStorageVaultCommand command1 = new CreateStorageVaultCommand(true, vaultName, properties1);
+        Assertions.assertThrows(AnalysisException.class, () -> command1.validate());
         Config.cloud_unique_id = "";
     }
 }

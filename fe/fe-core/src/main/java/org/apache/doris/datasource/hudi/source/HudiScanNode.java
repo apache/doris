@@ -196,7 +196,7 @@ public class HudiScanNode extends HiveScanNode {
             if (tableSnapshot.getType() == TableSnapshot.VersionType.VERSION) {
                 throw new UserException("Hudi does not support `FOR VERSION AS OF`, please use `FOR TIME AS OF`");
             }
-            queryInstant = tableSnapshot.getTime().replaceAll("[-: ]", "");
+            queryInstant = tableSnapshot.getValue().replaceAll("[-: ]", "");
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {

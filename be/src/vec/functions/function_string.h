@@ -95,7 +95,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pinyin.h"
 #include "vec/common/string_ref.h"
@@ -2949,7 +2948,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_money_format(FunctionContext* context, const string& value) {
+static StringRef do_money_format(FunctionContext* context, const std::string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     StringRef result = context->create_temp_string_val(result_len);
@@ -3083,7 +3082,7 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
 }
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
-static StringRef do_format_round(FunctionContext* context, const string& value,
+static StringRef do_format_round(FunctionContext* context, const std::string& value,
                                  Int32 decimal_places) {
     bool is_positive = (value[0] != '-');
     int32_t result_len =
@@ -3178,7 +3177,7 @@ struct MoneyFormatDecimalImpl {
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                         size_t input_rows_count) {
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V2& dec128 = decimalv2_column->get_element(i);
                 DecimalV2Value value = DecimalV2Value(dec128.value);
@@ -3191,8 +3190,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column =
-                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal32& frac_part = decimal32_column->get_fractional_part(i);
@@ -3204,8 +3202,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column =
-                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal64& frac_part = decimal64_column->get_fractional_part(i);
@@ -3217,8 +3214,7 @@ struct MoneyFormatDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 const Decimal128V3& frac_part = decimal128_column->get_fractional_part(i);
@@ -3355,7 +3351,7 @@ struct FormatRoundDecimalImpl {
                           ColumnPtr decimal_places_col_ptr, size_t input_rows_count) {
         const auto& arg_column_data_2 =
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
                 if (decimal_places < 0) {
@@ -3374,8 +3370,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal32_column =
-                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+        } else if (auto* decimal32_column = check_and_get_column<ColumnDecimal32>(*col_ptr)) {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3393,8 +3388,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal64_column =
-                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+        } else if (auto* decimal64_column = check_and_get_column<ColumnDecimal64>(*col_ptr)) {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3412,8 +3406,7 @@ struct FormatRoundDecimalImpl {
 
                 result_column->insert_data(str.data, str.size);
             }
-        } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
+        } else if (auto* decimal128_column = check_and_get_column<ColumnDecimal128V3>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[i];
@@ -3708,7 +3701,7 @@ struct ReverseImpl {
         for (ssize_t i = 0; i < rows_count; ++i) {
             auto src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_len = offsets[i] - offsets[i - 1];
-            string dst;
+            std::string dst;
             dst.resize(src_len);
             simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
                                             StringRef((uint8_t*)dst.data(), src_len));

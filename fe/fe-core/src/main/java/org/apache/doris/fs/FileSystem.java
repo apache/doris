@@ -68,6 +68,17 @@ public interface FileSystem {
 
     Status makeDir(String remotePath);
 
+    /*
+     * List files in remotePath
+     * @param remotePath remote path
+     * @param recursive whether to list files recursively
+     * <pre>
+     * If the path is a directory,
+     *   if recursive is false, returns files in the directory;
+     *   if recursive is true, return files in the subtree rooted at the path.
+     * If the path is a file, return the file's status and block locations.
+     * </pre>
+     * */
     Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result);
 
     /**

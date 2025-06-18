@@ -51,7 +51,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -1103,7 +1102,7 @@ public:
         vec_to.resize(size);
 
         // parser can be reused for performance
-        JsonbParser parser;
+        JsonBinaryValue jsonb_value;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
                 null_map->get_data()[i] = 1;
@@ -1112,7 +1111,7 @@ public:
             }
 
             const auto& val = col_from_string->get_data_at(i);
-            if (parser.parse(val.data, cast_set<unsigned int>(val.size))) {
+            if (jsonb_value.from_json_string(val.data, cast_set<unsigned int>(val.size)).ok()) {
                 vec_to[i] = 1;
             } else {
                 vec_to[i] = 0;

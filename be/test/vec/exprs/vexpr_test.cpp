@@ -42,7 +42,6 @@
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"

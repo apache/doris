@@ -41,9 +41,9 @@ public class TransactionScopeCachingDirectoryListerFactory {
         if (maxSize > 0) {
             EvictableCacheBuilder<TransactionDirectoryListingCacheKey, FetchingValueHolder> cacheBuilder =
                     EvictableCacheBuilder.newBuilder()
-                    .maximumWeight(maxSize)
-                    .weigher((key, value) ->
-                        Math.toIntExact(value.getCacheFileCount()));
+                            .maximumWeight(maxSize)
+                            .weigher((key, value) ->
+                                    Math.toIntExact(value.getCacheFileCount()));
             this.cache = Optional.of(cacheBuilder.build());
         } else {
             cache = Optional.empty();

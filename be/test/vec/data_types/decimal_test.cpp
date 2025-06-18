@@ -165,8 +165,7 @@ TEST(DecimalTest, crc32) {
     Decimal256 dec_min(type_limit<vectorized::Decimal256>::min());
     Decimal256 dec3 = vectorized::Decimal256(1);
     Decimal256 dec4 = vectorized::Decimal256(-1);
-    auto& decimal_data =
-            ((vectorized::ColumnDecimal<vectorized::Decimal256>*)col.get())->get_data();
+    auto& decimal_data = ((vectorized::ColumnDecimal256*)col.get())->get_data();
     decimal_data.push_back(dec_max);
     decimal_data.push_back(dec_min);
     decimal_data.push_back(dec3);

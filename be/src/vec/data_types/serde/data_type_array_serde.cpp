@@ -232,20 +232,24 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
                                                   Arena& mem_pool, int64_t row_num) const {
-    // Use allocator instead of stack memory, since rapidjson hold the reference of String value
-    // otherwise causes stack use after free
-    const auto& column_array = static_cast<const ColumnArray&>(column);
-    if (row_num > column_array.size()) {
-        return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
-    }
-    // void* mem = allocator.Malloc(sizeof(vectorized::Field));
-    void* mem = mem_pool.alloc(sizeof(vectorized::Field));
-    if (!mem) {
-        return Status::InternalError("Malloc failed");
-    }
-    auto* array = new (mem) vectorized::Field(column_array[row_num]);
+    auto res = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = res.first;
+    row_num = res.second;
 
-    convert_field_to_rapidjson(*array, result, allocator);
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+    result.SetArray();
+    for (size_t i = offset; i < next_offset; ++i) {
+        rapidjson::Value val;
+        RETURN_IF_ERROR(
+                nested_serde->write_one_cell_to_json(nested_column, val, allocator, mem_pool, i));
+        result.PushBack(val, allocator);
+    }
     return Status::OK();
 }
 

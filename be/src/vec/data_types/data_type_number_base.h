@@ -60,9 +60,7 @@ public:
 
     static std::string to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType& value);
 
-    const char* get_family_name() const override {
-        return TypeName<typename PrimitiveTypeTraits<T>::ColumnItemType>::get();
-    }
+    const std::string get_family_name() const override { return type_to_string(T); }
     PrimitiveType get_primitive_type() const override {
         // Doris does not support uint8 at present, use uint8 as boolean type
         return T;

@@ -32,7 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.fsv2.FileSystemFactory;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -127,7 +127,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            FileSystemFactory.get("broker", Maps.newHashMap()), null);
+            FileSystemFactory.get("broker", Maps.newHashMap()));
 
     @BeforeClass
     public static void start() {

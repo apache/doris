@@ -40,6 +40,15 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
                 + ") "
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
+
+        // Create a table with inverted index for testing index properties order
+        createTable("create table table_with_index\n"
+                + "(id int, name varchar(100), description text, "
+                + "INDEX index_name(name) USING INVERTED PROPERTIES(\"parser\"=\"english\", \"lower_case\"=\"true\", \"support_phrase\"=\"true\") COMMENT 'name index', "
+                + "INDEX index_description(description) USING INVERTED PROPERTIES(\"support_phrase\"=\"true\", \"parser\"=\"standard\", \"lower_case\"=\"true\") COMMENT 'description index') "
+                + "DUPLICATE KEY(id) "
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
     }
 
 
@@ -69,5 +78,35 @@ public class ShowCreateTableStmtTest extends TestWithFeService {
         String showSql = showResultSet.getResultRows().get(0).get(1);
         Assertions.assertTrue(!showSql.contains("PARTITION BY"));
         Assertions.assertTrue(!showSql.contains("PARTITION `p01`"));
+    }
+
+    @Test
+    public void testIndexPropertiesOrder() throws Exception {
+        String sql = "show create table table_with_index";
+
+        // Execute the same query multiple times to check consistency
+        ShowResultSet showResultSet1 = showCreateTable(sql);
+        ShowResultSet showResultSet2 = showCreateTable(sql);
+        ShowResultSet showResultSet3 = showCreateTable(sql);
+
+        String showSql1 = showResultSet1.getResultRows().get(0).get(1);
+        String showSql2 = showResultSet2.getResultRows().get(0).get(1);
+        String showSql3 = showResultSet3.getResultRows().get(0).get(1);
+
+        // All show create table results should be identical
+        Assertions.assertEquals(showSql1, showSql2, "Show create table results should be consistent across multiple executions");
+        Assertions.assertEquals(showSql2, showSql3, "Show create table results should be consistent across multiple executions");
+
+        // Verify that the index properties are present and in alphabetical order
+        // The properties should appear as: "lower_case" = "true", "parser" = "english", "support_phrase" = "true"
+        Assertions.assertTrue(showSql1.contains("INDEX index_name (`name`) USING INVERTED "
+                        + "PROPERTIES(\"lower_case\" = \"true\", \"parser\" = \"english\", "
+                        + "\"support_phrase\" = \"true\")"),
+                             "Index properties should be in alphabetical order");
+        Assertions.assertTrue(showSql1.contains(
+                "INDEX index_description (`description`) USING INVERTED "
+                        + "PROPERTIES(\"lower_case\" = \"true\", \"parser\" = \"standard\", "
+                        + "\"support_phrase\" = \"true\")"),
+                             "Index properties should be in alphabetical order");
     }
 }

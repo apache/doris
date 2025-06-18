@@ -145,12 +145,11 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
 
     if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
         switch (src_logical_primitive) {
-#define DISPATCH(LOGICAL_PTYPE)                                                                   \
-    case LOGICAL_PTYPE: {                                                                         \
-        using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        physical_converter.reset(                                                                 \
-                new FixedSizeToDecimal<DECIMAL_TYPE>(parquet_schema.type_length));                \
-        break;                                                                                    \
+#define DISPATCH(LOGICAL_PTYPE)                                                     \
+    case LOGICAL_PTYPE: {                                                           \
+        physical_converter.reset(                                                   \
+                new FixedSizeToDecimal<LOGICAL_PTYPE>(parquet_schema.type_length)); \
+        break;                                                                      \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
@@ -160,11 +159,10 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
         }
     } else if (src_physical_type == tparquet::Type::BYTE_ARRAY) {
         switch (src_logical_primitive) {
-#define DISPATCH(LOGICAL_PTYPE)                                                                   \
-    case LOGICAL_PTYPE: {                                                                         \
-        using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        physical_converter.reset(new StringToDecimal<DECIMAL_TYPE>());                            \
-        break;                                                                                    \
+#define DISPATCH(LOGICAL_PTYPE)                                         \
+    case LOGICAL_PTYPE: {                                               \
+        physical_converter.reset(new StringToDecimal<LOGICAL_PTYPE>()); \
+        break;                                                          \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
@@ -175,15 +173,14 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
     } else if (src_physical_type == tparquet::Type::INT32 ||
                src_physical_type == tparquet::Type::INT64) {
         switch (src_logical_primitive) {
-#define DISPATCH(LOGICAL_PTYPE)                                                                   \
-    case LOGICAL_PTYPE: {                                                                         \
-        using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        if (src_physical_type == tparquet::Type::INT32) {                                         \
-            physical_converter.reset(new NumberToDecimal<TYPE_INT, DECIMAL_TYPE>());              \
-        } else {                                                                                  \
-            physical_converter.reset(new NumberToDecimal<TYPE_BIGINT, DECIMAL_TYPE>());           \
-        }                                                                                         \
-        break;                                                                                    \
+#define DISPATCH(LOGICAL_PTYPE)                                                          \
+    case LOGICAL_PTYPE: {                                                                \
+        if (src_physical_type == tparquet::Type::INT32) {                                \
+            physical_converter.reset(new NumberToDecimal<TYPE_INT, LOGICAL_PTYPE>());    \
+        } else {                                                                         \
+            physical_converter.reset(new NumberToDecimal<TYPE_BIGINT, LOGICAL_PTYPE>()); \
+        }                                                                                \
+        break;                                                                           \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH

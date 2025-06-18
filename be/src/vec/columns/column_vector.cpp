@@ -29,7 +29,6 @@
 
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"

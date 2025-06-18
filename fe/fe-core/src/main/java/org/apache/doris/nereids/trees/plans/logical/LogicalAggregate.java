@@ -197,7 +197,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     public String getFingerprint() {
         StringBuilder builder = new StringBuilder();
         // logical agg is mapped to physical GLOBAL
-        String aggPhase = "Aggregate" + "(GLOBAL)";
+        String aggPhase = "Aggregate(GLOBAL)";
         List<Object> groupByExpressionsArgs = Lists.newArrayList(
                 "groupByExpr", groupByExpressions);
         builder.append(Utils.toSqlString(aggPhase, groupByExpressionsArgs.toArray()));

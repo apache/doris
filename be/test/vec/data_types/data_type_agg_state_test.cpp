@@ -28,7 +28,6 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
@@ -141,9 +140,10 @@ void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_
     } else {
         assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->set_item_size(8);
         column_fixed->resize(rows_value);
-        ASSERT_TRUE(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
-                            ->get_serialized_type()
-                            ->is_fixed_length_object());
+        ASSERT_EQ(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
+                          ->get_serialized_type()
+                          ->get_primitive_type(),
+                  TYPE_FIXED_LENGTH_OBJECT);
         auto& data = assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->get_data();
         for (size_t i = 0; i != rows_value; ++i) {
             data[i] = i;

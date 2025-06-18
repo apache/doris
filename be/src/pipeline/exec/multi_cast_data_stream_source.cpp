@@ -99,6 +99,11 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
         RETURN_IF_ERROR(local_state._shared_state->multi_cast_data_streamer->pull(
                 state, _consumer_id, output_block, eos));
     }
+
+    int arrived_rf_num = 0;
+    RETURN_IF_ERROR(local_state._helper.try_append_late_arrival_runtime_filter(
+            state, &arrived_rf_num, local_state._conjuncts, _multi_cast_output_row_descriptor));
+
     if (!local_state._conjuncts.empty() && !output_block->empty()) {
         SCOPED_TIMER(local_state._filter_timer);
         RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,

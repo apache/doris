@@ -19,6 +19,8 @@ package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import mockit.Mock;
@@ -124,6 +126,7 @@ public class S3ObjStorageGlobListTest {
     public static S3ObjStorage genMockedS3ObjStorage(int numBatch) {
         Map<String, String> props = new HashMap<String, String>();
         props.put(S3Properties.ROLE_ARN, "test_mocked_arn");
+        props.put("s3.external_id", "12");
         props.put(S3Properties.ENDPOINT, "https://s3.us-east-1.amazonaws.com");
         props.put(S3Properties.BUCKET, "test_mocked_bucket");
         List<String> allObjKeys = genObjKeys();
@@ -160,7 +163,7 @@ public class S3ObjStorageGlobListTest {
             }
         };
 
-        S3ObjStorage s3ObjStorage = new S3ObjStorage(props);
+        S3ObjStorage s3ObjStorage = new S3ObjStorage((AbstractS3CompatibleProperties) StorageProperties.createPrimary(props));
         return s3ObjStorage;
     }
 

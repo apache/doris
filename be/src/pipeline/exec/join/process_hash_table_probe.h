@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/custom_allocator.h"
 

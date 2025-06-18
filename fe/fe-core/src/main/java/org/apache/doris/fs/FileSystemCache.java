@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -45,8 +46,8 @@ public class FileSystemCache {
         fileSystemCache = fsCacheFactory.buildCache(this::loadFileSystem);
     }
 
-    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) {
-        return FileSystemFactory.getRemoteFileSystem(key.type, key.getFsProperties(), key.bindBrokerName);
+    private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) throws UserException {
+        return FileSystemFactory.get(key.type, key.getFsProperties(), key.bindBrokerName);
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {

@@ -22,7 +22,6 @@
 #include <cstdint>
 
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"

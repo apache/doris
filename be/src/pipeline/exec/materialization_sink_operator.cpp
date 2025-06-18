@@ -83,10 +83,10 @@ public:
                     ::doris::DummyBrpcCallback<Response>::cntl_->ErrorText(),
                     BackendOptions::get_localhost(),
                     ::doris::DummyBrpcCallback<Response>::cntl_->latency_us());
-            _shared_state->rpc_status = Status::InternalError(err);
+            _shared_state->rpc_status.update(Status::InternalError(err));
         } else {
-            _shared_state->rpc_status =
-                    Status::create(doris::DummyBrpcCallback<Response>::response_->status());
+            _shared_state->rpc_status.update(
+                    Status::create(doris::DummyBrpcCallback<Response>::response_->status()));
         }
         ((CountedFinishDependency*)_shared_state->source_deps.back().get())->sub();
     }

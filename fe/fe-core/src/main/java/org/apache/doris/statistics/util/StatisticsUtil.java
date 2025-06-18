@@ -73,6 +73,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
@@ -1256,7 +1257,13 @@ public class StatisticsUtil {
         // For olap table, if the table visible version and row count doesn't change since last analyze,
         // we don't need to analyze it because its data is not changed.
         OlapTable olapTable = (OlapTable) table;
-        return olapTable.getVisibleVersion() != columnStats.tableVersion
+        long version = 0;
+        try {
+            version = ((OlapTable) table).getVisibleVersion();
+        } catch (RpcException e) {
+            LOG.warn("in cloud getVisibleVersion exception", e);
+        }
+        return version != columnStats.tableVersion
                 || olapTable.getRowCount() != columnStats.rowCount;
     }
 

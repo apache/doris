@@ -45,7 +45,7 @@ namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class DataTypeNumber;
@@ -119,9 +119,8 @@ public:
             std::conditional_t<is_decimal(T), DataTypeDecimal<Data::ResultPType>, DataTypeFloat64>>;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = std::conditional_t<
-            T == TYPE_DECIMALV2, ColumnDecimal<Decimal128V2>,
-            std::conditional_t<is_decimal(T), ColumnDecimal<typename Data::ResultType>,
-                               ColumnFloat64>>;
+            T == TYPE_DECIMALV2, ColumnDecimal128V2,
+            std::conditional_t<is_decimal(T), ColumnDecimal<Data::ResultPType>, ColumnFloat64>>;
     // The result calculated by PercentileApprox is an approximate value,
     // so the underlying storage uses float. The following calls will involve
     // an implicit cast to float.
