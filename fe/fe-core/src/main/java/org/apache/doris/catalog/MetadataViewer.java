@@ -31,6 +31,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.ShowReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -304,6 +305,105 @@ public class MetadataViewer {
 
     public static List<List<String>> getTabletDistribution(ShowReplicaDistributionStmt stmt) throws DdlException {
         return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
+    }
+
+    public static List<List<String>> getTabletDistribution(
+        String dbName, String tblName, PartitionNamesInfo partitionNamesInfo)
+        throws DdlException {
+        DecimalFormat df = new DecimalFormat("00.00 %");
+
+        List<List<String>> result = Lists.newArrayList();
+
+        Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
+
+        Database db = env.getInternalCatalog().getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+        olapTable.readLock();
+        try {
+            List<Long> partitionIds = Lists.newArrayList();
+            if (partitionNamesInfo == null) {
+                for (Partition partition : olapTable.getPartitions()) {
+                    partitionIds.add(partition.getId());
+                }
+            } else {
+                // check partition
+                for (String partName : partitionNamesInfo.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
+                    if (partition == null) {
+                        throw new DdlException("Partition does not exist: " + partName);
+                    }
+                    partitionIds.add(partition.getId());
+                }
+            }
+
+            // backend id -> replica count
+            Map<Long, Integer> countMap = Maps.newHashMap();
+            // backend id -> replica size
+            Map<Long, Long> sizeMap = Maps.newHashMap();
+            // init map
+            List<Long> beIds = infoService.getAllBackendIds(false);
+            for (long beId : beIds) {
+                countMap.put(beId, 0);
+                sizeMap.put(beId, 0L);
+            }
+
+            int totalReplicaNum = 0;
+            long totalReplicaSize = 0;
+            for (long partId : partitionIds) {
+                Partition partition = olapTable.getPartition(partId);
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (Tablet tablet : index.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            long beId = replica.getBackendIdWithoutException();
+                            if (!countMap.containsKey(beId)) {
+                                continue;
+                            }
+                            countMap.put(beId,
+                                countMap.get(beId) + 1);
+                            sizeMap.put(beId,
+                                sizeMap.get(beId) + replica.getDataSize());
+                            totalReplicaNum++;
+                            totalReplicaSize += replica.getDataSize();
+                        }
+                    }
+                }
+            }
+
+            // graph
+            Collections.sort(beIds);
+            for (Long beId : beIds) {
+                List<String> row = Lists.newArrayList();
+                row.add(String.valueOf(beId));
+                row.add(String.valueOf(countMap.get(beId)));
+                row.add(String.valueOf(sizeMap.get(beId)));
+                row.add(graph(countMap.get(beId), totalReplicaNum));
+                row.add(totalReplicaNum == countMap.get(beId) ? (totalReplicaNum == 0 ? "0.00%" : "100.00%")
+                    : df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(graph(sizeMap.get(beId), totalReplicaSize));
+                row.add(totalReplicaSize == sizeMap.get(beId) ? (totalReplicaSize == 0 ? "0.00%" : "100.00%")
+                    : df.format((double) sizeMap.get(beId) / totalReplicaSize));
+                if (Config.isNotCloudMode()) {
+                    row.add("");
+                    row.add("");
+                } else {
+                    Backend be = CloudEnv.getCurrentSystemInfo().getBackend(beId);
+                    if (be != null) {
+                        row.add(be.getTagMap().get(Tag.CLOUD_CLUSTER_NAME));
+                        row.add(be.getTagMap().get(Tag.CLOUD_CLUSTER_ID));
+                    } else {
+                        row.add("not exist be");
+                        row.add("not exist be");
+                    }
+                }
+                result.add(row);
+            }
+
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        return result;
     }
 
     public static List<List<String>> getTabletDistribution(
