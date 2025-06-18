@@ -51,9 +51,6 @@ import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelJobTaskStmt;
@@ -184,8 +181,6 @@ public class DdlExecutor {
             StatisticsRepository.alterColumnStatistics((AlterColumnStatsStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
             env.alterView((AlterViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelAlterTableStmt) {
-            env.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
@@ -255,9 +250,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterSystemStmt) {
             AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
             env.alterSystem(stmt);
-        } else if (ddlStmt instanceof CancelAlterSystemStmt) {
-            CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
-            env.cancelAlterSystem(stmt);
         } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
             env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabaseRename) {
@@ -274,8 +266,6 @@ public class DdlExecutor {
             env.backup((BackupStmt) ddlStmt);
         } else if (ddlStmt instanceof RestoreStmt) {
             env.restore((RestoreStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelBackupStmt) {
-            env.cancelBackup((CancelBackupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRepositoryStmt) {
             env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
@@ -528,7 +518,6 @@ public class DdlExecutor {
 
         if (ddlStmt instanceof BackupStmt
                 || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof CancelBackupStmt
                 || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt
                 || ddlStmt instanceof AdminRepairTableStmt
@@ -540,8 +529,7 @@ public class DdlExecutor {
                 || ddlStmt instanceof AdminRebalanceDiskStmt
                 || ddlStmt instanceof AdminCancelRebalanceDiskStmt
                 || ddlStmt instanceof AlterResourceStmt
-                || ddlStmt instanceof AlterPolicyStmt
-                || ddlStmt instanceof CancelAlterSystemStmt) {
+                || ddlStmt instanceof AlterPolicyStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
         }

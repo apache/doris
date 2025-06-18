@@ -43,9 +43,6 @@ import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
@@ -73,7 +70,6 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
@@ -4985,21 +4981,6 @@ public class Env {
     }
 
     /*
-     * used for handling CancelAlterStmt (for client is the CANCEL ALTER
-     * command). including SchemaChangeHandler and RollupHandler
-     */
-    public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
-        if (stmt.getAlterType() == AlterType.ROLLUP) {
-            this.getMaterializedViewHandler().cancel(stmt);
-        } else if (stmt.getAlterType() == AlterType.COLUMN
-                       || stmt.getAlterType() == AlterType.INDEX) {
-            this.getSchemaChangeHandler().cancel(stmt);
-        } else {
-            throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
-        }
-    }
-
-    /*
      * used for handling backup opt
      */
     public void backup(BackupStmt stmt) throws DdlException {
@@ -5012,10 +4993,6 @@ public class Env {
 
     public void cancelBackup(CancelBackupCommand command) throws DdlException {
         getBackupHandler().cancel(command);
-    }
-
-    public void cancelBackup(CancelBackupStmt stmt) throws DdlException {
-        getBackupHandler().cancel(stmt);
     }
 
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
@@ -5854,10 +5831,6 @@ public class Env {
 
     public void analyze(AnalyzeCommand command, boolean isProxy) throws DdlException, AnalysisException {
         this.analysisManager.createAnalyze(command, isProxy);
-    }
-
-    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getSystemHandler().cancel(stmt);
     }
 
     // Switch catalog of this session

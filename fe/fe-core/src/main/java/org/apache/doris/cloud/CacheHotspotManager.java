@@ -41,6 +41,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;

@@ -21,11 +21,9 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BuildIndexClause;
-import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
@@ -86,7 +84,6 @@ public class IndexChangeJobTest {
     private static CreateIndexClause createIndexClause;
     private static BuildIndexClause buildIndexClause;
     private static DropIndexClause dropIndexClause;
-    private static CancelAlterTableStmt cancelAlterTableStmt;
     private static TableName tableName;
     private static String indexName;
 
@@ -138,9 +135,6 @@ public class IndexChangeJobTest {
 
         dropIndexClause = new DropIndexClause(indexName, false, tableName, false);
         dropIndexClause.analyze(analyzer);
-
-        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName);
-        cancelAlterTableStmt.analyze(analyzer);
 
         AgentTaskQueue.clearAllTasks();
     }
@@ -698,10 +692,6 @@ public class IndexChangeJobTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
         Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
-
-        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, tableName);
-        cancelAlterTableStmt.analyze(analyzer);
-        schemaChangeHandler.cancel(cancelAlterTableStmt);
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
