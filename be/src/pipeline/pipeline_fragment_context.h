@@ -141,6 +141,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    std::shared_ptr<vectorized::TaskHandle> task_handle() const { return _task_handle; }
+
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
@@ -212,6 +214,9 @@ protected:
 
     VecDateTimeValue _start_time;
     int _timeout = -1;
+
+    std::shared_ptr<vectorized::TaskExecutor> _task_executor;
+    std::shared_ptr<vectorized::TaskHandle> _task_handle;
 
 private:
     std::vector<std::unique_ptr<PipelineTask>> _tasks;

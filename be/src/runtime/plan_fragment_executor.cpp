@@ -103,6 +103,12 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 PlanFragmentExecutor::~PlanFragmentExecutor() {
     // The memory released by the query end is recorded in the query mem tracker.
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
+    if (_task_handle && _task_executor) {
+        static_cast<void>(_task_executor->remove_task(_task_handle));
+    }
+    if (_runtime_state) {
+        _runtime_state->set_fragment_task_handle(nullptr);
+    }
     close();
     _query_ctx.reset();
     _query_statistics.reset();
@@ -217,6 +223,27 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
+
+    vectorized::TaskId task_id(
+            fmt::format("{}-{}", print_id(_query_ctx->query_id()), _fragment_id));
+    auto thread_token = _query_ctx->get_token();
+    if (thread_token) {
+        _task_executor = _exec_env->scanner_scheduler()->limited_scan_task_executor();
+    } else {
+        auto scan_scheduler = _query_ctx->get_scan_scheduler();
+        if (scan_scheduler) {
+            _task_executor = scan_scheduler->task_executor();
+        } else { // query without workload group
+            _task_executor =
+                    _exec_env->scanner_scheduler()->local_scan_thread_pool().task_executor();
+        }
+    }
+    _task_handle = DORIS_TRY(_task_executor->create_task(
+            task_id, []() { return 0.0; }, config::doris_task_initial_split_concurrency,
+            std::chrono::milliseconds(100), std::nullopt));
+
+    _runtime_state->set_fragment_task_handle(_task_handle);
+
     RuntimeProfile* sink_profile = nullptr;
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
