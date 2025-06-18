@@ -40,7 +40,6 @@ import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
-import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
@@ -100,8 +99,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.transaction.GlobalTransactionMgrIface;
-import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -187,8 +184,6 @@ public class ShowExecutor {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
-        } else if (stmt instanceof ShowTransactionStmt) {
-            handleShowTransaction();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
@@ -691,32 +686,6 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(stmt.getMetaData(), results);
-    }
-
-    // Show transaction statement.
-    private void handleShowTransaction() throws AnalysisException {
-        ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
-
-        TransactionStatus status = showStmt.getStatus();
-        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
-        if (status != TransactionStatus.UNKNOWN) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    transactionMgr.getDbTransInfoByStatus(db.getId(), status));
-        } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel()));
-        } else {
-            Long txnId = showStmt.getTxnId();
-            String label = showStmt.getLabel();
-            if (!label.isEmpty()) {
-                txnId = transactionMgr.getTransactionId(db.getId(), label);
-                if (txnId == null) {
-                    throw new AnalysisException("transaction with label " + label + " does not exist");
-                }
-            }
-            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
-        }
     }
 
     private void handleShowCloudWarmUpJob() throws AnalysisException {

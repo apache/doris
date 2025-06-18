@@ -4157,10 +4157,6 @@ show_param ::=
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
     :}
-    | KW_TRANSACTION opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowTransactionStmt(dbName, parser.where);
-    :}
     | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
     {:
         RESULT = new ShowCacheHotSpotStmt(tablePath);
