@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -34,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ColumnStatistic {
@@ -94,10 +96,13 @@ public class ColumnStatistic {
     @SerializedName("updatedTime")
     public final String updatedTime;
 
+    @SerializedName("hotValue")
+    public final String hotValue;
+
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
             LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
-            String updatedTime) {
+            String updatedTime, String hotValue) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -110,6 +115,7 @@ public class ColumnStatistic {
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
         this.updatedTime = updatedTime;
+        this.hotValue = hotValue;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -187,6 +193,7 @@ public class ColumnStatistic {
             columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
         }
         columnStatisticBuilder.setUpdatedTime(row.get(13));
+        columnStatisticBuilder.setHotValue(row.get(14));
         return columnStatisticBuilder.build();
     }
 
@@ -291,6 +298,7 @@ public class ColumnStatistic {
         statistic.put("IsUnKnown", isUnKnown);
         statistic.put("Original", original);
         statistic.put("LastUpdatedTime", updatedTime);
+        statistic.put("HotValue", hotValue);
         return statistic;
     }
 
@@ -298,7 +306,7 @@ public class ColumnStatistic {
     // Histogram is got by other place
     public static ColumnStatistic fromJson(String statJson) throws AnalysisException {
         JSONObject stat = new JSONObject(statJson);
-        Double minValue;
+        double minValue;
         switch (stat.getString("MinValueType")) {
             case "Infinite":
                 minValue = Double.NEGATIVE_INFINITY;
@@ -312,7 +320,7 @@ public class ColumnStatistic {
             default:
                 throw new RuntimeException(String.format("Min value does not get anytype"));
         }
-        Double maxValue;
+        double maxValue;
         switch (stat.getString("MaxValueType")) {
             case "Infinite":
                 maxValue = Double.POSITIVE_INFINITY;
@@ -330,7 +338,16 @@ public class ColumnStatistic {
         try {
             lastUpdatedTime = stat.getString("LastUpdatedTime");
         } catch (Exception e) {
-            LOG.warn("lastUpdateTimeIsEmpty", e.getMessage());
+            LOG.warn("lastUpdateTimeIsEmpty, {}", e.getMessage());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(e);
+            }
+        }
+        String hotValue = "";
+        try {
+            hotValue = stat.getString("HotValue");
+        } catch (Exception e) {
+            LOG.warn("hotValue is empty, {}", e.getMessage());
             if (LOG.isDebugEnabled()) {
                 LOG.debug(e);
             }
@@ -349,7 +366,8 @@ public class ColumnStatistic {
             LiteralExpr.create(stat.getString("MaxExprValue"),
                     GsonUtils.GSON.fromJson(stat.getString("MaxExprType"), Type.class)),
             stat.getBoolean("IsUnKnown"),
-            lastUpdatedTime
+            lastUpdatedTime,
+            hotValue
         );
     }
 
@@ -394,5 +412,34 @@ public class ColumnStatistic {
                     .setUpdatedTime("")
                     .build();
         }
+    }
+
+    /**
+     * Get the map of column value and its row count percentage in the table.
+     * The hotValue is like:
+     * value1:percent1;value2:percent2;value3:percent3
+     * We only return the column value whose percentage is larger than 30%.
+     * @return Map of value -> percentage.
+     */
+    public Map<String, Float> getHotValues() {
+        if (hotValue == null || hotValue.isEmpty()) {
+            return null;
+        }
+        try {
+            Map<String, Float> ret = Maps.newHashMap();
+            for (String oneRow : hotValue.split(";")) {
+                int separateIndex = oneRow.lastIndexOf(":");
+                float value = Float.parseFloat(oneRow.substring(separateIndex + 1));
+                if (value >= 30) {
+                    ret.put(oneRow.substring(0, separateIndex), value);
+                }
+            }
+            if (!ret.isEmpty()) {
+                return ret;
+            }
+        } catch (Exception e) {
+            LOG.info("Failed to parse hot values [{}]. {}", hotValue, e.getMessage());
+        }
+        return null;
     }
 }

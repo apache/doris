@@ -37,6 +37,7 @@ public class ColumnStatisticBuilder {
     private ColumnStatistic original;
 
     private String updatedTime;
+    private String hotValue;
 
     public ColumnStatisticBuilder() {
     }
@@ -54,6 +55,7 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
+        this.hotValue = columnStatistic.hotValue;
     }
 
     // ATTENTION: DON'T USE FOLLOWING TWO DURING STATS DERIVING EXCEPT FOR INITIALIZATION
@@ -74,6 +76,7 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
+        this.hotValue = columnStatistic.hotValue;
     }
 
     public ColumnStatisticBuilder setNdv(double ndv) {
@@ -126,6 +129,11 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public ColumnStatisticBuilder setHotValue(String hotValue) {
+        this.hotValue = hotValue;
+        return this;
+    }
+
     public double getCount() {
         return count;
     }
@@ -175,16 +183,20 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public String getHotValue() {
+        return hotValue;
+    }
+
     public ColumnStatistic build() {
         dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
         if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
                     dataSize, minValue, maxValue, minExpr, maxExpr,
-                    isUnknown, updatedTime);
+                    isUnknown, updatedTime, hotValue);
         }
         ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
                 dataSize, minValue, maxValue, minExpr, maxExpr,
-                isUnknown, updatedTime);
+                isUnknown, updatedTime, hotValue);
         return colStats;
     }
 

@@ -66,6 +66,8 @@ public class ColStatsData {
     public final long dataSizeInBytes;
     @SerializedName("updateTime")
     public final String updateTime;
+    @SerializedName("hotValue")
+    public final String hotValue;
 
     @VisibleForTesting
     public ColStatsData() {
@@ -77,6 +79,7 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = null;
+        hotValue = null;
     }
 
     public ColStatsData(StatsId statsId) {
@@ -88,6 +91,7 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        hotValue = null;
     }
 
     public ColStatsData(ResultRow row) {
@@ -99,6 +103,7 @@ public class ColStatsData {
         this.maxLit = row.get(11);
         this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));
         this.updateTime = row.get(13);
+        this.hotValue = row.get(14);
     }
 
     public ColStatsData(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId,
@@ -111,6 +116,7 @@ public class ColStatsData {
         this.maxLit = columnStatistic.maxExpr == null ? null : columnStatistic.maxExpr.getStringValue();
         this.dataSizeInBytes = Math.round(columnStatistic.dataSize);
         this.updateTime = columnStatistic.updatedTime;
+        this.hotValue = columnStatistic.hotValue;
     }
 
     public String toSQL(boolean roundByParentheses) {
@@ -127,6 +133,7 @@ public class ColStatsData {
         sj.add(maxLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(maxLit) + "'");
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
+        sj.add(hotValue == null ? "NULL" : StatisticsUtil.quote(hotValue));
         return sj.toString();
     }
 
@@ -174,6 +181,7 @@ public class ColStatsData {
                 columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(updateTime);
+            columnStatisticBuilder.setHotValue(hotValue);
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to convert column statistics.", e);

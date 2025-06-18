@@ -37,6 +37,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.OlapTable;
@@ -502,6 +503,9 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
+        if (!InternalSchemaInitializer.isStatsTableSchemaValid()) {
+            return false;
+        }
         String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {

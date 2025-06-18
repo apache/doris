@@ -256,6 +256,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("rowCount", String.valueOf(tableRowCount));
         params.put("type", col.getType().toString());
         params.put("limit", "");
+        params.put("subStringColName", getStringTypeColName(col));
 
         // For agg table and mor unique table, set PREAGGOPEN preAggHint.
         if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
@@ -308,7 +309,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         } else {
             params.put("ndvFunction", getNdvFunction(String.valueOf(tableRowCount)));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
-            params.put("subStringColName", getStringTypeColName(col));
         }
     }
 
