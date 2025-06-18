@@ -107,7 +107,7 @@ suite("query2") {
         from catalog_sales) t),
  wswscs as 
  (select 
- /*+ leading(wscs broadcast date_dim) */
+ /*+ leading(wscs [broadcast] date_dim) */
  d_week_seq,
         sum(case when (d_day_name='Sunday') then sales_price else null end) sun_sales,
         sum(case when (d_day_name='Monday') then sales_price else null end) mon_sales,
@@ -121,7 +121,7 @@ suite("query2") {
  where d_date_sk = sold_date_sk
  group by d_week_seq)
  select 
- /*+ leading(y shuffle z) */
+ /*+ leading(y [shuffle] z) */
  d_week_seq1
        ,round(sun_sales1/sun_sales2,2)
        ,round(mon_sales1/mon_sales2,2)
@@ -132,7 +132,7 @@ suite("query2") {
        ,round(sat_sales1/sat_sales2,2)
  from
  (select 
- /*+ leading(wswscs shuffle date_dim) */
+ /*+ leading(wswscs [shuffle] date_dim) */
  wswscs.d_week_seq d_week_seq1
         ,sun_sales sun_sales1
         ,mon_sales mon_sales1
@@ -145,7 +145,7 @@ suite("query2") {
   where date_dim.d_week_seq = wswscs.d_week_seq and
         d_year = 1998) y,
  (select 
- /*+ leading(wswscs shuffle date_dim) */
+ /*+ leading(wswscs [shuffle] date_dim) */
  wswscs.d_week_seq d_week_seq2
         ,sun_sales sun_sales2
         ,mon_sales mon_sales2

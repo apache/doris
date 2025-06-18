@@ -30,10 +30,13 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.hint.HintContext;
+import org.apache.doris.nereids.hint.QbNameTreeNode;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.CollectOneLevelRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -42,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -77,15 +81,31 @@ import java.util.stream.Collectors;
  * Util for plan
  */
 public class PlanUtils {
+
+    /**
+     * add filter for plan
+     */
     public static Optional<LogicalFilter<? extends Plan>> filter(Set<Expression> predicates, Plan plan) {
         if (predicates.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new LogicalFilter<>(predicates, plan));
+        if (plan instanceof AbstractLogicalPlan) {
+            return Optional.of(new LogicalFilter<>(predicates, plan, ((AbstractLogicalPlan) plan).getHintContext()));
+        } else {
+            return Optional.of(new LogicalFilter<>(predicates, plan, Optional.empty()));
+        }
     }
 
     public static Plan filterOrSelf(Set<Expression> predicates, Plan plan) {
         return filter(predicates, plan).map(Plan.class::cast).orElse(plan);
+    }
+
+    public static Optional<HintContext> getHintContext(Plan plan) {
+        if (plan instanceof AbstractLogicalPlan) {
+            return ((AbstractLogicalPlan) plan).getHintContext();
+        } else {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -99,22 +119,33 @@ public class PlanUtils {
         return buffer.isEmpty() ? expression : expression.commute();
     }
 
+    /**
+     * add a project node
+     */
     public static Optional<LogicalProject<? extends Plan>> project(List<NamedExpression> projects, Plan plan) {
         if (projects.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new LogicalProject<>(projects, plan));
+        if (plan instanceof AbstractLogicalPlan) {
+            return Optional.of(new LogicalProject<>(projects, plan, ((AbstractLogicalPlan) plan).getHintContext()));
+        } else {
+            return Optional.of(new LogicalProject<>(projects, plan, Optional.empty()));
+        }
     }
 
     public static Plan projectOrSelf(List<NamedExpression> projects, Plan plan) {
         return project(projects, plan).map(Plan.class::cast).orElse(plan);
     }
 
+    /**
+     * add a agg node
+     */
     public static LogicalAggregate<Plan> distinct(Plan plan) {
         if (plan instanceof LogicalAggregate && ((LogicalAggregate<?>) plan).isDistinct()) {
             return (LogicalAggregate<Plan>) plan;
         } else {
-            return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan);
+            return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), false, plan,
+                    PlanUtils.getHintContext(plan));
         }
     }
 
@@ -376,7 +407,7 @@ public class PlanUtils {
      */
     public static Expr translateToLegacyExpr(Expression expression, TableIf table, ConnectContext ctx) {
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>(), Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(table, cascadesContext);
@@ -428,5 +459,54 @@ public class PlanUtils {
                 statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
         Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
         return statementContext.getTables();
+    }
+    
+    /**
+     * dump LogicalPlan tree With its current QbName
+     */
+    public static String dumpLogicalPlanWithQbName(AbstractLogicalPlan root) {
+        return TreeStringUtils.treeString(root,
+                plan -> String.format("%s_%d@%s", plan.getClass().getSimpleName(), ((AbstractLogicalPlan) plan).getId(),
+                        ((AbstractLogicalPlan) plan).getHintContext().isPresent()
+                                ? ((AbstractLogicalPlan) plan).getHintContext().get().getQbName()
+                                : "NO_QBNAME"),
+                plan -> ((AbstractTreeNode) plan).children(),
+                plan -> new ArrayList<>(),
+                plan -> false);
+    }
+
+    /**
+     * dump LogicalPlan tree With its original QbName
+     */
+    public static String dumpLogicalPlanWithOriginalQbName(AbstractLogicalPlan root) {
+        return TreeStringUtils.treeString(root,
+                plan -> String.format("%s_%d@%s", plan.getClass().getSimpleName(), ((AbstractLogicalPlan) plan).getId(),
+                        ((AbstractLogicalPlan) plan).getHintContext().isPresent()
+                                ? ((AbstractLogicalPlan) plan).getHintContext().get().getOriginalQbName()
+                                : "NO_QBNAME"),
+                plan -> ((AbstractTreeNode) plan).children(),
+                plan -> new ArrayList<>(),
+                plan -> false);
+    }
+
+    public static QbNameTreeNode createQbNameTree(Plan plan) {
+        QbNameTreeNode node = QbNameTreeNode.createQbNameNode(Optional.of("SEL#ROOT"));
+        createQbNameTree(plan, node);
+        return node;
+    }
+
+    private static void createQbNameTree(Plan rootPlan, QbNameTreeNode rootNode) {
+        AbstractLogicalPlan parentPlan = (AbstractLogicalPlan) rootPlan;
+        Optional<HintContext> hintContext = parentPlan.getHintContext();
+        QbNameTreeNode curNode = rootNode;
+        if (hintContext.isPresent()) {
+            Optional<String> qbName = hintContext.get().getQbName();
+            if (qbName.isPresent() && !qbName.get().equals(rootNode.toString())) {
+                curNode = rootNode.addChildQbName(qbName);
+            }
+        }
+        for (Plan plan : parentPlan.children()) {
+            createQbNameTree(plan, curNode);
+        }
     }
 }

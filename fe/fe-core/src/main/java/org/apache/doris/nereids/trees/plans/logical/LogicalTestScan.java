@@ -41,8 +41,9 @@ public class LogicalTestScan extends LogicalCatalogRelation {
     }
 
     private LogicalTestScan(RelationId relationId, TableIf table, List<String> qualifier,
-               Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(relationId, PlanType.LOGICAL_TEST_SCAN, table, qualifier, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(relationId, PlanType.LOGICAL_TEST_SCAN, table, qualifier, groupExpression, logicalProperties,
+                Optional.empty());
     }
 
     @Override

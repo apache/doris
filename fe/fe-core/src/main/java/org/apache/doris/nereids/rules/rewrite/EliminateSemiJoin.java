@@ -46,7 +46,7 @@ public class EliminateSemiJoin extends OneRewriteRuleFactory {
                             case RIGHT_SEMI_JOIN: {
                                 return new LogicalEmptyRelation(
                                         StatementScopeIdGenerator.newRelationId(),
-                                        join.getOutput());
+                                        join.getOutput(), join.getHintContext());
                             }
                             case NULL_AWARE_LEFT_ANTI_JOIN:
                             case LEFT_ANTI_JOIN: {

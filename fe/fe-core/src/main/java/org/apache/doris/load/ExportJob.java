@@ -321,15 +321,16 @@ public class ExportJob implements Writable {
             List<String> partitions, List<NamedExpression> selectLists) {
         // UnboundRelation
         LogicalPlan plan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), qualifiedTableName,
-                partitions, false, tabletIds, ImmutableList.of(), Optional.empty(), Optional.empty());
+                partitions, false, tabletIds, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
         // LogicalCheckPolicy
-        plan = new LogicalCheckPolicy<>(plan);
+        plan = new LogicalCheckPolicy<>(plan, Optional.empty());
         // LogicalFilter
         if (this.whereExpression.isPresent()) {
-            plan = new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(this.whereExpression.get()), plan);
+            plan = new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(this.whereExpression.get()), plan,
+                    Optional.empty());
         }
         // LogicalFilter
-        plan = new LogicalProject(selectLists, plan);
+        plan = new LogicalProject(selectLists, plan, Optional.empty());
         // LogicalFileSink
         plan = new LogicalFileSink<>(this.exportPath, this.format, convertOutfileProperties(),
                 ImmutableList.of(), plan);

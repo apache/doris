@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.util.TreeStringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Abstract class for leading hint plan node
@@ -34,7 +36,8 @@ public abstract class DummyPlan extends AbstractTreeNode<DummyPlan> {
         super(children);
     }
 
-    public abstract void collectParamsForLeadingHint(List<String> params);
+    public abstract void collectParamsForLeadingHint(List<String> params, Map<String, DistributeHint> strToHint,
+            List<String> errs);
 
     public String treeString() {
         return TreeStringUtils.treeString(this,

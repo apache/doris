@@ -57,8 +57,9 @@ public class OneRowRelationExtractAggregate extends OneAnalysisRuleFactory {
                             .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
                     if (needGlobalAggregate) {
                         LogicalRelation newRelation = new LogicalOneRowRelation(relation.getRelationId(),
-                                ImmutableList.of());
-                        return new LogicalAggregate<>(ImmutableList.of(), relation.getOutputs(), newRelation);
+                                ImmutableList.of(), relation.getHintContext());
+                        return new LogicalAggregate<>(ImmutableList.of(), relation.getOutputs(), newRelation,
+                                relation.getHintContext());
                     } else {
                         return relation;
                     }

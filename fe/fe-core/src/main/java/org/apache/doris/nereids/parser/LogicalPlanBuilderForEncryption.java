@@ -37,8 +37,9 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     private final Map<Pair<Integer, Integer>, String> indexInSqlToString;
 
     public LogicalPlanBuilderForEncryption(Map<Integer, ParserRuleContext> selectHintMap,
-                                           Map<Pair<Integer, Integer>, String> indexInSqlToString) {
-        super(selectHintMap);
+            Map<Integer, String> errorHintMap,
+            Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        super(selectHintMap, errorHintMap);
         this.indexInSqlToString = Objects.requireNonNull(indexInSqlToString, "indexInSqlToString is null");
     }
 
@@ -57,9 +58,11 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // export into outfile clause
     @Override
     public BrokerDesc visitWithRemoteStorageSystem(DorisParser.WithRemoteStorageSystemContext ctx) {
-        Map<String, String> properties = visitPropertyItemList(ctx.brokerProperties);
-        encryptProperty(properties, ctx.brokerProperties.start.getStartIndex(),
-                ctx.brokerProperties.stop.getStopIndex());
+        if (ctx.brokerProperties != null) {
+            Map<String, String> properties = visitPropertyItemList(ctx.brokerProperties);
+            encryptProperty(properties, ctx.brokerProperties.start.getStartIndex(),
+                    ctx.brokerProperties.stop.getStopIndex());
+        }
         return super.visitWithRemoteStorageSystem(ctx);
     }
 

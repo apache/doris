@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -42,20 +43,20 @@ import java.util.Optional;
  */
 public class LogicalExcept extends LogicalSetOperation {
 
-    public LogicalExcept(Qualifier qualifier, List<Plan> inputs) {
-        super(PlanType.LOGICAL_EXCEPT, qualifier, inputs);
+    public LogicalExcept(Qualifier qualifier, List<Plan> inputs, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_EXCEPT, qualifier, inputs, hintContext);
     }
 
     public LogicalExcept(Qualifier qualifier, List<NamedExpression> outputs,
-            List<List<SlotReference>> childrenOutputs, List<Plan> children) {
-        super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, childrenOutputs, children);
+            List<List<SlotReference>> childrenOutputs, List<Plan> children, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, childrenOutputs, children, hintContext);
     }
 
     public LogicalExcept(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> children) {
+            List<Plan> children, Optional<HintContext> hintContext) {
         super(PlanType.LOGICAL_EXCEPT, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     @Override
@@ -74,7 +75,17 @@ public class LogicalExcept extends LogicalSetOperation {
 
     @Override
     public LogicalExcept withChildren(List<Plan> children) {
-        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children);
+        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children, hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, children, hintContext);
     }
 
     @Override
@@ -83,26 +94,26 @@ public class LogicalExcept extends LogicalSetOperation {
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalExcept(qualifier, outputs, childrenOutputs, children);
+        return new LogicalExcept(qualifier, outputs, childrenOutputs, children, hintContext);
     }
 
     @Override
     public LogicalExcept withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalExcept(qualifier, outputs, regularChildrenOutputs, groupExpression,
-                Optional.of(getLogicalProperties()), children);
+                Optional.of(getLogicalProperties()), children, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalExcept(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     @Override
     public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalExcept(qualifier, newOutputs, regularChildrenOutputs,
-                Optional.empty(), Optional.empty(), children);
+                Optional.empty(), Optional.empty(), children, hintContext);
     }
 
     private Map<Slot, Slot> constructReplaceMapForChild(int index) {

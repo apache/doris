@@ -39,7 +39,9 @@ public class SplitLimit extends OneRewriteRuleFactory {
                     long l = limit.getLimit();
                     long o = limit.getOffset();
                     return new LogicalLimit<>(l, o,
-                            LimitPhase.GLOBAL, new LogicalLimit<>(l + o, 0, LimitPhase.LOCAL, limit.child())
+                            LimitPhase.GLOBAL,
+                            new LogicalLimit<>(l + o, 0, LimitPhase.LOCAL, limit.child(), limit.getHintContext()),
+                            limit.getHintContext()
                     );
                 }).toRule(RuleType.SPLIT_LIMIT);
     }

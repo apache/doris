@@ -166,7 +166,7 @@ limit 100"""
          ,d_year
          )
   select  
-  /*+ leading(t_w_secyear {t_s_secyear t_s_firstyear t_w_firstyear}) */
+  /*+ leading(t_w_secyear (t_s_secyear t_s_firstyear t_w_firstyear)) */
                   t_s_secyear.customer_id
                  ,t_s_secyear.customer_first_name
                  ,t_s_secyear.customer_last_name

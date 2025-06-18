@@ -38,14 +38,14 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     protected final List<NamedExpression> outputExprs;
 
     public LogicalSink(PlanType type, List<NamedExpression> outputExprs, CHILD_TYPE child) {
-        super(type, child);
+        super(type, child, Optional.empty());
         this.outputExprs = ImmutableList.copyOf(Objects.requireNonNull(outputExprs, "outputExprs should not null"));
     }
 
     public LogicalSink(PlanType type, List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(type, groupExpression, logicalProperties, child);
+        super(type, groupExpression, logicalProperties, child, Optional.empty());
         this.outputExprs = ImmutableList.copyOf(Objects.requireNonNull(outputExprs, "outputExprs should not null"));
     }
 

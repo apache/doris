@@ -33,6 +33,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class SumLiteralRewriteTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
@@ -44,7 +46,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Alias sub1 = new Alias(new Sum(new Subtract(slot1, Literal.of(1))));
         Alias sub2 = new Alias(new Sum(new Subtract(slot1, Literal.of(2))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -52,7 +54,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
 
         Alias sum = new Alias(new Sum(slot1));
         agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -67,7 +69,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Alias sub1 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(1))));
         Alias sub2 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(2))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -75,7 +77,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
 
         Alias sum = new Alias(new Sum(false, true, slot1));
         agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sum, add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -90,7 +92,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Alias sub1 = new Alias(new Sum(true, true, new Subtract(slot1, Literal.of(1))));
         Alias sub2 = new Alias(new Sum(false, true, new Subtract(slot1, Literal.of(2))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -98,7 +100,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
 
         Alias sumDistinct = new Alias(new Sum(true, true, slot1));
         agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -106,7 +108,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
 
         Alias sum = new Alias(new Sum(false, true, slot1));
         agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, sum, add1, add2, sub1, sub2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(sumDistinct, sum, add1, add2, sub1, sub2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -118,7 +120,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Slot slot1 = scan1.getOutput().get(0);
         Alias add1 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(1))));
         LogicalAggregate<?> agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -127,7 +129,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Slot slot2 = new Alias(scan1.getOutput().get(0)).toSlot();
         Alias add2 = new Alias(new Sum(false, true, new Add(slot2, Literal.of(2))));
         agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()
@@ -136,7 +138,7 @@ class SumLiteralRewriteTest implements MemoPatternMatchSupported {
         Alias add3 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(3))));
         Alias add4 = new Alias(new Sum(false, true, new Add(slot1, Literal.of(4))));
         agg = new LogicalAggregate<>(
-                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, add3, add4), scan1);
+                ImmutableList.of(scan1.getOutput().get(0)), ImmutableList.of(add1, add2, add3, add4), scan1, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), agg)
                 .applyTopDown(ImmutableList.of(new SumLiteralRewrite().build()))
                 .printlnTree()

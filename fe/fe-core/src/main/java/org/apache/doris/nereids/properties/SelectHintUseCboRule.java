@@ -27,8 +27,8 @@ public class SelectHintUseCboRule extends SelectHint {
 
     private final boolean isNotUseCboRule;
 
-    public SelectHintUseCboRule(String hintName, List<String> parameters, boolean isNotUseCboRule) {
-        super(hintName);
+    public SelectHintUseCboRule(String hintName, List<String> parameters, boolean isNotUseCboRule, String err) {
+        super(hintName, err);
         this.parameters = parameters;
         this.isNotUseCboRule = isNotUseCboRule;
     }

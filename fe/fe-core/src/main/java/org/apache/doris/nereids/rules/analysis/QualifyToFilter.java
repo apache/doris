@@ -28,7 +28,7 @@ public class QualifyToFilter extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalQualify()
-            .then(qualify -> new LogicalFilter<>(qualify.getConjuncts(), qualify.child()))
+            .then(qualify -> new LogicalFilter<>(qualify.getConjuncts(), qualify.child(), qualify.getHintContext()))
             .toRule(RuleType.QUALIFY_TO_FILTER);
     }
 }

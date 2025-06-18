@@ -59,7 +59,7 @@ public class LogicalPreFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
 
     private LogicalPreFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child, Optional.empty());
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
@@ -76,7 +76,9 @@ public class LogicalPreFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHIL
     public List<? extends Plan> extraPlans() {
         return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
             if (m instanceof SubqueryExpr) {
-                return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
+                return Stream
+                        .of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan(),
+                                Optional.empty()));
             } else {
                 return new LogicalPreFilter<Plan>(ImmutableSet.of(m), child()).extraPlans().stream();
             }

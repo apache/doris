@@ -37,8 +37,11 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.QbNameTreeNode;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.parser.Location;
+import org.apache.doris.nereids.properties.SelectHintQbName;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -219,9 +222,12 @@ public class StatementContext implements Closeable {
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
-    private final Map<RelationId, String> relationIdToQbNameMap = new HashMap<>();
+    private final Map<Pair<Optional<String>, String>, List<QbNameTreeNode>> subQueryAliasToQbName = new TreeMap<>(
+            new Pair.NewPairComparator<>());
 
-    private final Map<RelationId, String> relationIdToTableNameMap = new HashMap<>();
+    private final Map<Optional<String>, Optional<String>> newQbNameToOldQbName = Maps.newHashMap();
+
+    private final Map<Pair<Optional<String>, String>, RelationId> subQueryAliasToRelationId = new HashMap<>();
 
     // Indicates the query is short-circuited in both plan and execution phase, typically
     // for high speed/concurrency point queries
@@ -258,6 +264,8 @@ public class StatementContext implements Closeable {
 
     private boolean prepareStage = false;
 
+    private QbNameTreeNode rootQbNameNode;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -288,6 +296,20 @@ public class StatementContext implements Closeable {
         } else {
             this.sqlCacheContext = null;
         }
+        rootQbNameNode = QbNameTreeNode.createQbNameNode(Optional.of("SEL#ROOT"));
+    }
+
+    public QbNameTreeNode findQbNameNode(Optional<String> qbName) {
+        return QbNameTreeNode.findQbNameNode(rootQbNameNode, qbName);
+    }
+
+    public QbNameTreeNode findOrGetRootQbNameNode(Optional<String> qbName) {
+        QbNameTreeNode node = QbNameTreeNode.findQbNameNode(rootQbNameNode, qbName);
+        return node != null ? node : rootQbNameNode;
+    }
+
+    public String dumpQbNameTree() {
+        return rootQbNameNode.treeString();
     }
 
     public void setNeedLockTables(boolean needLockTables) {
@@ -643,12 +665,35 @@ public class StatementContext implements Closeable {
         return relationIdToStatisticsMap;
     }
 
-    public Optional<String> getQbName(RelationId id) {
-        return Optional.ofNullable(this.relationIdToQbNameMap.get(id));
+    public void addSubqueryAliasToQbName(Pair<Optional<String>, String> subqueryAlias,
+            List<QbNameTreeNode> qbNameNode) {
+        this.subQueryAliasToQbName.put(subqueryAlias, qbNameNode);
     }
 
-    public void addRelationIdToQbName(RelationId id, String qbName) {
-        this.relationIdToQbNameMap.put(id, qbName);
+    public void addSubqueryAliasToRelationId(Pair<Optional<String>, String> subqueryAlias, RelationId relationId) {
+        this.subQueryAliasToRelationId.put(subqueryAlias, relationId);
+    }
+
+    public void addQbNameMapping(Optional<String> oldName, Optional<String> newName) {
+        newQbNameToOldQbName.put(newName, oldName);
+    }
+
+    /**
+     * find Original QbName
+     */
+    public Optional<String> findOriginalQbName(Optional<String> qbName) {
+        Optional<String> originalName = qbName;
+        Optional<String> currentName = null;
+        currentName = newQbNameToOldQbName.get(qbName);
+        while (currentName != null) {
+            originalName = currentName;
+            currentName = newQbNameToOldQbName.get(currentName);
+        }
+        return originalName;
+    }
+
+    public String getNextQbName() {
+        return String.format("%s%s", SelectHintQbName.DEFAULT_QB_NAME_PREFIX, getNextQueryBlockId());
     }
 
     /**

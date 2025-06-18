@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -288,7 +289,7 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
             return null;
         }
         LogicalDeferMaterializeOlapScan deferOlapScan = new LogicalDeferMaterializeOlapScan(
-                logicalOlapScan, deferredMaterializedExprIds, columnId);
+                logicalOlapScan, deferredMaterializedExprIds, columnId, logicalOlapScan.getHintContext());
         Plan root = logicalFilter.map(f -> f.withChildren(deferOlapScan)).orElse(deferOlapScan);
         Set<Slot> inputSlots = Sets.newHashSet();
         logicalFilter.ifPresent(filter -> inputSlots.addAll(filter.getInputSlots()));
@@ -301,10 +302,10 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                 }
             }
             requiredSlots.add(columnId);
-            root = new LogicalProject<>(requiredSlots.build(), root);
+            root = new LogicalProject<>(requiredSlots.build(), root, PlanUtils.getHintContext(root));
         }
         root = new LogicalDeferMaterializeTopN<>((LogicalTopN<? extends Plan>) logicalTopN.withChildren(root),
-                deferredMaterializedExprIds, columnId);
+                deferredMaterializedExprIds, columnId, logicalTopN.getHintContext());
         if (logicalProject.isPresent()) {
             // generate projections with the order exactly same as result output's
             Map<Slot, NamedExpression> projectsMap = Maps.newHashMap();

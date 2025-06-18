@@ -129,7 +129,7 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
 
         List<NamedExpression> newProjects = constructProjectExpression(agg, sumLiteralMap, exprToSum, exprToCount);
 
-        return new LogicalProject<>(newProjects, newAgg);
+        return new LogicalProject<>(newProjects, newAgg, newAgg.getHintContext());
     }
 
     private List<NamedExpression> constructProjectExpression(

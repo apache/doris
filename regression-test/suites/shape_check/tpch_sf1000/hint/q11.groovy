@@ -40,7 +40,7 @@ suite("q11") {
     qt_select """
     explain shape plan
     select  
-    /*+ leading(partsupp {supplier nation}) */
+    /*+ leading(partsupp (supplier nation)) */
         ps_partkey,
         sum(ps_supplycost * ps_availqty) as value
     from

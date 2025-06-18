@@ -83,18 +83,18 @@ public class LogicalPlanBuilder {
         for (Integer index : slotsIndex) {
             projectExprs.add(this.plan.getOutput().get(index));
         }
-        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan, Optional.empty());
         return from(project);
     }
 
     public LogicalPlanBuilder projectAll() {
         LogicalProject<LogicalPlan> project = new LogicalProject<>(ImmutableList.copyOf(this.plan.getOutput()),
-                this.plan);
+                this.plan, Optional.empty());
         return from(project);
     }
 
     public LogicalPlanBuilder projectExprs(List<NamedExpression> projectExprs) {
-        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan, Optional.empty());
         return from(project);
     }
 
@@ -105,7 +105,7 @@ public class LogicalPlanBuilder {
         for (int i = 0; i < slotsIndex.size(); i++) {
             projectExprs.add(new Alias(this.plan.getOutput().get(slotsIndex.get(i)), alias.get(i)));
         }
-        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan, Optional.empty());
         return from(project);
     }
 
@@ -116,7 +116,7 @@ public class LogicalPlanBuilder {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
                 Collections.emptyList(), Collections.emptyList(),
                 new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
-                this.plan, right, null);
+                this.plan, right, null, Optional.empty());
         return from(join);
     }
 
@@ -127,7 +127,7 @@ public class LogicalPlanBuilder {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, Collections.emptyList(),
                 Collections.emptyList(), new ArrayList<>(markConjuncts),
                 new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
-                this.plan, right, null);
+                this.plan, right, null, Optional.empty());
         return from(join);
     }
 
@@ -136,7 +136,7 @@ public class LogicalPlanBuilder {
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
-                this.plan, right, null);
+                this.plan, right, null, Optional.empty());
         return from(join);
     }
 
@@ -147,29 +147,29 @@ public class LogicalPlanBuilder {
                 .collect(Collectors.toList());
 
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
-                this.plan, right, null);
+                this.plan, right, null, Optional.empty());
         return from(join);
     }
 
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
-                new DistributeHint(DistributeType.NONE), Optional.empty(), this.plan, right, null);
+                new DistributeHint(DistributeType.NONE), Optional.empty(), this.plan, right, null, Optional.empty());
         return from(join);
     }
 
     public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right, null);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right, null, Optional.empty());
         return from(join);
     }
 
     public LogicalPlanBuilder sort(List<OrderKey> orderKeys) {
-        LogicalSort<LogicalPlan> sortPlan = new LogicalSort<>(orderKeys, this.plan);
+        LogicalSort<LogicalPlan> sortPlan = new LogicalSort<>(orderKeys, this.plan, Optional.empty());
         return from(sortPlan);
     }
 
     public LogicalPlanBuilder limit(long limit, long offset) {
-        LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, this.plan);
+        LogicalLimit<LogicalPlan> limitPlan = new LogicalLimit<>(limit, offset, LimitPhase.ORIGIN, this.plan, Optional.empty());
         return from(limitPlan);
     }
 
@@ -181,7 +181,7 @@ public class LogicalPlanBuilder {
         List<OrderKey> orderKeys = orderKeySlotsIndex.stream()
                 .map(i -> new OrderKey(this.plan.getOutput().get(i), false, false))
                 .collect(Collectors.toList());
-        LogicalTopN<Plan> topNPlan = new LogicalTopN<>(orderKeys, limit, offset, this.plan);
+        LogicalTopN<Plan> topNPlan = new LogicalTopN<>(orderKeys, limit, offset, this.plan, Optional.empty());
         return from(topNPlan);
     }
 
@@ -190,7 +190,7 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder filter(Set<Expression> conjuncts) {
-        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(conjuncts, this.plan);
+        LogicalFilter<LogicalPlan> filter = new LogicalFilter<>(conjuncts, this.plan, Optional.empty());
         return from(filter);
     }
 
@@ -207,7 +207,7 @@ public class LogicalPlanBuilder {
         }
         ImmutableList<NamedExpression> outputExprsList = outputBuilder.build();
 
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan, Optional.empty());
         return from(agg);
     }
 
@@ -225,7 +225,7 @@ public class LogicalPlanBuilder {
         }
         List<Expression> groupByKeys = groupByBuilder.build();
 
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, sourceRepeat, this.plan);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, sourceRepeat, this.plan, Optional.empty());
         return from(agg);
     }
 
@@ -236,22 +236,22 @@ public class LogicalPlanBuilder {
         }
         List<NamedExpression> groupByKeys = groupByBuilder.build();
 
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, false, this.plan);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, false, this.plan, Optional.empty());
         return from(agg);
     }
 
     public LogicalPlanBuilder agg(List<Expression> groupByKeys, List<NamedExpression> outputExprsList) {
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan, Optional.empty());
         return from(agg);
     }
 
     public LogicalPlanBuilder assertNumRows(Assertion assertion, long numRows) {
         LogicalAssertNumRows<LogicalPlan> assertNumRows = new LogicalAssertNumRows<>(
-                new AssertNumRowsElement(numRows, "", assertion), this.plan);
+                new AssertNumRowsElement(numRows, "", assertion), this.plan, Optional.empty());
         return from(assertNumRows);
     }
 
     public LogicalPlanBuilder intersect(List<Plan> children) {
-        return from(new LogicalIntersect(Qualifier.DISTINCT, children));
+        return from(new LogicalIntersect(Qualifier.DISTINCT, children, Optional.empty()));
     }
 }

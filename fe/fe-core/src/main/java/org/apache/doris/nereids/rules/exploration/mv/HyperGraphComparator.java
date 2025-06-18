@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashMultimap;
@@ -179,7 +180,7 @@ public class HyperGraphComparator {
         if (projects == null) {
             return null;
         }
-        return new LogicalProject<>(projects, basePlan);
+        return new LogicalProject<>(projects, basePlan, PlanUtils.getHintContext(basePlan));
     }
 
     private boolean canEliminatePrimaryByForeign(long primaryNodes, long foreignNodes,

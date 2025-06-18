@@ -76,7 +76,7 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
                     if (newPredicates.size() == filter.getConjuncts().size()) {
                         return null;
                     }
-                    return new LogicalFilter<>(newPredicates, filter.child());
+                    return new LogicalFilter<>(newPredicates, filter.child(), filter.getHintContext());
                 }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION),
                 logicalJoin().when(join -> ALLOW_JOIN_TYPE.contains(join.getJoinType())).then(join -> {
                     List<Set<String>> qualifierBatches = Lists.newArrayList();

@@ -29,7 +29,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[warehouse]
 
 Hint log:
-Used: leading(catalog_returns { catalog_sales item date_dim } warehouse )
-UnUsed:
+Used: leading(catalog_returns (catalog_sales item date_dim) warehouse)
+UnUsed: 
 SyntaxError:
 

@@ -104,6 +104,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.Optional;
 
 class FoldConstantTest extends ExpressionRewriteTestHelper {
 
@@ -1174,7 +1175,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     void testFoldTypeOfNullLiteral() {
         String actualExpression = "append_trailing_char_if_absent(cast(version() as varchar), cast(null as varchar))";
         ExpressionRewriteContext context = new ExpressionRewriteContext(
-                MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));
+                MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"), Optional.empty())));
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
@@ -1205,7 +1206,7 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
         ExpressionRewriteContext context = new ExpressionRewriteContext(
-                MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));
+                MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"), Optional.empty())));
 
         NereidsParser parser = new NereidsParser();
         Expression e1 = parser.parseExpression(actualExpression);

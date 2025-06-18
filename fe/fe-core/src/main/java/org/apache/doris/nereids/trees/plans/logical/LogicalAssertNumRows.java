@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -50,13 +51,14 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     private final AssertNumRowsElement assertNumRowsElement;
 
-    public LogicalAssertNumRows(AssertNumRowsElement assertNumRowsElement, CHILD_TYPE child) {
-        this(assertNumRowsElement, Optional.empty(), Optional.empty(), child);
+    public LogicalAssertNumRows(AssertNumRowsElement assertNumRowsElement, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(assertNumRowsElement, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     public LogicalAssertNumRows(AssertNumRowsElement assertNumRowsElement, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_ASSERT_NUM_ROWS, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_ASSERT_NUM_ROWS, groupExpression, logicalProperties, child, hintContext);
         this.assertNumRowsElement = Objects.requireNonNull(assertNumRowsElement,
                 "assertNumRowsElement can not be null");
     }
@@ -101,20 +103,32 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     @Override
     public LogicalUnary<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalAssertNumRows<>(assertNumRowsElement, children.get(0));
+        return new LogicalAssertNumRows<>(assertNumRowsElement, children.get(0), hintContext);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalAssertNumRows<>(assertNumRowsElement,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalAssertNumRows<>(assertNumRowsElement, groupExpression, logicalProperties, children.get(0));
+        return new LogicalAssertNumRows<>(assertNumRowsElement, groupExpression, logicalProperties, children.get(0),
+                hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalAssertNumRows<>(assertNumRowsElement, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalAssertNumRows<>(assertNumRowsElement, children.get(0), hintContext);
     }
 
     @Override

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -79,7 +80,8 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 Alias alias = new Alias(union);
                 List<NamedExpression> outputExpressions = Lists.newArrayList(alias);
 
-                LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right());
+                LogicalAggregate agg = new LogicalAggregate(groupExpressions, outputExpressions, apply.right(),
+                        PlanUtils.getHintContext(apply.right()));
                 Expression compareExpr = apply.getCompareExpr().get();
                 Expression expr = new BitmapContains(agg.getOutput().get(0), compareExpr);
                 if (apply.isNot()) {
@@ -89,7 +91,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         Lists.newArrayList(expr),
                         new DistributeHint(DistributeType.NONE),
                         apply.getMarkJoinSlotReference(),
-                        apply.left(), agg, null);
+                        apply.left(), agg, null, apply.getHintContext());
             }
 
             //in-predicate to equal
@@ -117,7 +119,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         apply.isNot() ? JoinType.LEFT_ANTI_JOIN : JoinType.LEFT_SEMI_JOIN,
                         Lists.newArrayList(), joinConjuncts, markConjuncts,
                         new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
-                        apply.children(), null);
+                        apply.children(), null, apply.getHintContext());
             } else {
                 // apply.isCorrelated() only check if correlated slot exits
                 // but correlation filter may be eliminated by SimplifyConflictCompound rule
@@ -143,12 +145,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                                     ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                                     : JoinType.LEFT_ANTI_JOIN,
                             Lists.newArrayList(), conjuncts, new DistributeHint(DistributeType.NONE),
-                            apply.getMarkJoinSlotReference(), apply.children(), null);
+                            apply.getMarkJoinSlotReference(), apply.children(), null, apply.getHintContext());
                 } else {
                     return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                             conjuncts,
                             new DistributeHint(DistributeType.NONE), apply.getMarkJoinSlotReference(),
-                            apply.children(), null);
+                            apply.children(), null, apply.getHintContext());
                 }
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

@@ -79,7 +79,8 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             ctx.cascadesContext.addPlanProcesses(outerCascadesCtx.getPlanProcesses());
             // should construct anchor from back to front, because the cte behind depends on the front
             for (int i = result.second.size() - 1; i >= 0; i--) {
-                root = new LogicalCTEAnchor<>(result.second.get(i).getCteId(), result.second.get(i), root);
+                root = new LogicalCTEAnchor<>(result.second.get(i).getCteId(), result.second.get(i), root,
+                        logicalCTE.getHintContext());
             }
             return root;
         }).toRule(RuleType.ANALYZE_CTE);
@@ -109,7 +110,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
                     aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
             outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
             outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
-            cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));
+            cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias, logicalCTE.getHintContext()));
         }
         return Pair.of(outerCteCtx, cteProducerPlans);
     }

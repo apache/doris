@@ -89,7 +89,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             return null;
         }
         project = (LogicalProject<? extends Plan>) project.withChildren(
-                new LogicalFilter<>(pushDownPredicates, project.child()));
+                new LogicalFilter<>(pushDownPredicates, project.child(), filter.getHintContext()));
         return PlanUtils.filterOrSelf(remainPredicates, project);
     }
 
@@ -108,7 +108,7 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
             return null;
         }
         project = project.withProjectsAndChild(project.getProjects(),
-                new LogicalFilter<>(pushDownPredicates, limit.withChildren(project.child())));
+                new LogicalFilter<>(pushDownPredicates, limit.withChildren(project.child()), filter.getHintContext()));
         return PlanUtils.filterOrSelf(remainPredicates, project);
     }
 

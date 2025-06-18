@@ -70,7 +70,8 @@ public class NormalizeSort extends OneRewriteRuleFactory {
                     List<NamedExpression> topProjections = (List) sort.getOutput();
                     return new LogicalProject<>(topProjections, sort.withOrderKeysAndChild(
                             newOrderKeys.build(),
-                            new LogicalProject<>(bottomProjections, sort.child())));
+                            new LogicalProject<>(bottomProjections, sort.child(), sort.getHintContext())),
+                            sort.getHintContext());
                 }).toRule(RuleType.NORMALIZE_SORT);
     }
 

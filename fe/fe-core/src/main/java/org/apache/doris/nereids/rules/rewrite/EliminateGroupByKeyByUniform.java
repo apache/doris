@@ -107,8 +107,8 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
         /* select 1 c1 from test group by c; -> select 1 c1 from test limit 1 */
         if (newGroupBy.isEmpty() && aggregate.getAggregateFunctions().isEmpty()) {
             LogicalProject<Plan> newProject = new LogicalProject<>(
-                    Utils.fastToImmutableList(aggregate.getOutput()), aggregate.child());
-            return new LogicalLimit<Plan>(1, 0, LimitPhase.GLOBAL, newProject);
+                    Utils.fastToImmutableList(aggregate.getOutput()), aggregate.child(), aggregate.getHintContext());
+            return new LogicalLimit<Plan>(1, 0, LimitPhase.GLOBAL, newProject, aggregate.getHintContext());
         }
         // when newGroupBy is empty, need retain one expr in group by, otherwise the result may be wrong in empty table
         if (newGroupBy.isEmpty()) {

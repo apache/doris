@@ -28,7 +28,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[web_site]
 
 Hint log:
-Used: leading(web_sales date_dim warehouse ship_mode web_site )
-UnUsed:
+Used: leading(web_sales date_dim warehouse ship_mode web_site)
+UnUsed: 
 SyntaxError:
 

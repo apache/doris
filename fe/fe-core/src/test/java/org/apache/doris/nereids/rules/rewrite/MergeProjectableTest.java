@@ -35,12 +35,13 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * MergeConsecutiveProjects ut
  */
 public class MergeProjectableTest implements MemoPatternMatchSupported {
-    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score, Optional.empty());
 
     @Test
     public void testMergeConsecutiveProjects() {
@@ -68,12 +69,12 @@ public class MergeProjectableTest implements MemoPatternMatchSupported {
         Alias alias = new Alias(new Add(score.getOutput().get(0), Literal.of(1)), "X");
         LogicalProject<LogicalOlapScan> bottomProject = new LogicalProject<>(
                 Lists.newArrayList(score.getOutput().get(1), score.getOutput().get(2), alias),
-                score);
+                score, Optional.empty());
 
         LogicalProject<LogicalProject<LogicalOlapScan>> topProject = new LogicalProject<>(
                 Lists.newArrayList(
                         new Alias(new Add(bottomProject.getOutput().get(2), Literal.of(2)), "Y")),
-                bottomProject);
+                bottomProject, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topProject)
                 .applyTopDown(new MergeProjectable())
@@ -90,10 +91,10 @@ public class MergeProjectableTest implements MemoPatternMatchSupported {
         // project(b+1 as c)
         // -> project(a+1 as b)
         LogicalProject<LogicalOlapScan> bottomProject = new LogicalProject<>(
-                ImmutableList.of(new Alias(new Add(score.getOutput().get(0), Literal.of(1)), "b")), score);
+                ImmutableList.of(new Alias(new Add(score.getOutput().get(0), Literal.of(1)), "b")), score, Optional.empty());
         LogicalProject<LogicalProject<LogicalOlapScan>> topProject = new LogicalProject<>(
                 ImmutableList.of(new Alias(new Add(bottomProject.getOutput().get(0), Literal.of(1)), "b")),
-                bottomProject);
+                bottomProject, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), topProject)
                 .applyTopDown(new MergeProjectable())
                 .matches(

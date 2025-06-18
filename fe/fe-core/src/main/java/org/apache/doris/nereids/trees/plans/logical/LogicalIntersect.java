@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -41,21 +42,21 @@ import java.util.Optional;
  */
 public class LogicalIntersect extends LogicalSetOperation {
 
-    public LogicalIntersect(Qualifier qualifier, List<Plan> children) {
-        super(PlanType.LOGICAL_INTERSECT, qualifier, children);
+    public LogicalIntersect(Qualifier qualifier, List<Plan> children, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_INTERSECT, qualifier, children, hintContext);
     }
 
     public LogicalIntersect(Qualifier qualifier, List<NamedExpression> outputs,
-            List<List<SlotReference>> childrenOutputs, List<Plan> children) {
-        super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, childrenOutputs, children);
+            List<List<SlotReference>> childrenOutputs, List<Plan> children, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, childrenOutputs, children, hintContext);
     }
 
     public LogicalIntersect(Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> children) {
+            List<Plan> children, Optional<HintContext> hintContext) {
         super(PlanType.LOGICAL_INTERSECT, qualifier, outputs, childrenOutputs,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     @Override
@@ -74,7 +75,17 @@ public class LogicalIntersect extends LogicalSetOperation {
 
     @Override
     public LogicalIntersect withChildren(List<Plan> children) {
-        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, children);
+        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, children, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, children, hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, children, hintContext);
     }
 
     @Override
@@ -83,26 +94,26 @@ public class LogicalIntersect extends LogicalSetOperation {
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalIntersect(qualifier, outputs, childrenOutputs, children);
+        return new LogicalIntersect(qualifier, outputs, childrenOutputs, children, hintContext);
     }
 
     @Override
     public LogicalIntersect withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs, groupExpression,
-                Optional.of(getLogicalProperties()), children);
+                Optional.of(getLogicalProperties()), children, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     @Override
     public LogicalIntersect withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalIntersect(qualifier, newOutputs, regularChildrenOutputs,
-                Optional.empty(), Optional.empty(), children);
+                Optional.empty(), Optional.empty(), children, hintContext);
     }
 
     Map<Slot, Slot> constructReplaceMap() {

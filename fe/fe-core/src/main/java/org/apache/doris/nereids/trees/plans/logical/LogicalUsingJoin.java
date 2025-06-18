@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -50,8 +51,8 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
     private final DistributeHint hint;
 
     public LogicalUsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
-            List<Expression> usingSlots, DistributeHint hint) {
-        this(joinType, leftChild, rightChild, usingSlots, Optional.empty(), Optional.empty(), hint);
+            List<Expression> usingSlots, DistributeHint hint, Optional<HintContext> hintContext) {
+        this(joinType, leftChild, rightChild, usingSlots, Optional.empty(), Optional.empty(), hint, hintContext);
     }
 
     /**
@@ -59,8 +60,8 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
      */
     public LogicalUsingJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
             List<Expression> usingSlots, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, DistributeHint hint) {
-        super(PlanType.LOGICAL_USING_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
+            Optional<LogicalProperties> logicalProperties, DistributeHint hint, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_USING_JOIN, groupExpression, logicalProperties, leftChild, rightChild, hintContext);
         this.joinType = joinType;
         this.usingSlots = ImmutableList.copyOf(usingSlots);
         this.hint = hint;
@@ -74,20 +75,32 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalUsingJoin<>(joinType, child(0), child(1),
-                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint);
+                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
-                usingSlots, groupExpression, logicalProperties, hint);
+                usingSlots, groupExpression, logicalProperties, hint, hintContext);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
-                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint);
+                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
+                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint, hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
+                usingSlots, groupExpression, Optional.of(getLogicalProperties()), hint, hintContext);
     }
 
     @Override

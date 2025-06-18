@@ -53,7 +53,7 @@ suite("query82") {
     qt_ds_shape_82 '''
     explain shape plan
     select 
-    /*+ leading(store_sales {inventory item date_dim}) */
+    /*+ leading(store_sales (inventory item date_dim)) */
      i_item_id
        ,i_item_desc
        ,i_current_price

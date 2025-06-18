@@ -45,6 +45,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.HeartbeatFlags;
 
 import java.util.ArrayList;
+import java.util.Optional;
 
 /**
  * SetSessionVarOp
@@ -148,7 +149,8 @@ public class SetSessionVarOp extends SetVarOp {
             return new SetVar(getType(), name, null);
         } else {
             LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                    ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+                    ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>(),
+                    Optional.empty());
             CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                     PhysicalProperties.ANY);
             Expr expr = ExpressionTranslator.translate(value, new PlanTranslatorContext(cascadesContext));

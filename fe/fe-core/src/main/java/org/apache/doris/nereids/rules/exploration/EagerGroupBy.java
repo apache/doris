@@ -107,7 +107,7 @@ public class EagerGroupBy implements ExplorationRuleFactory {
         List<NamedExpression> sumAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(sumAggGroupBy).addAll(bottomSums).build();
         LogicalAggregate<GroupPlan> sumAgg = new LogicalAggregate<>(
-                ImmutableList.copyOf(sumAggGroupBy), sumAggOutput, join.left());
+                ImmutableList.copyOf(sumAggGroupBy), sumAggOutput, join.left(), agg.getHintContext());
         Plan newJoin = join.withChildren(sumAgg, join.right());
 
         List<NamedExpression> newOutputExprs = new ArrayList<>();

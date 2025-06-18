@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -38,13 +39,13 @@ public class LogicalEsScan extends LogicalCatalogRelation {
      * Constructor for LogicalEsScan.
      */
     public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier,
-                           Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties, hintContext);
     }
 
-    public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+    public LogicalEsScan(RelationId id, TableIf table, List<String> qualifier, Optional<HintContext> hintContext) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override
@@ -58,18 +59,23 @@ public class LogicalEsScan extends LogicalCatalogRelation {
     @Override
     public LogicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalEsScan(relationId, table, qualifier, groupExpression,
-            Optional.of(getLogicalProperties()));
+            Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEsScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalEsScan(relationId, table, qualifier, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
     public LogicalEsScan withRelationId(RelationId relationId) {
-        return new LogicalEsScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalEsScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalEsScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override

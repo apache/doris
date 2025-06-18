@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -87,8 +88,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             boolean needAddSubOutputToProjects,
             boolean isMarkJoinSlotNotNull,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild);
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_APPLY, groupExpression, logicalProperties, leftChild, rightChild, hintContext);
         if (subqueryType == SubQueryType.IN_SUBQUERY) {
             Preconditions.checkArgument(compareExpr.isPresent(), "InSubquery must have compareExpr");
         }
@@ -107,10 +108,10 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
             Optional<Expression> compareExpr, Optional<Expression> typeCoercionExpr,
             Optional<Expression> correlationFilter, Optional<MarkJoinSlotReference> markJoinSlotReference,
             boolean needAddSubOutputToProjects, boolean isMarkJoinSlotNotNull,
-            LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery) {
+            LEFT_CHILD_TYPE input, RIGHT_CHILD_TYPE subquery, Optional<HintContext> hintContext) {
         this(Optional.empty(), Optional.empty(), correlationSlot, subqueryType, isNot, compareExpr, typeCoercionExpr,
                 correlationFilter, markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull,
-                input, subquery);
+                input, subquery, hintContext);
     }
 
     public Optional<Expression> getCompareExpr() {
@@ -288,14 +289,15 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(correlationSlot, subqueryType, isNot, compareExpr, typeCoercionExpr,
                 correlationFilter, markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull,
-                children.get(0), children.get(1));
+                children.get(0), children.get(1), hintContext);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalApply<>(groupExpression, Optional.of(getLogicalProperties()),
                 correlationSlot, subqueryType, isNot, compareExpr, typeCoercionExpr, correlationFilter,
-                markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull, left(), right());
+                markJoinSlotReference, needAddSubOutputToProjects, isMarkJoinSlotNotNull, left(), right(),
+                hintContext);
     }
 
     @Override
@@ -304,7 +306,8 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryType, isNot,
                 compareExpr, typeCoercionExpr, correlationFilter, markJoinSlotReference,
-                needAddSubOutputToProjects, isMarkJoinSlotNotNull, children.get(0), children.get(1));
+                needAddSubOutputToProjects, isMarkJoinSlotNotNull, children.get(0), children.get(1),
+                hintContext);
     }
 
     @Override

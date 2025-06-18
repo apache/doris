@@ -48,7 +48,7 @@ import java.util.Optional;
 
 public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(
-            StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of(""));
+            StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of(""), Optional.empty());
 
     /*-
      * origin plan:
@@ -179,7 +179,7 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
         Slot name = scan.getOutput().get(2);
         LogicalRepeat repeatPlan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id, gender), ImmutableList.of(id)),
-                ImmutableList.of(id, gender, name), scan);
+                ImmutableList.of(id, gender, name), scan, Optional.empty());
         NamedExpression nameMax = new Alias(new Max(name), "nameMax");
 
         final Expression filterPredicateId = new GreaterThan(id, Literal.of(1));
@@ -206,7 +206,7 @@ public class PushDownFilterThroughAggregationTest implements MemoPatternMatchSup
 
         repeatPlan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id, gender), ImmutableList.of(gender)),
-                ImmutableList.of(id, gender, name), scan);
+                ImmutableList.of(id, gender, name), scan, Optional.empty());
         plan = new LogicalPlanBuilder(repeatPlan)
                 .aggGroupUsingIndexAndSourceRepeat(ImmutableList.of(0, 1), ImmutableList.of(
                         id, gender, nameMax), Optional.of(repeatPlan))

@@ -50,8 +50,9 @@ import java.util.TreeMap;
 public class LogicalPlanBuilderForSyncMv extends LogicalPlanBuilder {
     private Optional<String> querySql;
 
-    public LogicalPlanBuilderForSyncMv(Map<Integer, ParserRuleContext> selectHintMap) {
-        super(selectHintMap);
+    public LogicalPlanBuilderForSyncMv(Map<Integer, ParserRuleContext> selectHintMap,
+            Map<Integer, String> errorHintMap) {
+        super(selectHintMap, errorHintMap);
     }
 
     @Override

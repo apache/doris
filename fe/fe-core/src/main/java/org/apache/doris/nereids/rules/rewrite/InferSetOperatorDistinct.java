@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -51,7 +52,8 @@ public class InferSetOperatorDistinct extends OneRewriteRuleFactory {
 
                     List<Plan> newChildren = setOperation.children().stream()
                             .map(child -> isAgg(child) ? child
-                                    : new LogicalAggregate<>(ImmutableList.copyOf(child.getOutput()), true, child))
+                                    : new LogicalAggregate<>(ImmutableList.copyOf(child.getOutput()), true, child,
+                                            PlanUtils.getHintContext(child)))
                             .collect(ImmutableList.toImmutableList());
                     if (newChildren.equals(setOperation.children())) {
                         return null;

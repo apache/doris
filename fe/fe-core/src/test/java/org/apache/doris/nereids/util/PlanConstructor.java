@@ -126,14 +126,14 @@ public class PlanConstructor {
     // Warning: equals() of Table depends on tableId.
     public static LogicalOlapScan newLogicalOlapScan(long tableId, String tableName, int hashColumn) {
         return new LogicalOlapScan(RELATION_ID_GENERATOR.getNextId(), newOlapTable(tableId, tableName, hashColumn),
-                ImmutableList.of("db"));
+                ImmutableList.of("db"), Optional.empty());
     }
 
     public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName,
             int hashColumn, List<Long> selectedPartitions) {
         return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
                 newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"),
-                selectedPartitions, ImmutableList.of(), Optional.empty(), ImmutableList.of());
+                selectedPartitions, ImmutableList.of(), Optional.empty(), ImmutableList.of(), Optional.empty());
     }
 
     public static RelationId getNextRelationId() {

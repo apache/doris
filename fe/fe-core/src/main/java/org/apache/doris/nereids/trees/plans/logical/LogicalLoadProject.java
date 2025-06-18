@@ -79,7 +79,7 @@ public class LogicalLoadProject<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     private LogicalLoadProject(List<NamedExpression> projects, boolean isDistinct,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> child) {
-        super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child, Optional.empty());
         Preconditions.checkArgument(projects != null, "projects can not be null");
         // only ColumnPrune rule may produce empty projects, this happens in rewrite phase
         // so if projects is empty, all plans have been bound already.

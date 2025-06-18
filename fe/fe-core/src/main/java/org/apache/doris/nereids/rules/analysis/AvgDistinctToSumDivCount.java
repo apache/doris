@@ -62,7 +62,8 @@ public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
                         List<NamedExpression> newOutput = agg.getOutputExpressions().stream()
                                 .map(expr -> ExpressionUtils.replaceNameExpression(expr, avgToSumDivCount))
                                 .collect(ImmutableList.toImmutableList());
-                        return new LogicalAggregate<>(agg.getGroupByExpressions(), newOutput, agg.child());
+                        return new LogicalAggregate<>(agg.getGroupByExpressions(), newOutput, agg.child(),
+                                agg.getHintContext());
                     } else {
                         return agg;
                     }

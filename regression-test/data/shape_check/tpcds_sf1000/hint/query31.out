@@ -64,7 +64,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
 Hint log:
-Used: leading(store_sales date_dim customer_address ) leading(web_sales date_dim customer_address ) leading(ws3 { ss3 { ss1 ss2 ws1 ws2 } } )
-UnUsed:
+Used: leading(store_sales date_dim customer_address) leading(web_sales date_dim customer_address) leading(ws3 (ss3 (ss1 ss2 ws1 ws2)))
+UnUsed: 
 SyntaxError:
 

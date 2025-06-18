@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -43,12 +44,12 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
      */
     public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, groupExpression, logicalProperties);
+                           Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier, groupExpression, logicalProperties, hintContext);
     }
 
-    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier, Optional<HintContext> hintContext) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override
@@ -69,18 +70,23 @@ public class LogicalJdbcScan extends LogicalCatalogRelation {
     @Override
     public LogicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
-            Optional.of(getLogicalProperties()));
+            Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
     public LogicalJdbcScan withRelationId(RelationId relationId) {
-        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalJdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override

@@ -88,10 +88,11 @@ public class LeadingHint extends Hint {
      * @param hintName Leading
      * @param parameters table name mixed with left and right brace
      */
-    public LeadingHint(String hintName, List<String> parameters, String originalString,
-            Map<String, DistributeHint> strToHint) {
+    public LeadingHint(String hintName, List<String> parameters, Map<String, DistributeHint> strToHint,
+            String originalString) {
         super(hintName);
         this.originalString = originalString;
+        this.strToHint.putAll(strToHint);
         addJoinParameters = insertJoinIntoParameters(parameters);
         normalizedParameters = parseIntoReversePolishNotation(addJoinParameters);
         this.strToHint.putAll(strToHint);
@@ -546,7 +547,11 @@ public class LeadingHint extends Hint {
     private LogicalPlan makeJoinPlan(LogicalPlan leftChild, LogicalPlan rightChild, String distributeJoinType) {
         DistributeHint distributeHint = new DistributeHint(DistributeType.NONE);
         if (!distributeJoinType.equals("join")) {
-            distributeHint = strToHint.get(distributeJoinType);
+            distributeHint = strToHint.getOrDefault(distributeJoinType, distributeHint);
+        }
+        distributeHint.setSuccessInLeading(true);
+        if (!ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+            ConnectContext.get().getStatementContext().addHint(distributeHint);
         }
         List<Expression> conditions = getJoinConditions(
                 getFilters(), leftChild, rightChild);
@@ -571,7 +576,7 @@ public class LeadingHint extends Hint {
                 distributeHint,
                 Optional.empty(),
                 leftChild,
-                rightChild, null);
+                rightChild, null, leftChild.getHintContext());
         logicalJoin.getJoinReorderContext().setLeadingJoin(true);
         logicalJoin.setBitmap(LongBitmap.or(getBitmap(leftChild), getBitmap(rightChild)));
         return logicalJoin;
@@ -639,7 +644,7 @@ public class LeadingHint extends Hint {
         if (newConjuncts.isEmpty()) {
             return scan;
         } else {
-            return new LogicalFilter<>(newConjuncts, scan);
+            return new LogicalFilter<>(newConjuncts, scan, scan.getHintContext());
         }
     }
 

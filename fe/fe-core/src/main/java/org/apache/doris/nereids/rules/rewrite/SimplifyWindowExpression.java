@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -114,7 +115,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             List<Slot> slots = windowChild.getOutput();
             List<NamedExpression> finalProjections = Lists.newArrayList(projections);
             finalProjections.addAll(slots);
-            return new LogicalProject(finalProjections, windowChild);
+            return new LogicalProject(finalProjections, windowChild, PlanUtils.getHintContext(windowChild));
         } else {
             List<Slot> windowOutputs = Lists.newArrayList();
             for (NamedExpression remainWindow : remainWindows) {
@@ -123,7 +124,7 @@ public class SimplifyWindowExpression extends OneRewriteRuleFactory {
             List<NamedExpression> finalProjections = Lists.newArrayList(projections);
             finalProjections.addAll(windowOutputs);
             return new LogicalProject(finalProjections, window.withExpressionsAndChild(remainWindows,
-                    window.child(0)));
+                    window.child(0)), window.getHintContext());
         }
     }
 

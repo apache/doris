@@ -52,7 +52,8 @@ public class NormalizeGenerate extends OneAnalysisRuleFactory {
                         builder.add(alias);
                         replaceMap.put(expr, alias.toSlot());
                     }
-                    LogicalProject logicalProject = new LogicalProject(builder.build(), generate.child());
+                    LogicalProject logicalProject = new LogicalProject(builder.build(), generate.child(),
+                            generate.getHintContext());
                     List<Function> newGenerators = new ArrayList<>(generate.getGenerators().size());
                     for (Function function : generate.getGenerators()) {
                         newGenerators.add((Function) ExpressionUtils.replace(function, replaceMap));

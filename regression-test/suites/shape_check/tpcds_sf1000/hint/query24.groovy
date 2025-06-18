@@ -91,7 +91,7 @@ order by c_last_name
     explain shape plan
     with ssales as
 (select 
-/*+ leading(store_sales broadcast store shuffle {customer shuffle customer_address} shuffle item shuffle store_returns) */
+/*+ leading(store_sales [broadcast] store [shuffle] (customer [shuffle] customer_address) [shuffle] item [shuffle] store_returns) */
 c_last_name
       ,c_first_name
       ,s_store_name

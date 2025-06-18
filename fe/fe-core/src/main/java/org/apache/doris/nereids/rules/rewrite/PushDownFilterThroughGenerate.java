@@ -58,7 +58,7 @@ public class PushDownFilterThroughGenerate extends OneRewriteRuleFactory {
             if (pushDownPredicates.isEmpty()) {
                 return null;
             }
-            Plan bottomFilter = new LogicalFilter<>(pushDownPredicates, generate.child(0));
+            Plan bottomFilter = new LogicalFilter<>(pushDownPredicates, generate.child(0), filter.getHintContext());
             generate = generate.withChildren(ImmutableList.of(bottomFilter));
             return PlanUtils.filterOrSelf(remainPredicates, generate);
         }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_GENERATE);

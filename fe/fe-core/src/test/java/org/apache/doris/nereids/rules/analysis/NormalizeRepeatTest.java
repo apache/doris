@@ -32,6 +32,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 public class NormalizeRepeatTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
@@ -44,7 +46,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Plan plan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id), ImmutableList.of(name)),
                 ImmutableList.of(idNotNull, alias),
-                scan1
+                scan1, Optional.empty()
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
                 .applyTopDown(new NormalizeRepeat())
@@ -62,7 +64,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Plan plan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id)),
                 ImmutableList.of(idNotNull, alias),
-                scan1
+                scan1, Optional.empty()
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
                 .applyTopDown(new NormalizeRepeat())
@@ -80,7 +82,7 @@ public class NormalizeRepeatTest implements MemoPatternMatchSupported {
         Plan plan = new LogicalRepeat<>(
                 ImmutableList.of(ImmutableList.of(id)),
                 ImmutableList.of(idNotNull, alias),
-                scan1
+                scan1, Optional.empty()
         );
         PlanChecker.from(MemoTestUtils.createCascadesContext(plan))
                 .applyTopDown(new NormalizeRepeat())

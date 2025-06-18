@@ -81,7 +81,7 @@ limit 100"""
  group by wr_returning_customer_sk
          ,ca_state)
   select  
-  /*+ leading(ctr1 {customer customer_address}) */
+  /*+ leading(ctr1 (customer customer_address)) */
   c_customer_id,c_salutation,c_first_name,c_last_name,c_preferred_cust_flag
        ,c_birth_day,c_birth_month,c_birth_year,c_birth_country,c_login,c_email_address
        ,c_last_review_date_sk,ctr_total_return

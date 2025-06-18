@@ -24,19 +24,19 @@ PhysicalResultSink
 ----------------PhysicalDistribute[DistributionSpecGather]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
+----------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[partsupp]
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=()
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[partsupp]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[supplier]
-----------------------------PhysicalProject
-------------------------------filter((nation.n_name = 'GERMANY'))
---------------------------------PhysicalOlapScan[nation]
+------------------------PhysicalProject
+--------------------------filter((nation.n_name = 'GERMANY'))
+----------------------------PhysicalOlapScan[nation]
 
 Hint log:
-Used: leading(partsupp { supplier nation } ) leading(partsupp { supplier nation } )
-UnUsed:
-SyntaxError:
+Used: leading(partsupp (supplier nation))
+UnUsed: 
+SyntaxError: leading(partsupp {supplier nation}) Msg:can not find table: {
 

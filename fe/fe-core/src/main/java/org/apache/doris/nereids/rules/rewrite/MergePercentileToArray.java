@@ -193,7 +193,7 @@ public class MergePercentileToArray extends OneRewriteRuleFactory {
             }
         }
         newProjectOutputExpressions.addAll(groupBySlots);
-        return new LogicalProject<>(newProjectOutputExpressions.build(), newAggregate);
+        return new LogicalProject<>(newProjectOutputExpressions.build(), newAggregate, newAggregate.getHintContext());
     }
 
     private static class DistinctAndExpr {

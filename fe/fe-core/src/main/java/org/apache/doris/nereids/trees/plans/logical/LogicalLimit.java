@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -50,13 +51,14 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     private final long limit;
     private final long offset;
 
-    public LogicalLimit(long limit, long offset, LimitPhase phase, CHILD_TYPE child) {
-        this(limit, offset, phase, Optional.empty(), Optional.empty(), child);
+    public LogicalLimit(long limit, long offset, LimitPhase phase, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(limit, offset, phase, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     public LogicalLimit(long limit, long offset, LimitPhase phase, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child, hintContext);
         this.limit = limit;
         this.offset = offset;
         this.phase = phase;
@@ -122,25 +124,38 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     public LogicalLimit<Plan> withLimitChild(long limit, long offset, Plan child) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalTopN should have 1 child, but input is %s", children.size());
-        return new LogicalLimit<>(limit, offset, phase, child);
+        return new LogicalLimit<>(limit, offset, phase, child, hintContext);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalLimit<>(limit, offset, phase, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalLimit<>(limit, offset, phase, groupExpression, Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLimit<>(limit, offset, phase, groupExpression, logicalProperties, children.get(0));
+        return new LogicalLimit<>(limit, offset, phase, groupExpression, logicalProperties, children.get(0),
+                hintContext);
     }
 
     @Override
     public LogicalLimit<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLimit<>(limit, offset, phase, children.get(0));
+        return new LogicalLimit<>(limit, offset, phase, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalLimit<>(limit, offset, phase, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalLimit<>(limit, offset, phase, children.get(0), hintContext);
     }
 
     @Override

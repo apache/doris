@@ -49,6 +49,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -66,10 +67,10 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
 
     @BeforeAll
     public final void beforeAll() {
-        student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""));
-        score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""));
-        course = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.course, ImmutableList.of(""));
-        salary = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.salary, ImmutableList.of(""));
+        student = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student, ImmutableList.of(""), Optional.empty());
+        score = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score, ImmutableList.of(""), Optional.empty());
+        course = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.course, ImmutableList.of(""), Optional.empty());
+        salary = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.salary, ImmutableList.of(""), Optional.empty());
         //select *
         //from student join course
         //where (course.cid=1 and student.age=10) or (student.gender = 0 and course.name='abc')
@@ -98,8 +99,8 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                         new EqualTo(courseName, new StringLiteral("abc"))
                 )
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
-        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null, Optional.empty());
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -140,8 +141,8 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                         new EqualTo(courseName, new StringLiteral("abc"))
                 )
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
-        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null, Optional.empty());
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -176,8 +177,8 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 ),
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
-        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null, Optional.empty());
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -212,7 +213,7 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                 new EqualTo(studentGender, new IntegerLiteral(1))
         );
         Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION, ImmutableList.of(expr),
-                student, course, null);
+                student, course, null, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -247,8 +248,8 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                         new EqualTo(courseName, new StringLiteral("abc"))
                 )
         );
-        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
-        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join);
+        Plan join = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null, Optional.empty());
+        LogicalFilter root = new LogicalFilter<>(ImmutableSet.of(expr), join, Optional.empty());
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractSingleTableExpressionFromDisjunction())
                 .matchesFromRoot(
@@ -297,10 +298,10 @@ public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatt
                         new EqualTo(new Add(scoreSid, salaryId), new BigIntLiteral(200L))
                 )
         );
-        Plan left = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null);
-        Plan right = new LogicalJoin<>(JoinType.CROSS_JOIN, score, salary, null);
+        Plan left = new LogicalJoin<>(JoinType.CROSS_JOIN, student, course, null, Optional.empty());
+        Plan right = new LogicalJoin<>(JoinType.CROSS_JOIN, score, salary, null, Optional.empty());
         Plan root = new LogicalJoin<>(JoinType.INNER_JOIN, ExpressionUtils.EMPTY_CONDITION,
-                Collections.singletonList(expr), left, right, null);
+                Collections.singletonList(expr), left, right, null, Optional.empty());
 
         List<Expression> expectJoinConjuncts = Arrays.asList(
                 // origin expression

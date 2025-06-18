@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -98,13 +99,13 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                     correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
-                    apply.children(), null);
+                    apply.children(), null, apply.getHintContext());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     correlationFilter.map(ExpressionUtils::extractConjunction).orElse(ExpressionUtils.EMPTY_CONDITION),
                     new DistributeHint(DistributeType.NONE),
                     apply.getMarkJoinSlotReference(),
-                    apply.children(), null);
+                    apply.children(), null, apply.getHintContext());
         }
     }
 
@@ -117,24 +118,26 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     }
 
     private Plan unCorrelatedNotExist(LogicalApply<?, ?> unapply) {
-        LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
+        LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right(),
+                PlanUtils.getHintContext(unapply.right()));
         Alias alias = new Alias(new Count(), "count(*)");
         LogicalAggregate<?> newAgg = new LogicalAggregate<>(new ArrayList<>(),
-                ImmutableList.of(alias), newLimit);
+                ImmutableList.of(alias), newLimit, newLimit.getHintContext());
         LogicalJoin<?, ?> newJoin = new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE),
                 unapply.getMarkJoinSlotReference(),
-                (LogicalPlan) unapply.left(), newAgg, null);
+                (LogicalPlan) unapply.left(), newAgg, null, unapply.getHintContext());
         return new LogicalFilter<>(ImmutableSet.of(new EqualTo(newAgg.getOutput().get(0),
-                new IntegerLiteral(0))), newJoin);
+                new IntegerLiteral(0))), newJoin, newJoin.getHintContext());
     }
 
     private Plan unCorrelatedExist(LogicalApply<?, ?> unapply) {
-        LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
+        LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right(),
+                PlanUtils.getHintContext(unapply.right()));
         return new LogicalJoin<>(JoinType.CROSS_JOIN, ExpressionUtils.EMPTY_CONDITION,
-            ExpressionUtils.EMPTY_CONDITION,
+                ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE), unapply.getMarkJoinSlotReference(),
-                (LogicalPlan) unapply.left(), newLimit, null);
+                (LogicalPlan) unapply.left(), newLimit, null, unapply.getHintContext());
     }
 }

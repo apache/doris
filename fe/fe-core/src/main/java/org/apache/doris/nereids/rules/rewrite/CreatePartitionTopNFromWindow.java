@@ -78,7 +78,8 @@ public class CreatePartitionTopNFromWindow extends OneRewriteRuleFactory {
                 return filter;
             } else if (windowFuncPair.second == -1) {
                 // limit -1 indicating a empty relation case
-                return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput());
+                return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(), filter.getOutput(),
+                        filter.getHintContext());
             } else {
                 Plan newWindow = window.pushPartitionLimitThroughWindow(windowFuncPair.first,
                         windowFuncPair.second, false);

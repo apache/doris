@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -58,8 +59,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public LogicalRepeat(
             List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressions,
-            CHILD_TYPE child) {
-        this(groupingSets, outputExpressions, Optional.empty(), Optional.empty(), child);
+            CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(groupingSets, outputExpressions, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     /**
@@ -67,8 +68,8 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
      */
     public LogicalRepeat(List<List<Expression>> groupingSets, List<NamedExpression> outputExpressions,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
-        super(PlanType.LOGICAL_REPEAT, groupExpression, logicalProperties, child);
+            CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_REPEAT, groupExpression, logicalProperties, child, hintContext);
         this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
                 .stream()
                 .map(ImmutableList::copyOf)
@@ -140,13 +141,24 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public LogicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalRepeat<>(groupingSets, outputExpressions, children.get(0));
+        return new LogicalRepeat<>(groupingSets, outputExpressions, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalRepeat<>(groupingSets, outputExpressions, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalRepeat<>(groupingSets, outputExpressions, children.get(0), hintContext);
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+                Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
@@ -154,30 +166,30 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
-                children.get(0));
+                children.get(0), hintContext);
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSets(List<List<Expression>> groupingSets) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions, child());
+        return new LogicalRepeat<>(groupingSets, outputExpressions, child(), hintContext);
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
-        return new LogicalRepeat<>(groupingSets, outputExpressionList, child());
+        return new LogicalRepeat<>(groupingSets, outputExpressionList, child(), hintContext);
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return new LogicalRepeat<>(groupingSets, newOutput, child());
+        return new LogicalRepeat<>(groupingSets, newOutput, child(), hintContext);
     }
 
     public LogicalRepeat<Plan> withNormalizedExpr(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList, Plan child) {
-        return new LogicalRepeat<>(groupingSets, outputExpressionList, child);
+        return new LogicalRepeat<>(groupingSets, outputExpressionList, child, hintContext);
     }
 
     public LogicalRepeat<Plan> withAggOutputAndChild(List<NamedExpression> newOutput, Plan child) {
-        return new LogicalRepeat<>(groupingSets, newOutput, child);
+        return new LogicalRepeat<>(groupingSets, newOutput, child, hintContext);
     }
 
     public boolean canBindVirtualSlot() {

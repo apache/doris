@@ -53,12 +53,12 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
                    }
                }
 
-               if (needGlobalAggregate) {
-                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
-               } else {
-                   return project;
-               }
-           })
-        );
+                if (needGlobalAggregate) {
+                    return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child(),
+                            project.getHintContext());
+                } else {
+                    return project;
+                }
+            }));
     }
 }

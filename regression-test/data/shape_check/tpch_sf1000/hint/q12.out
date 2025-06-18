@@ -16,7 +16,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[lineitem]
 
 Hint log:
-Used: leading(orders lineitem )
-UnUsed:
+Used: leading(orders lineitem)
+UnUsed: 
 SyntaxError:
 

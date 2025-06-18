@@ -37,7 +37,7 @@ PhysicalResultSink
 --------------PhysicalOlapScan[customer_address]
 
 Hint log:
-Used: leading(store_sales store date_dim household_demographics customer_address ) leading(customer dn current_addr )
-UnUsed:
+Used: leading(store_sales store date_dim household_demographics customer_address) leading(customer dn current_addr)
+UnUsed: 
 SyntaxError:
 

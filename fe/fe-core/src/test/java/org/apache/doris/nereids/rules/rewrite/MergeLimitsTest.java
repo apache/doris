@@ -29,6 +29,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 /**
  * Tests for {@link MergeLimits}.
  */
@@ -50,7 +52,7 @@ class MergeLimitsTest implements MemoPatternMatchSupported {
     @Test
     void testMergeLimitsWithLocalUpperAndGlobalBottom() {
         LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.LOCAL,
-                new LogicalLimit<>(10, 0, LimitPhase.GLOBAL, scan1));
+                new LogicalLimit<>(10, 0, LimitPhase.GLOBAL, scan1, Optional.empty()), Optional.empty());
 
         PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
                 .matches(
@@ -61,7 +63,7 @@ class MergeLimitsTest implements MemoPatternMatchSupported {
     @Test
     void testMergeLimitsWithLocalUpperAndLocalBottom() {
         LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.LOCAL,
-                new LogicalLimit<>(10, 0, LimitPhase.LOCAL, scan1));
+                new LogicalLimit<>(10, 0, LimitPhase.LOCAL, scan1, Optional.empty()), Optional.empty());
 
         PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
                 .matches(
@@ -72,7 +74,7 @@ class MergeLimitsTest implements MemoPatternMatchSupported {
     @Test
     void testMergeLimitsWithGlobalUpperAndGlobalBottom() {
         LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.GLOBAL,
-                new LogicalLimit<>(10, 0, LimitPhase.GLOBAL, scan1));
+                new LogicalLimit<>(10, 0, LimitPhase.GLOBAL, scan1, Optional.empty()), Optional.empty());
 
         PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
                 .matches(
@@ -83,7 +85,7 @@ class MergeLimitsTest implements MemoPatternMatchSupported {
     @Test
     void testMergeLimitsWithGlobalUpperAndLocalBottom() {
         LogicalPlan logicalLimit = new LogicalLimit<>(2, 0, LimitPhase.GLOBAL,
-                new LogicalLimit<>(10, 0, LimitPhase.LOCAL, scan1));
+                new LogicalLimit<>(10, 0, LimitPhase.LOCAL, scan1, Optional.empty()), Optional.empty());
 
         PlanChecker.from(new ConnectContext(), logicalLimit).applyTopDown(new MergeLimits())
                 .matches(

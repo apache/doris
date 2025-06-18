@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -46,33 +47,39 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
     private final TableValuedFunction function;
     private final ImmutableList<String> qualifier;
 
-    public LogicalTVFRelation(RelationId id, TableValuedFunction function) {
-        super(id, PlanType.LOGICAL_TVF_RELATION);
+    public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_TVF_RELATION, hintContext);
         this.function = function;
         qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
     public LogicalTVFRelation(RelationId id, TableValuedFunction function, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_TVF_RELATION, groupExpression, logicalProperties);
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_TVF_RELATION, groupExpression, logicalProperties, hintContext);
         this.function = function;
         qualifier = ImmutableList.of(TableValuedFunctionIf.TVF_TABLE_PREFIX + function.getName());
     }
 
     @Override
     public LogicalTVFRelation withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTVFRelation(relationId, function, groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalTVFRelation(relationId, function, groupExpression, Optional.of(getLogicalProperties()),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTVFRelation(relationId, function, groupExpression, logicalProperties);
+        return new LogicalTVFRelation(relationId, function, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
     public LogicalTVFRelation withRelationId(RelationId relationId) {
-        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty());
+        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty(), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalTVFRelation(relationId, function, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override

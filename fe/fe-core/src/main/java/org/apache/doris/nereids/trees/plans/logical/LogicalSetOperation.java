@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -68,16 +69,18 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
     protected final List<NamedExpression> outputs;
     protected final List<List<SlotReference>> regularChildrenOutputs;
 
-    public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<Plan> children) {
-        super(planType, children);
+    public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<Plan> children,
+            Optional<HintContext> hintContext) {
+        super(planType, children, hintContext);
         this.qualifier = qualifier;
         this.outputs = ImmutableList.of();
         this.regularChildrenOutputs = ImmutableList.of();
     }
 
     public LogicalSetOperation(PlanType planType, Qualifier qualifier,
-            List<NamedExpression> outputs, List<List<SlotReference>> regularChildrenOutputs, List<Plan> children) {
-        super(planType, children);
+            List<NamedExpression> outputs, List<List<SlotReference>> regularChildrenOutputs, List<Plan> children,
+            Optional<HintContext> hintContext) {
+        super(planType, children, hintContext);
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);
@@ -86,8 +89,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
     public LogicalSetOperation(PlanType planType, Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> regularChildrenOutputs,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> children) {
-        super(planType, groupExpression, logicalProperties, children.toArray(new Plan[0]));
+            List<Plan> children, Optional<HintContext> hintContext) {
+        super(planType, groupExpression, logicalProperties, hintContext, children.toArray(new Plan[0]));
         this.qualifier = qualifier;
         this.outputs = ImmutableList.copyOf(outputs);
         this.regularChildrenOutputs = ImmutableList.copyOf(regularChildrenOutputs);

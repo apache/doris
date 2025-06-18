@@ -120,7 +120,7 @@ limit 100"""
     qt_ds_shape_85 '''
     explain shape plan
     select 
-    /*+ leading(web_page broadcast {{cd2 {customer_address {{web_returns {web_sales date_dim}} cd1}}} reason}) */
+    /*+ leading(web_page [broadcast] ((cd2 (customer_address ((web_returns (web_sales date_dim)) cd1))) reason)) */
      substr(r_reason_desc,1,20)
        ,avg(ws_quantity)
        ,avg(wr_refunded_cash)

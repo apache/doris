@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -39,12 +40,12 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
 
     public LogicalOdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_ODBC_SCAN, table, qualifier, groupExpression, logicalProperties);
+            Optional<LogicalProperties> logicalProperties, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_ODBC_SCAN, table, qualifier, groupExpression, logicalProperties, hintContext);
     }
 
-    public LogicalOdbcScan(RelationId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+    public LogicalOdbcScan(RelationId id, TableIf table, List<String> qualifier, Optional<HintContext> hintContext) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override
@@ -65,18 +66,23 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
     @Override
     public LogicalOdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalOdbcScan(relationId, table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()));
+                Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalOdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
     public LogicalOdbcScan withRelationId(RelationId relationId) {
-        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     @Override

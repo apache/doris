@@ -269,7 +269,8 @@ public class NereidsSqlCacheManager {
                 return invalidateCache(key);
             }
 
-            LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
+            LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of(),
+                    Optional.empty());
             if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
                 return invalidateCache(key);
             }

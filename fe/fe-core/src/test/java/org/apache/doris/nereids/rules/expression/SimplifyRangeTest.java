@@ -51,6 +51,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 public class SimplifyRangeTest extends ExpressionRewrite {
 
@@ -60,7 +61,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
 
     public SimplifyRangeTest() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl"), Optional.empty()));
         context = new ExpressionRewriteContext(cascadesContext);
     }
 

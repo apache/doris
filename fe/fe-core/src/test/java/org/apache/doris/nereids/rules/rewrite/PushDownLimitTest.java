@@ -59,13 +59,14 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scanScore = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
-    private final LogicalOlapScan scanStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+    private final LogicalOlapScan scanScore = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score, Optional.empty());
+    private final LogicalOlapScan scanStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, Optional.empty());
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -279,7 +280,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
         Alias windowAlias1 = new Alias(window1, window1.toSql());
         List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
-        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore, Optional.empty());
 
         LogicalPlan plan = new LogicalPlanBuilder(window)
                 .limit(100)
@@ -322,11 +323,11 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         WindowExpression window1 = new WindowExpression(new Rank(), partitionKeyList, orderKeyList, windowFrame);
         Alias windowAlias1 = new Alias(window1, window1.toSql());
         List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
-        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scanScore, Optional.empty());
         List<OrderKey> orderKey = ImmutableList.of(
                 new OrderKey(windowAlias1.toSlot(), true, true)
         );
-        LogicalSort<Plan> sort = new LogicalSort<>(orderKey, window);
+        LogicalSort<Plan> sort = new LogicalSort<>(orderKey, window, Optional.empty());
 
         LogicalPlan plan = new LogicalPlanBuilder(sort)
                 .limit(100)
@@ -377,18 +378,18 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
         LogicalJoin<? extends Plan, ? extends Plan> join = new LogicalJoin<>(
                 joinType,
                 joinConditions,
-                new LogicalOlapScan(scanScore.getRelationId(), PlanConstructor.score),
-                new LogicalOlapScan(scanStudent.getRelationId(), PlanConstructor.student),
-                null);
+                new LogicalOlapScan(scanScore.getRelationId(), PlanConstructor.score, Optional.empty()),
+                new LogicalOlapScan(scanStudent.getRelationId(), PlanConstructor.student, Optional.empty()),
+                null, Optional.empty());
 
         if (hasProject) {
             // return limit -> project -> join
             return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, new LogicalProject<>(
                     ImmutableList.of(new UnboundSlot("sid"), new UnboundSlot("id")),
-                    join));
+                    join, Optional.empty()), Optional.empty());
         } else {
             // return limit -> join
-            return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, join);
+            return new LogicalLimit<>(10, 0, LimitPhase.ORIGIN, join, Optional.empty());
         }
     }
 }

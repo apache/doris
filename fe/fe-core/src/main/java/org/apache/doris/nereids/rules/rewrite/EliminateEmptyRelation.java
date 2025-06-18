@@ -62,26 +62,26 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                         || bothChildrenEmpty(join))
                 .then(join -> new LogicalEmptyRelation(
                             ConnectContext.get().getStatementContext().getNextRelationId(),
-                            join.getOutput())
+                            join.getOutput(), join.getHintContext())
                 )
                 .toRule(RuleType.ELIMINATE_JOIN_ON_EMPTYRELATION),
             logicalFilter(logicalEmptyRelation())
                 .then(filter -> new LogicalEmptyRelation(
                     ConnectContext.get().getStatementContext().getNextRelationId(),
-                    filter.getOutput())
+                    filter.getOutput(), filter.getHintContext())
                 ).toRule(RuleType.ELIMINATE_FILTER_ON_EMPTYRELATION),
             logicalAggregate(logicalEmptyRelation())
                 .when(agg -> !agg.getGroupByExpressions().isEmpty())
                 .then(agg -> new LogicalEmptyRelation(
                     ConnectContext.get().getStatementContext().getNextRelationId(),
-                    agg.getOutput())
+                    agg.getOutput(), agg.getHintContext())
                 ).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // proj->empty
             logicalProject(logicalEmptyRelation())
                     .thenApply(ctx -> {
                         LogicalProject<? extends Plan> project = ctx.root;
                         return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
-                                project.getOutputs());
+                                project.getOutputs(), project.getHintContext());
                     }).toRule(RuleType.ELIMINATE_AGG_ON_EMPTYRELATION),
             // after BuildAggForUnion rule, union may have more than 2 children.
             logicalUnion(multi()).then(union -> {
@@ -119,7 +119,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                         }
                         return new LogicalOneRowRelation(
                                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                                newOneRowRelationOutput.build());
+                                newOneRowRelationOutput.build(), union.getHintContext());
                     } else {
                         return union.withChildrenAndTheirOutputs(ImmutableList.of(), ImmutableList.of());
                     }
@@ -137,7 +137,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                                 projects.add(alias);
                             }
 
-                            return new LogicalProject<>(projects, child);
+                            return new LogicalProject<>(projects, child, union.getHintContext());
                         } else {
                             // should not hit here.
                             return null;
@@ -156,13 +156,13 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
             logicalTopN(logicalEmptyRelation())
                     .then(topn -> new LogicalEmptyRelation(
                             ConnectContext.get().getStatementContext().getNextRelationId(),
-                            topn.getOutput()))
+                            topn.getOutput(), topn.getHintContext()))
                             .toRule(RuleType.ELIMINATE_TOPN_ON_EMPTYRELATION),
             // sort->empty
             logicalSort(logicalEmptyRelation())
                     .then(sort -> new LogicalEmptyRelation(
                             ConnectContext.get().getStatementContext().getNextRelationId(),
-                            sort.getOutput()))
+                            sort.getOutput(), sort.getHintContext()))
                     .toRule(RuleType.ELIMINATE_SORT_ON_EMPTYRELATION),
             // set intersect
             logicalIntersect(multi()).then(intersect -> {
@@ -176,7 +176,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     // there is empty relation child, the intersection result is empty.
                     return new LogicalEmptyRelation(
                             ConnectContext.get().getStatementContext().getNextRelationId(),
-                            intersect.getOutput());
+                            intersect.getOutput(), intersect.getHintContext());
                 }
             }).toRule(RuleType.ELIMINATE_INTERSECTION_ON_EMPTYRELATION),
             // limit -> empty
@@ -190,7 +190,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                     // empty except any => empty
                     return new LogicalEmptyRelation(
                             ConnectContext.get().getStatementContext().getNextRelationId(),
-                            except.getOutput());
+                            except.getOutput(), except.getHintContext());
                 } else {
                     ImmutableList.Builder<Plan> nonEmptyChildrenBuilder = ImmutableList.builder();
                     ImmutableList.Builder<List<SlotReference>> nonEmptyOutputsBuilder = ImmutableList.builder();
@@ -211,7 +211,8 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                                     .stream().map(slot -> (NamedExpression) slot)
                                     .collect(ImmutableList.toImmutableList());
                             projectChild = new LogicalAggregate<>(ImmutableList.copyOf(firstOutputNamedExpressions),
-                                    firstOutputNamedExpressions, true, Optional.empty(), first);
+                                    firstOutputNamedExpressions, true, Optional.empty(), first,
+                                    except.getHintContext());
                         } else {
                             projectChild = first;
                         }
@@ -223,7 +224,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
                             Alias alias = new Alias(id, projectInputSlots.get(i), exceptOutput.get(i).getName());
                             projects.add(alias);
                         }
-                        return new LogicalProject<>(projects, projectChild);
+                        return new LogicalProject<>(projects, projectChild, except.getHintContext());
                     } else if (nonEmptyChildren.size() == except.children().size()) {
                         return null;
                     } else {

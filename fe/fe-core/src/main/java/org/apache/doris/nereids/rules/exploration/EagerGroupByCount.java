@@ -99,7 +99,8 @@ public class EagerGroupByCount extends OneExplorationRuleFactory {
                     List<NamedExpression> bottomAggOutput = ImmutableList.<NamedExpression>builder()
                             .addAll(bottomAggGroupBy).addAll(bottomSums).add(cnt).build();
                     LogicalAggregate<GroupPlan> bottomAgg = new LogicalAggregate<>(
-                            ImmutableList.copyOf(bottomAggGroupBy), bottomAggOutput, join.left());
+                            ImmutableList.copyOf(bottomAggGroupBy), bottomAggOutput, join.left(),
+                            agg.getHintContext());
                     Plan newJoin = join.withChildren(bottomAgg, join.right());
 
                     // top agg

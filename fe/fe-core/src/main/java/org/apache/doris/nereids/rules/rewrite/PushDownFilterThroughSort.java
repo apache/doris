@@ -42,9 +42,10 @@ public class PushDownFilterThroughSort extends OneRewriteRuleFactory {
         return logicalFilter(logicalSort()).then(filter -> {
             LogicalSort<Plan> sort = filter.child();
             if (checkSlotsConstant(sort.getInputSlots(), filter)) {
-                return new LogicalFilter<>(filter.getConjuncts(), sort.child());
+                return new LogicalFilter<>(filter.getConjuncts(), sort.child(), filter.getHintContext());
             }
-            return sort.withChildren(new LogicalFilter<>(filter.getConjuncts(), sort.child()));
+            return sort.withChildren(new LogicalFilter<>(filter.getConjuncts(), sort.child(),
+                    filter.getHintContext()));
         }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SORT);
     }
 

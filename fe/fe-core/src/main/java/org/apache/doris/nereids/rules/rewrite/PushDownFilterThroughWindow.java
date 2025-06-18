@@ -74,7 +74,8 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
                 return null;
             }
 
-            LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(bottomConjuncts, window.child());
+            LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(bottomConjuncts, window.child(),
+                    filter.getHintContext());
             window = (LogicalWindow<Plan>) window.withChildren(bottomFilter);
             if (upperConjuncts.isEmpty()) {
                 return window;

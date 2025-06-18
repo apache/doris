@@ -37,12 +37,12 @@ public class EliminateLimit implements RewriteRuleFactory {
                 logicalLimit()
                         .when(limit -> limit.getLimit() == 0)
                         .thenApply(ctx -> new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
-                                ctx.root.getOutput()))
+                                ctx.root.getOutput(), ctx.root.getHintContext()))
                         .toRule(RuleType.ELIMINATE_LIMIT),
                 logicalLimit(logicalOneRowRelation())
                         .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
                                 ? limit.child() : new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
-                                limit.child().getOutput()))
+                                limit.child().getOutput(), limit.getHintContext()))
                         .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION)
         );
     }

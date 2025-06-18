@@ -276,7 +276,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                     viewToQuerySlotMapping));
                     continue;
                 }
-                rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
+                rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan,
+                        Optional.empty());
             }
             boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo,
                     viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext);
@@ -390,7 +391,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         .collect(Collectors.toList()),
                                 ImmutableList.of(),
                                 false,
-                                children);
+                                children,
+                                Optional.empty());
                     }
                 }
             }
@@ -477,7 +479,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         for (int i = 0; i < originPlan.getOutput().size(); i++) {
             normalizeProjects.add(normalizeExpression(originPlan.getOutput().get(i), rewrittenPlan.getOutput().get(i)));
         }
-        return new LogicalProject<>(normalizeProjects, rewrittenPlan);
+        return new LogicalProject<>(normalizeProjects, rewrittenPlan, Optional.empty());
     }
 
     /**

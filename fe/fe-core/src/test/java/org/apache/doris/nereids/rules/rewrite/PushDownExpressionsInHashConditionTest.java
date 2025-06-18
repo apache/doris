@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class PushDownExpressionsInHashConditionTest extends TestWithFeService implements MemoPatternMatchSupported {
     @Override
@@ -207,9 +208,9 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
     @Test
     public void testPushDownMarkConjuncts() {
         Plan left = new LogicalOneRowRelation(new RelationId(1),
-                ImmutableList.of(new Alias(new ExprId(1), new IntegerLiteral(1), "a")));
+                ImmutableList.of(new Alias(new ExprId(1), new IntegerLiteral(1), "a")), Optional.empty());
         Plan right = new LogicalOneRowRelation(new RelationId(2),
-                ImmutableList.of(new Alias(new ExprId(2), new IntegerLiteral(2), "b")));
+                ImmutableList.of(new Alias(new ExprId(2), new IntegerLiteral(2), "b")), Optional.empty());
         Expression sameLeft = new Abs(left.getOutput().get(0));
         Expression sameRight = new Positive(right.getOutput().get(0));
         Expression hashLeft = new Cast(sameLeft, StringType.INSTANCE);
@@ -221,7 +222,7 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                 JoinType.INNER_JOIN,
                 left,
                 right,
-                new JoinReorderContext()
+                new JoinReorderContext(), Optional.empty()
         );
 
         Expression sameConjuncts = new EqualTo(sameLeft, sameRight);

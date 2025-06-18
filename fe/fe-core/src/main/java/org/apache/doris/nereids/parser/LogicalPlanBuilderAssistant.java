@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
+import java.math.BigInteger;
+import java.util.Optional;
 
 /**
  * Logical plan builder assistant for buildIn dialect and other dialect.
@@ -106,6 +108,6 @@ public class LogicalPlanBuilderAssistant {
      * Wrap plan withCheckPolicy.
      */
     public static LogicalPlan withCheckPolicy(LogicalPlan plan) {
-        return new LogicalCheckPolicy<>(plan);
+        return new LogicalCheckPolicy<>(plan, Optional.empty());
     }
 }

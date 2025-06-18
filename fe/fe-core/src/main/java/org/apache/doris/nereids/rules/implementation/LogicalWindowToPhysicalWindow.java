@@ -39,6 +39,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -127,7 +128,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
     }
 
     private PhysicalWindow<Plan> createPhysicalWindow(Plan root, WindowFrameGroup windowFrameGroup, boolean isSkew) {
-        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root);
+        LogicalWindow<Plan> tempLogicalWindow = new LogicalWindow<>(windowFrameGroup.groups, root, Optional.empty());
         PhysicalWindow<Plan> physicalWindow = new PhysicalWindow<>(
                 windowFrameGroup,
                 RequireProperties.followParent(),

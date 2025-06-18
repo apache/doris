@@ -39,7 +39,7 @@ public class BuildAggForUnion extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalUnion().when(union -> union.getQualifier() == Qualifier.DISTINCT)
                 .then(union -> new LogicalAggregate<>(ImmutableList.copyOf(union.getOutputs()), union.getOutputs(),
-                        true, Optional.empty(), union.withAllQualifier()))
+                        true, Optional.empty(), union.withAllQualifier(), union.getHintContext()))
                 .toRule(RuleType.BUILD_AGG_FOR_UNION);
     }
 }

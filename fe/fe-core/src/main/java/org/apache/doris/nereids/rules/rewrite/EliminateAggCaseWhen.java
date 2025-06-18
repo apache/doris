@@ -68,7 +68,8 @@ public final class EliminateAggCaseWhen extends OneRewriteRuleFactory {
                         return null;
                     }
                     Expression operand = anIf.getArgument(0);
-                    Filter filter = new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(operand), agg.child());
+                    Filter filter = new LogicalFilter<>(ExpressionUtils.extractConjunctionToSet(operand), agg.child(),
+                            agg.getHintContext());
                     Expression result = anIf.getArgument(1);
                     Map<Expression, Expression> constantExprsReplaceMap = new HashMap<>(aggFunctions.size());
                     constantExprsReplaceMap.put(aggFun, ((AggregateFunction) aggFun).withChildren(result));

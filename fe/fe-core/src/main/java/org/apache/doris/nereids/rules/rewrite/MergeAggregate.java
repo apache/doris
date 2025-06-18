@@ -128,7 +128,7 @@ public class MergeAggregate implements RewriteRuleFactory {
                 .addAll(projectGroupBy.stream().map(namedExpr -> (NamedExpression) namedExpr).iterator())
                 .addAll(replacedAggFunc.stream().map(expr -> ((NamedExpression) expr).toSlot()).iterator())
                 .build();
-        return new LogicalProject<Plan>(upperProjects, resAgg);
+        return new LogicalProject<Plan>(upperProjects, resAgg, outerAgg.getHintContext());
     }
 
     private NamedExpression rewriteAggregateFunction(NamedExpression e,

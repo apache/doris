@@ -345,28 +345,40 @@ public class NereidsParser {
     }
 
     private <T> T parse(String sql, @Nullable LogicalPlanBuilder logicalPlanBuilder,
-                        Function<DorisParser, ParserRuleContext> parseFunction) {
+            Function<DorisParser, ParserRuleContext> parseFunction) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
-        ParserRuleContext tree = toAst(tokenStream, parseFunction);
+        Pair<Map<Integer, ParserRuleContext>, Map<Integer, String>> hintMaps = getHintMap(sql, tokenStream,
+                DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder(getHintMap(sql, tokenStream, DorisParser::selectHint))
-                    : logicalPlanBuilder;
+                ? new LogicalPlanBuilder(hintMaps.first, hintMaps.second)
+                : logicalPlanBuilder;
+        ParserRuleContext tree = toAst(tokenStream, parseFunction);
         return (T) realLogicalPlanBuilder.visit(tree);
     }
 
+    /**
+     * parseForCreateView
+     */
     public LogicalPlan parseForCreateView(String sql) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        Pair<Map<Integer, ParserRuleContext>, Map<Integer, String>> hintMaps = getHintMap(sql, tokenStream,
+                DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
-                getHintMap(sql, tokenStream, DorisParser::selectHint));
+                hintMaps.first, hintMaps.second);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
+    /**
+     * parseForEncryption
+     */
     public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        Pair<Map<Integer, ParserRuleContext>, Map<Integer, String>> hintMaps = getHintMap(sql, tokenStream,
+                DorisParser::selectHint);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
-                getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
+                hintMaps.first, hintMaps.second, indexInSqlToString);
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
@@ -374,17 +386,21 @@ public class NereidsParser {
     public Optional<String> parseForSyncMv(String sql) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        Pair<Map<Integer, ParserRuleContext>, Map<Integer, String>> hintMaps = getHintMap(sql, tokenStream,
+                DorisParser::selectHint);
         LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
-                getHintMap(sql, tokenStream, DorisParser::selectHint));
+                hintMaps.first, hintMaps.second);
         logicalPlanBuilderForSyncMv.visit(tree);
         return logicalPlanBuilderForSyncMv.getQuerySql();
     }
 
     /** get hint map */
-    public static Map<Integer, ParserRuleContext> getHintMap(String sql, CommonTokenStream hintTokenStream,
-                                                             Function<DorisParser, ParserRuleContext> parseFunction) {
+    public static Pair<Map<Integer, ParserRuleContext>, Map<Integer, String>> getHintMap(String sql,
+            CommonTokenStream hintTokenStream,
+            Function<DorisParser, ParserRuleContext> parseFunction) {
         // parse hint first round
-        Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
+        Map<Integer, ParserRuleContext> selectHintMap = Maps.newTreeMap();
+        Map<Integer, String> errorHintMap = Maps.newTreeMap();
 
         Iterator<Token> tokenIterator = hintTokenStream.getTokens().iterator();
         Token hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
@@ -394,12 +410,19 @@ public class NereidsParser {
                 DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);
+                hintParser.addParseListener(POST_PROCESSOR);
+                hintParser.removeErrorListeners();
+                HintParseErrorListener errorListener = new HintParseErrorListener(hintSql);
+                hintParser.addErrorListener(errorListener);
                 ParserRuleContext hintContext = parseFunction.apply(hintParser);
-                selectHintMap.put(hintToken.getStartIndex(), hintContext);
+                selectHintMap.put(hintToken.getStartIndex() + 3, hintContext);
+                for (Map.Entry<Integer, String> entry : errorListener.getSyntaxErrorMap().entrySet()) {
+                    errorHintMap.put(entry.getKey() + hintToken.getStartIndex(), entry.getValue());
+                }
             }
             hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
         }
-        return selectHintMap;
+        return Pair.of(selectHintMap, errorHintMap);
     }
 
     public static ParserRuleContext toAst(

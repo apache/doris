@@ -985,7 +985,7 @@ public class CreateTableInfo {
         generatedColumnCommonCheck();
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
+                new ArrayList<>(), Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         Map<String, Slot> columnToSlotReference = Maps.newHashMap();

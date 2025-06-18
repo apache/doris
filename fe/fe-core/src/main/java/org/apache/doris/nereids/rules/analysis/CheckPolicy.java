@@ -92,10 +92,11 @@ public class CheckPolicy implements AnalysisRuleFactory {
                                 combineFilter.addAll(upperFilter.getConjuncts());
                             }
                             if (!combineFilter.isEmpty()) {
-                                result = new LogicalFilter<>(combineFilter, result);
+                                result = new LogicalFilter<>(combineFilter, result, checkPolicy.getHintContext());
                             }
                             if (relatedPolicy.dataMaskProjects.isPresent()) {
-                                result = new LogicalProject<>(relatedPolicy.dataMaskProjects.get(), result);
+                                result = new LogicalProject<>(relatedPolicy.dataMaskProjects.get(), result,
+                                        checkPolicy.getHintContext());
                             }
 
                             return result;

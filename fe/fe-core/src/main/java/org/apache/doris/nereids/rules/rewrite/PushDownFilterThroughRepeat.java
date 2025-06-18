@@ -89,7 +89,8 @@ public class PushDownFilterThroughRepeat extends OneRewriteRuleFactory {
             // nothing pushed down, just return origin plan
             return filter;
         }
-        LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(pushedPredicates, repeat.child(0));
+        LogicalFilter<Plan> bottomFilter = new LogicalFilter<>(pushedPredicates, repeat.child(0),
+                filter.getHintContext());
 
         repeat = repeat.withChildren(ImmutableList.of(bottomFilter));
         return PlanUtils.filterOrSelf(notPushedPredicates, repeat);

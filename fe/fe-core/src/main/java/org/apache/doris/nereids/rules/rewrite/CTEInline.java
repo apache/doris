@@ -109,7 +109,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
                         producerSlot.getQualifier(), false);
                 projects.add(alias);
             }
-            return new LogicalProject<>(projects, inlinedPlan);
+            return new LogicalProject<>(projects, inlinedPlan, cteConsumer.getHintContext());
         }
         return cteConsumer;
     }

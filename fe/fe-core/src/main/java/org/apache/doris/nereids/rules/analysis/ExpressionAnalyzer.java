@@ -165,6 +165,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         );
     }
 
+    public Plan getCurrentPlan() {
+        return currentPlan;
+    }
+
     public Expression analyze(Expression expression) {
         CascadesContext cascadesContext = getCascadesContext();
         return analyze(expression, cascadesContext == null ? null : new ExpressionRewriteContext(cascadesContext));

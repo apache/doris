@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -52,6 +54,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -86,8 +89,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
         LogicalPlan queryPlan = exists.getQueryPlan();
         // distinct is useless, remove it
-        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
-            exists = exists.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        LogicalPlan newPlan = eliminateDistinctInProject(queryPlan);
+        if (newPlan != queryPlan) {
+            exists = exists.withSubquery(newPlan);
         }
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
         if (analyzedResult.rootIsLimitZero()) {
@@ -107,8 +111,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
         LogicalPlan queryPlan = expr.getQueryPlan();
         // distinct is useless, remove it
-        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
-            expr = expr.withSubquery(((LogicalProject) queryPlan).withDistinct(false));
+        LogicalPlan newPlan = eliminateDistinctInProject(queryPlan);
+        if (newPlan != queryPlan) {
+            expr = expr.withSubquery(newPlan);
         }
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
@@ -197,6 +202,24 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                 limitOneIsEliminated);
     }
 
+    private LogicalPlan eliminateDistinctInProject(LogicalPlan root) {
+        LogicalPlan queryPlan = root;
+        boolean hasHintPlan = false;
+        if (root instanceof LogicalSelectHint) {
+            queryPlan = (LogicalPlan) ((LogicalSelectHint) root).child();
+            hasHintPlan = true;
+        }
+        if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
+            queryPlan = (((LogicalProject) queryPlan).withDistinct(false));
+            if (hasHintPlan) {
+                queryPlan = (LogicalPlan) root.withChildren(queryPlan);
+            }
+        } else {
+            queryPlan = root;
+        }
+        return queryPlan;
+    }
+
     private void checkOutputColumn(LogicalPlan plan) {
         if (plan.getOutput().size() != 1) {
             throw new AnalysisException("Multiple columns returned by subquery are not yet supported. Found "
@@ -233,6 +256,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         Scope subqueryScope = new Scope(getScope().getOuterScope(),
                 getScope().getSlots(), getScope().getAsteriskSlots());
         subqueryContext.setOuterScope(subqueryScope);
+        if (this instanceof ExpressionAnalyzer) {
+            Optional<HintContext> hintContext = ((LogicalPlan) (((ExpressionAnalyzer) this).getCurrentPlan()))
+                    .getHintContext();
+            if (hintContext.isPresent()) {
+                subqueryContext.setOuterQbName(hintContext.get().getQbName());
+            }
+        }
+
         subqueryContext.newAnalyzer().analyze();
         return new AnalyzedResult((LogicalPlan) subqueryContext.getRewritePlan(),
                 subqueryScope.getCorrelatedSlots());

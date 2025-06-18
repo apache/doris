@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -51,7 +52,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
         if (ctx != null) {
             long defaultLimit = ctx.getSessionVariable().getSqlSelectLimit();
             if (defaultLimit >= 0) {
-                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan);
+                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, plan, PlanUtils.getHintContext(plan));
             }
         }
         return plan;
@@ -96,7 +97,7 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
                 }
                 defaultLimit = Math.min(sqlLimit, defaultLimit);
                 if (defaultLimit < Long.MAX_VALUE) {
-                    return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, sort);
+                    return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, sort, sort.getHintContext());
                 }
             }
         }

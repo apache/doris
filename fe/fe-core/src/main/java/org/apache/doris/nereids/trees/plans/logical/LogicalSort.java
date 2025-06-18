@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -51,16 +52,16 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     private final List<OrderKey> orderKeys;
     private final Supplier<List<? extends Expression>> expressions;
 
-    public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child) {
-        this(orderKeys, Optional.empty(), Optional.empty(), child);
+    public LogicalSort(List<OrderKey> orderKeys, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(orderKeys, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     /**
      * Constructor for LogicalSort.
      */
     public LogicalSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_SORT, groupExpression, logicalProperties, child, hintContext);
         this.orderKeys = Utils.fastToImmutableList(
                 Objects.requireNonNull(orderKeys, "orderKeys can not be null")
         );
@@ -119,27 +120,39 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     @Override
     public LogicalSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSort<>(orderKeys, children.get(0));
+        return new LogicalSort<>(orderKeys, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalSort<>(orderKeys, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSort<>(orderKeys, children.get(0), hintContext);
     }
 
     @Override
     public LogicalSort<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalSort<>(orderKeys, groupExpression, Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public LogicalSort<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalSort<>(orderKeys, groupExpression, logicalProperties, children.get(0));
+        return new LogicalSort<>(orderKeys, groupExpression, logicalProperties, children.get(0), hintContext);
     }
 
     public LogicalSort<Plan> withOrderKeys(List<OrderKey> orderKeys) {
         return new LogicalSort<>(orderKeys, Optional.empty(),
-                Optional.of(getLogicalProperties()), child());
+                Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     public LogicalSort<Plan> withOrderKeysAndChild(List<OrderKey> orderKeys, Plan child) {
-        return new LogicalSort<>(orderKeys, child);
+        return new LogicalSort<>(orderKeys, child, hintContext);
     }
 }

@@ -72,7 +72,9 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
             if (agg.getGroupByExpressions().isEmpty()) {
                 LogicalAggregate newAgg = new LogicalAggregate<>(agg.getGroupByExpressions(),
                         agg.getOutputExpressions(), new LogicalLimit(1, 0, LimitPhase.ORIGIN,
-                                new LogicalProject<>(newOutput.build(), agg.child())));
+                                new LogicalProject<>(newOutput.build(), agg.child(), agg.getHintContext()),
+                                agg.getHintContext()),
+                        agg.getHintContext());
                 return newAgg;
             } else {
                 ImmutableList.Builder<NamedExpression> childOutput =
@@ -81,7 +83,9 @@ public class ReduceAggregateChildOutputRows extends OneRewriteRuleFactory {
                     childOutput.add((NamedExpression) expr);
                 }
                 return new LogicalProject<>(newOutput.build(),
-                                new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput.build(), agg.child()));
+                        new LogicalAggregate<>(agg.getGroupByExpressions(), childOutput.build(), agg.child(),
+                                agg.getHintContext()),
+                        agg.getHintContext());
             }
         }).toRule(RuleType.REDUCE_AGGREGATE_CHILD_OUTPUT_ROWS);
     }

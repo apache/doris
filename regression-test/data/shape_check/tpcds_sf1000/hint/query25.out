@@ -42,7 +42,7 @@ PhysicalResultSink
 ------------------------PhysicalOlapScan[store]
 
 Hint log:
-Used: leading(catalog_sales d3 { store_sales d1 { store_returns d2 } item store } )
-UnUsed:
+Used: leading(catalog_sales d3 (store_sales d1 (store_returns d2) item store))
+UnUsed: 
 SyntaxError:
 

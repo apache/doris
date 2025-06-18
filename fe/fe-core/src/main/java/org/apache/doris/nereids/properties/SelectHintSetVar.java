@@ -36,8 +36,8 @@ public class SelectHintSetVar extends SelectHint {
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final Map<String, Optional<String>> parameters;
 
-    public SelectHintSetVar(String hintName, Map<String, Optional<String>> parameters) {
-        super(hintName);
+    public SelectHintSetVar(String hintName, Map<String, Optional<String>> parameters, String err) {
+        super(hintName, err);
         this.parameters = parameters;
     }
 

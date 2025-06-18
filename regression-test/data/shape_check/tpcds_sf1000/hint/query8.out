@@ -47,6 +47,6 @@ PhysicalResultSink
 
 Hint log:
 Used:
-UnUsed: leading(store_sales broadcast date_dim broadcast store broadcast V1)
-SyntaxError: leading(customer_address shuffle customer) Msg:one query block can only have one leading clause
+UnUsed: leading(store_sales [broadcast] date_dim [broadcast] store [broadcast] V1)
+SyntaxError: leading(customer_address [shuffle] customer) Msg:one query block can only have one leading clause
 

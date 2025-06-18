@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -55,18 +56,19 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     private final Set<Expression> conjuncts;
     private final Supplier<Expression> predicate;
 
-    public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
-        this(conjuncts, null, Optional.empty(), Optional.empty(), child);
+    public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(conjuncts, null, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
-    public LogicalFilter(Set<Expression> conjuncts, Expression andConjuncts, CHILD_TYPE child) {
-        this(conjuncts, () -> andConjuncts, Optional.empty(), Optional.empty(), child);
+    public LogicalFilter(Set<Expression> conjuncts, Expression andConjuncts, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(conjuncts, () -> andConjuncts, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     private LogicalFilter(Set<Expression> conjuncts,
             Supplier<Expression> predicate, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child, hintContext);
         this.conjuncts = Utils.fastToImmutableSet(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
         this.predicate = predicate == null ? Suppliers.memoize(Filter.super::getPredicate) : predicate;
         if (Utils.enableAssert) {
@@ -101,9 +103,10 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public List<? extends Plan> extraPlans() {
         return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
             if (m instanceof SubqueryExpr) {
-                return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
+                return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan(),
+                        hintContext));
             } else {
-                return new LogicalFilter<Plan>(ExpressionUtils.extractConjunctionToSet(m), child())
+                return new LogicalFilter<Plan>(ExpressionUtils.extractConjunctionToSet(m), child(), hintContext)
                         .extraPlans().stream();
             }
         }).collect(Collectors.toList());
@@ -157,35 +160,40 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     public LogicalFilter<Plan> withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalFilter<>(conjuncts, null, Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return new LogicalFilter<>(conjuncts, null, Optional.empty(), Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public LogicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(conjuncts, predicate, Optional.empty(), Optional.empty(), children.get(0));
+        return new LogicalFilter<>(conjuncts, predicate, Optional.empty(), Optional.empty(), children.get(0),
+                hintContext);
     }
 
     @Override
     public LogicalFilter<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFilter<>(conjuncts, predicate, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalFilter<>(conjuncts, predicate, groupExpression, Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalFilter<>(conjuncts, predicate, groupExpression, logicalProperties, children.get(0));
+        return new LogicalFilter<>(conjuncts, predicate, groupExpression, logicalProperties, children.get(0),
+                hintContext);
     }
 
     public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
-        return new LogicalFilter<>(conjuncts, child);
+        return new LogicalFilter<>(conjuncts, child, hintContext);
     }
 
     public LogicalFilter<Plan> withConjunctsAndProps(Set<Expression> conjuncts,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, Plan child) {
-        return new LogicalFilter<>(conjuncts, null, groupExpression, logicalProperties, child);
+        return new LogicalFilter<>(conjuncts, null, groupExpression, logicalProperties, child,
+                hintContext);
     }
 
     @Override

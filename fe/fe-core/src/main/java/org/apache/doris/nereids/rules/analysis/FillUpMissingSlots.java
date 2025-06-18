@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
@@ -76,7 +77,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 .flatMap(Set::stream)
                                 .filter(s -> !projectOutputSet.contains(s)
                                         && (!outerScope.isPresent() || !outerScope.get()
-                                                .getCorrelatedSlots().contains(s)))
+                                        .getCorrelatedSlots().contains(s)))
                                 .collect(Collectors.toSet());
                         if (notExistedInProject.isEmpty()) {
                             return null;
@@ -84,9 +85,11 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
                                 .addAll(project.getProjects()).addAll(notExistedInProject).build();
                         return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
-                                sort.withChildren(new LogicalProject<>(projects, project.child())));
+                                sort.withChildren(new LogicalProject<>(projects, project.child(),
+                                        project.getHintContext())),
+                                project.getHintContext());
                     })
-            ),
+                ),
             RuleType.FILL_UP_SORT_AGGREGATE_HAVING_AGGREGATE.build(
                 logicalSort(
                     aggregate(logicalHaving(aggregate()))
@@ -126,7 +129,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             if (notChanged && a.equals(agg)) {
                                 return null;
                             }
-                            return notChanged ? sort.withChildren(a) : new LogicalSort<>(newOrderKeys, a);
+                            return notChanged ? sort.withChildren(a)
+                                    : new LogicalSort<>(newOrderKeys, a, sort.getHintContext());
                         });
                     })
             ),
@@ -149,33 +153,35 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                 return null;
                             }
                             return notChanged ? sort.withChildren(sort.child().withChildren(a))
-                                    : new LogicalSort<>(newOrderKeys, sort.child().withChildren(a));
+                                    : new LogicalSort<>(newOrderKeys, sort.child().withChildren(a),
+                                    sort.getHintContext());
                         });
                     })
             ),
             RuleType.FILL_UP_SORT_HAVING_PROJECT.build(
-                    logicalSort(logicalHaving(logicalProject())).thenApply(ctx -> {
-                        LogicalSort<LogicalHaving<LogicalProject<Plan>>> sort = ctx.root;
-                        Optional<Scope> outerScope = ctx.cascadesContext.getOuterScope();
-                        Set<Slot> childOutput = sort.child().getOutputSet();
-                        Set<Slot> notExistedInProject = sort.getOrderKeys().stream()
-                                .map(OrderKey::getExpr)
-                                .map(Expression::getInputSlots)
-                                .flatMap(Set::stream)
-                                .filter(s -> !childOutput.contains(s)
-                                        && (!outerScope.isPresent() || !outerScope.get()
-                                                .getCorrelatedSlots().contains(s)))
-                                .collect(Collectors.toSet());
-                        if (notExistedInProject.isEmpty()) {
-                            return null;
-                        }
-                        LogicalProject<?> project = sort.child().child();
-                        List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
-                                .addAll(project.getProjects())
-                                .addAll(notExistedInProject).build();
-                        Plan child = sort.withChildren(sort.child().withChildren(project.withProjects(projects)));
-                        return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), child);
-                    })
+                logicalSort(logicalHaving(logicalProject())).thenApply(ctx -> {
+                    LogicalSort<LogicalHaving<LogicalProject<Plan>>> sort = ctx.root;
+                    Optional<Scope> outerScope = ctx.cascadesContext.getOuterScope();
+                    Set<Slot> childOutput = sort.child().getOutputSet();
+                    Set<Slot> notExistedInProject = sort.getOrderKeys().stream()
+                            .map(OrderKey::getExpr)
+                            .map(Expression::getInputSlots)
+                            .flatMap(Set::stream)
+                            .filter(s -> !childOutput.contains(s)
+                                    && (!outerScope.isPresent() || !outerScope.get()
+                                    .getCorrelatedSlots().contains(s)))
+                            .collect(Collectors.toSet());
+                    if (notExistedInProject.isEmpty()) {
+                        return null;
+                    }
+                    LogicalProject<?> project = sort.child().child();
+                    List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
+                            .addAll(project.getProjects())
+                            .addAll(notExistedInProject).build();
+                    Plan child = sort.withChildren(sort.child().withChildren(project.withProjects(projects)));
+                    return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()), child,
+                            sort.getHintContext());
+                })
             ),
             RuleType.FILL_UP_HAVING_AGGREGATE.build(
                 logicalHaving(aggregate()).thenApply(ctx -> {
@@ -190,7 +196,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         if (notChanged && a.equals(agg)) {
                             return null;
                         }
-                        return notChanged ? having.withChildren(a) : new LogicalHaving<>(newConjuncts, a);
+                        return notChanged ? having.withChildren(a)
+                                : new LogicalHaving<>(newConjuncts, a, having.getHintContext());
                     });
                 })
             ),
@@ -218,7 +225,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             LogicalProject<Plan> project = having.child();
                             // new an empty agg here
                             LogicalAggregate<Plan> agg = new LogicalAggregate<>(
-                                    ImmutableList.of(), ImmutableList.of(), project.child());
+                                    ImmutableList.of(), ImmutableList.of(), project.child(), having.getHintContext());
                             // avoid throw exception even if having have slot from its child.
                             // because we will add a project between having and project.
                             Resolver resolver = new Resolver(agg, false, outerScope);
@@ -232,7 +239,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                     adjustAggNullableConjuncts, resolver.getSubstitution());
                             ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
                             projects.addAll(project.getOutputs()).addAll(agg.getOutput());
-                            return new LogicalHaving<>(newConjuncts, new LogicalProject<>(projects.build(), agg));
+                            return new LogicalHaving<>(newConjuncts,
+                                    new LogicalProject<>(projects.build(), agg, agg.getHintContext()),
+                                    having.getHintContext());
                         } else {
                             LogicalProject<Plan> project = having.child();
                             Set<Slot> projectOutputSet = project.getOutputSet();
@@ -249,7 +258,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                             List<NamedExpression> projects = ImmutableList.<NamedExpression>builder()
                                     .addAll(project.getProjects()).addAll(notExistedInProject).build();
                             return new LogicalProject<>(ImmutableList.copyOf(project.getOutput()),
-                                    having.withChildren(new LogicalProject<>(projects, project.child())));
+                                    having.withChildren(new LogicalProject<>(projects, project.child(),
+                                            having.getHintContext())), having.getHintContext());
                         }
                     })
              )
@@ -420,7 +430,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         }
         List<NamedExpression> projections = aggregate.getOutputExpressions().stream()
                 .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
-        return new LogicalProject<>(projections, plan);
+        return new LogicalProject<>(projections, plan, PlanUtils.getHintContext(plan));
     }
 
     private boolean checkSort(LogicalSort<? extends Plan> logicalSort) {
@@ -468,7 +478,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             }
             if (aggNotChanged) {
                 // since sort expr must in select list, we should not change agg at all.
-                return new LogicalSort<>(newOrderKeys, sort.child());
+                return new LogicalSort<>(newOrderKeys, sort.child(), sort.getHintContext());
             } else {
                 Set<NamedExpression> upperAggOutputs = Sets.newHashSet(upperAggregate.getOutputExpressions());
                 for (int i = 0; i < newOrderKeys.size(); i++) {

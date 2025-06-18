@@ -58,7 +58,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                         expression = FoldConstantRule.evaluate(eliminateNullLiteral(expression), context);
                         if (expression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
-                                    filter.getOutput());
+                                    filter.getOutput(), filter.getHintContext());
                         } else if (expression != BooleanLiteral.TRUE) {
                             newConjuncts.addAll(ExpressionUtils.extractConjunction(expression));
                         }
@@ -68,7 +68,7 @@ public class EliminateFilter implements RewriteRuleFactory {
                     if (conjuncts.isEmpty()) {
                         return filter.child();
                     } else {
-                        return new LogicalFilter<>(conjuncts, filter.child());
+                        return new LogicalFilter<>(conjuncts, filter.child(), filter.getHintContext());
                     }
                 })
                 .toRule(RuleType.ELIMINATE_FILTER),
@@ -91,7 +91,8 @@ public class EliminateFilter implements RewriteRuleFactory {
 
             if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                 return new LogicalEmptyRelation(
-                        cascadesContext.getStatementContext().getNextRelationId(), filter.getOutput());
+                        cascadesContext.getStatementContext().getNextRelationId(), filter.getOutput(),
+                        filter.getHintContext());
             } else if (foldExpression != BooleanLiteral.TRUE) {
                 newConjuncts.add(expression);
             }
@@ -101,7 +102,7 @@ public class EliminateFilter implements RewriteRuleFactory {
         if (conjuncts.isEmpty()) {
             return filter.child();
         } else {
-            return new LogicalFilter<>(conjuncts, filter.child());
+            return new LogicalFilter<>(conjuncts, filter.child(), filter.getHintContext());
         }
     }
 

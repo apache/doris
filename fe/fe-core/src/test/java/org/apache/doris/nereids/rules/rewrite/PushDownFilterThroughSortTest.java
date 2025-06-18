@@ -38,11 +38,12 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class PushDownFilterThroughSortTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
-            ImmutableList.of(""));
+            ImmutableList.of(""), Optional.empty());
 
     @Test
     void testPushdownFilterThroughSortTest() {

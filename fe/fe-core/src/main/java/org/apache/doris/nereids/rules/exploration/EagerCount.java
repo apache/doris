@@ -101,7 +101,7 @@ public class EagerCount implements ExplorationRuleFactory {
         List<NamedExpression> cntAggOutput = ImmutableList.<NamedExpression>builder()
                 .addAll(cntAggGroupBy).add(cnt).build();
         LogicalAggregate<GroupPlan> cntAgg = new LogicalAggregate<>(
-                ImmutableList.copyOf(cntAggGroupBy), cntAggOutput, join.right());
+                ImmutableList.copyOf(cntAggGroupBy), cntAggOutput, join.right(), agg.getHintContext());
         Plan newJoin = join.withChildren(join.left(), cntAgg);
 
         List<NamedExpression> newOutputExprs = new ArrayList<>();

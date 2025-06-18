@@ -37,7 +37,7 @@ sql 'set be_number_for_test=3'
     qt_select """
     explain shape plan
     select 
-    /*+ leading(orders shuffle customer) */
+    /*+ leading(orders [shuffle] customer) */
         c_count,
         count(*) as custdist
     from

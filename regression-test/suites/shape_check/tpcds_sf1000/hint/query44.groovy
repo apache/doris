@@ -71,7 +71,7 @@ limit 100"""
     qt_ds_shape_44 '''
     explain shape plan
     select
-    /*+ leading(i1 asceding {i2 descending}) */
+    /*+ leading(i1 asceding (i2 descending)) */
      asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
 from(select *
      from (select item_sk,rank() over (order by rank_col asc) rnk

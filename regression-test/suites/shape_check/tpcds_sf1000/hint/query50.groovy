@@ -95,7 +95,7 @@ limit 100"""
     qt_ds_shape_50 '''
     explain shape plan
     select  
-    /*+ leading(store_sales {store_returns d2} broadcast d1 store) */
+    /*+ leading(store_sales (store_returns d2) [broadcast] d1 store) */
    s_store_name
   ,s_company_id
   ,s_street_number

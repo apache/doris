@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -56,9 +57,9 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     private final SlotReference columnIdSlot;
 
     public LogicalDeferMaterializeTopN(LogicalTopN<CHILD_TYPE> logicalTopN,
-            Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot) {
+            Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot, Optional<HintContext> hintContext) {
         super(PlanType.LOGICAL_TOP_N, logicalTopN.getGroupExpression(),
-                Optional.of(logicalTopN.getLogicalProperties()), logicalTopN.child());
+                Optional.of(logicalTopN.getLogicalProperties()), logicalTopN.child(), hintContext);
         this.logicalTopN = logicalTopN;
         this.deferMaterializeSlotIds = deferMaterializeSlotIds;
         this.columnIdSlot = columnIdSlot;
@@ -67,8 +68,8 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     public LogicalDeferMaterializeTopN(LogicalTopN<? extends Plan> logicalTopN,
             Set<ExprId> deferMaterializeSlotIds, SlotReference columnIdSlot,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            CHILD_TYPE child) {
-        super(PlanType.LOGICAL_TOP_N, groupExpression, logicalProperties, child);
+            CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_TOP_N, groupExpression, logicalProperties, child, hintContext);
         this.logicalTopN = logicalTopN;
         this.deferMaterializeSlotIds = deferMaterializeSlotIds;
         this.columnIdSlot = columnIdSlot;
@@ -123,7 +124,7 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalDeferMaterializeTopN<>(logicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+                groupExpression, Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
@@ -132,7 +133,8 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalDeferMaterializeTopN should have 1 child, but input is %s", children.size());
         return new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
-                deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties, children.get(0));
+                deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties, children.get(0),
+                hintContext);
     }
 
     @Override
@@ -140,7 +142,25 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalDeferMaterializeTopN should have 1 child, but input is %s", children.size());
         return new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
-                deferMaterializeSlotIds, columnIdSlot, Optional.empty(), Optional.empty(), children.get(0));
+                deferMaterializeSlotIds, columnIdSlot, Optional.empty(), Optional.empty(), children.get(0),
+                hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
+                deferMaterializeSlotIds, columnIdSlot, Optional.empty(), Optional.empty(), children.get(0),
+                hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1,
+                "LogicalDeferMaterializeTopN should have 1 child, but input is %s", children.size());
+        return new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
+                deferMaterializeSlotIds, columnIdSlot, Optional.empty(), Optional.empty(), children.get(0),
+                hintContext);
+
     }
 
     @Override

@@ -121,7 +121,7 @@ public class ConvertOuterJoinToAntiJoin extends DefaultPlanRewriter<Map<ExprId, 
                     projectsBuilder.add(newAlias);
                 }
             }
-            newChild = new LogicalProject<>(projectsBuilder.build(), newChild);
+            newChild = new LogicalProject<>(projectsBuilder.build(), newChild, join.getHintContext());
             return exprIdReplacer.rewriteExpr(filter.withChildren(newChild), replaceMap);
         } else {
             return filter.withChildren(newChild);

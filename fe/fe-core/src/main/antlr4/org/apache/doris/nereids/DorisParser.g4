@@ -1279,10 +1279,10 @@ qualifyClause
     : QUALIFY booleanExpression
     ;
 
-selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)*;
+selectHint: hintStatements+=hintStatement (COMMA hintStatements+=hintStatement)*;
 
 hintStatement
-    : (LEADING | JOIN_ORDER) LEFT_PAREN (tableSpecs)? RIGHT_PAREN                                                           #leadingHint
+    : (LEADING | JOIN_ORDER) LEFT_PAREN tableSpecs RIGHT_PAREN                                                              #leadingHint
     | (ORDERED | JOIN_FIXED_ORDER)                                                                                          #orderedHint
     | (USE_MV | NO_USE_MV) (LEFT_PAREN tableList+=multipartIdentifier (COMMA tableList+=multipartIdentifier)* RIGHT_PAREN)? #mvHint
     | (USE_CBO_RULE | NO_USE_CBO_RULE) (identifierList)?                                                                    #cboRuleHint
@@ -1971,8 +1971,6 @@ nonReserved
     | HASH_MAP
     | HDFS
     | HELP
-    | HINT_END
-    | HINT_START
     | HISTOGRAM
     | HLL_UNION
     | HOSTNAME

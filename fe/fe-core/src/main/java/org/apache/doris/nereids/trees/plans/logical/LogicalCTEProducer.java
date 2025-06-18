@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -43,14 +44,14 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     private final CTEId cteId;
 
-    public LogicalCTEProducer(CTEId cteId, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_CTE_PRODUCER, child);
+    public LogicalCTEProducer(CTEId cteId, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_CTE_PRODUCER, child, hintContext);
         this.cteId = cteId;
     }
 
     public LogicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_CTE_PRODUCER, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_CTE_PRODUCER, groupExpression, logicalProperties, child, hintContext);
         this.cteId = cteId;
     }
 
@@ -61,7 +62,18 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCTEProducer<>(cteId, children.get(0));
+        return new LogicalCTEProducer<>(cteId, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalCTEProducer<>(cteId, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalCTEProducer<>(cteId, children.get(0), hintContext);
     }
 
     @Override
@@ -76,13 +88,14 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEProducer<>(cteId, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTEProducer<>(cteId, groupExpression, Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalCTEProducer<>(cteId, groupExpression, logicalProperties, children.get(0));
+        return new LogicalCTEProducer<>(cteId, groupExpression, logicalProperties, children.get(0), hintContext);
     }
 
     @Override

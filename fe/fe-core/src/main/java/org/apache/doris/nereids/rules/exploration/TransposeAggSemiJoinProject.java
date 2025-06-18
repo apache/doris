@@ -44,7 +44,7 @@ public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
                         return null;
                     }
                     Plan newJoin = join.withChildren(agg.withChildren(project.withChildren(join.left())), join.right());
-                    return new LogicalProject<>(ImmutableList.copyOf(agg.getOutput()), newJoin);
+                    return new LogicalProject<>(ImmutableList.copyOf(agg.getOutput()), newJoin, agg.getHintContext());
                 })
                 .toRule(RuleType.TRANSPOSE_LOGICAL_AGG_SEMI_JOIN_PROJECT);
     }

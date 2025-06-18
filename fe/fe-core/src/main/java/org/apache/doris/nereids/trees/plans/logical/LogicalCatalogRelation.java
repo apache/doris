@@ -26,6 +26,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.FdFactory;
@@ -63,19 +64,21 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     protected final ImmutableList<Slot> operativeSlots;
 
-    public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier) {
-        this(relationId, type, table, qualifier, Optional.empty(), Optional.empty());
-    }
-
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        this(relationId, type, table, qualifier, groupExpression, logicalProperties, ImmutableList.of());
+            Optional<HintContext> hintContext) {
+        this(relationId, type, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
     }
 
     public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            Collection<Slot> operativeSlots) {
-        super(relationId, type, groupExpression, logicalProperties);
+            Optional<HintContext> hintContext) {
+        this(relationId, type, table, qualifier, groupExpression, logicalProperties, ImmutableList.of(), hintContext);
+    }
+
+    public LogicalCatalogRelation(RelationId relationId, PlanType type, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Collection<Slot> operativeSlots, Optional<HintContext> hintContext) {
+        super(relationId, type, groupExpression, logicalProperties, hintContext);
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = Utils.fastToImmutableList(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.operativeSlots = Utils.fastToImmutableList(operativeSlots);

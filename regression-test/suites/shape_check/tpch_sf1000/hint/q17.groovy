@@ -42,7 +42,7 @@ suite("q17") {
     qt_select """
     explain shape plan
     select
-    /*+ leading(lineitem broadcast part) */ 
+    /*+ leading(lineitem [broadcast] part) */ 
         sum(l_extendedprice) / 7.0 as avg_yearly
     from
         lineitem,

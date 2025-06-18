@@ -34,6 +34,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 /**
  * test ELIMINATE_UNNECESSARY_PROJECT rule.
  */
@@ -94,7 +96,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(new LogicalEmptyRelation(new RelationId(1),
                 ImmutableList.of(
                         new SlotReference("k1", IntegerType.INSTANCE),
-                        new SlotReference("k2", IntegerType.INSTANCE))))
+                        new SlotReference("k2", IntegerType.INSTANCE)), Optional.empty()))
                 .project(ImmutableList.of(1, 0))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)

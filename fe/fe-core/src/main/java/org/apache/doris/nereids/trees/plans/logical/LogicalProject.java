@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -62,23 +64,25 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     private final Supplier<Set<NamedExpression>> projectsSet;
     private final boolean isDistinct;
 
-    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child) {
-        this(projects, false, ImmutableList.of(child));
+    public LogicalProject(List<NamedExpression> projects, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(projects, false, ImmutableList.of(child), hintContext);
     }
 
-    public LogicalProject(List<NamedExpression> projects, boolean isDistinct, List<Plan> child) {
-        this(projects, isDistinct, Optional.empty(), Optional.empty(), child);
+    public LogicalProject(List<NamedExpression> projects, boolean isDistinct, List<Plan> child,
+                          Optional<HintContext> hintContext) {
+        this(projects, isDistinct, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
-    public LogicalProject(List<NamedExpression> projects, boolean isDistinct, Plan child) {
+    public LogicalProject(List<NamedExpression> projects, boolean isDistinct, Plan child,
+            Optional<HintContext> hintContext) {
         this(projects, isDistinct,
-                Optional.empty(), Optional.empty(), ImmutableList.of(child));
+                Optional.empty(), Optional.empty(), ImmutableList.of(child), hintContext);
     }
 
     private LogicalProject(List<NamedExpression> projects, boolean isDistinct,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<Plan> child) {
-        super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child);
+            List<Plan> child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_PROJECT, groupExpression, logicalProperties, child, hintContext);
         Preconditions.checkArgument(projects != null, "projects can not be null");
         // only ColumnPrune rule may produce empty projects, this happens in rewrite phase
         // so if projects is empty, all plans have been bound already.
@@ -154,13 +158,24 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children));
+        return new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalProject<>(projects, isDistinct, Utils.fastToImmutableList(children), hintContext);
     }
 
     @Override
     public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalProject<>(projects, isDistinct,
-                groupExpression, Optional.of(getLogicalProperties()), children);
+                groupExpression, Optional.of(getLogicalProperties()), children, hintContext);
     }
 
     @Override
@@ -168,19 +183,19 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalProject<>(projects, isDistinct,
-                groupExpression, logicalProperties, children);
+                groupExpression, logicalProperties, children, hintContext);
     }
 
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
-        return new LogicalProject<>(projects, isDistinct, children);
+        return new LogicalProject<>(projects, isDistinct, children, hintContext);
     }
 
     public LogicalProject<Plan> withProjectsAndChild(List<NamedExpression> projects, Plan child) {
-        return new LogicalProject<>(projects, isDistinct, ImmutableList.of(child));
+        return new LogicalProject<>(projects, isDistinct, ImmutableList.of(child), hintContext);
     }
 
     public LogicalProject<Plan> withDistinct(boolean isDistinct) {
-        return new LogicalProject<>(projects, isDistinct, children);
+        return new LogicalProject<>(projects, isDistinct, children, hintContext);
     }
 
     public boolean isDistinct() {

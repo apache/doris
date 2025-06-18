@@ -56,6 +56,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @SuppressWarnings({"unchecked", "unused"})
 public class ImplementationTest {
@@ -97,7 +98,7 @@ public class ImplementationTest {
     public void toPhysicalProjectTest() {
         SlotReference col1 = new SlotReference("col1", BigIntType.INSTANCE);
         SlotReference col2 = new SlotReference("col2", IntegerType.INSTANCE);
-        LogicalPlan project = new LogicalProject<>(Lists.newArrayList(col1, col2), groupPlan);
+        LogicalPlan project = new LogicalProject<>(Lists.newArrayList(col1, col2), groupPlan, Optional.empty());
 
         PhysicalPlan physicalPlan = executeImplementationRule(project);
         Assertions.assertEquals(PlanType.PHYSICAL_PROJECT, physicalPlan.getType());
@@ -113,7 +114,7 @@ public class ImplementationTest {
         int offset = 100;
         OrderKey key1 = new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true);
         OrderKey key2 = new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true);
-        LogicalTopN<GroupPlan> topN = new LogicalTopN<>(Lists.newArrayList(key1, key2), limit, offset, groupPlan);
+        LogicalTopN<GroupPlan> topN = new LogicalTopN<>(Lists.newArrayList(key1, key2), limit, offset, groupPlan, Optional.empty());
 
         PhysicalPlan physicalPlan = executeImplementationRule(topN);
         Assertions.assertEquals(PlanType.PHYSICAL_TOP_N, physicalPlan.getType());
@@ -129,7 +130,7 @@ public class ImplementationTest {
     public void toPhysicalLimitTest() {
         int limit = 10;
         int offset = 100;
-        LogicalLimit<? extends Plan> logicalLimit = new LogicalLimit<>(limit, offset, LimitPhase.LOCAL, groupPlan);
+        LogicalLimit<? extends Plan> logicalLimit = new LogicalLimit<>(limit, offset, LimitPhase.LOCAL, groupPlan, Optional.empty());
         PhysicalPlan physicalPlan = executeImplementationRule(logicalLimit);
         Assertions.assertEquals(PlanType.PHYSICAL_LIMIT, physicalPlan.getType());
         PhysicalLimit<GroupPlan> physicalLimit = (PhysicalLimit<GroupPlan>) physicalPlan;

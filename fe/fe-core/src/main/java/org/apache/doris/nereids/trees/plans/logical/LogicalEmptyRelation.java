@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -45,13 +46,15 @@ public class LogicalEmptyRelation extends LogicalRelation
 
     private final List<NamedExpression> projects;
 
-    public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects) {
-        this(relationId, projects, Optional.empty(), Optional.empty());
+    public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
+            Optional<HintContext> hintContext) {
+        this(relationId, projects, Optional.empty(), Optional.empty(), hintContext);
     }
 
     public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(relationId, PlanType.LOGICAL_EMPTY_RELATION, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(relationId, PlanType.LOGICAL_EMPTY_RELATION, groupExpression, logicalProperties, hintContext);
         this.projects = Utils.fastToImmutableList(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
@@ -73,13 +76,13 @@ public class LogicalEmptyRelation extends LogicalRelation
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalEmptyRelation(relationId, projects,
-                groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+                groupExpression, Optional.of(logicalPropertiesSupplier.get()), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEmptyRelation(relationId, projects, groupExpression, logicalProperties);
+        return new LogicalEmptyRelation(relationId, projects, groupExpression, logicalProperties, hintContext);
     }
 
     @Override
@@ -88,11 +91,16 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     public LogicalEmptyRelation withProjects(List<NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects);
+        return new LogicalEmptyRelation(relationId, projects, hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalEmptyRelation(relationId, projects, hintContext);
     }
 
     public LogicalEmptyRelation withRelationIdAndProjects(RelationId relationId, List<NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects);
+        return new LogicalEmptyRelation(relationId, projects, hintContext);
     }
 
     @Override

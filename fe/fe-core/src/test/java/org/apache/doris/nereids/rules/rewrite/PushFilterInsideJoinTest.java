@@ -38,6 +38,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class PushFilterInsideJoinTest implements MemoPatternMatchSupported {
 
     private static LogicalOlapScan scan1;
@@ -52,13 +54,13 @@ class PushFilterInsideJoinTest implements MemoPatternMatchSupported {
         scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
         scoreScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                 PlanConstructor.score,
-                ImmutableList.of(""));
+                ImmutableList.of(""), Optional.empty());
         studentScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                 PlanConstructor.student,
-                ImmutableList.of(""));
+                ImmutableList.of(""), Optional.empty());
         courseScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                 PlanConstructor.course,
-                ImmutableList.of(""));
+                ImmutableList.of(""), Optional.empty());
     }
 
     @Test

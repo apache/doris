@@ -91,6 +91,6 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
             newKeys.add(new OrderKey(newExpr, k.isAsc(), k.isNullFirst()));
         }
 
-        return changed ? new LogicalSort<>(newKeys.build(), sort.child()) : sort;
+        return changed ? new LogicalSort<>(newKeys.build(), sort.child(), sort.getHintContext()) : sort;
     }
 }

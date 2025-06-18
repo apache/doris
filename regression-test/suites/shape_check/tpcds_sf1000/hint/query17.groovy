@@ -81,7 +81,7 @@ limit 100"""
     qt_ds_shape_17 '''
     explain shape plan
     select  
-    /*+ leading(catalog_sales d3 {store_sales d1 {store_returns d2} store item}) */
+    /*+ leading(catalog_sales d3 (store_sales d1 (store_returns d2) store item)) */
     i_item_id
        ,i_item_desc
        ,s_state

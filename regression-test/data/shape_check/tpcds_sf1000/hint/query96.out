@@ -25,7 +25,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[store]
 
 Hint log:
-Used: leading(store_sales time_dim household_demographics store )
-UnUsed:
+Used: leading(store_sales time_dim household_demographics store)
+UnUsed: 
 SyntaxError:
 

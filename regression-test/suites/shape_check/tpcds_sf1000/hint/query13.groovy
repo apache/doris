@@ -88,7 +88,7 @@ suite("query13") {
     qt_ds_shape_13 '''
     explain shape plan
     select 
-    /*+ leading(customer_demographics {store_sales customer_address date_dim household_demographics} store) */
+    /*+ leading(customer_demographics (store_sales customer_address date_dim household_demographics) store) */
     avg(ss_quantity)
        ,avg(ss_ext_sales_price)
        ,avg(ss_ext_wholesale_cost)

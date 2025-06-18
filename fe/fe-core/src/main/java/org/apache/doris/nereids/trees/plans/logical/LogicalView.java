@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.View;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
@@ -42,8 +43,8 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
     private final View view;
 
     /** LogicalView */
-    public LogicalView(View view, BODY body) {
-        super(PlanType.LOGICAL_VIEW, Optional.empty(), Optional.empty(), body);
+    public LogicalView(View view, BODY body, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_VIEW, Optional.empty(), Optional.empty(), body, hintContext);
         this.view = Objects.requireNonNull(view, "catalog can not be null");
         if (!(body instanceof LogicalPlan)) {
             throw new AnalysisException("Child of LogicalView should be LogicalPlan, but meet: " + body.getClass());
@@ -82,13 +83,23 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalView<>(view, child());
+        return new LogicalView<>(view, child(), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalView<>(view, child(), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        return new LogicalView<>(view, (LogicalPlan) children.get(0), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalView<>(view, child());
+        return new LogicalView<>(view, child(), hintContext);
     }
 
     @Override
@@ -140,7 +151,7 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalView<>(view, (LogicalPlan) children.get(0));
+        return new LogicalView<>(view, (LogicalPlan) children.get(0), hintContext);
     }
 
     @Override

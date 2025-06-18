@@ -105,7 +105,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
         if (prunedPartitions.isEmpty()) {
             return new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                ctx.root.getOutput());
+                ctx.root.getOutput(), scan.getHintContext());
         }
         return scan.withSelectedPartitionIds(prunedPartitions);
     }

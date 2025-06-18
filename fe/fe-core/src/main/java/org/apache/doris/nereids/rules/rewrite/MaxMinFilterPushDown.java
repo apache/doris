@@ -111,7 +111,8 @@ public class MaxMinFilterPushDown extends OneRewriteRuleFactory {
             }
         }
         Preconditions.checkState(newPredicate != null, "newPredicate is null");
-        LogicalFilter<Plan> newPushDownFilter = new LogicalFilter<>(ImmutableSet.of(newPredicate), aggChild);
+        LogicalFilter<Plan> newPushDownFilter = new LogicalFilter<>(ImmutableSet.of(newPredicate), aggChild,
+                filter.getHintContext());
         LogicalAggregate<Plan> newAgg = agg.withChildren(ImmutableList.of(newPushDownFilter));
         return PlanUtils.filterOrSelf(newUpperConjuncts, newAgg);
     }

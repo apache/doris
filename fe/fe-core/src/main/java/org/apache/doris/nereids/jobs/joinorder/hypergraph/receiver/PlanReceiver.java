@@ -49,6 +49,7 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -198,7 +199,7 @@ public class PlanReceiver implements AbstractReceiver {
 
     private LogicalPlan proposeJoin(JoinType joinType, Plan left, Plan right, List<Expression> hashConjuncts,
             List<Expression> otherConjuncts) {
-        return new LogicalJoin<>(joinType, hashConjuncts, otherConjuncts, left, right, null);
+        return new LogicalJoin<>(joinType, hashConjuncts, otherConjuncts, left, right, null, Optional.empty());
     }
 
     @Override
@@ -284,7 +285,7 @@ public class PlanReceiver implements AbstractReceiver {
                 .collect(Collectors.toList());
         LogicalPlan project = join;
         if (!outputSet.equals(new HashSet<>(projects))) {
-            project = new LogicalProject<>(projects, join);
+            project = new LogicalProject<>(projects, join, Optional.empty());
         }
         Preconditions.checkState(!projects.isEmpty() && projects.size() == allProjects.size(),
                 " there are some projects left %s %s", projects, allProjects);

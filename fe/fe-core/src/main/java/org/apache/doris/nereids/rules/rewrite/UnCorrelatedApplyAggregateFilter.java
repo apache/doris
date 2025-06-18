@@ -114,11 +114,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         }
         correlatedPredicate = ExpressionUtils.replace(correlatedPredicate, unCorrelatedExprToSlot);
         LogicalAggregate newAgg = new LogicalAggregate<>(newGroupby, newAggOutput,
-                PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
+                PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()),
+                agg.getHintContext());
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
                 apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                 ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
                 apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
-                isRightChildAgg ? newAgg : apply.right().withChildren(newAgg));
+                isRightChildAgg ? newAgg : apply.right().withChildren(newAgg), apply.getHintContext());
     }
 }

@@ -56,6 +56,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import java.util.List;
+import java.util.Optional;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSupported {
@@ -69,7 +70,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
 
     @BeforeAll
     public final void beforeAll() {
-        rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of());
+        rStudent = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student, ImmutableList.of(), Optional.empty());
 
         gender = rStudent.getOutput().get(1).toSlot();
         age = rStudent.getOutput().get(3).toSlot();
@@ -89,7 +90,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
             WindowExpression window = new WindowExpression(func, partitionKeyList, orderKeyList);
             Alias windowAlias = new Alias(window, window.toSql());
             List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
-            Plan root = new LogicalProject<>(outputExpressions, rStudent);
+            Plan root = new LogicalProject<>(outputExpressions, rStudent, Optional.empty());
 
             PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                     .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -111,7 +112,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
         WindowExpression window = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList);
         Alias windowAlias = new Alias(window, window.toSql());
         List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
-        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -133,7 +134,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
                 partitionKeyList, orderKeyList);
         Alias windowAlias = new Alias(window, window.toSql());
         List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
-        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -155,7 +156,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
                 partitionKeyList, orderKeyList);
         Alias windowAlias = new Alias(window, window.toSql());
         List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
-        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -251,7 +252,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
         WindowExpression windowLastValue = new WindowExpression(new LastValue(age, BooleanLiteral.FALSE), partitionKeyList, orderKeyList);
         Alias windowLastValueAlias = new Alias(windowLastValue, windowLastValue.toSql());
         List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias, windowLastValueAlias);
-        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent, Optional.empty());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyTopDown(new ExtractAndNormalizeWindowExpression())
@@ -274,7 +275,7 @@ public class CheckAndStandardizeWindowFunctionTest implements MemoPatternMatchSu
     private void forCheckWindowFrameBeforeFunc(WindowExpression window, String errorMsg) {
         Alias windowAlias = new Alias(window, window.toSql());
         List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
-        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent, Optional.empty());
 
         Exception exception = Assertions.assertThrows(Exception.class, () -> {
             PlanChecker.from(MemoTestUtils.createConnectContext(), root)

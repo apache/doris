@@ -99,7 +99,7 @@ public class PushCountIntoUnionAll implements RewriteRuleFactory {
                     childOutputs);
             Plan child = logicalUnion.children().get(i);
             LogicalAggregate<Plan> logicalAggregate = new LogicalAggregate<>(groupByExpressions, outputExpressions,
-                    child);
+                    child, agg.getHintContext());
             newChildren.add(logicalAggregate);
             childrenOutputs.add((List<SlotReference>) (List) logicalAggregate.getOutput());
         }
