@@ -25,7 +25,7 @@ PhysicalResultSink
 ------------------------------------filter((store.s_county = 'Williamson County'))
 --------------------------------------PhysicalOlapScan[store]
 ------------------------------PhysicalProject
---------------------------------filter((((date_dim.d_dom >= 1) AND (date_dim.d_dom <= 3)) OR ((date_dim.d_dom >= 25) AND (date_dim.d_dom <= 28))) and d_year IN (2000, 2001, 2002))
+--------------------------------filter(OR[AND[(date_dim.d_dom >= 1),(date_dim.d_dom <= 3)],AND[(date_dim.d_dom >= 25),(date_dim.d_dom <= 28)]] and d_year IN (2000, 2001, 2002))
 ----------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalProject
 ----------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.2) and hd_buy_potential IN ('0-500', '1001-5000'))

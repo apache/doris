@@ -27,7 +27,7 @@ PhysicalResultSink
 ----------------------------------filter(s_city IN ('Centerville', 'Fairview', 'Five Points', 'Liberty', 'Oak Grove'))
 ------------------------------------PhysicalOlapScan[store]
 ----------------------------PhysicalProject
-------------------------------filter(((household_demographics.hd_dep_count = 6) OR (household_demographics.hd_vehicle_count = 0)))
+------------------------------filter(OR[(household_demographics.hd_dep_count = 6),(household_demographics.hd_vehicle_count = 0)])
 --------------------------------PhysicalOlapScan[household_demographics]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer_address]

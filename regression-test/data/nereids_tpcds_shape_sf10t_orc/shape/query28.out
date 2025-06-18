@@ -17,41 +17,41 @@ PhysicalResultSink
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------filter(((((store_sales.ss_list_price >= 73.00) AND (store_sales.ss_list_price <= 83.00)) OR ((store_sales.ss_coupon_amt >= 7826.00) AND (store_sales.ss_coupon_amt <= 8826.00))) OR ((store_sales.ss_wholesale_cost >= 70.00) AND (store_sales.ss_wholesale_cost <= 90.00))) and (store_sales.ss_quantity <= 5) and (store_sales.ss_quantity >= 0))
+----------------------------------filter((store_sales.ss_quantity <= 5) and (store_sales.ss_quantity >= 0) and OR[AND[(store_sales.ss_list_price >= 73.00),(store_sales.ss_list_price <= 83.00)],AND[(store_sales.ss_coupon_amt >= 7826.00),(store_sales.ss_coupon_amt <= 8826.00)],AND[(store_sales.ss_wholesale_cost >= 70.00),(store_sales.ss_wholesale_cost <= 90.00)]])
 ------------------------------------PhysicalOlapScan[store_sales]
 ------------------------PhysicalLimit[LOCAL]
 --------------------------hashAgg[GLOBAL]
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------hashAgg[LOCAL]
 --------------------------------PhysicalProject
-----------------------------------filter(((((store_sales.ss_list_price >= 152.00) AND (store_sales.ss_list_price <= 162.00)) OR ((store_sales.ss_coupon_amt >= 2196.00) AND (store_sales.ss_coupon_amt <= 3196.00))) OR ((store_sales.ss_wholesale_cost >= 56.00) AND (store_sales.ss_wholesale_cost <= 76.00))) and (store_sales.ss_quantity <= 10) and (store_sales.ss_quantity >= 6))
+----------------------------------filter((store_sales.ss_quantity <= 10) and (store_sales.ss_quantity >= 6) and OR[AND[(store_sales.ss_list_price >= 152.00),(store_sales.ss_list_price <= 162.00)],AND[(store_sales.ss_coupon_amt >= 2196.00),(store_sales.ss_coupon_amt <= 3196.00)],AND[(store_sales.ss_wholesale_cost >= 56.00),(store_sales.ss_wholesale_cost <= 76.00)]])
 ------------------------------------PhysicalOlapScan[store_sales]
 --------------------PhysicalLimit[LOCAL]
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecGather]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------filter(((((store_sales.ss_list_price >= 53.00) AND (store_sales.ss_list_price <= 63.00)) OR ((store_sales.ss_coupon_amt >= 3430.00) AND (store_sales.ss_coupon_amt <= 4430.00))) OR ((store_sales.ss_wholesale_cost >= 13.00) AND (store_sales.ss_wholesale_cost <= 33.00))) and (store_sales.ss_quantity <= 15) and (store_sales.ss_quantity >= 11))
+------------------------------filter((store_sales.ss_quantity <= 15) and (store_sales.ss_quantity >= 11) and OR[AND[(store_sales.ss_list_price >= 53.00),(store_sales.ss_list_price <= 63.00)],AND[(store_sales.ss_coupon_amt >= 3430.00),(store_sales.ss_coupon_amt <= 4430.00)],AND[(store_sales.ss_wholesale_cost >= 13.00),(store_sales.ss_wholesale_cost <= 33.00)]])
 --------------------------------PhysicalOlapScan[store_sales]
 ----------------PhysicalLimit[LOCAL]
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------filter(((((store_sales.ss_list_price >= 182.00) AND (store_sales.ss_list_price <= 192.00)) OR ((store_sales.ss_coupon_amt >= 3262.00) AND (store_sales.ss_coupon_amt <= 4262.00))) OR ((store_sales.ss_wholesale_cost >= 20.00) AND (store_sales.ss_wholesale_cost <= 40.00))) and (store_sales.ss_quantity <= 20) and (store_sales.ss_quantity >= 16))
+--------------------------filter((store_sales.ss_quantity <= 20) and (store_sales.ss_quantity >= 16) and OR[AND[(store_sales.ss_list_price >= 182.00),(store_sales.ss_list_price <= 192.00)],AND[(store_sales.ss_coupon_amt >= 3262.00),(store_sales.ss_coupon_amt <= 4262.00)],AND[(store_sales.ss_wholesale_cost >= 20.00),(store_sales.ss_wholesale_cost <= 40.00)]])
 ----------------------------PhysicalOlapScan[store_sales]
 ------------PhysicalLimit[LOCAL]
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecGather]
 ------------------hashAgg[LOCAL]
 --------------------PhysicalProject
-----------------------filter(((((store_sales.ss_list_price >= 85.00) AND (store_sales.ss_list_price <= 95.00)) OR ((store_sales.ss_coupon_amt >= 3310.00) AND (store_sales.ss_coupon_amt <= 4310.00))) OR ((store_sales.ss_wholesale_cost >= 37.00) AND (store_sales.ss_wholesale_cost <= 57.00))) and (store_sales.ss_quantity <= 25) and (store_sales.ss_quantity >= 21))
+----------------------filter((store_sales.ss_quantity <= 25) and (store_sales.ss_quantity >= 21) and OR[AND[(store_sales.ss_list_price >= 85.00),(store_sales.ss_list_price <= 95.00)],AND[(store_sales.ss_coupon_amt >= 3310.00),(store_sales.ss_coupon_amt <= 4310.00)],AND[(store_sales.ss_wholesale_cost >= 37.00),(store_sales.ss_wholesale_cost <= 57.00)]])
 ------------------------PhysicalOlapScan[store_sales]
 --------PhysicalLimit[LOCAL]
 ----------hashAgg[GLOBAL]
 ------------PhysicalDistribute[DistributionSpecGather]
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
-------------------filter(((((store_sales.ss_list_price >= 180.00) AND (store_sales.ss_list_price <= 190.00)) OR ((store_sales.ss_coupon_amt >= 12592.00) AND (store_sales.ss_coupon_amt <= 13592.00))) OR ((store_sales.ss_wholesale_cost >= 22.00) AND (store_sales.ss_wholesale_cost <= 42.00))) and (store_sales.ss_quantity <= 30) and (store_sales.ss_quantity >= 26))
+------------------filter((store_sales.ss_quantity <= 30) and (store_sales.ss_quantity >= 26) and OR[AND[(store_sales.ss_list_price >= 180.00),(store_sales.ss_list_price <= 190.00)],AND[(store_sales.ss_coupon_amt >= 12592.00),(store_sales.ss_coupon_amt <= 13592.00)],AND[(store_sales.ss_wholesale_cost >= 22.00),(store_sales.ss_wholesale_cost <= 42.00)]])
 --------------------PhysicalOlapScan[store_sales]
 

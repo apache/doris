@@ -33,6 +33,6 @@ PhysicalResultSink
 ----------------------------------filter(s_city IN ('Fairview', 'Midway'))
 ------------------------------------PhysicalOlapScan[store]
 ----------------------------PhysicalProject
-------------------------------filter(((household_demographics.hd_dep_count = 3) OR (household_demographics.hd_vehicle_count = 4)))
+------------------------------filter(OR[(household_demographics.hd_dep_count = 3),(household_demographics.hd_vehicle_count = 4)])
 --------------------------------PhysicalOlapScan[household_demographics]
 

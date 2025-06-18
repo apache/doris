@@ -27,7 +27,7 @@ PhysicalResultSink
 ------------------------------------filter((store.s_gmt_offset = -7.00))
 --------------------------------------PhysicalOlapScan[store]
 ------------------------------PhysicalProject
---------------------------------filter((((promotion.p_channel_dmail = 'Y') OR (promotion.p_channel_email = 'Y')) OR (promotion.p_channel_tv = 'Y')))
+--------------------------------filter(OR[(promotion.p_channel_dmail = 'Y'),(promotion.p_channel_email = 'Y'),(promotion.p_channel_tv = 'Y')])
 ----------------------------------PhysicalOlapScan[promotion]
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
