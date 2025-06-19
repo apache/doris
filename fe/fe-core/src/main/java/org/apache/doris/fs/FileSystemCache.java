@@ -47,7 +47,7 @@ public class FileSystemCache {
     }
 
     private RemoteFileSystem loadFileSystem(FileSystemCacheKey key) throws UserException {
-        return FileSystemFactory.get(key.type, key.getFsProperties(), key.bindBrokerName);
+        return FileSystemFactory.get(key.type, key.getFsProperties());
     }
 
     public RemoteFileSystem getRemoteFileSystem(FileSystemCacheKey key) {

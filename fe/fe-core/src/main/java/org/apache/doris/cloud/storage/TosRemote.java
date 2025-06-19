@@ -15,18 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.cloud.storage;
 
-public class KillAnalysisJobStmt extends DdlStmt implements NotFallbackInParser {
+import org.apache.doris.common.DdlException;
 
-    public final long jobId;
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-    public KillAnalysisJobStmt(long jobId) {
-        this.jobId = jobId;
+
+public class TosRemote extends DefaultRemote {
+    private static final Logger LOG = LogManager.getLogger(TosRemote.class);
+
+    public TosRemote(ObjectInfo obj) {
+        super(obj);
+    }
+
+    public String getPresignedUrl(String fileName) {
+        throw new UnsupportedOperationException("not unsupported for tos yet");
     }
 
     @Override
-    public StmtType stmtType() {
-        return StmtType.KILL;
+    public Triple<String, String, String> getStsToken() throws DdlException {
+        throw new DdlException("Get sts token for tos is unsupported");
     }
 }
