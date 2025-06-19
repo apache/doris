@@ -17,11 +17,8 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import java.util.List;
@@ -29,36 +26,13 @@ import java.util.Map;
 
 public class FileSystemFactory {
 
-    public static RemoteFileSystem get(Map<String, String> properties) throws UserException {
-        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
-        return get(storageProperties);
-    }
-
-    public static RemoteFileSystem get(StorageBackend.StorageType storageType, String bindBreakName,
-                                       Map<String, String> properties) {
-        if (storageType.equals(StorageBackend.StorageType.BROKER)) {
-            return new BrokerFileSystem(bindBreakName, properties);
-        }
-        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
-        return get(storageProperties);
-    }
-
     public static RemoteFileSystem get(StorageProperties storageProperties) {
         return StorageTypeMapper.create(storageProperties);
     }
 
-    // This method is a temporary workaround for handling properties.
-    // It will be removed when broker properties are officially supported.
-    public static RemoteFileSystem get(String name, Map<String, String> properties) {
-        return new BrokerFileSystem(name, properties);
-    }
-
-    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties,
-                                       String bindBrokerName)
+    //todo remove when catalog use storage properties
+    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties)
             throws UserException {
-        if (fileSystemType == FileSystemType.BROKER) {
-            return new BrokerFileSystem(bindBrokerName, properties);
-        }
         List<StorageProperties> storagePropertiesList = StorageProperties.createAll(properties);
 
         for (StorageProperties storageProperties : storagePropertiesList) {
@@ -67,16 +41,5 @@ public class FileSystemFactory {
             }
         }
         throw new RuntimeException("Unsupported file system type: " + fileSystemType);
-    }
-
-    public static RemoteFileSystem get(BrokerDesc brokerDesc) {
-        if (null != brokerDesc.getStorageProperties()) {
-            return get(brokerDesc.getStorageProperties());
-        }
-        if (null != brokerDesc.getStorageType()
-                && brokerDesc.getStorageType().equals(StorageBackend.StorageType.BROKER)) {
-            return new BrokerFileSystem(brokerDesc.getName(), brokerDesc.getProperties());
-        }
-        throw new RuntimeException("Unexpected storage type: " + brokerDesc.getStorageType());
     }
 }
