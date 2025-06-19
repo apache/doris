@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
-import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
@@ -246,8 +245,6 @@ public class DdlExecutor {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
             env.truncateTable((TruncateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCompactTableStmt) {
-            env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetTableStatusStmt) {
@@ -441,7 +438,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof CancelBackupStmt
                 || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt
-                || ddlStmt instanceof AdminCompactTableStmt
                 || ddlStmt instanceof AdminCheckTabletsStmt
                 || ddlStmt instanceof AdminCleanTrashStmt
                 || ddlStmt instanceof AlterResourceStmt

@@ -6976,11 +6976,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    KW_ADMIN KW_COMPACT KW_TABLE base_table_ref:table_ref opt_wild_where
-    {:
-        RESULT = new AdminCompactTableStmt(table_ref, parser.where);
-    :}
-    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
+    KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, false);
     :}

@@ -29,7 +29,6 @@ import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
-import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
@@ -6898,14 +6897,6 @@ public class Env {
 
         result.setDbMeta(dbMeta);
         return result;
-    }
-
-    public void compactTable(AdminCompactTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        String type = stmt.getCompactionType();
-        List<String> partitionNames = stmt.getPartitions();
-        compactTable(dbName, tableName, type, partitionNames);
     }
 
     public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)
