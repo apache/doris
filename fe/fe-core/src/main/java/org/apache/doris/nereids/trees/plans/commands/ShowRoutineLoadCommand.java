@@ -211,6 +211,10 @@ public class ShowRoutineLoadCommand extends ShowCommand {
         return new ShowResultSet(getMetaData(), rows);
     }
 
+    public static List<String> getTitleNames() {
+        return TITLE_NAMES;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowRoutineLoadCommand(this, context);
