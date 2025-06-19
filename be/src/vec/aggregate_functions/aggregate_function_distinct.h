@@ -270,6 +270,7 @@ private:
     size_t prefix_size;
     AggregateFunctionPtr nested_func;
     size_t arguments_num;
+    mutable bool has_new_elements = false;
 
     AggregateDataPtr get_nested_place(AggregateDataPtr __restrict place) const noexcept {
         return place + prefix_size;
@@ -293,11 +294,13 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         this->data(place).add(columns, arguments_num, row_num, arena);
+        has_new_elements = true;
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena* arena) const override {
         this->data(place).merge(this->data(rhs), arena);
+        has_new_elements = true;
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -319,10 +322,12 @@ public:
 
         assert(!arguments.empty());
         Arena arena;
-        nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
-                                            arguments_raw.data(), &arena);
+        if (has_new_elements) {
+            nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
+                                                arguments_raw.data(), &arena);
+            has_new_elements = false;
+        }
         nested_func->insert_result_into(get_nested_place(place), to);
-        nested_func->reset(get_nested_place(place));
     }
 
     size_t size_of_data() const override { return prefix_size + nested_func->size_of_data(); }
