@@ -77,10 +77,8 @@ import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
@@ -93,14 +91,11 @@ import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropStageStmt;
-import org.apache.doris.analysis.DropStatsStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
@@ -110,7 +105,6 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
-import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
@@ -228,12 +222,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
             env.getAuth().dropUser(stmt);
-        } else if (ddlStmt instanceof GrantStmt) {
-            GrantStmt stmt = (GrantStmt) ddlStmt;
-            env.getAuth().grant(stmt);
-        } else if (ddlStmt instanceof RevokeStmt) {
-            RevokeStmt stmt = (RevokeStmt) ddlStmt;
-            env.getAuth().revoke(stmt);
         } else if (ddlStmt instanceof CreateRoleStmt) {
             env.getAuth().createRole((CreateRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoleStmt) {
@@ -302,8 +290,6 @@ public class DdlExecutor {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropResourceStmt) {
             env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateWorkloadGroupStmt) {
-            env.getWorkloadGroupMgr().createWorkloadGroup((CreateWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
@@ -365,10 +351,6 @@ public class DdlExecutor {
             }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
-        } else if (ddlStmt instanceof DropStatsStmt) {
-            env.getAnalysisManager().dropStats((DropStatsStmt) ddlStmt);
-        } else if (ddlStmt instanceof KillAnalysisJobStmt) {
-            env.getAnalysisManager().handleKillAnalyzeStmt((KillAnalysisJobStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanQueryStatsStmt) {
             CleanQueryStatsStmt stmt = (CleanQueryStatsStmt) ddlStmt;
             CleanQueryStatsInfo cleanQueryStatsInfo = null;
@@ -389,9 +371,6 @@ public class DdlExecutor {
                     throw new DdlException("Unknown scope: " + stmt.getScope());
             }
             env.cleanQueryStats(cleanQueryStatsInfo);
-        } else if (ddlStmt instanceof DropAnalyzeJobStmt) {
-            DropAnalyzeJobStmt analyzeJobStmt = (DropAnalyzeJobStmt) ddlStmt;
-            Env.getCurrentEnv().getAnalysisManager().dropAnalyzeJob(analyzeJobStmt);
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),

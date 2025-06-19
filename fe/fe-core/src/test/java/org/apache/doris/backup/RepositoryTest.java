@@ -21,6 +21,7 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -323,7 +324,7 @@ public class RepositoryTest {
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        RemoteFileSystem fs = FileSystemFactory.get(properties);
+        RemoteFileSystem fs = FileSystemFactory.get(StorageProperties.createPrimary(properties));
         repo = new Repository(10000, "repo", false, location, fs);
 
         File file = new File("./Repository");
