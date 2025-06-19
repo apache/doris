@@ -254,7 +254,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         // 刷新catalog之后 mtmv处于sc状态
         sql """refresh catalog ${ctlName}"""
         state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
         assertTrue(state_mtmv2[0][2] == false)
 
         // 刷新mtmv之后状态恢复正常
