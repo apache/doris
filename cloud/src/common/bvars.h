@@ -262,6 +262,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
+extern bvar::LatencyRecorder g_bvar_ms_mow_delete_bitmap_update_lock_idle_time;
 
 // recycler's bvars
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
@@ -286,6 +287,7 @@ extern bvar::LatencyRecorder g_bvar_txn_kv_commit;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_key;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_value;
 extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_add;
+extern bvar::LatencyRecorder g_bvar_txn_kv_atomic_max;
 extern bvar::LatencyRecorder g_bvar_txn_kv_remove;
 extern bvar::LatencyRecorder g_bvar_txn_kv_range_remove;
 extern bvar::LatencyRecorder g_bvar_txn_kv_get_read_version;
