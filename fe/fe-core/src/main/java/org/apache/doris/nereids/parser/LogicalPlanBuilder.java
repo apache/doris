@@ -51,6 +51,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -564,6 +565,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCopyTabletCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetTableStatusCommand;
@@ -736,6 +738,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowIndexStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLoadProfileCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLoadWarningsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowOpenTablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
@@ -796,6 +799,7 @@ import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCom
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseRenameCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterDatabaseSetQuotaCommand;
 import org.apache.doris.nereids.trees.plans.commands.alter.AlterRepositoryCommand;
@@ -902,6 +906,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.WarmUpItem;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -1115,10 +1120,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private StageAndPattern getStageAndPattern(DorisParser.StageAndPatternContext ctx) {
+        String stage = ctx.stage == null ? StageUtil.INTERNAL_STAGE : stripQuotes(ctx.stage.getText());
         if (ctx.pattern != null) {
-            return new StageAndPattern(stripQuotes(ctx.stage.getText()), stripQuotes(ctx.pattern.getText()));
+            return new StageAndPattern(stage, stripQuotes(ctx.pattern.getText()));
         } else {
-            return new StageAndPattern(stripQuotes(ctx.stage.getText()), null);
+            return new StageAndPattern(stage, null);
         }
     }
 
@@ -4907,6 +4913,40 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowLoadWarings(DorisParser.ShowLoadWaringsContext ctx) {
+        String dbName = null;
+        Expression wildWhere = null;
+        long limit = -1L;
+        long offset = 0L;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        if (ctx.limitClause() != null) {
+            limit = ctx.limitClause().limit != null
+                ? Long.parseLong(ctx.limitClause().limit.getText())
+                : 0;
+            if (limit < 0) {
+                throw new ParseException("Limit requires non-negative number", ctx.limitClause());
+            }
+            offset = ctx.limitClause().offset != null
+                ? Long.parseLong(ctx.limitClause().offset.getText())
+                : 0;
+            if (offset < 0) {
+                throw new ParseException("Offset requires non-negative number", ctx.limitClause());
+            }
+        }
+        if (ctx.database != null) {
+            dbName = ctx.database.getText();
+        }
+        String url = null;
+        if (ctx.url != null) {
+            url = stripQuotes(ctx.url.getText());
+        }
+
+        return new ShowLoadWarningsCommand(dbName, wildWhere, limit, offset, url);
+    }
+
+    @Override
     public LogicalPlan visitShowDataTypes(ShowDataTypesContext ctx) {
         return new ShowDataTypesCommand();
     }
@@ -5837,6 +5877,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAdminSetReplicaVersion(DorisParser.AdminSetReplicaVersionContext ctx) {
         return new AdminSetReplicaVersionCommand(visitPropertyItemList(ctx.propertyItemList()));
+    }
+
+    @Override
+    public LogicalPlan visitAdminSetFrontendConfig(DorisParser.AdminSetFrontendConfigContext ctx) {
+        Map<String, String> configs = visitPropertyItemList(ctx.propertyItemList());
+        boolean applyToAll = !ctx.ALL().isEmpty();
+
+        return new AdminSetFrontendConfigCommand(
+            NodeType.FRONTEND,
+            configs,
+            applyToAll);
     }
 
     @Override
@@ -7868,6 +7919,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
+    }
+
+    @Override
+    public LogicalPlan visitWarmUpCluster(DorisParser.WarmUpClusterContext ctx) {
+        String srcCluster = ctx.destination.getText();
+        String dstCluster = ctx.source.getText();
+        boolean isWarmUpWithTable = false;
+        List<WarmUpItem> warmUpItems = new ArrayList<>();
+        if (ctx.warmUpItem() != null && !ctx.warmUpItem().isEmpty()) {
+            for (DorisParser.WarmUpItemContext warmUpItemContext : ctx.warmUpItem()) {
+                TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(warmUpItemContext.tableName));
+                String partitionName = warmUpItemContext.partitionName.getText();
+                WarmUpItem warmUpItem = new WarmUpItem(tableNameInfo, partitionName);
+                warmUpItems.add(warmUpItem);
+            }
+            isWarmUpWithTable = true;
+        }
+        boolean isForce = false;
+        if (ctx.FORCE() != null) {
+            isForce = true;
+        }
+        return new WarmUpClusterCommand(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable);
     }
 
     @Override

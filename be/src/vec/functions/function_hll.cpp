@@ -295,8 +295,8 @@ struct HllToBase64 {
                 last_ser_size = cur_ser_size;
                 ser_buff.resize(cur_ser_size);
             }
-            hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
-            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+            size_t real_size = hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), real_size,
                                         chars_data + encoded_offset);
             DCHECK(outlen > 0);
 

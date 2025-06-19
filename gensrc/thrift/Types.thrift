@@ -749,10 +749,6 @@ enum TMetadataType {
   HUDI,
 }
 
-enum TIcebergQueryType {
-  SNAPSHOTS
-}
-
 enum THudiQueryType {
   TIMELINE
 }
