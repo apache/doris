@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
@@ -283,8 +282,6 @@ public class DdlExecutor {
             env.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {
             env.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
-            env.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
@@ -454,7 +451,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof AdminCheckTabletsStmt
                 || ddlStmt instanceof AdminCleanTrashStmt
                 || ddlStmt instanceof AdminRebalanceDiskStmt
-                || ddlStmt instanceof AdminCancelRebalanceDiskStmt
                 || ddlStmt instanceof AlterResourceStmt
                 || ddlStmt instanceof AlterPolicyStmt
                 || ddlStmt instanceof CancelAlterSystemStmt) {

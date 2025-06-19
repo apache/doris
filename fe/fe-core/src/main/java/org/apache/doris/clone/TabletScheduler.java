@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -320,10 +319,6 @@ public class TabletScheduler extends MasterDaemon {
 
     public synchronized void cancelRebalanceDisk(List<Backend> backends) {
         diskRebalancer.removePrioBackends(backends);
-    }
-
-    public synchronized void cancelRebalanceDisk(AdminCancelRebalanceDiskStmt stmt) {
-        diskRebalancer.removePrioBackends(stmt.getBackends());
     }
 
     /**

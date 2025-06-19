@@ -7008,14 +7008,6 @@ admin_stmt ::=
     {:
         RESULT = new AdminRebalanceDiskStmt(null);
     :}
-    | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminCancelRebalanceDiskStmt(backends);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK
-    {:
-        RESULT = new AdminCancelRebalanceDiskStmt(null);
-    :}
     | KW_ADMIN KW_CLEAN KW_TRASH KW_ON LPAREN string_list:backends RPAREN
     {:
         RESULT = new AdminCleanTrashStmt(backends);
