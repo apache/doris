@@ -1729,6 +1729,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts, Optional.empty());
         ImmutableList<Slot> slots = ctx.constraint().slots.identifierSeq().ident.stream()
                 .map(ident -> new UnboundSlot(Location.fromAst(ident), ident.getText()))
+                .collect(ImmutableList.toImmutableList());
         Constraint constraint;
         if (ctx.constraint().UNIQUE() != null) {
             constraint = Constraint.newUniqueConstraint(curTable, slots);
@@ -1754,7 +1755,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitDropConstraint(DropConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
         UnboundRelation curTable = new UnboundRelation(
-                Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts), Optional.empty();
+                Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts, Optional.empty());
         return new DropConstraintCommand(ctx.constraintName.getText().toLowerCase(), curTable);
     }
 
