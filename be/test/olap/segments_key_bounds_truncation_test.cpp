@@ -45,7 +45,7 @@ static std::string kSegmentDir = "./ut_dir/segments_key_bounds_truncation_test";
 class SegmentsKeyBoundsTruncationTest : public testing::Test {
 private:
     StorageEngine* engine_ref = nullptr;
-    string absolute_dir;
+    std::string absolute_dir;
     std::unique_ptr<DataDir> data_dir;
     int cur_version {2};
 

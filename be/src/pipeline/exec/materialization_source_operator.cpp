@@ -41,10 +41,10 @@ Status MaterializationSourceOperatorX::get_block(RuntimeState* state, vectorized
     *eos = local_state._shared_state->last_block;
 
     if (!*eos) {
-        local_state._shared_state->sink_deps.back()->set_ready();
-
         ((CountedFinishDependency*)(local_state._shared_state->source_deps.back().get()))
                 ->add(local_state._shared_state->rpc_struct_map.size());
+
+        local_state._shared_state->sink_deps.back()->set_ready();
     } else {
         uint64_t max_rpc_time = 0;
         for (auto& [_, rpc_struct] : local_state._shared_state->rpc_struct_map) {

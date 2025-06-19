@@ -153,6 +153,8 @@ public abstract class RemoteBase {
                 return new BosRemote(obj);
             case AZURE:
                 return new AzureRemote(obj);
+            case TOS:
+                return new TosRemote(obj);
             default:
                 throw new Exception("current not support obj : " + obj.toString());
         }

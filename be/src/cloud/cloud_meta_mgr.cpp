@@ -134,16 +134,14 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
 namespace {
 constexpr int kBrpcRetryTimes = 3;
 
-bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+bvar::LatencyRecorder _get_rowset_latency("doris_cloud_meta_mgr_get_rowset");
 bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
+bvar::Adder<uint64_t> g_cloud_meta_mgr_rpc_timeout_count("cloud_meta_mgr_rpc_timeout_count");
+bvar::Window<bvar::Adder<uint64_t>> g_cloud_ms_rpc_timeout_count_window(
+        "cloud_meta_mgr_rpc_timeout_qps", &g_cloud_meta_mgr_rpc_timeout_count, 30);
 
 class MetaServiceProxy {
 public:
-    static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
-        return get_pooled_client(stub, nullptr);
-    }
-
     static Status get_proxy(MetaServiceProxy** proxy) {
         // The 'stub' is a useless parameter, added only to reuse the `get_pooled_client` function.
         std::shared_ptr<MetaService_Stub> stub;
@@ -402,6 +400,10 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
                                                                    res->status().msg());
         } else {
             error_msg = res->status().msg();
+        }
+
+        if (error_code == brpc::ERPCTIMEDOUT) {
+            g_cloud_meta_mgr_rpc_timeout_count << 1;
         }
 
         ++retry_times;
@@ -1208,33 +1210,6 @@ Status CloudMetaMgr::lease_tablet_job(const TabletJobInfoPB& job) {
     req.set_action(FinishTabletJobRequest::LEASE);
     req.set_cloud_unique_id(config::cloud_unique_id);
     return retry_rpc("lease tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
-}
-
-Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema) {
-    VLOG_DEBUG << "send UpdateTabletSchemaRequest, tablet_id: " << tablet_id;
-
-    std::shared_ptr<MetaService_Stub> stub;
-    RETURN_IF_ERROR(MetaServiceProxy::get_client(&stub));
-
-    brpc::Controller cntl;
-    cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
-    UpdateTabletSchemaRequest req;
-    UpdateTabletSchemaResponse resp;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_tablet_id(tablet_id);
-
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema.to_schema_pb(&tablet_schema_pb);
-    doris_tablet_schema_to_cloud(req.mutable_tablet_schema(), std::move(tablet_schema_pb));
-    stub->update_tablet_schema(&cntl, &req, &resp, nullptr);
-    if (cntl.Failed()) {
-        return Status::RpcError("failed to update tablet schema: {}", cntl.ErrorText());
-    }
-    if (resp.status().code() != MetaServiceCode::OK) {
-        return Status::InternalError("failed to update tablet schema: {}", resp.status().msg());
-    }
-    VLOG_DEBUG << "succeed to update tablet schema, tablet_id: " << tablet_id;
-    return Status::OK();
 }
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,

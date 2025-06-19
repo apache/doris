@@ -41,7 +41,7 @@
 
 namespace doris {
 
-const static string INTERNAL_NORMAL_WG_NAME = "normal";
+const static std::string INTERNAL_NORMAL_WG_NAME = "normal";
 const static uint64_t INTERNAL_NORMAL_WG_ID = 1;
 
 PausedQuery::PausedQuery(std::shared_ptr<ResourceContext> resource_ctx, double cache_ratio,
@@ -124,7 +124,7 @@ WorkloadGroupPtr WorkloadGroupMgr::get_group(std::vector<uint64_t>& id_list) {
         }
         LOG(ERROR) << ss.str();
     }
-    // DCHECK(wg_cout <= 1);
+    DCHECK(wg_cout <= 1);
 
     if (ret_wg == nullptr) {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);

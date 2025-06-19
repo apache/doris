@@ -641,14 +641,7 @@ public class IcebergUtils {
                 }
                 Preconditions.checkNotNull(schema,
                         "Schema for table " + catalog.getName() + "." + dbName + "." + name + " is null");
-                List<Types.NestedField> columns = schema.columns();
-                List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-                for (Types.NestedField field : columns) {
-                    tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
-                            IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                            schema.caseInsensitiveFindField(field.name()).fieldId()));
-                }
-                return tmpSchema;
+                return parseSchema(schema);
             });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
@@ -656,6 +649,19 @@ public class IcebergUtils {
 
     }
 
+    /**
+     * Parse iceberg schema to doris schema
+     */
+    public static List<Column> parseSchema(Schema schema) {
+        List<Types.NestedField> columns = schema.columns();
+        List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
+        for (Types.NestedField field : columns) {
+            resSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
+                    IcebergUtils.icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                    schema.caseInsensitiveFindField(field.name()).fieldId()));
+        }
+        return resSchema;
+    }
 
     /**
      * Estimate iceberg table row count.

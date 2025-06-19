@@ -2114,20 +2114,16 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
 
     st = remote_scan_sched->submit_scan_task(vectorized::SimplifiedScanTask(
             [request, response, done]() {
+                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                 signal::set_signal_task_id(request->query_id());
                 // multi get data by rowid
                 MonotonicStopWatch watch;
                 watch.start();
                 brpc::ClosureGuard closure_guard(done);
                 response->mutable_status()->set_status_code(0);
-                SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                 Status st = RowIdStorageReader::read_by_rowids(*request, response);
                 st.to_protobuf(response->mutable_status());
                 LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
-                LOG(INFO) << "query_id: " << print_id(request->query_id())
-                          << " backend id: " << BackendOptions::get_backend_id()
-                          << " response status:" << st.to_string()
-                          << " return block size:" << response->blocks_size();
             },
             nullptr));
 

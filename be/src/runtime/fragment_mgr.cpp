@@ -336,10 +336,10 @@ void FragmentMgr::stop() {
         _cancel_thread->join();
     }
 
+    _thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
     _pipeline_map.clear();
-    _thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -646,9 +646,9 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         LOG_INFO("Query {} start execution", print_id(query_id));
     } else {
         return Status::InternalError(
-                "Failed to get query fragments context. Query may be "
+                "Failed to get query fragments context. Query {} may be "
                 "timeout or be cancelled. host: {}",
-                BackendOptions::get_localhost());
+                print_id(query_id), BackendOptions::get_localhost());
     }
     return Status::OK();
 }

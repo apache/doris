@@ -61,10 +61,11 @@ import java.util.stream.Collectors;
 public class StageUtil {
     public static final Logger LOG = LogManager.getLogger(StageUtil.class);
     private static final String NO_FILES_ERROR_MSG = "No files can be copied";
+    public static final String INTERNAL_STAGE = "~";
 
     public static StagePB getStage(String stage, String user, boolean checkAuth)
             throws AnalysisException, DdlException {
-        if (stage.equals("~")) {
+        if (stage.equals(INTERNAL_STAGE)) {
             if (StringUtils.isEmpty(user)) {
                 throw new AnalysisException("User name can not be empty");
             }

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
@@ -918,10 +917,6 @@ public class Alter {
         }
     }
 
-    public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
-        systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
-    }
-
     public void processAlterSystem(AlterSystemCommand command) throws UserException {
         systemHandler.processForNereids(Collections.singletonList(command), null, null);
     }
@@ -1026,7 +1021,8 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
-            } else {
+            } else if (PropertyAnalyzer.hasStoragePolicy(properties)) {
+                // only set "storage_policy" = "", means cancel storage policy
                 // if current partition is already in remote storage
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(

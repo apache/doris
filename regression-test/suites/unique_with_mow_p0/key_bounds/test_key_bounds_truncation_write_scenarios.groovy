@@ -242,41 +242,7 @@ suite("test_key_bounds_truncation_write_scenarios", "nonConcurrent") {
         logger.info("============= compaction ==============")
         set_be_param("segments_key_bounds_truncation_threshold", 8)
         Thread.sleep(2000)
-        def triggerFullCompaction = {
-            def beNodes = sql_return_maparray("show backends;")
-            def tabletStat = sql_return_maparray("show tablets from ${tableName};").get(0)
-            def tabletBackendId = tabletStat.BackendId
-            def tabletId = tabletStat.TabletId
-            def tabletBackend;
-            for (def be : beNodes) {
-                if (be.BackendId == tabletBackendId) {
-                    tabletBackend = be
-                    break;
-                }
-            }
-
-            logger.info("trigger compaction on another BE ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}")
-            def (code, out, err) = be_run_full_compaction(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            assertEquals("success", compactJson.status.toLowerCase())
-
-            // wait for full compaction to complete
-            Awaitility.await().atMost(3, TimeUnit.SECONDS).pollDelay(200, TimeUnit.MILLISECONDS).pollInterval(100, TimeUnit.MILLISECONDS).until(
-                {
-                    (code, out, err) = be_get_compaction_status(tabletBackend.Host, tabletBackend.HttpPort, tabletId)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    return !compactionStatus.run_status
-                }
-            )
-        }
-
-        // trigger full compaction on tablet
-        triggerFullCompaction()
+        trigger_and_wait_compaction(tableName, "full")
         checkKeyBounds(8)
 
         qt_sql "select count(*) from ${tableName};"

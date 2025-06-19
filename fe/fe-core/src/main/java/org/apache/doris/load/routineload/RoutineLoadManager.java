@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
-import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -507,33 +506,6 @@ public class RoutineLoadManager implements Writable {
                 continue;
             }
         }
-    }
-
-    public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
-            throws UserException {
-        RoutineLoadJob routineLoadJob;
-        // it needs lock when getting routine load job,
-        // otherwise, it may cause the editLog out of order in the following scenarios:
-        // thread A: create job and record job meta
-        // thread B: change job state and persist in editlog according to meta
-        // thread A: persist in editlog
-        // which will cause the null pointer exception when replaying editLog
-        readLock();
-        try {
-            routineLoadJob = checkPrivAndGetJob(stopRoutineLoadStmt.getDbFullName(),
-                    stopRoutineLoadStmt.getName());
-        } finally {
-            readUnlock();
-        }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
-                new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR,
-                        "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
-                false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                .add("current_state", routineLoadJob.getState())
-                .add("user", ConnectContext.get().getQualifiedUser())
-                .add("msg", "routine load job has been stopped by user")
-                .build());
     }
 
     public int getSizeOfIdToRoutineLoadTask() {

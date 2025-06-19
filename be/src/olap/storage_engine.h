@@ -327,7 +327,6 @@ public:
 
     ThreadPool* tablet_publish_txn_thread_pool() { return _tablet_publish_txn_thread_pool.get(); }
     bool stopped() override { return _stopped; }
-    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
 
@@ -340,7 +339,7 @@ public:
     bool add_broken_path(std::string path);
     bool remove_broken_path(std::string path);
 
-    std::set<string> get_broken_paths() { return _broken_paths; }
+    std::set<std::string> get_broken_paths() { return _broken_paths; }
 
 private:
     // Instance should be inited from `static open()`
@@ -508,7 +507,6 @@ private:
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
-    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 

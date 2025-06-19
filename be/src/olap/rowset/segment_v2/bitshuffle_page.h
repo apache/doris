@@ -210,7 +210,7 @@ private:
         int64_t bytes =
                 bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                                          num_elems_after_padding, final_size_of_type, 0);
-        if (PREDICT_FALSE(bytes < 0)) {
+        if (bytes < 0) [[unlikely]] {
             // This means the bitshuffle function fails.
             // Ideally, this should not happen.
             warn_with_bitshuffle_error(bytes);
@@ -333,7 +333,7 @@ public:
     // == 0, because next batch will return empty in this method.
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init()";
-        if (PREDICT_FALSE(_num_elements == 0)) {
+        if (_num_elements == 0) [[unlikely]] {
             if (pos != 0) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                         "seek pos {} is larger than total elements  {}", pos, _num_elements);
@@ -386,7 +386,7 @@ public:
     template <bool forward_index = true>
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+        if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }
@@ -409,7 +409,7 @@ public:
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0)) {
+        if (*n == 0) [[unlikely]] {
             *n = 0;
             return Status::OK();
         }

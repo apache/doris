@@ -87,6 +87,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _gc_evict_bytes_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                    "file_cache_gc_evict_bytes");
+    _gc_evict_count_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                    "file_cache_gc_evict_count");
 
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -1146,6 +1150,8 @@ void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
         std::vector<FileBlockCell*> to_remove;
         if (iter != _files.end()) {
             for (auto& [_, cell] : iter->second) {
+                *_gc_evict_bytes_metrics << cell.size();
+                *_gc_evict_count_metrics << 1;
                 if (cell.releasable()) {
                     to_remove.push_back(&cell);
                 } else {
@@ -1783,6 +1789,7 @@ void BlockFileCache::run_background_monitor() {
             check_need_evict_cache_in_advance();
         } else {
             _need_evict_cache_in_advance = false;
+            _need_evict_cache_in_advance_metrics->set_value(0);
         }
 
         {
@@ -2167,6 +2174,12 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
+
+    stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
+    stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
+    stats["total_read_counts"] = (double)_num_read_blocks->get_value();
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
 
     return stats;
 }

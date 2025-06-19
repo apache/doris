@@ -18,7 +18,6 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
-import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -312,10 +311,6 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             writeUnlock();
         }
         LOG.info("Create workload group {} for compute group {} success.", workloadGroup, computeGroup);
-    }
-
-    public void createWorkloadGroup(CreateWorkloadGroupStmt stmt) throws DdlException {
-        throw new DdlException("Unsupported create statement");
     }
 
     // NOTE: used for checking sum value of 100%  for cpu_hard_limit and memory_limit

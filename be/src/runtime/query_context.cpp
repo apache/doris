@@ -443,7 +443,7 @@ void QueryContext::_report_query_profile() {
                 _query_id, this->coord_addr, fragment_id, fragment_profile, load_channel_profile);
     }
 
-    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
+    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_profile_reporting();
 }
 
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
