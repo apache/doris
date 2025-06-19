@@ -136,7 +136,9 @@ private:
                                   int rows);
     Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                 int rows);
-    jobject _get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType);
+
+    Status _get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
+                                jobject* java_enum_obj);
 
     std::string _get_real_url(const std::string& url);
     std::string _check_and_return_default_driver_url(const std::string& url);
