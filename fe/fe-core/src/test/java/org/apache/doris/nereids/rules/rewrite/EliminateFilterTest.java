@@ -102,14 +102,14 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
                 .matches(logicalEmptyRelation());
 
         filter = new LogicalPlanBuilder(scan1)
-                .filter(new And(exprList))
+                .filter(ExpressionUtils.and(exprList))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
                 .applyTopDown(new EliminateFilter())
                 .matches(logicalEmptyRelation());
 
         filter = new LogicalPlanBuilder(scan1)
-                .filter(new And(NullLiteral.INSTANCE, new Or(exprList)))
+                .filter(new And(NullLiteral.INSTANCE, ExpressionUtils.or(exprList)))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
                 .applyTopDown(new EliminateFilter())
@@ -137,7 +137,7 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
                 .matches(logicalEmptyRelation());
 
         filter = new LogicalPlanBuilder(scan1)
-                .filter(new Not(new And(exprList)))
+                .filter(new Not(ExpressionUtils.and(exprList)))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
                 .applyTopDown(new EliminateFilter())
@@ -193,15 +193,15 @@ class EliminateFilterTest implements MemoPatternMatchSupported {
         Expression b = new SlotReference("b", IntegerType.INSTANCE);
         Expression one = Literal.of(1);
         Expression two = Literal.of(2);
-        Expression expression = new And(Arrays.asList(
+        Expression expression = ExpressionUtils.and(Arrays.asList(
                new And(new GreaterThan(a, one), new NullLiteral(IntegerType.INSTANCE)),
-               new Or(Arrays.asList(new GreaterThan(b, two), new NullLiteral(IntegerType.INSTANCE),
+               ExpressionUtils.or(Arrays.asList(new GreaterThan(b, two), new NullLiteral(IntegerType.INSTANCE),
                        new EqualTo(a, new NullLiteral(IntegerType.INSTANCE)))),
                new Not(new And(new GreaterThan(a, one), new NullLiteral(IntegerType.INSTANCE)))
         ));
-        Expression expectExpression = new And(Arrays.asList(
+        Expression expectExpression = ExpressionUtils.and(Arrays.asList(
                 new And(new GreaterThan(a, one), BooleanLiteral.FALSE),
-                new Or(Arrays.asList(new GreaterThan(b, two), BooleanLiteral.FALSE,
+                ExpressionUtils.or(Arrays.asList(new GreaterThan(b, two), BooleanLiteral.FALSE,
                         new EqualTo(a, new NullLiteral(IntegerType.INSTANCE)))),
                 new Not(new And(new GreaterThan(a, one), new NullLiteral(IntegerType.INSTANCE)))
         ));
