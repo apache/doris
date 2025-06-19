@@ -118,13 +118,6 @@ public class TruncateTableInfo implements Writable {
         return isEntireTable;
     }
 
-<<<<<<< HEAD
-=======
-    public boolean getForce() {
-        return force;
-    }
-
->>>>>>> 6764feeffe ([fix](hive) sync DDL command to other FE (#46326))
     public String getRawSql() {
         return rawSql;
     }
