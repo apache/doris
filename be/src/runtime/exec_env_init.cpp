@@ -752,6 +752,7 @@ void ExecEnv::destroy() {
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
     SAFE_DELETE(_tablet_schema_cache);
+    SAFE_DELETE(_tablet_column_object_pool);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
