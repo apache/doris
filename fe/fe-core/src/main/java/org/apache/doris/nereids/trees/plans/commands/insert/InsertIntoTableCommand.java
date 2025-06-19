@@ -221,8 +221,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             // so we need to set this here
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
             stmtExecutor.setCoord(insertExecutor.getCoordinator());
-            // for prepare and execute, avoiding normalization for every execute command
-            this.originLogicalQuery = this.logicalQuery.get();
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
