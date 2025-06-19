@@ -21,10 +21,6 @@ import org.apache.doris.analysis.AnalyzeDBStmt;
 import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
-import org.apache.doris.analysis.DropAnalyzeJobStmt;
-import org.apache.doris.analysis.DropCachedStatsStmt;
-import org.apache.doris.analysis.DropStatsStmt;
-import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.TableName;
@@ -71,6 +67,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -523,7 +520,15 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
-        infoBuilder.setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0);
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
+        infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
@@ -602,7 +607,15 @@ public class AnalysisManager implements Writable {
         infoBuilder.setRowCount(rowCount);
         TableStatsMeta tableStatsStatus = findTableStatsStatus(table.getId());
         infoBuilder.setUpdateRows(tableStatsStatus == null ? 0 : tableStatsStatus.updatedRows.get());
-        infoBuilder.setTableVersion(table instanceof OlapTable ? ((OlapTable) table).getVisibleVersion() : 0);
+        long version = 0;
+        try {
+            if (table instanceof OlapTable) {
+                version = ((OlapTable) table).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            LOG.warn("table {}, in cloud getVisibleVersion exception", table.getName(), e);
+        }
+        infoBuilder.setTableVersion(version);
         infoBuilder.setPriority(JobPriority.MANUAL);
         infoBuilder.setPartitionUpdateRows(tableStatsStatus == null ? null : tableStatsStatus.partitionUpdateRows);
         infoBuilder.setEnablePartition(StatisticsUtil.enablePartitionAnalyze());
@@ -905,45 +918,6 @@ public class AnalysisManager implements Writable {
         Env.getCurrentEnv().getStatisticsCleaner().clear();
     }
 
-    public void dropCachedStats(DropCachedStatsStmt stmt) {
-        long catalogId = stmt.getCatalogIdId();
-        long dbId = stmt.getDbId();
-        long tblId = stmt.getTblId();
-        dropCachedStats(catalogId, dbId, tblId);
-    }
-
-    public void dropStats(DropStatsStmt dropStatsStmt) throws DdlException {
-        if (dropStatsStmt.dropExpired) {
-            Env.getCurrentEnv().getStatisticsCleaner().clear();
-            return;
-        }
-
-        TableStatsMeta tableStats = findTableStatsStatus(dropStatsStmt.getTblId());
-        if (tableStats == null) {
-            return;
-        }
-        Set<String> cols = dropStatsStmt.getColumnNames();
-        PartitionNames partitionNames = dropStatsStmt.getPartitionNames();
-        long catalogId = dropStatsStmt.getCatalogIdId();
-        long dbId = dropStatsStmt.getDbId();
-        long tblId = dropStatsStmt.getTblId();
-        TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
-        // Remove tableMetaStats if drop whole table stats.
-        if (cols == null && (!table.isPartitionedTable() || partitionNames == null
-                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
-            removeTableStats(tblId);
-            Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
-        }
-        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
-        // Drop stats ddl is master only operation.
-        Set<String> partitions = null;
-        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
-            partitions = new HashSet<>(partitionNames.getPartitionNames());
-        }
-        invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
-        StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
-    }
-
     public void dropStats(TableIf table, PartitionNames partitionNames) {
         try {
             TableStatsMeta tableStats = findTableStatsStatus(table.getId());
@@ -1197,23 +1171,6 @@ public class AnalysisManager implements Writable {
         }
     }
 
-    public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
-        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalysisJobStmt.jobId);
-        if (analysisTaskMap == null) {
-            throw new DdlException("Job not exists or already finished");
-        }
-        BaseAnalysisTask anyTask = analysisTaskMap.values().stream().findFirst().orElse(null);
-        if (anyTask == null) {
-            return;
-        }
-        checkPriv(anyTask);
-        logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
-        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
-            taskInfo.cancel();
-            logKilled(taskInfo.info);
-        }
-    }
-
     private void logKilled(AnalysisInfo info) {
         info.state = AnalysisState.FAILED;
         info.message = "Killed by user: " + ConnectContext.get().getQualifiedUser();
@@ -1373,19 +1330,6 @@ public class AnalysisManager implements Writable {
         }
         checkPriv(jobInfo);
         long jobId = analyzeJobCommand.getJobId();
-        AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
-        Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
-        replayDeleteAnalysisJob(analyzeDeletionLog);
-        removeAll(findTasks(jobId));
-    }
-
-    public void dropAnalyzeJob(DropAnalyzeJobStmt analyzeJobStmt) throws DdlException {
-        AnalysisInfo jobInfo = analysisJobInfoMap.get(analyzeJobStmt.getJobId());
-        if (jobInfo == null) {
-            throw new DdlException(String.format("Analyze job [%d] not exists", analyzeJobStmt.getJobId()));
-        }
-        checkPriv(jobInfo);
-        long jobId = analyzeJobStmt.getJobId();
         AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
         Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
         replayDeleteAnalysisJob(analyzeDeletionLog);

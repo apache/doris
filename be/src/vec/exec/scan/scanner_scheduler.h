@@ -72,22 +72,11 @@ public:
 
     static int get_remote_scan_thread_queue_size();
 
-    SimplifiedScanScheduler* get_local_scan_thread_pool() { return _local_scan_thread_pool.get(); }
-
-    SimplifiedScanScheduler* get_remote_scan_thread_pool() {
-        return _remote_scan_thread_pool.get();
-    }
-
 private:
     static void _scanner_scan(std::shared_ptr<ScannerContext> ctx,
                               std::shared_ptr<ScanTask> scan_task);
 
-    // execution thread pool
-    // _local_scan_thread_pool is for local scan task(typically, olap scanner)
-    // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
-    std::unique_ptr<vectorized::SimplifiedScanScheduler> _local_scan_thread_pool;
-    std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     // true is the scheduler is closed.

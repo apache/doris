@@ -73,8 +73,7 @@ statementBase
     ;
 
 unsupportedStatement
-    : unsupportedUseStatement
-    | unsupportedStatsStatement
+    : unsupportedStatsStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
@@ -338,7 +337,6 @@ supportedShowStatement
     | SHOW GLOBAL FULL? FUNCTIONS (LIKE STRING_LITERAL)?                            #showGlobalFunctions
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL? limitClause?                     #showLoadProfile
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
@@ -384,6 +382,8 @@ supportedShowStatement
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW STREAM? LOAD ((FROM | IN) database=identifier)? wildWhere?
         sortClause? limitClause?                                                    #showLoad
+    | SHOW LOAD WARNINGS ((((FROM | IN) database=identifier)?
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
@@ -436,13 +436,6 @@ supportedLoadStatement
     | RESUME ROUTINE LOAD FOR label=multipartIdentifier                             #resumeRoutineLoad
     | RESUME ALL ROUTINE LOAD                                                       #resumeAllRoutineLoad
     | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
-    | STOP SYNC JOB name=multipartIdentifier                                        #stopDataSyncJob
-    | RESUME SYNC JOB name=multipartIdentifier                                      #resumeDataSyncJob
-    | PAUSE SYNC JOB name=multipartIdentifier                                       #pauseDataSyncJob
-    | CREATE SYNC label=multipartIdentifier
-          LEFT_PAREN channelDescriptions RIGHT_PAREN
-          FROM BINLOG LEFT_PAREN propertyItemList RIGHT_PAREN
-          properties=propertyClause?                                                #createDataSyncJob
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | (LIKE STRING_LITERAL)?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     ;
@@ -458,22 +451,22 @@ supportedOtherStatement
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+    | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
+        ((CLUSTER | COMPUTE GROUP) source=identifier |
+            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
     ;
 
 unsupportedOtherStatement
-    : WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
-        ((CLUSTER | COMPUTE GROUP) source=identifier |
-            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
-    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
+    : RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
-warmUpItem
+ warmUpItem
     : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
     ;
 
@@ -484,8 +477,6 @@ lockTable
 
 unsupportedShowStatement
     : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
-    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
@@ -539,15 +530,6 @@ importColumnDesc
     | LEFT_PAREN name=identifier (EQ booleanExpression)? RIGHT_PAREN
     ;
 
-channelDescriptions
-    : channelDescription (COMMA channelDescription)*
-    ;
-
-channelDescription
-    : FROM source=multipartIdentifier INTO destination=multipartIdentifier
-        partitionSpec? columnList=identifierList?
-    ;
-
 supportedRefreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
@@ -591,6 +573,8 @@ supportedAdminStatement
     | ADMIN COMPACT TABLE baseTableRef (WHERE TYPE EQ STRING_LITERAL)?              #adminCompactTable
     | ADMIN CHECK tabletList properties=propertyClause?                             #adminCheckTablets
     | ADMIN SHOW TABLET STORAGE FORMAT VERBOSE?                                     #adminShowTabletStorageFormat
+    | ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
+        (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
     | ADMIN CLEAN TRASH
         (ON LEFT_PAREN backends+=STRING_LITERAL
               (COMMA backends+=STRING_LITERAL)* RIGHT_PAREN)?                       #adminCleanTrash
@@ -611,9 +595,7 @@ supportedRecoverStatement
     ;
 
 unsupportedAdminStatement
-    : ADMIN SET (FRONTEND | (ALL FRONTENDS)) CONFIG
-        (LEFT_PAREN propertyItemList RIGHT_PAREN)? ALL?                             #adminSetFrontendConfig
-    | ADMIN SET TABLE name=multipartIdentifier
+    : ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
     ;
 
@@ -885,12 +867,9 @@ supportedUnsetStatement
     ;
 
 supportedUseStatement
-     : SWITCH catalog=identifier                                                      #switchCatalog
-     | USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    ;
-
-unsupportedUseStatement
-    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+     : SWITCH catalog=identifier                                                        #switchCatalog
+     | USE (catalog=identifier DOT)? database=identifier                                #useDatabase
+     | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier   #useCloudCluster
     ;
 
 stageAndPattern

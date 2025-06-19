@@ -24,97 +24,11 @@
 
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/core/field.h"
 #include "vec/core/sort_description.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
-
-struct HeapSortCursorBlockView {
-public:
-    Block block;
-    ColumnRawPtrs sort_columns;
-    SortDescription& desc;
-
-    HeapSortCursorBlockView(Block&& cur_block, SortDescription& sort_desc)
-            : block(cur_block), desc(sort_desc) {
-        _reset();
-    }
-
-    // need exception safety
-    void filter_block(IColumn::Filter& filter) {
-        Block::filter_block_internal(&block, filter, block.columns());
-        _reset();
-    }
-
-private:
-    void _reset() {
-        sort_columns.clear();
-        auto columns = block.get_columns_and_convert();
-        for (auto& column_desc : desc) {
-            size_t column_number = !column_desc.column_name.empty()
-                                           ? block.get_position_by_name(column_desc.column_name)
-                                           : column_desc.column_number;
-            sort_columns.push_back(columns[column_number].get());
-        }
-    }
-};
-
-using HeapSortCursorBlockSPtr = std::shared_ptr<HeapSortCursorBlockView>;
-
-struct HeapSortCursorImpl {
-public:
-    HeapSortCursorImpl(size_t row_id, HeapSortCursorBlockSPtr block_view)
-            : _row_id(row_id), _block_view(std::move(block_view)) {}
-
-    HeapSortCursorImpl(const HeapSortCursorImpl& other) {
-        _row_id = other._row_id;
-        _block_view = other._block_view;
-    }
-
-    HeapSortCursorImpl(HeapSortCursorImpl&& other) {
-        _row_id = other._row_id;
-        _block_view = other._block_view;
-        other._block_view = nullptr;
-    }
-
-    HeapSortCursorImpl& operator=(HeapSortCursorImpl&& other) {
-        std::swap(_row_id, other._row_id);
-        std::swap(_block_view, other._block_view);
-        return *this;
-    }
-
-    ~HeapSortCursorImpl() = default;
-
-    size_t row_id() const { return _row_id; }
-
-    const ColumnRawPtrs& sort_columns() const { return _block_view->sort_columns; }
-
-    const Block* block() const { return &_block_view->block; }
-
-    const SortDescription& sort_desc() const { return _block_view->desc; }
-
-    bool operator<(const HeapSortCursorImpl& rhs) const {
-        for (size_t i = 0; i < sort_desc().size(); ++i) {
-            int direction = sort_desc()[i].direction;
-            int nulls_direction = sort_desc()[i].nulls_direction;
-            int res = direction * sort_columns()[i]->compare_at(row_id(), rhs.row_id(),
-                                                                *(rhs.sort_columns()[i]),
-                                                                nulls_direction);
-            // ASC: direction == 1. If bigger, res > 0. So we return true.
-            if (res < 0) {
-                return true;
-            }
-            if (res > 0) {
-                return false;
-            }
-        }
-        return false;
-    }
-
-private:
-    size_t _row_id;
-    HeapSortCursorBlockSPtr _block_view;
-};
 
 /** Cursor allows to compare rows in different blocks (and parts).
   * Cursor moves inside single block.
@@ -127,8 +41,8 @@ struct MergeSortCursorImpl {
     ColumnRawPtrs columns;
     SortDescription desc;
     size_t sort_columns_size = 0;
-    size_t pos = 0;
-    size_t rows = 0;
+    int pos = 0;
+    int rows = 0;
 
     MergeSortCursorImpl() = default;
     virtual ~MergeSortCursorImpl() = default;
@@ -144,6 +58,22 @@ struct MergeSortCursorImpl {
               sort_columns_size(desc.size()) {}
 
     bool empty() const { return rows == 0; }
+
+    void reverse() {
+        MutableColumns columns_reversed;
+        for (auto& column : columns) {
+            auto col_reversed = column->clone_empty();
+            for (int j = rows - 1; j >= pos; j--) {
+                col_reversed->insert_from(*column, j);
+            }
+            columns_reversed.push_back(std::move(col_reversed));
+        }
+        block->set_columns(std::move(columns_reversed));
+        for (auto& column_desc : desc) {
+            column_desc.direction *= -1;
+        }
+        reset();
+    }
 
     /// Set the cursor to the beginning of the new block.
     void reset() {
@@ -174,6 +104,12 @@ struct MergeSortCursorImpl {
     virtual void process_next() {}
     virtual Block* block_ptr() { return nullptr; }
     virtual bool eof() const { return false; }
+
+    Field get_top_value() const {
+        Field field {PrimitiveType::TYPE_NULL};
+        sort_columns[0]->get(pos, field);
+        return field;
+    }
 };
 
 using BlockSupplier = std::function<Status(Block*, bool* eos)>;
@@ -287,6 +223,8 @@ struct MergeSortCursor {
 
     /// Inverted so that the priority queue elements are removed in ascending order.
     bool operator<(const MergeSortCursor& rhs) const { return greater(rhs); }
+
+    Field get_top_value() const { return impl->get_top_value(); }
 };
 
 /// For easy copying.
@@ -423,8 +361,8 @@ public:
         }
     }
 
-    void push(MergeSortCursorImpl& cursor) {
-        _queue.emplace_back(&cursor);
+    void push(MergeSortCursor cursor) {
+        _queue.emplace_back(std::move(cursor));
         std::push_heap(_queue.begin(), _queue.end());
         next_child_idx = 0;
 

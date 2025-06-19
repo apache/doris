@@ -873,7 +873,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
     if (!has_valid_value && _is_load) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
-        string col_names;
+        std::string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
@@ -1646,7 +1646,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     }
 
     if (!has_valid_value && _is_load) {
-        string col_names;
+        std::string col_names;
         for (auto* slot_desc : slot_descs) {
             col_names.append(slot_desc->col_name() + ", ");
         }
@@ -1792,7 +1792,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         for (size_t sub_col_idx = 0; sub_col_idx < sub_col_size; sub_col_idx++) {
             sub_col_name_to_idx.emplace(type_struct->get_element_name(sub_col_idx), sub_col_idx);
         }
-        vector<bool> has_value(sub_col_size, false);
+        std::vector<bool> has_value(sub_col_size, false);
         for (simdjson::ondemand::field sub : struct_value) {
             std::string_view sub_key_view = sub.unescaped_key();
             std::string sub_key(sub_key_view.data(), sub_key_view.length());
@@ -2137,7 +2137,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
     if (!has_valid_value) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
-        string col_names;
+        std::string col_names;
         for (int i = 0; i < block.columns(); ++i) {
             auto column = block.get_by_position(i).column->assume_mutable();
             column->pop_back(1);
