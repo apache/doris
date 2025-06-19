@@ -177,6 +177,7 @@ std::string validate_capacity(const std::string& path, int64_t new_capacity,
     if (statfs(path.c_str(), &stat) < 0) {
         auto ret = fmt::format("reset capacity {} statfs error {}. ", path, strerror(errno));
         LOG_ERROR(ret);
+        valid_capacity = 0; // caller will handle the error
         return ret;
     }
     size_t disk_capacity = static_cast<size_t>(static_cast<size_t>(stat.f_blocks) *
@@ -199,8 +200,11 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
     size_t total_capacity = 0;
     if (path.empty()) {
         for (auto& [p, cache] : _path_to_cache) {
-            int64_t valid_capacity;
+            int64_t valid_capacity = 0;
             ss << validate_capacity(p, new_capacity, valid_capacity);
+            if (valid_capacity <= 0) {
+                return ss.str();
+            }
             ss << cache->reset_capacity(valid_capacity);
             total_capacity += cache->capacity();
         }
@@ -208,8 +212,11 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
         return ss.str();
     } else {
         if (auto iter = _path_to_cache.find(path); iter != _path_to_cache.end()) {
-            int64_t valid_capacity;
+            int64_t valid_capacity = 0;
             ss << validate_capacity(path, new_capacity, valid_capacity);
+            if (valid_capacity <= 0) {
+                return ss.str();
+            }
             ss << iter->second->reset_capacity(valid_capacity);
 
             for (auto& [p, cache] : _path_to_cache) {
