@@ -70,11 +70,11 @@ suite("test_use_mv") {
         contains("t1(t1)")
     }
     explain {
-        sql """select /*+ use_mv(t1.r1) use_mv(t1.r2) */ k1 from t1;"""
+        sql """select /*+ use_mv(t1.r1), use_mv(t1.r2) */ k1 from t1;"""
         contains("only one USE_MV hint is allowed")
     }
     explain {
-        sql """select /*+ no_use_mv(t1.r1) no_use_mv(t1.r2) */ k1 from t1;"""
+        sql """select /*+ no_use_mv(t1.r1), no_use_mv(t1.r2) */ k1 from t1;"""
         contains("only one NO_USE_MV hint is allowed")
     }
     explain {
@@ -82,7 +82,7 @@ suite("test_use_mv") {
         contains("no_use_mv([t1, r3])")
     }
     explain {
-        sql """select /*+ use_mv(t1.r1) no_use_mv(t1.r1) */ k1 from t1;"""
+        sql """select /*+ use_mv(t1.r1), no_use_mv(t1.r1) */ k1 from t1;"""
         contains("conflict mv exist in use_mv and no_use_mv in the same time")
     }
     explain {
@@ -104,11 +104,11 @@ suite("test_use_mv") {
         contains("t1(t1)")
     }
     explain {
-        sql """select /*+ use_mv(t1.r1) use_mv(t1.r2) */ k1 from t1;"""
+        sql """select /*+ use_mv(t1.r1), use_mv(t1.r2) */ k1 from t1;"""
         contains("only one USE_MV hint is allowed")
     }
     explain {
-        sql """select /*+ no_use_mv(t1.r1) no_use_mv(t1.r2) */ k1 from t1;"""
+        sql """select /*+ no_use_mv(t1.r1), no_use_mv(t1.r2) */ k1 from t1;"""
         contains("only one NO_USE_MV hint is allowed")
     }
     explain {
@@ -116,7 +116,7 @@ suite("test_use_mv") {
         contains("UnUsed: no_use_mv([t1, r3])")
     }
     explain {
-        sql """select /*+ use_mv(t1.r1) no_use_mv(t1.r1) */ k1 from t1;"""
+        sql """select /*+ use_mv(t1.r1), no_use_mv(t1.r1) */ k1 from t1;"""
         contains("conflict mv exist in use_mv and no_use_mv in the same time")
     }
     explain {
@@ -217,13 +217,13 @@ suite("test_use_mv") {
         notContains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """memo plan select /*+ use_mv(mv1) no_use_mv(mv2) */ * from t1 union all select * from t2"""
+        sql """memo plan select /*+ use_mv(mv1), no_use_mv(mv2) */ * from t1 union all select * from t2"""
         contains("Used: use_mv([mv1]) no_use_mv([mv2])")
         notContains("internal.test_cbo_use_mv.mv2 chose")
         contains("internal.test_cbo_use_mv.mv1 chose")
     }
     explain {
-        sql """memo plan select /*+ use_mv(mv2) no_use_mv(mv1) */ * from t1 union all select * from t2"""
+        sql """memo plan select /*+ use_mv(mv2), no_use_mv(mv1) */ * from t1 union all select * from t2"""
         contains("Used: use_mv([mv2]) no_use_mv([mv1])")
         notContains("internal.test_cbo_use_mv.mv1 chose")
         contains("internal.test_cbo_use_mv.mv2 chose")

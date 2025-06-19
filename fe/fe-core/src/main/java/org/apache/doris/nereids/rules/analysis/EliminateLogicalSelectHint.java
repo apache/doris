@@ -156,6 +156,10 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         boolean isAllMv = selectHint.getTables().isEmpty();
         UseMvHint useMvHint = new UseMvHint(selectHint.getHintName(), selectHint.getTables(),
                 selectHint.isUseMv(), isAllMv, statementContext.getHints());
+        if (selectHint.getErrorMessage() != null) {
+            useMvHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
+            useMvHint.setErrorMessage(selectHint.getErrorMessage());
+        }
         for (Hint hint : statementContext.getHints()) {
             if (hint.getHintName().equals(selectHint.getHintName())) {
                 hint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
