@@ -1317,11 +1317,11 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 2);
         auto res = ColumnDateV2::create();
-        res->reserve[input_rows_count];
+        res->reserve(input_rows_count);
         const auto& [left_col, left_const] =
-                unpack_if_const(block.get_by_position(arguments[0].column));
+                unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [right_col, right_const] =
-                unpack_if_const(block.get_by_position(arguments[1].column));
+                unpack_if_const(block.get_by_position(arguments[1]).column);
         const auto& date_col = *assert_cast<const ColumnDateV2*>(left_col.get());
         const auto& week_col = *assert_cast<const ColumnString*>(right_col.get());
         Status status;
@@ -1351,9 +1351,9 @@ private:
 
         auto weekday_upper = weekday.to_string();
         std::transform(weekday_upper.begin(), weekday_upper.end(), weekday_upper.begin(),
-                       std::toupper);
+                       ::toupper);
         auto it = weekday_map.find(weekday_upper);
-        if (it = weekday_map.end()) {
+        if (it == weekday_map.end()) {
             return 0;
         }
         return it->second;
