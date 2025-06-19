@@ -581,71 +581,84 @@ void CloudTablet::add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets
 }
 
 void CloudTablet::remove_unused_rowsets() {
-    int64_t removed_rowsets_num = 0;
+    std::vector<std::shared_ptr<Rowset>> removed_rowsets;
     int64_t removed_delete_bitmap_num = 0;
     OlapStopWatch watch;
-    std::lock_guard<std::mutex> lock(_gc_mutex);
-    std::vector<RowsetId> rowset_ids;
-    std::vector<int64_t> num_segments;
-    std::vector<std::vector<std::string>> index_file_names;
-    // 1. remove unused rowsets's cache data and delete bitmap
-    for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-        std::shared_ptr<Rowset> rs = it->second;
-        if (rs.use_count() > 1) {
-            LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id() << " has "
-                         << rs.use_count() << " references, it cannot be removed";
-            ++it;
-            continue;
-        }
-        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
-        rs->clear_cache();
-        g_unused_rowsets_count << -1;
-        g_unused_rowsets_bytes << -rs->total_disk_size();
-        it = _unused_rowsets.erase(it);
-        removed_rowsets_num++;
-
-        rowset_ids.push_back(rs->rowset_id());
-        num_segments.push_back(rs->num_segments());
-        auto index_names = rs->get_index_file_names();
-        index_file_names.push_back(index_names);
-        int64_t segment_size_sum = 0;
-        for (int32_t i = 0; i < rs->num_segments(); i++) {
-            segment_size_sum += rs->rowset_meta()->segment_file_size(i);
-        }
-        g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
-        g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
-        g_file_cache_recycle_cached_data_index_num << index_names.size();
-    }
-    if (!rowset_ids.empty()) {
-        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-        manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
-    }
-
-    // 2. remove delete bitmap of pre rowsets
-    for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
-        auto& rowset_ids = std::get<0>(*it);
-        bool find_unused_rowset = false;
-        for (const auto& rowset_id : rowset_ids) {
-            if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
-                LOG(INFO) << "can not remove pre rowset delete bitmap because rowset is in use"
-                          << ", tablet_id=" << tablet_id() << ", rowset_id=" << rowset_id;
-                find_unused_rowset = true;
-                break;
+    {
+        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // 1. remove unused rowsets's cache data and delete bitmap
+        for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
+            auto& rs = it->second;
+            if (rs.use_count() > 1) {
+                LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id()
+                             << " has " << rs.use_count() << " references, it cannot be removed";
+                ++it;
+                continue;
             }
+            tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            rs->clear_cache();
+            removed_rowsets.push_back(std::move(rs));
+            g_unused_rowsets_count << -1;
+            g_unused_rowsets_bytes << -rs->total_disk_size();
+            it = _unused_rowsets.erase(it);
         }
-        if (find_unused_rowset) {
-            ++it;
-            continue;
+    }
+
+    {
+        std::vector<RowsetId> rowset_ids;
+        std::vector<int64_t> num_segments;
+        std::vector<std::vector<std::string>> index_file_names;
+
+        for (auto& rs : removed_rowsets) {
+            rowset_ids.push_back(rs->rowset_id());
+            num_segments.push_back(rs->num_segments());
+            auto index_names = rs->get_index_file_names();
+            index_file_names.push_back(index_names);
+            int64_t segment_size_sum = 0;
+            for (int32_t i = 0; i < rs->num_segments(); i++) {
+                segment_size_sum += rs->rowset_meta()->segment_file_size(i);
+            }
+            g_file_cache_recycle_cached_data_segment_num << rs->num_segments();
+            g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
+            g_file_cache_recycle_cached_data_index_num << index_names.size();
         }
-        auto& key_ranges = std::get<1>(*it);
-        tablet_meta()->delete_bitmap().remove(key_ranges);
-        it = _unused_delete_bitmap.erase(it);
-        removed_delete_bitmap_num++;
+
+        if (removed_rowsets.size() > 0) {
+            auto& manager =
+                    ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+            manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // 2. remove delete bitmap of pre rowsets
+        for (auto it = _unused_delete_bitmap.begin(); it != _unused_delete_bitmap.end();) {
+            auto& rowset_ids = std::get<0>(*it);
+            bool find_unused_rowset = false;
+            for (const auto& rowset_id : rowset_ids) {
+                if (_unused_rowsets.find(rowset_id) != _unused_rowsets.end()) {
+                    LOG(INFO) << "can not remove pre rowset delete bitmap because rowset is in use"
+                              << ", tablet_id=" << tablet_id() << ", rowset_id=" << rowset_id;
+                    find_unused_rowset = true;
+                    break;
+                }
+            }
+            if (find_unused_rowset) {
+                ++it;
+                continue;
+            }
+            auto& key_ranges = std::get<1>(*it);
+            tablet_meta()->delete_bitmap().remove(key_ranges);
+            it = _unused_delete_bitmap.erase(it);
+            removed_delete_bitmap_num++;
+            // TODO(kaijie): recycle cache for unused delete bitmap
+        }
     }
 
     LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
               << ", unused_delete_bitmap size=" << _unused_delete_bitmap.size()
-              << ", removed_rowsets_num=" << removed_rowsets_num
+              << ", removed_rowsets_num=" << removed_rowsets.size()
               << ", removed_delete_bitmap_num=" << removed_delete_bitmap_num
               << ", cost(us)=" << watch.get_elapse_time_us();
 }
