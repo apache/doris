@@ -6988,10 +6988,6 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
     :}
-    | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
-    {:
-        RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
-    :}
     | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
