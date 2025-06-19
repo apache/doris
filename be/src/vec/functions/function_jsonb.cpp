@@ -1381,7 +1381,7 @@ struct JsonbLengthUtil {
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            auto length = value->length();
+            auto length = value->numElements();
             res->insert_data(const_cast<const char*>((char*)&length), 0);
         }
         block.replace_by_position(result,
