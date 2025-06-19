@@ -375,6 +375,14 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
             compare_res(test_sql3 + " order by 1,2,3")
         }
+
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
+        assertTrue(state_mtmv3[0][0] == "NORMAL")
+        assertTrue(state_mtmv3[0][2] == false)
     } else if (step == 4) {
         assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv3[0][2] == false)
@@ -391,15 +399,15 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_not_part_in(test_sql3, mtmvName3)
         }
 
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+        logger.info("state_mtmv3: " + state_mtmv3)
+        assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv3[0][2] == false)
+
     }
-
-    // 刷新catalog之后 mtmv仍然处于sc状态
-    sql """refresh catalog ${ctlName}"""
-
-    state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-    logger.info("state_mtmv3: " + state_mtmv3)
-    assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
-    assertTrue(state_mtmv3[0][2] == false)
 
     sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
     waitingMTMVTaskFinishedByMvName(mtmvName3)
