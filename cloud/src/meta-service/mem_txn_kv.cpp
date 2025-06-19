@@ -384,6 +384,10 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     approximate_bytes_ += key.size() + 8;
 }
 
+void Transaction::atomic_max(std::string_view key, uint64_t param) {
+    // TODO
+}
+
 bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
     if (data.size() != sizeof(int64_t)) {
         return false;

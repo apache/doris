@@ -59,6 +59,7 @@ static const char* RECYCLE_KEY_INFIX_PART               = "partition";
 static const char* RECYCLE_KEY_TXN                      = "txn";
 
 static const char* STATS_KEY_INFIX_TABLET               = "tablet";
+static const char* STATS_KEY_INFIX_DELETE_BITMAP_LOCK   = "delete_bitmap_lock";
 
 static const char* JOB_KEY_INFIX_TABLET                 = "tablet";
 static const char* JOB_KEY_INFIX_RL_PROGRESS            = "routine_load_progress";
@@ -117,7 +118,7 @@ static void encode_prefix(const T& t, std::string* key) {
         StatsTabletKeyInfo, TableVersionKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, RLJobProgressKeyInfo,
         CopyJobKeyInfo, CopyFileKeyInfo,  StorageVaultKeyInfo, MetaSchemaPBDictionaryInfo,
-        MowTabletCompactionInfo>);
+        MowTabletCompactionInfo, StatsMowLockInfo>);
 
     key->push_back(CLOUD_USER_KEY_SPACE01);
     // Prefixes for key families
@@ -148,7 +149,8 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, RecycleTxnKeyInfo>
                       || std::is_same_v<T, RecycleStageKeyInfo>) {
         encode_bytes(RECYCLE_KEY_PREFIX, key);
-    } else if constexpr (std::is_same_v<T, StatsTabletKeyInfo>) {
+    } else if constexpr (std::is_same_v<T, StatsTabletKeyInfo>
+                      || std::is_same_v<T, StatsMowLockInfo>) {
         encode_bytes(STATS_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, JobTabletKeyInfo>
                       || std::is_same_v<T, JobRecycleKeyInfo>
@@ -399,6 +401,13 @@ void stats_tablet_index_size_key(const StatsTabletKeyInfo& in, std::string* out)
 void stats_tablet_segment_size_key(const StatsTabletKeyInfo& in, std::string* out) {
     stats_tablet_key(in, out);
     encode_bytes(STATS_KEY_SUFFIX_SEGMENT_SIZE, out);
+}
+
+void stats_mow_lock_last_release_key(const StatsMowLockInfo& in, std::string* out) {
+    encode_prefix(in, out);                                // 0x01 "stats" ${instance_id}
+    encode_bytes(STATS_KEY_INFIX_DELETE_BITMAP_LOCK, out); // "delete_bitmap_lock"
+    encode_int64(std::get<1>(in), out);                    // table_id
+    encode_bytes(STATS_KEY_SUFFIX_LAST_RELEASE, out);      // "last_release"
 }
 
 //==============================================================================

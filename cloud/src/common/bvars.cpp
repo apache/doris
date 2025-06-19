@@ -94,6 +94,7 @@ bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_get_delete_bitmap_fail_counter_minute("ms", "get_delete_bitmap_fail", &g_bvar_get_delete_bitmap_fail_counter, 60);
+bvar::LatencyRecorder g_bvar_ms_mow_delete_bitmap_update_lock_idle_time("ms", "mow_delete_bitmap_update_lock_idle_time");
 
 // recycler's bvars
 // TODO: use mbvar for per instance, https://github.com/apache/brpc/blob/master/docs/cn/mbvar_c++.md
@@ -120,6 +121,7 @@ bvar::LatencyRecorder g_bvar_txn_kv_commit("txn_kv", "commit");
 bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_key("txn_kv", "atomic_set_ver_key");
 bvar::LatencyRecorder g_bvar_txn_kv_atomic_set_ver_value("txn_kv", "atomic_set_ver_value");
 bvar::LatencyRecorder g_bvar_txn_kv_atomic_add("txn_kv", "atomic_add");
+bvar::LatencyRecorder g_bvar_txn_kv_atomic_max("txn_kv", "atomic_max");
 bvar::LatencyRecorder g_bvar_txn_kv_remove("txn_kv", "remove");
 bvar::LatencyRecorder g_bvar_txn_kv_range_remove("txn_kv", "range_remove");
 bvar::LatencyRecorder g_bvar_txn_kv_get_read_version("txn_kv", "get_read_version");

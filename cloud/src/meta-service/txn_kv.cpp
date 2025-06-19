@@ -496,6 +496,18 @@ void Transaction::atomic_add(std::string_view key, int64_t to_add) {
     approximate_bytes_ += key.size() * 3 + 8;
 }
 
+void Transaction::atomic_max(std::string_view key, uint64_t param) {
+    StopWatch sw;
+    auto val = std::make_unique<std::string>(sizeof(param), '\0');
+    std::memcpy(val->data(), &param, sizeof(param));
+    fdb_transaction_atomic_op(txn_, (uint8_t*)key.data(), key.size(), (uint8_t*)val->data(),
+                              sizeof(param), FDBMutationType::FDB_MUTATION_TYPE_MAX);
+    g_bvar_txn_kv_atomic_max << sw.elapsed_us();
+    ++num_put_keys_;
+    put_bytes_ += key.size() + 8;
+    approximate_bytes_ += key.size() * 3 + 8;
+}
+
 bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
     if (data.size() != sizeof(*val)) {
         return false;
