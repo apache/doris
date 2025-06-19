@@ -175,6 +175,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
             compare_res(test_sql5 + " order by 1,2,3")
         }
+
     } else if (step == 4) {
         assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv5[0][2] == false)
@@ -219,7 +220,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
 
     // mtmv2: add partition
-    hive_docker """insert into ${dbName}.${tableName1} PARTITION(dt='2018-01-15') values (13,13)"""
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2018-01-15') values (13,13)"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
     def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
     logger.info("state_mtmv2: " + state_mtmv2)
@@ -250,7 +251,13 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             logger.info(e.getMessage())
         }
 
-        // When refreshing the entire MTMV, the partition will be deleted.
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][2] == false)
+
+        // 刷新mtmv之后状态恢复正常
         sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
         waitingMTMVTaskFinishedByMvName(mtmvName2)
 
@@ -310,6 +317,12 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             logger.info(e.getMessage())
         }
 
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][2] == false)
+
         // When refreshing the entire MTMV, the partition will be deleted.
         sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
         waitingMTMVTaskFinishedByMvName(mtmvName2)
@@ -337,10 +350,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
             compare_res(sql2 + " order by 1,2,3")
         }
-
     }
-
-
 
 
     // mtmv3: insert data
@@ -381,15 +391,15 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_not_part_in(test_sql3, mtmvName3)
         }
 
-        // 刷新catalog之后 mtmv仍然处于sc状态
-        sql """refresh catalog ${ctlName}"""
-
-        state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
-        logger.info("state_mtmv3: " + state_mtmv3)
-        assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv3[0][2] == false)
-
     }
+
+    // 刷新catalog之后 mtmv仍然处于sc状态
+    sql """refresh catalog ${ctlName}"""
+
+    state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
+    logger.info("state_mtmv3: " + state_mtmv3)
+    assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv3[0][2] == false)
 
     sql """refresh MATERIALIZED VIEW ${mtmvName3} complete;"""
     waitingMTMVTaskFinishedByMvName(mtmvName3)
@@ -452,6 +462,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName3)
 
+    // 刷新catalog之后 mtmv仍然处于sc状态
+    sql """refresh catalog ${ctlName}"""
+
+    state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    assertTrue(state_mtmv1[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv1[0][2] == false)
+
+    // 刷新mtmv之后状态恢复正常
+    sql """refresh MATERIALIZED VIEW ${mtmvName1} auto"""
+    state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
+    assertTrue(state_mtmv1[0][0] == "NORMAL")
+    assertTrue(state_mtmv1[0][2] == true)
+
 
     // mtmv6: drop table of dependent table
     hive_docker """ drop table if exists ${dbName}.${tableName7} """
@@ -488,6 +511,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             SELECT user_id, num FROM ${ctlName}.${dbName}.${tableName6};
         """
     waitingMTMVTaskFinishedByMvName(cur_mtmvName6)
+
+
+    // 刷新catalog之后 mtmv仍然处于sc状态
+    sql """refresh catalog ${ctlName}"""
+    state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    assertTrue(state_mtmv6[0][0] == "SCHEMA_CHANGE")
+    assertTrue(state_mtmv6[0][2] == false)
+
+    // 刷新mtmv之后状态恢复正常
+    sql """refresh MATERIALIZED VIEW ${mtmvName6} auto"""
+    state_mtmv6 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName6}';"""
+    assertTrue(state_mtmv6[0][0] == "NORMAL")
+    assertTrue(state_mtmv6[0][2] == true)
 
 
     hive_docker """ set hive.stats.column.autogather = true; """
