@@ -54,6 +54,11 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -215,7 +220,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getBrokerName(), stmt.getProperties());
+        fileSystem = FileSystemFactory.get(stmt.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
                 fileSystem);
