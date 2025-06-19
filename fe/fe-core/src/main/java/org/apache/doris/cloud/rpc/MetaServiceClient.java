@@ -84,7 +84,7 @@ public class MetaServiceClient {
 
     private long connectionAgeExpiredAt() {
         long connectionAgeBase = Config.meta_service_connection_age_base_minutes;
-        if (connectionAgeBase >= 1) {
+        if (connectionAgeBase > 0) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
             long now = System.currentTimeMillis();
             long rand = random.nextLong() % base;
