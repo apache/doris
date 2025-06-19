@@ -14,20 +14,26 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     def DateAddOneDayStr = { def dateStr ->
-        def date = Date.parse("yyyy-MM-dd", dateStr)
-        Date nextDay = date + 1
-        String result = nextDay.format("yyyy-MM-dd")
+        def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        def date = LocalDate.parse(dateStr, formatter)
+        def nextDay = date.plusDays(1)
+        def result = nextDay.format(formatter)
+
         return result
     }
 
     def DateAddOneDayPartStr = { def dateStr ->
-        def date = Date.parse("yyyy-MM-dd", dateStr)
-        Date nextDay = date + 1
-        String result = "p_" + nextDay.format("yyyyMMdd")
+        def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        def date = LocalDate.parse(dateStr, formatter)
+        formatter = DateTimeFormatter.ofPattern("yyyyMMdd")
+        def result = "p_" + date.format(formatter)
+
         return result
     }
 
