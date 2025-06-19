@@ -369,7 +369,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr->start(this);
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
-    _runtime_query_statistics_mgr->start_report_thread();
+    RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 

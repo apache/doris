@@ -17,8 +17,10 @@
 
 #include "recycler/recycler.h"
 
+#include <brpc/builtin_service.pb.h>
 #include <brpc/server.h>
 #include <butil/endpoint.h>
+#include <bvar/status.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -27,9 +29,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <initializer_list>
 #include <numeric>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "common/stopwatch.h"
 #include "meta-service/meta_service.h"
@@ -275,7 +279,12 @@ void Recycler::recycle_callback() {
         if (stopped()) return;
         LOG_WARNING("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        g_bvar_recycler_task_concurrency << 1;
+        g_bvar_recycler_instance_running.put({instance_id}, 1);
+        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, -1));
         ret = instance_recycler->do_recycle();
+        g_bvar_recycler_task_concurrency << -1;
+        g_bvar_recycler_instance_running.put({instance_id}, -1);
         // If instance recycler has been aborted, don't finish this job
         if (!instance_recycler->stopped()) {
             finish_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id, ip_port_,
@@ -285,9 +294,19 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             recycling_instance_map_.erase(instance_id);
         }
-        auto elpased_ms =
-                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
-                ctime_ms;
+
+        auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        auto elpased_ms = now - ctime_ms;
+        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, now));
+        g_bvar_recycler_instance_last_recycle_duration.put({instance_id}, elpased_ms);
+        g_bvar_recycler_instance_next_time.put({instance_id},
+                                               now + config::recycle_interval_seconds * 1000);
+        LOG(INFO) << "recycle instance done, "
+                  << "instance_id=" << instance_id << " ret=" << ret << " ctime_ms: " << ctime_ms
+                  << " now: " << now;
+
+        g_bvar_recycler_instance_recycle_last_success_times.put({instance_id}, now);
+
         LOG_WARNING("finish recycle instance")
                 .tag("instance_id", instance_id)
                 .tag("cost_ms", elpased_ms);
@@ -344,6 +363,7 @@ void Recycler::check_recycle_tasks() {
 
 int Recycler::start(brpc::Server* server) {
     instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
+    g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);

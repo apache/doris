@@ -51,6 +51,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -1119,10 +1120,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private StageAndPattern getStageAndPattern(DorisParser.StageAndPatternContext ctx) {
+        String stage = ctx.stage == null ? StageUtil.INTERNAL_STAGE : stripQuotes(ctx.stage.getText());
         if (ctx.pattern != null) {
-            return new StageAndPattern(stripQuotes(ctx.stage.getText()), stripQuotes(ctx.pattern.getText()));
+            return new StageAndPattern(stage, stripQuotes(ctx.pattern.getText()));
         } else {
-            return new StageAndPattern(stripQuotes(ctx.stage.getText()), null);
+            return new StageAndPattern(stage, null);
         }
     }
 
