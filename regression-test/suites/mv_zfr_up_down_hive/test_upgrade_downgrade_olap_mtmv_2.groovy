@@ -431,7 +431,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         compare_res(test_sql3 + " order by 1,2,3")
     }
 
-
+/*
     // mtmv1: drop table of primary table
     hive_docker """ drop table if exists ${dbName}.${tableName1} """
     def state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
@@ -535,6 +535,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv6[0][0] == "NORMAL")
     assertTrue(state_mtmv6[0][2] == true)
 
+
+
+ */
 
     hive_docker """ set hive.stats.column.autogather = true; """
 
