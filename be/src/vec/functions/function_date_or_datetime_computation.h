@@ -1208,7 +1208,7 @@ private:
 
 class FunctionPreviousDay : public IFunction {
 public:
-    static constexpr auto name = "previous_day" // initializing the SQL function syntax call
+    static constexpr auto name = "previous_day"; // initializing the SQL function syntax call
             static FunctionPtr
             create() {
         return std::make_shared<FunctionPreviousDay>();
