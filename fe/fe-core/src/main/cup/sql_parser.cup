@@ -6997,10 +6997,6 @@ admin_stmt ::=
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
     :}
-    | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
-    {:
-        RESULT = new AdminCopyTabletStmt(tabletId, properties);
-    :}
     ;
 
 truncate_stmt ::=
