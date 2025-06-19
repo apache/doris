@@ -20,34 +20,34 @@
 namespace doris::segment_v2 {
 
 int32_t CharacterUtil::identifyCharType(int32_t rune) {
-    // Numbers
-    if (rune >= 0x30 && rune <= 0x39) {
+    if (rune >= '0' && rune <= '9') {
         return CHAR_ARABIC;
     }
-
-    // English
-    if ((rune >= 0x61 && rune <= 0x7a) || (rune >= 0x41 && rune <= 0x5a)) {
+    if ((rune >= 'a' && rune <= 'z') || (rune >= 'A' && rune <= 'Z')) {
         return CHAR_ENGLISH;
     }
 
-    // CJK Unified Chinese Characters
-    if ((rune >= 0x4E00 && rune <= 0x9FFF) || (rune >= 0x3400 && rune <= 0x4DBF) ||
-        (rune >= 0x20000 && rune <= 0x2A6DF) || (rune >= 0x2A700 && rune <= 0x2B73F) ||
-        (rune >= 0x2B740 && rune <= 0x2B81F) || (rune >= 0x2B820 && rune <= 0x2CEAF) ||
-        (rune >= 0x2CEB0 && rune <= 0x2EBEF) || (rune >= 0x30000 && rune <= 0x3134F)) {
+    UBlockCode block = ublock_getCode(rune);
+
+    if (block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS || block == UBLOCK_CJK_COMPATIBILITY_IDEOGRAPHS ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_C ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_D ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F ||
+        block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G) {
         return CHAR_CHINESE;
     }
 
-    // Japanese and Korean characters
-    if ((rune >= 0x3040 && rune <= 0x309F) || (rune >= 0x30A0 && rune <= 0x30FF) ||
-        (rune >= 0x31F0 && rune <= 0x31FF) || (rune >= 0xAC00 && rune <= 0xD7AF) ||
-        (rune >= 0x1100 && rune <= 0x11FF)) {
+    if (block == UBLOCK_HALFWIDTH_AND_FULLWIDTH_FORMS || block == UBLOCK_HANGUL_SYLLABLES ||
+        block == UBLOCK_HANGUL_JAMO || block == UBLOCK_HANGUL_COMPATIBILITY_JAMO ||
+        block == UBLOCK_HIRAGANA || block == UBLOCK_KATAKANA ||
+        block == UBLOCK_KATAKANA_PHONETIC_EXTENSIONS) {
         return CHAR_OTHER_CJK;
     }
 
-    // UTF-16 surrogate pairs and private zone
-    if ((rune >= 0xD800 && rune <= 0xDBFF) || (rune >= 0xDC00 && rune <= 0xDFFF) ||
-        (rune >= 0xE000 && rune <= 0xF8FF)) {
+    if (rune > 0xFFFF) {
         return CHAR_SURROGATE;
     }
 
@@ -55,42 +55,21 @@ int32_t CharacterUtil::identifyCharType(int32_t rune) {
 }
 
 int32_t CharacterUtil::regularize(int32_t rune, bool use_lowercase) {
-    // Full-width to half-width
     if (rune == 0x3000) {
-        return 0x0020; // Convert full-width space to half-width
-    }
-
-    // Full-width numbers
-    if (rune >= 0xFF10 && rune <= 0xFF19) {
-        return rune - 0xFEE0; // Convert to half-width numbers
-    }
-
-    // Full-width letters
-    if (rune >= 0xFF21 && rune <= 0xFF3A) {
+        return 0x0020;
+    } else if (rune > 0xFF00 && rune < 0xFF5F) {
         rune = rune - 0xFEE0;
-        if (use_lowercase) {
-            rune += 32; // Convert to lowercase
-        }
-        return rune;
-    }
-    if (rune >= 0xFF41 && rune <= 0xFF5A) {
-        return rune - 0xFEE0;
-    }
-
-    // Convert half-width uppercase letters to lowercase
-    if (use_lowercase && rune >= 0x41 && rune <= 0x5A) {
-        return rune + 32;
+    } else if (use_lowercase && rune >= 0x41 && rune <= 0x5A) {
+        // This else-if causes full-width letters unable to be converted to lowercase
+        rune += 32;
     }
 
     return rune;
 }
 
 void CharacterUtil::TypedRune::regularize(bool use_lowercase) {
-    CharacterUtil::regularizeCharInfo(*this, use_lowercase);
-}
-
-void CharacterUtil::regularizeCharInfo(TypedRune& typedRune, bool use_lowercase) {
-    typedRune.rune = regularize(typedRune.rune, use_lowercase);
+    this->rune = CharacterUtil::regularize(this->rune, use_lowercase);
+    this->char_type = CharacterUtil::identifyCharType(this->rune);
 }
 
 CharacterUtil::RuneStrLite CharacterUtil::decodeChar(const char* str, size_t length) {
@@ -101,7 +80,7 @@ bool CharacterUtil::decodeString(const char* str, size_t length, RuneStrArray& r
     return cppjieba::DecodeRunesInString(str, length, runes);
 }
 
-void CharacterUtil::decodeStringToRunes(const char* str, size_t length, TypedRuneArray& typed_runes,
+void CharacterUtil::decodeStringToRunes(char* str, size_t length, TypedRuneArray& typed_runes,
                                         bool use_lowercase) {
     typed_runes.clear();
     size_t byte_pos = 0;
@@ -111,59 +90,48 @@ void CharacterUtil::decodeStringToRunes(const char* str, size_t length, TypedRun
         if (runeStr.len == 0) {
             break;
         }
+        if (runeStr.len == 1 && use_lowercase && str[byte_pos] >= 'A' && str[byte_pos] <= 'Z') {
+            str[byte_pos] += 32;
+        }
         typed_runes.emplace_back(runeStr.rune, byte_pos, runeStr.len, typed_runes.size(), 1);
 
-        if (use_lowercase) {
-            typed_runes.back().regularize(true);
-        }
+        typed_runes.back().regularize(use_lowercase);
+
         byte_pos += runeStr.len;
     }
 }
 
-// TODO: Maybe delete this function
-size_t CharacterUtil::adjustToCompleteChar(const char* buffer, size_t buffer_length) {
-    if (buffer_length == 0) return 0;
-
-    unsigned char last_byte = buffer[buffer_length - 1];
-
-    if (last_byte < 0x80) {
-        return buffer_length;
-    }
-
-    if ((last_byte & 0xC0) == 0x80) {
-        size_t adjustedLen = buffer_length - 1;
-        while (adjustedLen > 0) {
-            unsigned char byte = buffer[adjustedLen - 1];
-            if ((byte & 0xC0) != 0x80) {
-                int charLen = 0;
-                if ((byte & 0xE0) == 0xC0)
-                    charLen = 2;
-                else if ((byte & 0xF0) == 0xE0)
-                    charLen = 3;
-                else if ((byte & 0xF8) == 0xF0)
-                    charLen = 4;
-                if (buffer_length - adjustedLen + 1 < charLen) {
-                    return adjustedLen - 1;
+void CharacterUtil::regularizeString(std::string& input, bool use_lowercase) {
+    std::string temp;
+    size_t len = input.size();
+    temp.reserve(len);
+    for (size_t i = 0; i < len;) {
+        unsigned char c = input[i];
+        if ((c & 0xF0) == 0xE0 && i + 2 < len) {
+            int rune = ((c & 0x0F) << 12) | ((input[i + 1] & 0x3F) << 6) | (input[i + 2] & 0x3F);
+            if (rune == 0x3000) {
+                temp += ' ';
+            } else if (rune >= 0xFF01 && rune <= 0xFF5E) {
+                char half = static_cast<char>(rune - 0xFEE0);
+                if (use_lowercase && half >= 'A' && half <= 'Z') {
+                    half += 32;
                 }
-                return buffer_length;
+                temp += half;
+            } else {
+                temp += input[i];
+                temp += input[i + 1];
+                temp += input[i + 2];
             }
-            adjustedLen--;
+            i += 3;
+        } else {
+            char ch = input[i];
+            if (use_lowercase && ch >= 'A' && ch <= 'Z') {
+                ch += 32;
+            }
+            temp += ch;
+            i += 1;
         }
-        return 0;
     }
-
-    int charLen = 0;
-    if ((last_byte & 0xE0) == 0xC0)
-        charLen = 2;
-    else if ((last_byte & 0xF0) == 0xE0)
-        charLen = 3;
-    else if ((last_byte & 0xF8) == 0xF0)
-        charLen = 4;
-
-    if (charLen > 1) {
-        return buffer_length - 1;
-    }
-
-    return buffer_length;
+    input = std::move(temp);
 }
 } // namespace doris::segment_v2
