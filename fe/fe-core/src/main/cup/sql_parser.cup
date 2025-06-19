@@ -3056,18 +3056,6 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
-    {:
-        RESULT = new DropStatsStmt(tbl, cols, partitionNames);
-    :}
-    | KW_DROP KW_EXPIRED KW_STATS
-    {:
-        RESULT = new DropStatsStmt(true);
-    :}
-    | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
-    {:
-        RESULT = new DropAnalyzeJobStmt(job_id);
-    :}
     | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
     {:
         RESULT = new DropStageStmt(ifExists, stageName);
@@ -4866,13 +4854,6 @@ kill_stmt ::=
     | KW_KILL KW_QUERY STRING_LITERAL:value
     {:
         RESULT = new KillStmt(value);
-    :}
-    ;
-
-kill_analysis_job_stmt ::=
-    KW_KILL KW_ANALYZE INTEGER_LITERAL:value
-    {:
-        RESULT = new KillAnalysisJobStmt(value.intValue());
     :}
     ;
 
