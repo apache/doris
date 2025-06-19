@@ -136,6 +136,7 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                                               input_map, output_map);
     RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(input_map);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(output_map);
     RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));

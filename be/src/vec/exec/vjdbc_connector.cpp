@@ -77,10 +77,13 @@ Status JdbcConnector::close(Status /*unused*/) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(_executor_factory_clazz);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(_executor_clazz);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -113,7 +116,9 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
 
     env->DeleteGlobalRef(jtable_type);
+    RETURN_ERROR_IF_EXC(env);
     env->ReleaseStringUTFChars((jstring)executor_name, executor_name_str);
+    RETURN_ERROR_IF_EXC(env);
 
 #undef GET_BASIC_JAVA_CLAZZ
     RETURN_IF_ERROR(_register_func_id(env));
@@ -268,6 +273,7 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
 
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(map);
+    RETURN_ERROR_IF_EXC(env);
 
     std::vector<uint32_t> all_columns;
     for (uint32_t i = 0; i < column_size; ++i) {

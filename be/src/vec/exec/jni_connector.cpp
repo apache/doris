@@ -212,6 +212,7 @@ Status JniConnector::close() {
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_close);
             RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(_jni_scanner_obj);
+            RETURN_ERROR_IF_EXC(env);
         }
         if (_jni_scanner_cls != nullptr) {
             // _jni_scanner_cls may be null if init connector failed
