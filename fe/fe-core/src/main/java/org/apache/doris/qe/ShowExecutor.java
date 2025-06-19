@@ -30,7 +30,6 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowConfigStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
-import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
@@ -39,16 +38,11 @@ import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
 import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
-import org.apache.doris.analysis.ShowRoutineLoadStmt;
-import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
-import org.apache.doris.analysis.ShowTableStatsStmt;
-import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
-import org.apache.doris.analysis.ShowWorkloadGroupsStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -68,11 +62,8 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
@@ -81,18 +72,13 @@ import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -102,7 +88,6 @@ import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticsRepository;
-import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
@@ -113,11 +98,8 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.transaction.GlobalTransactionMgrIface;
-import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -182,20 +164,10 @@ public class ShowExecutor {
             handleShowStreamLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
-        } else if (stmt instanceof ShowRoutineLoadStmt) {
-            handleShowRoutineLoad();
-        } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
-            handleShowRoutineLoadTask();
-        } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
-            handleShowCreateRoutineLoad();
-        } else if (stmt instanceof ShowCreateLoadStmt) {
-            handleShowCreateLoad();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
         } else if (stmt instanceof ShowUserPropertyStmt) {
             handleShowUserProperty();
-        } else if (stmt instanceof ShowWorkloadGroupsStmt) {
-            handleShowWorkloadGroups();
         } else if (stmt instanceof ShowTrashDiskStmt) {
             handleShowTrashDisk();
         } else if (stmt instanceof ShowReplicaStatusStmt) {
@@ -209,10 +181,6 @@ public class ShowExecutor {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
-        } else if (stmt instanceof ShowTransactionStmt) {
-            handleShowTransaction();
-        } else if (stmt instanceof ShowTableStatsStmt) {
-            handleShowTableStats();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
@@ -586,127 +554,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
     }
 
-    private void handleShowRoutineLoad() throws AnalysisException {
-        ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        List<RoutineLoadJob> routineLoadJobList;
-        try {
-            PatternMatcher matcher = null;
-            if (showRoutineLoadStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showRoutineLoadStmt.getPattern(),
-                        CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
-            }
-            routineLoadJobList = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(showRoutineLoadStmt.getDbFullName(), showRoutineLoadStmt.getName(),
-                            showRoutineLoadStmt.isIncludeHistory(), matcher);
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-
-        if (routineLoadJobList != null) {
-            String dbFullName = showRoutineLoadStmt.getDbFullName();
-            String tableName = null;
-            for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
-                // check auth
-                try {
-                    tableName = routineLoadJob.getTableName();
-                } catch (MetaNotFoundException e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                            .add("error_msg", "The table metadata of job has been changed. "
-                                    + "The job will be cancelled automatically")
-                            .build(), e);
-                }
-                if (routineLoadJob.isMultiTable()) {
-                    if (!Env.getCurrentEnv().getAccessManager()
-                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                                    PrivPredicate.LOAD)) {
-                        LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
-                                        "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
-                                .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
-                                .add("table_name", tableName).add("error_msg", "The database access denied"));
-                        continue;
-                    }
-                    rows.add(routineLoadJob.getShowInfo());
-                    continue;
-                }
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                                tableName, PrivPredicate.LOAD)) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("operator",
-                                    "show routine load job").add("user", ConnectContext.get().getQualifiedUser())
-                            .add("remote_ip", ConnectContext.get().getRemoteIP()).add("db_full_name", dbFullName)
-                            .add("table_name", tableName).add("error_msg", "The table access denied"));
-                    continue;
-                }
-                // get routine load info
-                rows.add(routineLoadJob.getShowInfo());
-            }
-        }
-
-        if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
-            // if the jobName has been specified
-            throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
-                    + " in db " + showRoutineLoadStmt.getDbFullName()
-                    + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
-        }
-        // sort by create time
-        rows.sort(Comparator.comparing(x -> x.get(2)));
-        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
-    }
-
-    private void handleShowRoutineLoadTask() throws AnalysisException {
-        ShowRoutineLoadTaskStmt showRoutineLoadTaskStmt = (ShowRoutineLoadTaskStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        RoutineLoadJob routineLoadJob;
-        try {
-            routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
-                    .getJob(showRoutineLoadTaskStmt.getDbFullName(), showRoutineLoadTaskStmt.getJobName());
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        if (routineLoadJob == null) {
-            throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
-                    + "or job state is stopped or cancelled");
-        }
-
-        // check auth
-        String dbFullName = showRoutineLoadTaskStmt.getDbFullName();
-        String tableName;
-        try {
-            tableName = routineLoadJob.getTableName();
-        } catch (MetaNotFoundException e) {
-            throw new AnalysisException("The table metadata of job has been changed."
-                    + " The job will be cancelled automatically", e);
-        }
-        if (routineLoadJob.isMultiTable()) {
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName,
-                            PrivPredicate.LOAD)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, "LOAD",
-                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        dbFullName);
-            }
-            rows.addAll(routineLoadJob.getTasksShowInfo());
-            resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
-            return;
-        }
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbFullName, tableName,
-                        PrivPredicate.LOAD)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    dbFullName + ": " + tableName);
-        }
-
-        // get routine load task info
-        rows.addAll(routineLoadJob.getTasksShowInfo());
-        resultSet = new ShowResultSet(showRoutineLoadTaskStmt.getMetaData(), rows);
-    }
-
     // Show user property statement
     private void handleShowUserProperty() throws AnalysisException {
         ShowUserPropertyStmt showStmt = (ShowUserPropertyStmt) stmt;
@@ -730,17 +577,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowWorkloadGroups() throws AnalysisException {
-        ShowWorkloadGroupsStmt showStmt = (ShowWorkloadGroupsStmt) stmt;
-        PatternMatcher matcher = null;
-        if (showStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                    CaseSensibility.WORKLOAD_GROUP.getCaseSensibility());
-        }
-        List<List<String>> workloadGroupsInfos = Env.getCurrentEnv().getWorkloadGroupMgr().getResourcesInfo(matcher);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), workloadGroupsInfos);
     }
 
     private void handleShowTrashDisk() {
@@ -840,32 +676,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(stmt.getMetaData(), results);
     }
 
-    // Show transaction statement.
-    private void handleShowTransaction() throws AnalysisException {
-        ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
-        DatabaseIf db = ctx.getEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
-
-        TransactionStatus status = showStmt.getStatus();
-        GlobalTransactionMgrIface transactionMgr = Env.getCurrentGlobalTransactionMgr();
-        if (status != TransactionStatus.UNKNOWN) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    transactionMgr.getDbTransInfoByStatus(db.getId(), status));
-        } else if (showStmt.labelMatch() && !showStmt.getLabel().isEmpty()) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(),
-                    transactionMgr.getDbTransInfoByLabelMatch(db.getId(), showStmt.getLabel()));
-        } else {
-            Long txnId = showStmt.getTxnId();
-            String label = showStmt.getLabel();
-            if (!label.isEmpty()) {
-                txnId = transactionMgr.getTransactionId(db.getId(), label);
-                if (txnId == null) {
-                    throw new AnalysisException("transaction with label " + label + " does not exist");
-                }
-            }
-            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
-        }
-    }
-
     private void handleShowCloudWarmUpJob() throws AnalysisException {
         ShowCloudWarmUpStmt showStmt = (ShowCloudWarmUpStmt) stmt;
         if (showStmt.showAllJobs()) {
@@ -878,59 +688,6 @@ public class ShowExecutor {
                                     .getCacheHotspotMgr()
                                     .getSingleJobInfo(showStmt.getJobId()));
         }
-    }
-
-    private void handleShowCreateRoutineLoad() throws AnalysisException {
-        ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        String dbName = showCreateRoutineLoadStmt.getDb();
-        String labelName = showCreateRoutineLoadStmt.getLabel();
-        // if include history return all create load
-        if (showCreateRoutineLoadStmt.isIncludeHistory()) {
-            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
-            try {
-                routineLoadJobList = Env.getCurrentEnv().getRoutineLoadManager().getJob(dbName, labelName, true, null);
-            } catch (MetaNotFoundException e) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
-                        .add("error_msg", "Routine load cannot be found by this name")
-                        .build(), e);
-            }
-            if (routineLoadJobList == null) {
-                resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
-                return;
-            }
-            for (RoutineLoadJob job : routineLoadJobList) {
-                String tableName = "";
-                try {
-                    tableName = job.getTableName();
-                } catch (MetaNotFoundException e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
-                            .add("error_msg", "The table name for this routine load does not exist")
-                            .build(), e);
-                }
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
-                                PrivPredicate.LOAD)) {
-                    resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
-                    continue;
-                }
-                rows.add(Lists.newArrayList(String.valueOf(job.getId()),
-                        showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
-            }
-        } else {
-            // if job exists
-            RoutineLoadJob routineLoadJob;
-            try {
-                routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
-                // get routine load info
-                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()),
-                        showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
-            } catch (MetaNotFoundException | DdlException e) {
-                LOG.warn(e.getMessage(), e);
-                throw new AnalysisException(e.getMessage());
-            }
-        }
-        resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
     private void handleShowCreateLoad() throws AnalysisException {
@@ -951,24 +708,6 @@ public class ShowExecutor {
             throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showCreateLoadStmt.getMetaData(), rows);
-    }
-
-    private void handleShowTableStats() {
-        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
-        TableIf tableIf = showTableStatsStmt.getTable();
-        // Handle use table id to show table stats. Mainly for online debug.
-        if (showTableStatsStmt.isUseTableId()) {
-            long tableId = showTableStatsStmt.getTableId();
-            TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableId);
-            if (tableStats == null) {
-                resultSet = showTableStatsStmt.constructEmptyResultSet();
-            } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
-            }
-            return;
-        }
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
