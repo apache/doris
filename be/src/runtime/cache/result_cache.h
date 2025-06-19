@@ -78,7 +78,11 @@ public:
         _partition_count = 0;
     }
 
-    virtual ~ResultCache() {}
+    virtual ~ResultCache() {
+        _node_list.clear();
+        _node_map.clear();
+    }
+
     void update(const PUpdateCacheRequest* request, PCacheResponse* response);
     void fetch(const PFetchCacheRequest* request, PFetchCacheResult* result);
     bool contains(const UniqueId& sql_key);
