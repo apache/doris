@@ -17,7 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -511,14 +510,6 @@ public class TabletChecker extends MasterDaemon {
     public void cancelRepairTable(AdminCancelRepairTableCommand command) throws DdlException {
         RepairTabletInfo repairTabletInfo
                 = getRepairTabletInfo(command.getDbName(), command.getTblName(), command.getPartitions());
-        removePrios(repairTabletInfo);
-        LOG.info("cancel repair database: {}, table: {}, partition: {}",
-                repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
-    }
-
-    public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo
-                = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
         removePrios(repairTabletInfo);
         LOG.info("cancel repair database: {}, table: {}, partition: {}",
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);

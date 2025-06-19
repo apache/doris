@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
@@ -251,8 +250,6 @@ public class DdlExecutor {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
             env.truncateTable((TruncateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
-            env.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCompactTableStmt) {
             env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
@@ -456,7 +453,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof CancelBackupStmt
                 || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt
-                || ddlStmt instanceof AdminCancelRepairTableStmt
                 || ddlStmt instanceof AdminCompactTableStmt
                 || ddlStmt instanceof AdminCheckTabletsStmt
                 || ddlStmt instanceof AdminSetReplicaStatusStmt
