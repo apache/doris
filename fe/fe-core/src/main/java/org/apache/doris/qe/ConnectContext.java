@@ -236,6 +236,9 @@ public class ConnectContext {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
+    // unique session id in the doris cluster, added in #40680
+    private String sessionId = "";
+
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
     // but the internal implementation will call the logic of `AlterTable`.
@@ -773,6 +776,10 @@ public class ConnectContext {
     public CatalogIf getCurrentCatalog() {
         // defaultCatalog is switched by SwitchStmt, so we don't need to check to exist of catalog.
         return getCatalog(defaultCatalog);
+    }
+
+    public String getSessionId() {
+        return sessionId;
     }
 
     /**
