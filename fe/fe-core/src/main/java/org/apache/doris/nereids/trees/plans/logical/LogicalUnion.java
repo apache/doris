@@ -245,7 +245,8 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
                 if (!childExpr.isLiteral()) {
                     childExpr = FoldConstantRule.evaluate(childExpr, context);
                     if (!childExpr.isLiteral()) {
-                        continue;
+                        value = Optional.empty();
+                        break;
                     }
                 }
                 Literal childLiteral = (Literal) childExpr;
