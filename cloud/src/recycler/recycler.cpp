@@ -20,9 +20,7 @@
 #include <brpc/builtin_service.pb.h>
 #include <brpc/server.h>
 #include <butil/endpoint.h>
-
 #include <butil/strings/string_split.h>
-
 #include <bvar/status.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -67,6 +65,9 @@
 namespace doris::cloud {
 
 using namespace std::chrono;
+
+static RecyclerMetricsContext tablet_metrics_context_("global_recycler", "recycle_tablet");
+static RecyclerMetricsContext segment_metrics_context_("global_recycler", "recycle_segment");
 
 // return 0 for success get a key, 1 for key not found, negative for error
 [[maybe_unused]] static int txn_get(TxnKv* txn_kv, std::string_view key, std::string& val) {
@@ -283,12 +284,16 @@ void Recycler::recycle_callback() {
         if (stopped()) return;
         LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        g_bvar_recycler_task_concurrency << 1;
-        g_bvar_recycler_instance_running.put({instance_id}, 1);
-        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, -1));
+        g_bvar_recycler_instance_recycle_task_concurrency << 1;
+        g_bvar_recycler_instance_running_counter << 1;
+        g_bvar_recycler_instance_recycle_st_ts.put({instance_id}, ctime_ms);
+        tablet_metrics_context_.reset();
+        segment_metrics_context_.reset();
         ret = instance_recycler->do_recycle();
-        g_bvar_recycler_task_concurrency << -1;
-        g_bvar_recycler_instance_running.put({instance_id}, -1);
+        tablet_metrics_context_.finish_report();
+        segment_metrics_context_.finish_report();
+        g_bvar_recycler_instance_recycle_task_concurrency << -1;
+        g_bvar_recycler_instance_running_counter << -1;
         // If instance recycler has been aborted, don't finish this job
         if (!instance_recycler->stopped()) {
             finish_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id, ip_port_,
@@ -300,15 +305,15 @@ void Recycler::recycle_callback() {
         }
         auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         auto elpased_ms = now - ctime_ms;
-        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, now));
+        g_bvar_recycler_instance_recycle_ed_ts.put({instance_id}, now);
         g_bvar_recycler_instance_last_recycle_duration.put({instance_id}, elpased_ms);
-        g_bvar_recycler_instance_next_time.put({instance_id},
-                                               now + config::recycle_interval_seconds * 1000);
+        g_bvar_recycler_instance_next_ts.put({instance_id},
+                                             now + config::recycle_interval_seconds * 1000);
         LOG(INFO) << "recycle instance done, "
                   << "instance_id=" << instance_id << " ret=" << ret << " ctime_ms: " << ctime_ms
                   << " now: " << now;
 
-        g_bvar_recycler_instance_recycle_last_success_times.put({instance_id}, now);
+        g_bvar_recycler_instance_recycle_last_success_ts.put({instance_id}, now);
 
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
@@ -1822,31 +1827,37 @@ int InstanceRecycler::delete_rowset_data(
             auto& accessor = accessor_map_[*rid];
             int ret = accessor->delete_files(*paths);
             if (!ret) {
-                std::for_each(paths->begin(), paths->end(),
-                              [&metrics_context, &rowsets](const std::string& path) {
-                                  LOG(INFO) << "recycle rowset file, path=" << path;
-                                  std::vector<std::string> str;
-                                  butil::SplitString(path, '/', &str);
-                                  std::string rowset_id;
-                                  if (auto pos = str.back().find('_'); pos != std::string::npos) {
-                                      rowset_id = str.back().substr(0, pos);
-                                  } else {
-                                      LOG(WARNING) << "failed to parse rowset_id, path=" << path;
-                                  }
-                                  if (auto rs_meta = rowsets.find(rowset_id);
-                                      rs_meta != rowsets.end()) {
-                                      if (path.ends_with(".idx") &&
-                                          rs_meta->second.has_index_disk_size()) {
-                                          metrics_context.total_recycle_data_size +=
-                                                  rs_meta->second.index_disk_size();
-                                      } else if (path.ends_with(".dat") &&
-                                                 rs_meta->second.has_data_disk_size()) {
-                                          metrics_context.total_recycle_data_size +=
-                                                  rs_meta->second.data_disk_size();
-                                      }
-                                      metrics_context.total_recycled_num++;
-                                  }
-                              });
+                // deduplication of different files with the same rowset id
+                // 020000000000007fd045a62bc87a6587dd7ac274aa36e5a9_0.dat
+                //020000000000007fd045a62bc87a6587dd7ac274aa36e5a9_0.idx
+                std::set<std::string> deleted_rowset_id;
+
+                std::for_each(
+                        paths->begin(), paths->end(),
+                        [&metrics_context, &rowsets, &deleted_rowset_id](const std::string& path) {
+                            std::vector<std::string> str;
+                            butil::SplitString(path, '/', &str);
+                            std::string rowset_id;
+                            if (auto pos = str.back().find('_'); pos != std::string::npos) {
+                                rowset_id = str.back().substr(0, pos);
+                            } else {
+                                LOG(WARNING) << "failed to parse rowset_id, path=" << path;
+                                return;
+                            }
+                            auto rs_meta = rowsets.find(rowset_id);
+                            if (rs_meta != rowsets.end() &&
+                                !deleted_rowset_id.contains(rowset_id)) {
+                                deleted_rowset_id.emplace(rowset_id);
+                                metrics_context.total_recycled_data_size +=
+                                        rs_meta->second.total_disk_size();
+                                segment_metrics_context_.total_recycled_num +=
+                                        rs_meta->second.num_segments();
+                                segment_metrics_context_.total_recycled_data_size +=
+                                        rs_meta->second.total_disk_size();
+                                metrics_context.total_recycled_num++;
+                            }
+                        });
+                segment_metrics_context_.report();
                 metrics_context.report();
             }
             return ret;
@@ -1861,9 +1872,12 @@ int InstanceRecycler::delete_rowset_data(
             int ret = delete_rowset_data(resource_id, tablet_id, rowset_id);
             if (!ret) {
                 auto rs = rowsets.at(rowset_id);
-                metrics_context.total_recycle_data_size += rs.total_disk_size();
+                metrics_context.total_recycled_data_size += rs.total_disk_size();
                 metrics_context.total_recycled_num++;
+                segment_metrics_context_.total_recycled_data_size += rs.total_disk_size();
+                segment_metrics_context_.total_recycled_num += rs.num_segments();
                 metrics_context.report();
+                segment_metrics_context_.report();
             }
             return ret;
         });
@@ -1925,6 +1939,7 @@ int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t inde
             if (scan_tablet_and_statistics(tablet_id, metrics_context) != 0) {
                 return 0;
             }
+            tablet_metrics_context_.total_need_recycle_num++;
         }
         return 0;
     };
@@ -2003,6 +2018,9 @@ int InstanceRecycler::scan_tablet_and_statistics(int64_t tablet_id,
         }
 
         metrics_context.total_need_recycle_data_size += rs_meta.total_disk_size();
+        tablet_metrics_context_.total_need_recycle_data_size += rs_meta.total_disk_size();
+        segment_metrics_context_.total_need_recycle_data_size += rs_meta.total_disk_size();
+        segment_metrics_context_.total_need_recycle_num += rs_meta.num_segments();
     }
     return ret;
 }
@@ -2023,7 +2041,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     std::string recyc_rs_key0 = recycle_rowset_key({instance_id_, tablet_id, ""});
     std::string recyc_rs_key1 = recycle_rowset_key({instance_id_, tablet_id + 1, ""});
 
-    std::map<std::string, RowsetMetaCloudPB> rowset_meta_map;
+    std::vector<std::string> rowset_meta;
     int64_t recycle_rowsets_number = 0;
     int64_t recycle_segments_number = 0;
     int64_t recycle_rowsets_data_size = 0;
@@ -2129,16 +2147,17 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
         max_rowset_creation_time = std::max(max_rowset_creation_time, rs_meta.creation_time());
         min_rowset_expiration_time = std::min(min_rowset_expiration_time, rs_meta.txn_expiration());
         max_rowset_expiration_time = std::max(max_rowset_expiration_time, rs_meta.txn_expiration());
-        rowset_meta_map.emplace(rs_meta.resource_id(), rs_meta);
+        rowset_meta.emplace_back(rs_meta.resource_id());
+        LOG(INFO) << "rs_meta.resource_id()=" << rs_meta.resource_id();
     }
 
     LOG_INFO("recycle tablet start to delete object")
             .tag("instance id", instance_id_)
             .tag("tablet id", tablet_id)
             .tag("recycle tablet resource ids are",
-                 std::accumulate(rowset_meta_map.begin(), rowset_meta_map.begin(), std::string(),
-                                 [](std::string acc, const auto& pair) {
-                                     return acc.empty() ? pair.first : acc + ", " + pair.first;
+                 std::accumulate(rowset_meta.begin(), rowset_meta.begin(), std::string(),
+                                 [](std::string acc, const auto& it) {
+                                     return acc.empty() ? it : acc + ", " + it;
                                  }));
 
     SyncExecutor<int> concurrent_delete_executor(
@@ -2150,14 +2169,16 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     // ATTN: there may be data leak if not all accessor initilized successfully
     //       partial data deleted if the tablet is stored cross-storage vault
     //       vault id is not attached to TabletMeta...
-    for (const auto& [resource_id, rs_meta] : rowset_meta_map) {
-        concurrent_delete_executor.add([&, rs = rs_meta, rs_id = resource_id,
+    for (const auto& resource_id : rowset_meta) {
+        concurrent_delete_executor.add([&, rs_id = resource_id,
                                         accessor_ptr = accessor_map_[resource_id]]() {
             std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
-                g_bvar_recycler_vault_recycle_task_concurrency.put({instance_id_, rs_id}, -1);
+                g_bvar_recycler_vault_recycle_task_concurrency.put(
+                        {instance_id_, metrics_context.operation_type, rs_id}, -1);
                 metrics_context.report();
             });
-            g_bvar_recycler_vault_recycle_task_concurrency.put({instance_id_, rs_id}, 1);
+            g_bvar_recycler_vault_recycle_task_concurrency.put(
+                    {instance_id_, metrics_context.operation_type, rs_id}, 1);
             int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
             if (res != 0) {
                 LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
@@ -2165,7 +2186,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                 g_bvar_recycler_vault_recycle_status.put({instance_id_, rs_id, "abnormal"}, 1);
                 return -1;
             }
-            metrics_context.total_recycle_data_size += rs.total_disk_size();
             g_bvar_recycler_vault_recycle_status.put({instance_id_, rs_id, "normal"}, 1);
             return 0;
         });
@@ -2189,6 +2209,15 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                 .tag("tablet_id", tablet_id);
         return ret;
     }
+
+    tablet_metrics_context_.total_recycled_data_size +=
+            recycle_rowsets_data_size + recycle_rowsets_index_size;
+    tablet_metrics_context_.total_recycled_num += 1;
+    segment_metrics_context_.total_recycled_num += recycle_segments_number;
+    segment_metrics_context_.total_recycled_data_size +=
+            recycle_rowsets_data_size + recycle_rowsets_index_size;
+    tablet_metrics_context_.report();
+    segment_metrics_context_.report();
 
     txn.reset();
     if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
@@ -2365,9 +2394,9 @@ int InstanceRecycler::recycle_rowsets() {
         if (rowset.type() != RecycleRowsetPB::PREPARE) {
             if (rowset_meta->num_segments() > 0) {
                 metrics_context.total_need_recycle_num++;
-                if (rowset_meta->has_index_disk_size() && rowset_meta->index_disk_size() > 0) {
-                    metrics_context.total_need_recycle_num++;
-                }
+                segment_metrics_context_.total_need_recycle_num += rowset_meta->num_segments();
+                segment_metrics_context_.total_need_recycle_data_size +=
+                        rowset_meta->total_disk_size();
                 metrics_context.total_need_recycle_data_size += rowset_meta->total_disk_size();
             }
         }
@@ -2732,6 +2761,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         metrics_context.total_need_recycle_num++;
         if (rowset.num_segments() > 0) {
             metrics_context.total_need_recycle_data_size += rowset.total_disk_size();
+            segment_metrics_context_.total_need_recycle_data_size += rowset.total_disk_size();
+            segment_metrics_context_.total_need_recycle_num += rowset.num_segments();
         }
         return 0;
     };
@@ -2770,6 +2801,8 @@ int InstanceRecycler::scan_for_recycle_and_statistics(
 
         // report to bvar
         metrics_context.report(true);
+        tablet_metrics_context_.report(true);
+        segment_metrics_context_.report(true);
 
         int ret = scan_and_recycle(begin, end, std::move(recycle_func), std::move(loop_done));
         return ret;

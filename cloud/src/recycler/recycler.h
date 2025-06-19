@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -300,7 +301,7 @@ public:
     int64_t total_need_recycle_data_size = 0;
     int64_t total_need_recycle_num = 0;
 
-    std::atomic_long total_recycle_data_size {0};
+    std::atomic_long total_recycled_data_size {0};
     std::atomic_long total_recycled_num {0};
 
     std::string operation_type;
@@ -321,52 +322,74 @@ public:
                start_time;
     }
 
-    void finish_report() const {
+    void reset() {
+        total_need_recycle_data_size = 0;
+        total_need_recycle_num = 0;
+        total_recycled_data_size.store(0);
+        total_recycled_num.store(0);
+        start_time = duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    }
+
+    void finish_report() {
         if (!operation_type.empty()) {
             double cost = duration();
-            g_bvar_recycler_instance_recycle_cost.put({instance_id, operation_type}, cost);
+            g_bvar_recycler_instance_last_round_recycle_elpased_ts.put(
+                    {instance_id, operation_type}, cost);
             g_bvar_recycler_instance_recycle_round.put({instance_id, operation_type}, 1);
-            if (total_recycled_num.load() > 0) {
-                g_bvar_recycler_instance_recycle.put({instance_id, operation_type},
-                                                     total_recycled_num.load() / cost);
+            LOG(INFO) << "recycle instance: " << instance_id
+                      << ", operation type: " << operation_type << ", cost: " << cost
+                      << " ms, total recycled num: " << total_recycled_num.load()
+                      << ", total recycled data size: " << total_recycled_data_size.load()
+                      << " bytes";
+            if (total_recycled_num.load()) {
+                g_bvar_recycler_instance_recycle_time_per_resource.put(
+                        {instance_id, operation_type}, cost / total_recycled_num.load());
+            } else {
+                g_bvar_recycler_instance_recycle_time_per_resource.put(
+                        {instance_id, operation_type}, -1);
+            }
+            if (total_recycled_data_size.load()) {
+                g_bvar_recycler_instance_recycle_bytes_per_ms.put(
+                        {instance_id, operation_type}, total_recycled_data_size.load() / cost);
+            } else {
+                g_bvar_recycler_instance_recycle_bytes_per_ms.put({instance_id, operation_type},
+                                                                  -1);
             }
         }
     }
 
     // `is_begin` is used to initialize total num of items need to be recycled
-    void report(bool is_begin = false) const {
+    void report(bool is_begin = false) {
         if (!operation_type.empty()) {
             if (total_need_recycle_data_size > 0) {
                 // is init
                 if (is_begin) {
-                    g_bvar_recycler_instance_recycle_bytes.put(
-                            {instance_id, operation_type},
-                            std::make_pair(0, total_need_recycle_data_size));
+                    g_bvar_recycler_instance_last_round_to_recycle_bytes.put(
+                            {instance_id, operation_type}, total_need_recycle_data_size);
                 } else {
-                    g_bvar_recycler_instance_recycle_bytes.put(
-                            {instance_id, operation_type},
-                            std::make_pair(total_recycle_data_size.load(),
-                                           total_need_recycle_data_size));
-                    g_bvar_recycler_instance_recycle_total_bytes.put(
-                            {instance_id, operation_type}, total_recycle_data_size.load());
+                    g_bvar_recycler_instance_last_round_recycled_bytes.put(
+                            {instance_id, operation_type}, total_recycled_data_size.load());
+                    g_bvar_recycler_instance_recycle_total_bytes_since_started.put(
+                            {instance_id, operation_type}, total_recycled_data_size.load());
                 }
             }
 
             if (total_need_recycle_num > 0) {
-                // if init
+                // is init
                 if (is_begin) {
-                    g_bvar_recycler_instance_recycle_num.put(
-                            {instance_id, operation_type},
-                            std::make_pair(0, total_need_recycle_num));
+                    g_bvar_recycler_instance_last_round_to_recycle_num.put(
+                            {instance_id, operation_type}, total_need_recycle_num);
                 } else {
-                    g_bvar_recycler_instance_recycle_num.put(
-                            {instance_id, operation_type},
-                            std::make_pair(total_recycled_num.load(), total_need_recycle_num));
-                    g_bvar_recycler_instance_recycle_total_num.put({instance_id, operation_type},
-                                                                   total_recycled_num.load());
+                    g_bvar_recycler_instance_last_round_recycled_num.put(
+                            {instance_id, operation_type}, total_recycled_num.load());
+                    g_bvar_recycler_instance_recycle_total_num_since_started.put(
+                            {instance_id, operation_type}, total_recycled_num.load());
                 }
             }
         }
     }
 };
+
 } // namespace doris::cloud

@@ -20,9 +20,7 @@
 #include <bvar/multi_dimension.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
-
 #include <bvar/window.h>
-
 
 #include <cstdint>
 #include <stdexcept>
@@ -106,29 +104,41 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler",
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
-bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
+// current concurrency of recycle task
+bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
 
 // recycler's mbvars
-mBvarIntAdder g_bvar_recycler_instance_running("recycler_instance_running",{"instance_id"});
-mBvarLongStatus g_bvar_recycler_instance_last_recycle_duration("recycler_instance_last_recycle_duration_ms",{"instance_id"});
-mBvarLongStatus g_bvar_recycler_instance_next_time("recycler_instance_next_time_s",{"instance_id"});
-mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_times("recycler_instance_recycle_times",{"instance_id"});
-mBvarLongStatus g_bvar_recycler_instance_recycle_last_success_times("recycler_instance_recycle_last_success_times",{"instance_id"});
+bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter("recycler_instance_running_counter");
+// cost time of the last whole recycle process
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_recycle_duration("recycler_instance_last_recycle_duration",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
+// start and end timestamps of the recycle process
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_st_ts("recycler_instance_recycle_st_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_ed_ts("recycler_instance_recycle_ed_ts",{"instance_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_instance_recycle_last_success_ts",{"instance_id"});
 
 // recycler's mbvars
 // instance_id: unique identifier for the instance
-// resource_type: type of resources need to be recycled (indexes, partitions, rowsets, etc.)
-// vault_unique_id: unique identifier for the repository
+// resource_type: type of resource need to be recycled (index, partition, rowset, segment, tablet, etc.)
+// resource_id: unique identifier for the repository
 // status: status of the recycle task (normal, abnormal, etc.)
-mBvarIntAdder g_bvar_recycler_vault_recycle_status("recycler_vault_recycle_status", {"instance_id", "vault_unique_id", "status"});
-mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency("recycler_vault_recycle_task_concurrency", {"instance_id", "vault_unique_id"});
-mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_num("recycler_instance_recycle_num", {"instance_id", "resource_type"});
-mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_bytes("recycler_instance_recycle_bytes", {"instance_id", "resource_type"});
-mBvarDoubleStatus g_bvar_recycler_instance_recycle_cost("recycler_instance_recycle_cost", {"instance_id", "resource_type"});
-mBvarIntAdder g_bvar_recycler_instance_recycle_total_num("recycler_instance_recycle_total_num", {"instance_id", "resource_type"});
-mBvarIntAdder g_bvar_recycler_instance_recycle_total_bytes("recycler_instance_recycle_total_bytes", {"instance_id", "resource_type"});
+mBvarIntAdder g_bvar_recycler_vault_recycle_status("recycler_vault_recycle_status", {"instance_id", "resource_id", "status"});
+// current concurrency of vault delete task
+mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency("recycler_vault_recycle_task_concurrency", {"instance_id", "resource_type", "resource_id"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num("recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num("recycler_instance_last_round_to_recycle_num", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
+mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes("recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
+mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts("recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
+// total recycled num and bytes of resources since recycler started
+mBvarIntAdder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
+mBvarIntAdder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
 mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_round", {"instance_id", "resource_type"});
-mBvarLatencyRecorder g_bvar_recycler_instance_recycle("recycler_instance_recycle", {"instance_id", "resource_type"});
+// represents the ms required per resource to be recycled
+// value of -1 means no resource recycled
+mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource("recycler_instance_recycle_time_per_resource", {"instance_id", "resource_type"});
+// represents the bytes of resources that can be recycled per ms
+mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms("recycler_instance_recycle_bytes_per_ms", {"instance_id", "resource_type"});
 
 // txn_kv's bvars
 bvar::LatencyRecorder g_bvar_txn_kv_get("txn_kv", "get");
