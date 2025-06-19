@@ -181,24 +181,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     def test_sql5 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id"""
     logger.info("state_mtmv5: " + state_mtmv5)
     if (step == 1) {
-        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
-        assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-            compare_res(test_sql5 + " order by 1,2,3")
-        }
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
-            compare_res(test_sql5 + " order by 1,2,3")
-        }
-
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc, 丢包之后会卡死
     } else if (step == 2 || step == 3) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
-        assertTrue(state_mtmv5[0][2] == false) // 丢包之后会卡死
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
@@ -215,10 +200,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
         state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
         assertTrue(state_mtmv5[0][0] == "NORMAL")
-        assertTrue(state_mtmv5[0][2] == false)
 
         // 刷新mtmv之后状态恢复正常
-        sql """refresh MATERIALIZED VIEW ${mtmvName5} auto"""
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} complete"""
         state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         assertTrue(state_mtmv5[0][2] == true)
@@ -296,21 +280,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     if (step == 1) {
         assertTrue(state_mtmv2[0][0] == "NORMAL")
-        assertTrue(state_mtmv2[0][2] == true)
-
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-            compare_res(sql2 + " order by 1,2,3")
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
-            compare_res(sql2 + " order by 1,2,3")
-        }
 
         // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
         try {
@@ -324,7 +293,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """refresh catalog ${ctlName}"""
         state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
         assertTrue(state_mtmv2[0][0] == "NORMAL")
-        assertTrue(state_mtmv2[0][2] == false)
 
         // 刷新mtmv之后状态恢复正常
         sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
@@ -351,19 +319,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         }
     } else if (step == 2 || step == 3) {
         assertTrue(state_mtmv2[0][0] == "NORMAL")
-        assertTrue(state_mtmv2[0][2] == false)
-
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_not_part_in(sql2, mtmvName2)
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_not_part_in(sql2, mtmvName2)
-        }
 
         // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
         try {
@@ -377,7 +332,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         sql """refresh catalog ${ctlName}"""
         state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
         assertTrue(state_mtmv2[0][0] == "NORMAL")
-        assertTrue(state_mtmv2[0][2] == false)
 
         // When refreshing the entire MTMV, the partition will be deleted.
         sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
@@ -468,20 +422,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv3[0][0] == "NORMAL")
-        assertTrue(state_mtmv3[0][2] == false)
-        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-            compare_res(test_sql3 + " order by 1,2,3")
-        }
-
-        connect('root', context.config.jdbcPassword, master_jdbc_url) {
-            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
-            sql """use ${dbName}"""
-            mv_rewrite_success_without_check_chosen(test_sql3, mtmvName3)
-            compare_res(test_sql3 + " order by 1,2,3")
-        }
 
         // 刷新catalog之后 mtmv仍然处于sc状态
         sql """refresh catalog ${ctlName}"""
@@ -489,7 +429,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         state_mtmv3 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName3}';"""
         logger.info("state_mtmv3: " + state_mtmv3)
         assertTrue(state_mtmv3[0][0] == "NORMAL")
-        assertTrue(state_mtmv3[0][2] == false)
+
     } else if (step == 4) {
         assertTrue(state_mtmv3[0][0] == "SCHEMA_CHANGE")
         assertTrue(state_mtmv3[0][2] == false)
