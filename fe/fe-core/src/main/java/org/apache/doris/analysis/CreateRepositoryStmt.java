@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -60,6 +61,10 @@ public class CreateRepositoryStmt extends DdlStmt implements NotFallbackInParser
 
     public Map<String, String> getProperties() {
         return storage.getStorageDesc().getProperties();
+    }
+
+    public StorageProperties getStorageProperties() {
+        return storage.getStorageDesc().getStorageProperties();
     }
 
     @Override

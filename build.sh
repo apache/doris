@@ -538,6 +538,7 @@ if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("fe-common")
+    modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
     modules+=("be-java-extensions/java-udf")
@@ -847,6 +848,7 @@ EOF
     extensions_modules+=("avro-scanner")
     extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
+    extensions_modules+=("iceberg-metadata-scanner")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"

@@ -17,17 +17,14 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
-import org.apache.doris.thrift.TIcebergMetadataParams;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Iterables;
@@ -77,16 +74,6 @@ public class IcebergMetadataCache {
                 true,
                 null);
         this.snapshotCache = snapshotCacheFactory.buildCache(key -> loadSnapshot(key), null, executor);
-    }
-
-    public List<Snapshot> getSnapshotList(TIcebergMetadataParams params) throws UserException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(params.getCatalog());
-        if (catalog == null) {
-            throw new UserException("The specified catalog does not exist:" + params.getCatalog());
-        }
-        IcebergMetadataCacheKey key =
-                IcebergMetadataCacheKey.of(catalog, params.getDatabase(), params.getTable());
-        return snapshotListCache.get(key);
     }
 
     public Table getIcebergTable(CatalogIf catalog, String dbName, String tbName) {
