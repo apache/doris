@@ -28,6 +28,8 @@
 #include <string>
 #include <tuple>
 
+#include "common/bvars.h"
+#include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/network_util.h"
@@ -1971,7 +1973,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     if (request->op() == AlterInstanceRequest::REFRESH) return;
 
     auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id);
+        notify_refresh_instance(txn_kv, instance_id, nullptr);
     });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
@@ -2447,7 +2449,10 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     if (code != MetaServiceCode::OK) return;
 
     auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id);
+        // the func run with a thread, so if use macro proved stats, maybe cause stack-use-after-return error
+        KVStats stats;
+        notify_refresh_instance(txn_kv, instance_id, &stats);
+        g_bvar_rpc_kv_alter_cluster_get_counter << stats.get_counter;
     });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
@@ -3926,7 +3931,8 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
     msg = proto_to_json(*response);
 }
 
-void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id) {
+void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                             KVStats* stats) {
     LOG(INFO) << "begin notify_refresh_instance";
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -3941,6 +3947,9 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         LOG(WARNING) << "failed to get server registry"
                      << " err=" << err;
         return;
+    }
+    if (config::use_detailed_metrics && stats) {
+        stats->get_counter++;
     }
     std::string self_endpoint =
             config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;
