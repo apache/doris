@@ -291,7 +291,7 @@ suite("test_upgrade_downgrade_prepare_olap_mtmv_zfr_hive","p0,mtmv,restart_fe") 
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a left join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
+            SELECT a.user_id,a.num,a.dt as dt FROM ${ctlName}.${dbName}.${tableName2} a left join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id;
         """
     waitingMTMVTaskFinishedByMvName(mtmvName2)
 
