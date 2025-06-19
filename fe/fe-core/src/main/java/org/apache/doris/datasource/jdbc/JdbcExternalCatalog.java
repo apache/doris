@@ -49,7 +49,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
-import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,7 +61,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-@Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
 
@@ -124,7 +122,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void resetToUninitialized(boolean invalidCache) {
+    public synchronized void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
         this.identifierMapping = new JdbcIdentifierMapping(
                 (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
