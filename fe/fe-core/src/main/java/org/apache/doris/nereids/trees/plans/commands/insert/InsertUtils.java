@@ -416,9 +416,6 @@ public class InsertUtils {
                             castValue = rewriteContext == null
                                     ? castValue
                                     : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
-                            if (!(castValue instanceof NamedExpression)) {
-                                castValue = new Alias(castValue);
-                            }
                             addColumnValue(analyzer, optimizedRowConstructor, (NamedExpression) castValue);
                         }
                     }
@@ -442,9 +439,6 @@ public class InsertUtils {
                             castValue = rewriteContext == null
                                     ? castValue
                                     : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
-                            if (!(castValue instanceof NamedExpression)) {
-                                castValue = new Alias(castValue);
-                            }
                             addColumnValue(analyzer, optimizedRowConstructor, (NamedExpression) castValue);
                         }
                     }
@@ -535,16 +529,16 @@ public class InsertUtils {
         optimizedRowConstructor.add(value);
     }
 
-    private static Expression castValue(Expression value, DataType targetType) {
+    private static Alias castValue(Expression value, DataType targetType) {
         if (value instanceof Alias) {
             Expression oldChild = value.child(0);
             Expression newChild = TypeCoercionUtils.castUnbound(oldChild, targetType);
-            return oldChild == newChild ? value : value.withChildren(newChild);
+            return (Alias) (oldChild == newChild ? value : value.withChildren(newChild));
         } else if (value instanceof UnboundAlias) {
             UnboundAlias unboundAlias = (UnboundAlias) value;
             return new Alias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
         } else {
-            return TypeCoercionUtils.castUnbound(value, targetType);
+            return new Alias(TypeCoercionUtils.castUnbound(value, targetType));
         }
     }
 
