@@ -32,7 +32,6 @@ import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
@@ -6567,14 +6566,6 @@ public class Env {
         long tabletId = command.getTabletId();
         long backendId = command.getBackendId();
         ReplicaStatus status = command.getStatus();
-        long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
-        setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
-    }
-
-    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
-        long tabletId = stmt.getTabletId();
-        long backendId = stmt.getBackendId();
-        ReplicaStatus status = stmt.getStatus();
         long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
         setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
     }

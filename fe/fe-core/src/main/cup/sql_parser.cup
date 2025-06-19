@@ -6976,11 +6976,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
-    {:
-        RESULT = new AdminSetReplicaStatusStmt(prop);
-    :}
-    | KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
+    KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
     {:
         RESULT = new AdminSetReplicaVersionStmt(prop);
     :}

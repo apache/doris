@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
@@ -72,46 +71,6 @@ public class AdminStmtTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
-    }
-
-    @Test
-    public void testAdminSetReplicaStatus() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
-        Assertions.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
-        Assertions.assertNotNull(tbl);
-        // tablet id, backend id
-        List<Pair<Long, Long>> tabletToBackendList = Lists.newArrayList();
-        for (Partition partition : tbl.getPartitions()) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        tabletToBackendList.add(Pair.of(tablet.getId(), replica.getBackendId()));
-                    }
-                }
-            }
-        }
-        Assertions.assertEquals(3, tabletToBackendList.size());
-        long tabletId = tabletToBackendList.get(0).first;
-        long backendId = tabletToBackendList.get(0).second;
-        Replica replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assertions.assertFalse(replica.isBad());
-
-        // set replica to bad
-        String adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'status' = 'bad');";
-        AdminSetReplicaStatusStmt stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaStatus(stmt);
-        replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assertions.assertTrue(replica.isBad());
-
-        // set replica to ok
-        adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'status' = 'ok');";
-        stmt = (AdminSetReplicaStatusStmt) parseAndAnalyzeStmt(adminStmt);
-        Env.getCurrentEnv().setReplicaStatus(stmt);
-        replica = Env.getCurrentInvertedIndex().getReplica(tabletId, backendId);
-        Assertions.assertFalse(replica.isBad());
     }
 
     @Test

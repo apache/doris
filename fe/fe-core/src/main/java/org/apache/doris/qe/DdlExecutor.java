@@ -24,7 +24,6 @@ import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterCatalogCommentStmt;
@@ -264,8 +263,6 @@ public class DdlExecutor {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCheckTabletsStmt) {
             env.checkTablets((AdminCheckTabletsStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
-            env.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetReplicaVersionStmt) {
             env.setReplicaVersion((AdminSetReplicaVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
@@ -455,7 +452,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof DropRepositoryStmt
                 || ddlStmt instanceof AdminCompactTableStmt
                 || ddlStmt instanceof AdminCheckTabletsStmt
-                || ddlStmt instanceof AdminSetReplicaStatusStmt
                 || ddlStmt instanceof AdminCleanTrashStmt
                 || ddlStmt instanceof AdminRebalanceDiskStmt
                 || ddlStmt instanceof AdminCancelRebalanceDiskStmt
