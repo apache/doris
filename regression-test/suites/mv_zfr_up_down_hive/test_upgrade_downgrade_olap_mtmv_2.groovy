@@ -479,7 +479,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     assertTrue(state_mtmv1[0][2] == false)
 
     // 刷新mtmv之后状态恢复正常
-    sql """refresh MATERIALIZED VIEW ${mtmvName1} auto"""
+    sql """refresh MATERIALIZED VIEW ${mtmvName1} complete"""
     state_mtmv1 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName1}';"""
     logger.info("state_mtmv1:" + state_mtmv1)
     assertTrue(state_mtmv1[0][0] == "NORMAL")
