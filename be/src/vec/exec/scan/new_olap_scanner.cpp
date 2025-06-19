@@ -368,6 +368,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
     }
 
+    DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
+
     if (!_state->skip_storage_engine_merge()) {
         TOlapScanNode& olap_scan_node =
                 _parent ? ((NewOlapScanNode*)_parent)->_olap_scan_node

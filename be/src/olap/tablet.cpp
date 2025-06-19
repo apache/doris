@@ -939,6 +939,8 @@ void Tablet::delete_expired_stale_rowset() {
         save_meta();
     }
 #endif
+    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset",
+                    { _engine.start_delete_unused_rowset(); });
 }
 
 bool Tablet::_reconstruct_version_tracker_if_necessary() {

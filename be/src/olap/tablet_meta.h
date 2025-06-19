@@ -233,6 +233,7 @@ public:
                                          ColumnPB* column);
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
+    void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
@@ -452,6 +453,11 @@ public:
      * return the total cardinality of the Delete Bitmap
      */
     uint64_t cardinality() const;
+
+    /**
+     * return the total size of the Delete Bitmap(after serialized)
+     */
+    uint64_t get_size() const;
 
     uint64_t get_delete_bitmap_count() const;
 
