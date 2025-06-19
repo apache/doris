@@ -127,7 +127,7 @@ protected:
 private:
     Status _register_func_id(JNIEnv* env);
 
-    jobject _get_reader_params(Block* block, JNIEnv* env, size_t column_size);
+    Status _get_reader_params(Block* block, JNIEnv* env, size_t column_size, jobject* ans);
 
     Status _cast_string_to_special(Block* block, JNIEnv* env, size_t column_size);
     Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,

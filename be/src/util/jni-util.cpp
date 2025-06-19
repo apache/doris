@@ -315,59 +315,76 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     return Status::RuntimeError("{}{}", prefix, msg_str_guard.get());
 }
 
-jobject JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map) {
-    //TODO: ADD EXCEPTION CHECK.
+Status JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map,
+                                    jobject* hashmap_object) {
     jclass hashmap_class = env->FindClass("java/util/HashMap");
+    RETURN_ERROR_IF_EXC(env);
     jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
-    jobject hashmap_object = env->NewObject(hashmap_class, hashmap_constructor, map.size());
+    RETURN_ERROR_IF_EXC(env);
+    jobject hashmap_local_object = env->NewObject(hashmap_class, hashmap_constructor, map.size());
+    RETURN_ERROR_IF_EXC(env);
     jmethodID hashmap_put = env->GetMethodID(
             hashmap_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    RETURN_ERROR_IF_EXC(env);
     for (const auto& it : map) {
         jstring key = env->NewStringUTF(it.first.c_str());
         jstring value = env->NewStringUTF(it.second.c_str());
-        env->CallObjectMethod(hashmap_object, hashmap_put, key, value);
+        env->CallObjectMethod(hashmap_local_object, hashmap_put, key, value);
+        RETURN_ERROR_IF_EXC(env);
         env->DeleteLocalRef(key);
         env->DeleteLocalRef(value);
     }
     env->DeleteLocalRef(hashmap_class);
-    return hashmap_object;
+    RETURN_IF_ERROR(LocalToGlobalRef(env, hashmap_local_object, hashmap_object));
+    return Status::OK();
 }
 
-std::map<std::string, std::string> JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map) {
-    std::map<std::string, std::string> resultMap;
-
+Status JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map,
+                                   std::map<std::string, std::string>& resultMap) {
     // Get the class and method ID of the java.util.Map interface
     jclass mapClass = env->FindClass("java/util/Map");
+    RETURN_ERROR_IF_EXC(env);
     jmethodID entrySetMethod = env->GetMethodID(mapClass, "entrySet", "()Ljava/util/Set;");
 
     // Get the class and method ID of the java.util.Set interface
     jclass setClass = env->FindClass("java/util/Set");
+    RETURN_ERROR_IF_EXC(env);
     jmethodID iteratorSetMethod = env->GetMethodID(setClass, "iterator", "()Ljava/util/Iterator;");
 
     // Get the class and method ID of the java.util.Iterator interface
     jclass iteratorClass = env->FindClass("java/util/Iterator");
+    RETURN_ERROR_IF_EXC(env);
     jmethodID hasNextMethod = env->GetMethodID(iteratorClass, "hasNext", "()Z");
     jmethodID nextMethod = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
 
     // Get the class and method ID of the java.util.Map.Entry interface
     jclass entryClass = env->FindClass("java/util/Map$Entry");
+    RETURN_ERROR_IF_EXC(env);
     jmethodID getKeyMethod = env->GetMethodID(entryClass, "getKey", "()Ljava/lang/Object;");
     jmethodID getValueMethod = env->GetMethodID(entryClass, "getValue", "()Ljava/lang/Object;");
 
     // Call the entrySet method to get the set of key-value pairs
     jobject entrySet = env->CallObjectMethod(map, entrySetMethod);
+    RETURN_ERROR_IF_EXC(env);
 
     // Call the iterator method on the set to iterate over the key-value pairs
     jobject iteratorSet = env->CallObjectMethod(entrySet, iteratorSetMethod);
+    RETURN_ERROR_IF_EXC(env);
 
     // Iterate over the key-value pairs
     while (env->CallBooleanMethod(iteratorSet, hasNextMethod)) {
+        RETURN_ERROR_IF_EXC(env);
+
         // Get the current entry
         jobject entry = env->CallObjectMethod(iteratorSet, nextMethod);
+        RETURN_ERROR_IF_EXC(env);
 
         // Get the key and value from the entry
         jobject javaKey = env->CallObjectMethod(entry, getKeyMethod);
+        RETURN_ERROR_IF_EXC(env);
+
         jobject javaValue = env->CallObjectMethod(entry, getValueMethod);
+        RETURN_ERROR_IF_EXC(env);
 
         // Convert the key and value to C++ strings
         const char* key = env->GetStringUTFChars(static_cast<jstring>(javaKey), nullptr);
@@ -394,7 +411,7 @@ std::map<std::string, std::string> JniUtil::convert_to_cpp_map(JNIEnv* env, jobj
     env->DeleteLocalRef(iteratorClass);
     env->DeleteLocalRef(entryClass);
 
-    return resultMap;
+    return Status::OK();
 }
 
 Status JniUtil::GetGlobalClassRef(JNIEnv* env, const char* class_str, jclass* class_ref) {
@@ -443,13 +460,12 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
             env->GetMethodID(jni_scanner_loader_cls, "loadAllScannerJars", "()V");
     RETURN_ERROR_IF_EXC(env);
 
-    jni_scanner_loader_obj_ =
+    jobject jni_scanner_loader_local_obj =
             env->NewObject(jni_scanner_loader_cls, jni_scanner_loader_constructor);
+    jni_scanner_loader_obj_ = env->NewGlobalRef(jni_scanner_loader_local_obj);
     RETURN_ERROR_IF_EXC(env);
-    if (jni_scanner_loader_obj_ == NULL) {
-        if (env->ExceptionOccurred()) env->ExceptionDescribe();
-        return Status::InternalError("Failed to create ScannerLoader object.");
-    }
+    env->DeleteLocalRef(jni_scanner_loader_local_obj);
+    RETURN_ERROR_IF_EXC(env);
     env->CallVoidMethod(jni_scanner_loader_obj_, load_jni_scanner);
     RETURN_ERROR_IF_EXC(env);
 
@@ -482,6 +498,7 @@ Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
     RETURN_ERROR_IF_EXC(env);
     *jni_scanner_class = reinterpret_cast<jclass>(env->NewGlobalRef(loaded_class_obj));
     RETURN_ERROR_IF_EXC(env);
+    env->DeleteLocalRef(loaded_class_obj);
     return Status::OK();
 }
 

@@ -248,10 +248,10 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     auto column_size = _tuple_desc->slots().size();
     auto slots = _tuple_desc->slots();
 
-    jobject map;
+    jobject map = nullptr;
     {
         SCOPED_RAW_TIMER(&_jdbc_statistic._prepare_params_timer); // Timer for preparing params
-        map = _get_reader_params(block, env, column_size);
+        RETURN_IF_ERROR(_get_reader_params(block, env, column_size, &map));
     } // _prepare_params_timer stops here
 
     long address = 0;
@@ -315,10 +315,12 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
     std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},
                                              {"required_fields", table_schema.first},
                                              {"columns_types", table_schema.second}};
-    jobject hashmap_object = JniUtil::convert_to_java_map(env, write_params);
+    jobject hashmap_object = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, write_params, &hashmap_object));
+
     env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_stmt_write_id,
                                  hashmap_object);
-    env->DeleteLocalRef(hashmap_object);
+    env->DeleteGlobalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
     *num_rows_sent = block->rows();
     return Status::OK();
@@ -396,7 +398,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     return Status::OK();
 }
 
-jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size) {
+Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size,
+                                         jobject* ans) {
     std::ostringstream columns_nullable;
     std::ostringstream columns_replace_string;
     std::ostringstream required_fields;
@@ -448,7 +451,7 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
                                               {"replace_string", columns_replace_string.str()},
                                               {"required_fields", required_fields.str()},
                                               {"columns_types", columns_types.str()}};
-    return JniUtil::convert_to_java_map(env, reader_params);
+    return JniUtil::convert_to_java_map(env, reader_params, ans);
 }
 
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
