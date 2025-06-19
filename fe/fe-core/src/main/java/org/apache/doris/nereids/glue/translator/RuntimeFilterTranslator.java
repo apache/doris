@@ -174,6 +174,10 @@ public class RuntimeFilterTranslator {
             }
         } catch (Exception e) {
             LOG.info("failed to translate runtime filter: " + e.getMessage());
+            // throw exception in debug mode
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+                throw e;
+            }
         }
     }
 
