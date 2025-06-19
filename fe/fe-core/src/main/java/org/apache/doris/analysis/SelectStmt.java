@@ -2422,7 +2422,7 @@ public class SelectStmt extends QueryStmt implements NotFallbackInParser {
             strBuilder.append("DISTINCT ");
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList || resultExprs.isEmpty()) {
+        if (ctx == null || ctx.getState().isInternal() || toSQLWithSelectList || resultExprs.isEmpty()) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
                 strBuilder.append(selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");
