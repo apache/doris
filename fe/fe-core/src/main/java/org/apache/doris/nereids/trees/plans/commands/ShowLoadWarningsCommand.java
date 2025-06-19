@@ -30,11 +30,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -68,7 +64,6 @@ import java.net.URLConnection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -84,6 +79,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
                 .build();
     private static final String LABEL = "label";
     private static final String LOAD_JOB_ID = "load_job_id";
+    private static final String JOB_ID = "JobId";
     private String dbName;
     private URL url;
     private String label;
@@ -113,75 +109,59 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         }
     }
 
-    private void analyzeSubPredicate(Expression subExpr) throws AnalysisException {
-        boolean valid = false;
+    private boolean analyzeSubPredicate(Expression subExpr) throws AnalysisException {
         boolean hasLabel = false;
         boolean hasLoadJobId = false;
-        do {
-            if (subExpr == null) {
-                valid = false;
-                break;
-            }
-
-            if (subExpr instanceof ComparisonPredicate) {
-                if (!(subExpr instanceof EqualTo)) {
-                    valid = false;
-                    break;
-                }
-            } else {
-                valid = false;
-                break;
-            }
-
-            // left child
-            if (!(subExpr.child(0) instanceof UnboundSlot)) {
-                valid = false;
-                break;
-            }
-            String leftKey = ((UnboundSlot) subExpr.child(0)).getName();
-            if (leftKey.equalsIgnoreCase(LABEL)) {
-                hasLabel = true;
-            } else if (leftKey.equalsIgnoreCase(LOAD_JOB_ID)) {
-                hasLoadJobId = true;
-            } else {
-                valid = false;
-                break;
-            }
-
-            if (hasLabel) {
-                if (!(subExpr.child(1) instanceof StringLikeLiteral)) {
-                    valid = false;
-                    break;
-                }
-
-                String value = ((StringLikeLiteral) subExpr.child(1)).getStringValue();
-                if (Strings.isNullOrEmpty(value)) {
-                    valid = false;
-                    break;
-                }
-
-                label = value;
-            }
-
-            if (hasLoadJobId) {
-                if (!(subExpr.child(1) instanceof IntegerLikeLiteral)) {
-                    LOG.warn("load_job_id is not IntLiteral. value: {}", subExpr.toSql());
-                    valid = false;
-                    break;
-                }
-                jobId = ((IntegerLikeLiteral) subExpr.child(1)).getLongValue();
-            }
-
-            valid = true;
-        } while (false);
-
-        if (!valid) {
-            throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
-                + " or LOAD_JOB_ID = $job_id");
+        if (subExpr == null) {
+            return false;
         }
+
+        if (subExpr instanceof ComparisonPredicate) {
+            if (!(subExpr instanceof EqualTo)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // left child
+        if (!(subExpr.child(0) instanceof UnboundSlot)) {
+            return false;
+        }
+        String leftKey = ((UnboundSlot) subExpr.child(0)).getName();
+        if (leftKey.equalsIgnoreCase(LABEL)) {
+            hasLabel = true;
+        } else if (leftKey.equalsIgnoreCase(LOAD_JOB_ID) || leftKey.equalsIgnoreCase(JOB_ID)) {
+            hasLoadJobId = true;
+        } else {
+            return false;
+        }
+
+        if (hasLabel) {
+            if (!(subExpr.child(1) instanceof StringLikeLiteral)) {
+                return false;
+            }
+
+            String value = ((StringLikeLiteral) subExpr.child(1)).getStringValue();
+            if (Strings.isNullOrEmpty(value)) {
+                return false;
+            }
+
+            label = value;
+        }
+
+        if (hasLoadJobId) {
+            if (!(subExpr.child(1) instanceof IntegerLikeLiteral)) {
+                LOG.warn("load_job_id/jobid is not IntLiteral. value: {}", subExpr.toSql());
+                return false;
+            }
+            jobId = ((IntegerLikeLiteral) subExpr.child(1)).getLongValue();
+        }
+
+        return true;
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         if (rawUrl != null) {
             // get load error from url
             if (rawUrl.isEmpty()) {
@@ -211,20 +191,22 @@ public class ShowLoadWarningsCommand extends ShowCommand {
             // analyze where clause if not null
             if (wildWhere == null) {
                 throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
-                    + " or LOAD_JOB_ID = $job_id");
+                    + " or LOAD_JOB_ID/JOBID = $job_id");
             }
-
-            if (wildWhere != null) {
-                if (wildWhere instanceof CompoundPredicate) {
-                    if (!(wildWhere instanceof And)) {
-                        throw new AnalysisException("Only allow compound predicate with operator AND");
-                    }
-                    for (Expression child : wildWhere.children()) {
-                        analyzeSubPredicate(child);
-                    }
-                } else {
-                    analyzeSubPredicate(wildWhere);
+            boolean valid = true;
+            if (wildWhere instanceof CompoundPredicate) {
+                if (!(wildWhere instanceof And)) {
+                    throw new AnalysisException("Only allow compound predicate with operator AND");
                 }
+                for (Expression child : wildWhere.children()) {
+                    valid &= analyzeSubPredicate(child);
+                }
+            } else {
+                valid = analyzeSubPredicate(wildWhere);
+            }
+            if (!valid) {
+                throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
+                    + " or LOAD_JOB_ID/JOBID = $job_id");
             }
         }
     }
@@ -253,6 +235,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         try {
             URLConnection urlConnection = url.openConnection();
+            urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
             InputStream inputStream = urlConnection.getInputStream();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
                 int limit = 100;
@@ -282,7 +265,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
                     .getLoadJobInfosByDb(db.getId(), label, true, null, null, null, false, null, false, null, false);
             }
             if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
-                return null;
+                throw new AnalysisException("job does not exist");
             }
             List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
             for (List<Comparable> comparables : loadJobInfosByDb) {
@@ -293,7 +276,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         }
         org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(jobId);
         if (loadJob == null) {
-            return null;
+            throw new AnalysisException("job does not exist");
         }
         List<String> singleInfo;
         try {
@@ -332,59 +315,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         }
 
         Database db = env.getInternalCatalog().getDbOrAnalysisException(dbName);
-        ShowResultSet showResultSet = handleShowLoadWarningV2(db);
-        if (showResultSet != null) {
-            return showResultSet;
-        }
-
-        long dbId = db.getId();
-        Load load = env.getLoadInstance();
-        long queryJobId = 0;
-        LoadJob job = null;
-        String label = null;
-        if (label != null) {
-            queryJobId = load.getLatestJobIdByLabel(dbId, label);
-            job = load.getLoadJob(queryJobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-        } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("load_job_id={}", queryJobId);
-            }
-            queryJobId = jobId;
-            job = load.getLoadJob(queryJobId);
-            if (job == null) {
-                throw new AnalysisException("job is not exist.");
-            }
-            label = job.getLabel();
-            LOG.info("label={}", label);
-        }
-
-        // check auth
-        Set<String> tableNames = job.getTableNames();
-        if (tableNames.isEmpty()) {
-            // forward compatibility
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                            PrivPredicate.SHOW)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                        ConnectContext.get().getQualifiedUser(), db.getFullName());
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(),
-                            tblName, PrivPredicate.SHOW)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW LOAD WARNING",
-                            ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                            db.getFullName() + ": " + tblName);
-                }
-            }
-        }
-        List<List<String>> rows = Lists.newArrayList();
-        rows = applyLimit(limit, offset, rows);
-        return new ShowResultSet(getMetaData(), rows);
+        return handleShowLoadWarningV2(db);
     }
 
     @Override

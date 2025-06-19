@@ -70,6 +70,8 @@ public:
         return _approximate_data_size.load(std::memory_order_relaxed);
     }
 
+    const std::string& tablet_path() const override;
+
     // clang-format off
     int64_t fetch_add_approximate_num_rowsets (int64_t x) { return _approximate_num_rowsets .fetch_add(x, std::memory_order_relaxed); }
     int64_t fetch_add_approximate_num_segments(int64_t x) { return _approximate_num_segments.fetch_add(x, std::memory_order_relaxed); }
@@ -259,6 +261,10 @@ public:
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
     int64_t last_access_time_ms = 0;
+
+    std::atomic<int64_t> local_read_time_us = 0;
+    std::atomic<int64_t> remote_read_time_us = 0;
+    std::atomic<int64_t> exec_compaction_time_us = 0;
 
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;

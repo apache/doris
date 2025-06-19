@@ -38,6 +38,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.Triple;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
@@ -53,7 +54,6 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -657,7 +657,13 @@ public class CacheHotspotManager extends MasterDaemon {
         Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
 
         CloudWarmUpJob.JobType jobType = stmt.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
-        CloudWarmUpJob warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
+        CloudWarmUpJob warmUpJob;
+        if (jobType == JobType.TABLE) {
+            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType,
+                    stmt.getTables(), stmt.isForce());
+        } else {
+            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
+        }
         addCloudWarmUpJob(warmUpJob);
 
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);

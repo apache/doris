@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
@@ -5844,10 +5843,6 @@ public class Env {
      * used for handling AlterSystemStmt
      * (for client is the ALTER SYSTEM command).
      */
-    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterSystem(stmt);
-    }
-
     public void alterSystem(AlterSystemCommand command) throws UserException {
         this.alter.processAlterSystem(command);
     }
