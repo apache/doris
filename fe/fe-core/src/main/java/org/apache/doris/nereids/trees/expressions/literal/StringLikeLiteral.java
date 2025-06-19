@@ -220,6 +220,9 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         String trimmedValue = value.trim();
         if (decimalPattern.matcher(trimmedValue).matches()) {
             BigDecimal bigDecimal = new BigDecimal(trimmedValue);
+            if (bigDecimal.compareTo(BigDecimal.ZERO) == 0) {
+                return getDecimalLiteral(BigDecimal.ZERO, targetType);
+            }
             return getDecimalLiteral(bigDecimal, targetType);
         }
         throw new CastException(String.format("%s can't cast to decimal in strict mode.", value));
