@@ -21,7 +21,9 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -38,10 +40,13 @@ import com.google.common.collect.ImmutableSet;
  * - sum -> MULTI_DISTINCT_SUM
  * - avg -> MULTI_DISTINCT_AVG
  * - group_concat -> MULTI_DISTINCT_GROUP_CONCAT
+ * - collect_list -> MULTI_DISTINCT_COLLECT_LIST
+ * - array_agg -> MULTI_DISTINCT_ARRAY_AGG
  */
 public class CheckMultiDistinct extends OneRewriteRuleFactory {
     private final ImmutableSet<Class<? extends AggregateFunction>> supportedFunctions =
-            ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class);
+            ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class,
+                    CollectList.class, ArrayAgg.class);
 
     @Override
     public Rule build() {

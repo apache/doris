@@ -31,8 +31,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -450,5 +454,53 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
             }
         }
         return true;
+    }
+
+    @Test
+    public void testMultiDistinctCollectListConversion() {
+        // Test that distinct CollectList functions can be converted to MultiDistinctCollectList
+        Slot name = rStudent.getOutput().get(1);
+
+        // Test the conversion method directly
+        CollectList collectList = new CollectList(true, name);
+        try {
+            MultiDistinctCollectList multiDistinct = collectList.convertToMultiDistinct();
+            Assertions.assertNotNull(multiDistinct);
+            Assertions.assertEquals(1, multiDistinct.arity());
+        } catch (Exception e) {
+            Assertions.fail("CollectList should be convertible to MultiDistinctCollectList: " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testMultiDistinctArrayAggConversion() {
+        // Test that distinct ArrayAgg functions can be converted to MultiDistinctArrayAgg
+        Slot name = rStudent.getOutput().get(1);
+
+        // Test the conversion method directly
+        ArrayAgg arrayAgg = new ArrayAgg(true, name);
+        try {
+            MultiDistinctArrayAgg multiDistinct = arrayAgg.convertToMultiDistinct();
+            Assertions.assertNotNull(multiDistinct);
+            Assertions.assertEquals(1, multiDistinct.arity());
+        } catch (Exception e) {
+            Assertions.fail("ArrayAgg should be convertible to MultiDistinctArrayAgg: " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testCollectListWithLimitMultiDistinctConversion() {
+        // Test that CollectList with limit parameter can be converted correctly
+        Slot name = rStudent.getOutput().get(1);
+
+        // Test the conversion method directly
+        CollectList collectListWithLimit = new CollectList(true, name, new IntegerLiteral(10));
+        try {
+            MultiDistinctCollectList multiDistinct = collectListWithLimit.convertToMultiDistinct();
+            Assertions.assertNotNull(multiDistinct);
+            Assertions.assertEquals(2, multiDistinct.arity()); // name + limit parameter
+        } catch (Exception e) {
+            Assertions.fail("CollectList with limit should be convertible to MultiDistinctCollectList: " + e.getMessage());
+        }
     }
 }
