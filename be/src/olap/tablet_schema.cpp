@@ -968,14 +968,6 @@ void TabletSchema::clear_columns() {
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    clear_column_cache_handlers();
-}
-
-void TabletSchema::clear_column_cache_handlers() {
-    for (auto* cache_handle : _column_cache_handlers) {
-        TabletColumnObjectPool::instance()->release(cache_handle);
-    }
-    _column_cache_handlers.clear();
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
@@ -990,7 +982,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _cluster_key_idxes.clear();
-    clear_column_cache_handlers();
     for (const auto& i : schema.cluster_key_idxes()) {
         _cluster_key_idxes.push_back(i);
     }
@@ -1000,7 +991,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             auto pair = TabletColumnObjectPool::instance()->insert(
                     deterministic_string_serialize(column_pb));
             column = pair.second;
-            _column_cache_handlers.push_back(pair.first);
+            // Release the handle quickly, because we use shared ptr to manage column.
+            // It often core during tablet schema copy to another schema because handle's
+            // reference count should be managed mannually.
+            TabletColumnObjectPool::instance()->release(pair.first);
         } else {
             column = std::make_shared<TabletColumn>();
             column->init_from_pb(column_pb);
@@ -1089,8 +1083,6 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    // notice : do not ref columns
-    _column_cache_handlers.clear();
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
@@ -1153,7 +1145,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sequence_col_idx = -1;
     _version_col_idx = -1;
     _cluster_key_idxes.clear();
-    clear_column_cache_handlers();
     for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
         _cluster_key_idxes.push_back(i);
     }
