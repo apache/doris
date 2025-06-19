@@ -359,9 +359,12 @@ Status OrcReader::init_reader(
     return Status::OK();
 }
 
+Status OrcReader::init_schema_reader() {
+    return _create_file_reader();
+}
+
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<DataTypePtr>* col_types) {
-    RETURN_IF_ERROR(_create_file_reader());
     const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
@@ -374,7 +377,6 @@ Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_na
                                                 std::vector<int32_t>* col_attributes,
                                                 const std::string& attribute,
                                                 bool* exist_attribute) {
-    RETURN_IF_ERROR(_create_file_reader());
     *exist_attribute = true;
     const auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
