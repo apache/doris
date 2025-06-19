@@ -15,18 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#include "SurrogatePairSegmenter.h"
 
-public class KillAnalysisJobStmt extends DdlStmt implements NotFallbackInParser {
+namespace doris::segment_v2 {
 
-    public final long jobId;
+void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
+    const auto& current_char_type = context.getCurrentCharType();
 
-    public KillAnalysisJobStmt(long jobId) {
-        this.jobId = jobId;
+    if (current_char_type == CharacterUtil::CHAR_SURROGATE) {
+        Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
+                         context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(),
+                         context.getCursor());
+        context.addLexeme(newLexeme);
     }
 
-    @Override
-    public StmtType stmtType() {
-        return StmtType.KILL;
-    }
+    context.unlockBuffer(SEGMENTER_TYPE);
 }
+
+void SurrogatePairSegmenter::reset() {}
+
+} // namespace doris::segment_v2

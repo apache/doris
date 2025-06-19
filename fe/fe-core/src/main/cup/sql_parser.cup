@@ -1362,10 +1362,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterViewStmt(tbl, columns, view_def);
     :}
-    | KW_ALTER KW_SYSTEM alter_system_clause:clause
-    {:
-        RESULT = new AlterSystemStmt(clause);
-    :}
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
         RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.DATA, quota_quantity);
@@ -1988,11 +1984,6 @@ create_stmt ::=
     | KW_CREATE KW_STORAGE KW_VAULT opt_if_not_exists:ifNotExists ident_or_text:storageVaultName opt_properties:properties
     {:
         RESULT = new CreateStorageVaultStmt(ifNotExists, storageVaultName, properties);
-    :}
-    /* workload group*/
-    | KW_CREATE KW_WORKLOAD KW_GROUP opt_if_not_exists:ifNotExists ident_or_text:workloadGroupName opt_properties:properties
-    {:
-        RESULT = new CreateWorkloadGroupStmt(ifNotExists, workloadGroupName, properties);
     :}
     /* workload schedule policy */
     | KW_CREATE KW_WORKLOAD KW_POLICY opt_if_not_exists:ifNotExists ident_or_text:workloadPolicyName opt_conditions:conditions opt_actions:actions opt_properties:properties
@@ -2811,50 +2802,6 @@ resume_routine_load_stmt ::=
     :}
     ;
 
-stop_routine_load_stmt ::=
-    KW_STOP KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new StopRoutineLoadStmt(jobLabel);
-    :}
-    ;
-
-show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
-    :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, true, null);
-    :}
-    | KW_SHOW KW_ROUTINE KW_LOAD opt_wild_where
-    {:
-        RESULT = new ShowRoutineLoadStmt(null, false, parser.wild);
-    :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_wild_where
-    {:
-        RESULT = new ShowRoutineLoadStmt(null, true, parser.wild);
-    :}
-    ;
-
-show_routine_load_task_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD KW_TASK opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowRoutineLoadTaskStmt(dbName, parser.where);
-    :}
-    ;
-
-show_create_routine_load_stmt ::=
-    KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateRoutineLoadStmt(jobLabel, false);
-    :}
-    | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
-    :}
-    ;
-
 show_create_load_stmt ::=
     KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
     {:
@@ -2915,70 +2862,6 @@ analyze_stmt ::=
     :}
     ;
 
-// Grant statement
-grant_stmt ::=
-    KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, tblPattern, privs);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, tblPattern, privs);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.GENERAL);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.GENERAL);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(userId, null, workloadGroupPattern, privs);
-    :}
-    | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new GrantStmt(null, role, workloadGroupPattern, privs);
-    :}
-    | KW_GRANT string_list:roles KW_TO user_identity:userId
-    {:
-        RESULT = new GrantStmt(roles, userId);
-    :}
-    ;
-
 tbl_pattern ::=
     ident_or_star:db
     {:
@@ -3024,70 +2907,6 @@ ident_or_star ::=
     | ident:ident
     {:
         RESULT = ident;
-    :}
-    ;
-
-// Revoke statement
-revoke_stmt ::=
-    KW_REVOKE privilege_list:privs KW_ON tbl_pattern:tblPattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, tblPattern, privs);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON tbl_pattern:tblPattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, tblPattern, privs);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.GENERAL);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.GENERAL);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_CLUSTER resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_COMPUTE KW_GROUP resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.CLUSTER);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STAGE);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_STAGE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STAGE);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_STORAGE KW_VAULT resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, resourcePattern, privs, ResourceTypeEnum.STORAGE_VAULT);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(userId, null, workloadGroupPattern, privs);
-    :}
-    | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM KW_ROLE STRING_LITERAL:role
-    {:
-        RESULT = new RevokeStmt(null, role, workloadGroupPattern, privs);
-    :}
-    | KW_REVOKE string_list:roles KW_FROM user_identity:userId
-    {:
-        RESULT = new RevokeStmt(roles, userId);
     :}
     ;
 
@@ -3184,18 +3003,6 @@ drop_stmt ::=
         RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
-    | KW_DROP KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
-    {:
-        RESULT = new DropStatsStmt(tbl, cols, partitionNames);
-    :}
-    | KW_DROP KW_EXPIRED KW_STATS
-    {:
-        RESULT = new DropStatsStmt(true);
-    :}
-    | KW_DROP KW_ANALYZE KW_JOB INTEGER_LITERAL:job_id
-    {:
-        RESULT = new DropAnalyzeJobStmt(job_id);
-    :}
     | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
     {:
         RESULT = new DropStageStmt(ifExists, stageName);
@@ -4170,10 +3977,6 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
-    | KW_WORKLOAD KW_GROUPS opt_wild_where
-    {:
-        RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
-    :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
         RESULT = new ShowTrashDiskStmt(backend);
@@ -4182,28 +3985,9 @@ show_param ::=
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
     :}
-    | KW_TRANSACTION opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowTransactionStmt(dbName, parser.where);
-    :}
     | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
     {:
         RESULT = new ShowCacheHotSpotStmt(tablePath);
-    :}
-    /* show table stats */
-    | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, null);
-    :}
-    /* show table id stats */
-    | KW_TABLE KW_STATS INTEGER_LITERAL:tableId
-    {:
-        RESULT = new ShowTableStatsStmt(tableId);
-    :}
-    /* show index stats */
-    | KW_INDEX KW_STATS table_name:tbl ident:id
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, null, null, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
@@ -4974,13 +4758,6 @@ restore_stmt ::=
     opt_properties:properties
     {:
         RESULT = new RestoreStmt(label, repoName, tblRefClause, properties);
-    :}
-    ;
-
-kill_analysis_job_stmt ::=
-    KW_KILL KW_ANALYZE INTEGER_LITERAL:value
-    {:
-        RESULT = new KillAnalysisJobStmt(value.intValue());
     :}
     ;
 

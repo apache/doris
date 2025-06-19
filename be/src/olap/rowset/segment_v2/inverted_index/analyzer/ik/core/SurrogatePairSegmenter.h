@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#pragma once
 
-/**
- * DROP ANALYZE JOB [JOB_ID]
- */
-public class DropAnalyzeJobStmt extends DdlStmt implements NotFallbackInParser {
+#include "AnalyzeContext.h"
+#include "CharacterUtil.h"
+#include "ISegmenter.h"
+#include "Lexeme.h"
 
-    private final long jobId;
+namespace doris::segment_v2 {
 
-    public DropAnalyzeJobStmt(long jobId) {
-        this.jobId = jobId;
-    }
+class SurrogatePairSegmenter : public ISegmenter {
+public:
+    static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
+            AnalyzeContext::SegmenterType::SURROGATE_PAIR_SEGMENTER;
 
-    public long getJobId() {
-        return jobId;
-    }
+    SurrogatePairSegmenter() = default;
+    ~SurrogatePairSegmenter() override = default;
 
-    @Override
-    public StmtType stmtType() {
-        return StmtType.DROP;
-    }
-}
+    void analyze(AnalyzeContext& context) override;
+    void reset() override;
+};
+
+} // namespace doris::segment_v2
