@@ -18,7 +18,7 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store]
 --------------------PhysicalProject
-----------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary')]])
+----------------------filter(OR[AND[(customer_demographics.cd_marital_status = 'M'),(customer_demographics.cd_education_status = 'Unknown')],AND[(customer_demographics.cd_marital_status = 'W'),(customer_demographics.cd_education_status = 'College')],AND[(customer_demographics.cd_marital_status = 'D'),(customer_demographics.cd_education_status = 'Primary')]] and cd_education_status IN ('College', 'Primary', 'Unknown') and cd_marital_status IN ('D', 'M', 'W'))
 ------------------------PhysicalOlapScan[customer_demographics]
 ----------------PhysicalProject
 ------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('FL', 'GA', 'KY', 'MI', 'NH', 'NY', 'OH', 'SD', 'TX'))

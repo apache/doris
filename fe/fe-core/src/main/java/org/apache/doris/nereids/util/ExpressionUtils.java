@@ -1009,4 +1009,15 @@ public class ExpressionUtils {
         }
         return builder.build();
     }
+
+    /**
+     * OR expression, also remove duplicate expression, boolean literal
+     */
+    public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
+        if (values.size() < 2) {
+            return or(values.stream().map(value -> new EqualTo(reference, value)).collect(Collectors.toList()));
+        } else {
+            return new InPredicate(reference, ImmutableList.copyOf(values));
+        }
+    }
 }

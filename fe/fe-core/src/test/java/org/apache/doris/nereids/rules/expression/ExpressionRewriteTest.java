@@ -169,20 +169,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testTpcdsCase() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                        SimplifyRange.INSTANCE,
-                        OrToIn.INSTANCE,
-                        ExtractCommonFactorRule.INSTANCE
-                )
-        ));
-        assertRewrite(
-                "(((((customer_address.ca_country = 'United States') AND ca_state IN ('DE', 'FL', 'TX')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('ID', 'IN', 'ND'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('IL', 'MT', 'OH'))))",
-                "((customer_address.ca_country = 'United States') AND ca_state IN ('DE', 'FL', 'TX', 'ID', 'IN', 'ND', 'IL', 'MT', 'OH'))");
-    }
-
-    @Test
     void testInPredicateToEqualToRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(InPredicateToEqualToRule.INSTANCE)

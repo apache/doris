@@ -47,7 +47,6 @@ public class ExpressionOptimization extends ExpressionRewrite {
                 SimplifyComparisonPredicate.INSTANCE,
                 SimplifyInPredicate.INSTANCE,
                 SimplifyDecimalV3Comparison.INSTANCE,
-                OrToIn.INSTANCE,
                 SimplifyRange.INSTANCE,
                 DateFunctionRewrite.INSTANCE,
                 ArrayContainToArrayOverlap.INSTANCE,
