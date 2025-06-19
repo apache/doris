@@ -49,7 +49,6 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/columns_number.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -94,6 +93,11 @@ public:
     // Used by pipeline. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
+
+    // Only used in the materialization phase of delayed materialization,
+    // when there may be no corresponding QueryContext.
+    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);

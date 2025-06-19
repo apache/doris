@@ -21,7 +21,6 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -72,7 +71,7 @@ protected:
     DataTypeSerDeSPtrs serde = {dt_ipv4->get_serde(), dt_ipv6->get_serde()};
 
     // common ip data
-    std::vector<string> data_files;
+    std::vector<std::string> data_files;
 };
 
 TEST_F(ColumnIPTest, InsertRangeFromTest) {

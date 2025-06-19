@@ -23,6 +23,7 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/number_traits.h"
+#include "vec/function/function_test_util.h"
 
 namespace doris::vectorized {
 using namespace ut_type;
@@ -65,10 +66,11 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             dbg_str += fmt::format("({}, {})|", v_str, dt.to_string(v));
         }
     }
-    template <typename T, int Precision, int Scale, int ScientificExpShift = 0>
+    template <PrimitiveType PT, int Precision, int Scale, int ScientificExpShift = 0>
     void from_string_test_func() {
+        using T = typename PrimitiveTypeTraits<PT>::CppType;
         std::cout << fmt::format("===================test cast string to {}({}, {})",
-                                 TypeName<T>::get(), Precision, Scale);
+                                 type_to_string(PT), Precision, Scale);
         InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         auto decimal_ctor = get_decimal_ctor<T>();
@@ -116,10 +118,10 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                             large_fractional1,
                                                             large_fractional2,
                                                             large_fractional3};
-        DataTypeDecimal<T> dt(Precision, Scale);
+        DataTypeDecimal<PT> dt(Precision, Scale);
         auto only_int_part_test_func = [&](bool is_negative, bool with_trailing_dot) {
             std::string dbg_str = fmt::format("test cast string to {}({}, {}), only int part: ",
-                                              TypeName<T>::get(), Precision, Scale);
+                                              type_to_string(PT), Precision, Scale);
             DataSet data_set;
             // only integral part
             for (const auto& i : integral_part) {
@@ -155,12 +157,12 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                            false, false);
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
+            check_function_for_cast<DataTypeDecimal<PT>, Scale, Precision>(input_types, data_set);
         };
 
         auto only_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
             std::string dbg_str = fmt::format(
-                    "test cast string to {}({}, {}), only fraction part: ", TypeName<T>::get(),
+                    "test cast string to {}({}, {}), only fraction part: ", type_to_string(PT),
                     Precision, Scale);
             DataSet data_set;
             // only integral part
@@ -213,7 +215,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                            false, false);
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
+            check_function_for_cast<DataTypeDecimal<PT>, Scale, Precision>(input_types, data_set);
         };
 
         if constexpr (Scale == 0) {
@@ -247,7 +249,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         auto both_int_and_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
             std::string dbg_str0 =
                     fmt::format("test cast string to {}({}, {}), both int and fraction part: ",
-                                TypeName<T>::get(), Precision, Scale);
+                                type_to_string(PT), Precision, Scale);
             for (const auto& i : integral_part) {
                 DataSet data_set;
                 std::string dbg_str = dbg_str0;
@@ -334,8 +336,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                false, false);
                 }
                 std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                              data_set);
+                check_function_for_cast<DataTypeDecimal<PT>, Scale, Precision>(input_types,
+                                                                               data_set);
             }
         };
         both_int_and_fraction_part_test_func(false, false);
@@ -345,20 +347,22 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         both_int_and_fraction_part_test_func(true, true);
     }
 
-    template <typename T, int Precision, int Scale>
+    template <PrimitiveType PT, int Precision, int Scale>
     void from_bool_test_func() {
+        using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
         InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
         auto decimal_ctor = get_decimal_ctor<T>();
         DataSet data_set = {
                 {{UInt8 {0}}, decimal_ctor(0, 0, Scale)},
                 {{UInt8 {1}}, decimal_ctor(1, 0, Scale)},
         };
-        check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types, data_set);
+        check_function_for_cast<DataTypeDecimal<PT>, Scale, Precision>(input_types, data_set);
     }
 
-    template <PrimitiveType FromPT, typename ToT, int Precision, int Scale>
+    template <PrimitiveType FromPT, PrimitiveType ToPT, int Precision, int Scale>
     void from_int_test_func_() {
         using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
+        using ToT = typename PrimitiveTypeTraits<ToPT>::ColumnItemType;
         static_assert(std::numeric_limits<FromT>::is_integer, "FromT must be an integer type");
         DataTypeNumber<FromPT> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
@@ -410,9 +414,9 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
             data_set.push_back({{static_cast<FromT>(decimal_large_integral3)},
                                 decimal_ctor(decimal_large_integral3, 0, Scale)});
         }
-        check_function_for_cast<DataTypeDecimal<ToT>, Scale, Precision>(input_types, data_set);
+        check_function_for_cast<DataTypeDecimal<ToPT>, Scale, Precision>(input_types, data_set);
     }
-    template <typename DecimalType>
+    template <PrimitiveType DecimalType>
     void from_int_test_func() {
         from_int_test_func_<TYPE_TINYINT, DecimalType, 1, 0>();
         {
@@ -485,14 +489,15 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         }
     }
 
-    template <PrimitiveType FromPT, typename T, int Precision, int Scale>
+    template <PrimitiveType FromPT, PrimitiveType PT, int Precision, int Scale>
     void from_float_double_test_func() {
         using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
+        using T = typename PrimitiveTypeTraits<PT>::CppType;
         static_assert(std::numeric_limits<FromT>::is_iec559, "FromT must be a floating point type");
         DataTypeNumber<FromPT> dt_from;
         InputTypeSet input_types = {dt_from.get_primitive_type()};
         std::cout << fmt::format("test cast {} to {}({}, {}), both int and fraction part\n",
-                                 TypeName<FromT>::get(), TypeName<T>::get(), Precision, Scale);
+                                 type_to_string(FromPT), type_to_string(PT), Precision, Scale);
 
         constexpr auto max_integral =
                 decimal_scale_multiplier<typename T::NativeType>(Precision - Scale) - 1;
@@ -538,14 +543,14 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                             large_fractional1,
                                                             large_fractional2,
                                                             large_fractional3};
-        DataTypeDecimal<T> dt_to(Precision, Scale);
+        DataTypeDecimal<PT> dt_to(Precision, Scale);
 
         auto multiplier = dt_to.get_scale_multiplier(Scale);
         auto both_int_and_fraction_part_test_func = [&](bool is_negative, bool test_rounding) {
             std::string dbg_str0 = fmt::format(
                     "test cast {} to {}({}, {}), both int and fraction part, with "
                     "rounding: {}: ",
-                    TypeName<FromT>::get(), TypeName<T>::get(), Precision, Scale, test_rounding);
+                    type_to_string(FromPT), type_to_string(PT), Precision, Scale, test_rounding);
             for (const auto& i : integral_part) {
                 DataSet data_set;
                 std::string dbg_str = dbg_str0;
@@ -588,8 +593,8 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                     dbg_str += fmt::format("({:f}, {})|", float_value, dt_to.to_string(v));
                 }
                 std::cout << dbg_str << std::endl;
-                check_function_for_cast<DataTypeDecimal<T>, Scale, Precision>(input_types,
-                                                                              data_set);
+                check_function_for_cast<DataTypeDecimal<PT>, Scale, Precision>(input_types,
+                                                                               data_set);
             }
         };
         both_int_and_fraction_part_test_func(false, false);
@@ -599,24 +604,27 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         both_int_and_fraction_part_test_func(true, true);
     }
 
-    template <typename FromT, int FromPrecision, int FromScale, typename ToT, int ToPrecision,
-              int ToScale>
+    template <PrimitiveType FromPT, int FromPrecision, int FromScale, PrimitiveType ToPT,
+              int ToPrecision, int ToScale>
     void between_decimal_with_precision_and_scale_test_func() {
+        using FromT = typename PrimitiveTypeTraits<FromPT>::CppType;
+        using ToT = typename PrimitiveTypeTraits<ToPT>::CppType;
         static_assert(IsDecimalNumber<FromT> && IsDecimalNumber<ToT>,
                       "FromT and ToT must be a decimal type");
         std::string dbg_str0 = fmt::format(
-                "===============test cast {}({}, {}) to {}({}, {}): ", TypeName<FromT>::get(),
-                FromPrecision, FromScale, TypeName<ToT>::get(), ToPrecision, ToScale);
+                "===============test cast {}({}, {}) to {}({}, {}): ", type_to_string(FromPT),
+                FromPrecision, FromScale, type_to_string(ToPT), ToPrecision, ToScale);
         std::cout << dbg_str0 << std::endl;
-        static_assert(FromPrecision <= max_decimal_precision<FromT>() && FromScale <= FromPrecision,
-                      "Wrong from precision or scale");
-        static_assert(ToPrecision <= max_decimal_precision<ToT>() && ToScale <= ToPrecision,
+        static_assert(
+                FromPrecision <= max_decimal_precision<FromPT>() && FromScale <= FromPrecision,
+                "Wrong from precision or scale");
+        static_assert(ToPrecision <= max_decimal_precision<ToPT>() && ToScale <= ToPrecision,
                       "Wrong to precision or scale");
         constexpr auto max_from_int_digit_count = FromPrecision - FromScale;
         constexpr auto max_to_int_digit_count = ToPrecision - ToScale;
 
-        DataTypeDecimal<FromT> dt_from(FromPrecision, FromScale);
-        DataTypeDecimal<ToT> dt_to(ToPrecision, ToScale);
+        DataTypeDecimal<FromPT> dt_from(FromPrecision, FromScale);
+        DataTypeDecimal<ToPT> dt_to(ToPrecision, ToScale);
         InputTypeSet input_types = {{dt_from.get_primitive_type(), FromScale, FromPrecision}};
         auto from_decimal_ctor = get_decimal_ctor<FromT>();
         auto to_decimal_ctor = get_decimal_ctor<ToT>();
@@ -821,22 +829,22 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                 }
             }
             std::cout << dbg_str << std::endl;
-            check_function_for_cast<DataTypeDecimal<ToT>, ToScale, ToPrecision>(input_types,
-                                                                                data_set);
+            check_function_for_cast<DataTypeDecimal<ToPT>, ToScale, ToPrecision>(input_types,
+                                                                                 data_set);
         }
     }
     // test all case with a target Decimal type with fixed precision and scale
-    template <typename FromT, typename ToT, int ToPrecision, int ToScale>
+    template <PrimitiveType FromT, PrimitiveType ToT, int ToPrecision, int ToScale>
     void between_decimals_with_to_p_and_s_test_func() {
         constexpr auto from_max_decimal_p = max_decimal_precision<FromT>();
         constexpr auto from_min_decimal_p =
-                std::is_same_v<FromT, Decimal32>
+                FromT == TYPE_DECIMAL32
                         ? 1
-                        : (std::is_same_v<FromT, Decimal64>
+                        : (FromT == TYPE_DECIMAL64
                                    ? BeConsts::MAX_DECIMAL32_PRECISION + 1
-                                   : (std::is_same_v<FromT, Decimal128V3>
+                                   : (FromT == TYPE_DECIMAL128I
                                               ? BeConsts::MAX_DECIMAL64_PRECISION + 1
-                                              : (std::is_same_v<FromT, Decimal256>
+                                              : (FromT == TYPE_DECIMAL256
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(from_min_decimal_p == 1 || from_min_decimal_p > 9);
@@ -863,17 +871,17 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         aaa.template operator()<from_max_decimal_p>();
     }
     // test all cases casting to a fixed target Decimal, with all possible target precisions and scales
-    template <typename FromT, typename ToT>
+    template <PrimitiveType FromT, PrimitiveType ToT>
     void between_decimal_test_func() {
         constexpr auto to_max_decimal_p = max_decimal_precision<ToT>();
         constexpr auto to_min_decimal_p =
-                std::is_same_v<ToT, Decimal32>
+                ToT == TYPE_DECIMAL32
                         ? 1
-                        : (std::is_same_v<ToT, Decimal64>
+                        : (ToT == TYPE_DECIMAL64
                                    ? BeConsts::MAX_DECIMAL32_PRECISION + 1
-                                   : (std::is_same_v<ToT, Decimal128V3>
+                                   : (ToT == TYPE_DECIMAL128I
                                               ? BeConsts::MAX_DECIMAL64_PRECISION + 1
-                                              : (std::is_same_v<ToT, Decimal256>
+                                              : (ToT == TYPE_DECIMAL256
                                                          ? BeConsts::MAX_DECIMAL128_PRECISION + 1
                                                          : 1)));
         static_assert(to_min_decimal_p == 1 || to_min_decimal_p > 9);
@@ -896,12 +904,12 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
     }
 
     // test all cases casting to a fixed target Decimal type
-    template <typename ToT>
+    template <PrimitiveType ToT>
     void from_any_decimals_to_this_decimal_test_func() {
-        between_decimal_test_func<Decimal32, ToT>();
-        between_decimal_test_func<Decimal64, ToT>();
-        between_decimal_test_func<Decimal128V3, ToT>();
-        between_decimal_test_func<Decimal256, ToT>();
+        between_decimal_test_func<TYPE_DECIMAL32, ToT>();
+        between_decimal_test_func<TYPE_DECIMAL64, ToT>();
+        between_decimal_test_func<TYPE_DECIMAL128I, ToT>();
+        between_decimal_test_func<TYPE_DECIMAL256, ToT>();
     }
 };
 
@@ -925,71 +933,71 @@ select cast('+0009999999999999999040000000.e-9' as decimal(18,1));
 1 row in set (0.65 sec)
 */
 TEST_F(FunctionCastToDecimalTest, test_from_string) {
-    from_string_test_func<Decimal32, 9, 0>();
-    from_string_test_func<Decimal32, 9, 0, 3>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 0>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 0, 3>();
     // from_string_test_func<Decimal32, 9, 0, -3>();
 
-    from_string_test_func<Decimal32, 9, 1>();
-    from_string_test_func<Decimal32, 9, 3>();
-    from_string_test_func<Decimal32, 9, 3, 3>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 1>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 3>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 3, 3>();
     // from_string_test_func<Decimal32, 9, 3, -3>();
-    from_string_test_func<Decimal32, 9, 8>();
-    from_string_test_func<Decimal32, 9, 9>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 8>();
+    from_string_test_func<TYPE_DECIMAL32, 9, 9>();
 
-    from_string_test_func<Decimal64, 18, 0>();
-    from_string_test_func<Decimal64, 18, 1>();
-    from_string_test_func<Decimal64, 18, 1, 9>();
+    from_string_test_func<TYPE_DECIMAL64, 18, 0>();
+    from_string_test_func<TYPE_DECIMAL64, 18, 1>();
+    from_string_test_func<TYPE_DECIMAL64, 18, 1, 9>();
     // from_string_test_func<Decimal64, 18, 1, -9>();
     // from_string_test_func<Decimal64, 18, 1, -18>();
-    from_string_test_func<Decimal64, 18, 9>();
-    from_string_test_func<Decimal64, 18, 17>();
-    from_string_test_func<Decimal64, 18, 18>();
+    from_string_test_func<TYPE_DECIMAL64, 18, 9>();
+    from_string_test_func<TYPE_DECIMAL64, 18, 17>();
+    from_string_test_func<TYPE_DECIMAL64, 18, 18>();
 
-    from_string_test_func<Decimal128V3, 38, 0>();
-    from_string_test_func<Decimal128V3, 38, 1>();
-    from_string_test_func<Decimal128V3, 38, 19>();
-    from_string_test_func<Decimal128V3, 38, 37>();
-    from_string_test_func<Decimal128V3, 38, 38>();
+    from_string_test_func<TYPE_DECIMAL128I, 38, 0>();
+    from_string_test_func<TYPE_DECIMAL128I, 38, 1>();
+    from_string_test_func<TYPE_DECIMAL128I, 38, 19>();
+    from_string_test_func<TYPE_DECIMAL128I, 38, 37>();
+    from_string_test_func<TYPE_DECIMAL128I, 38, 38>();
 
-    from_string_test_func<Decimal256, 76, 0>();
-    from_string_test_func<Decimal256, 76, 1>();
-    from_string_test_func<Decimal256, 76, 38>();
-    from_string_test_func<Decimal256, 76, 75>();
-    from_string_test_func<Decimal256, 76, 76>();
+    from_string_test_func<TYPE_DECIMAL256, 76, 0>();
+    from_string_test_func<TYPE_DECIMAL256, 76, 1>();
+    from_string_test_func<TYPE_DECIMAL256, 76, 38>();
+    from_string_test_func<TYPE_DECIMAL256, 76, 75>();
+    from_string_test_func<TYPE_DECIMAL256, 76, 76>();
 }
 TEST_F(FunctionCastToDecimalTest, test_from_bool) {
-    from_bool_test_func<Decimal32, 9, 0>();
-    from_bool_test_func<Decimal32, 9, 1>();
-    from_bool_test_func<Decimal32, 9, 3>();
-    from_bool_test_func<Decimal32, 9, 8>();
+    from_bool_test_func<TYPE_DECIMAL32, 9, 0>();
+    from_bool_test_func<TYPE_DECIMAL32, 9, 1>();
+    from_bool_test_func<TYPE_DECIMAL32, 9, 3>();
+    from_bool_test_func<TYPE_DECIMAL32, 9, 8>();
 
-    from_bool_test_func<Decimal64, 18, 0>();
-    from_bool_test_func<Decimal64, 18, 1>();
-    from_bool_test_func<Decimal64, 18, 9>();
-    from_bool_test_func<Decimal64, 18, 17>();
+    from_bool_test_func<TYPE_DECIMAL64, 18, 0>();
+    from_bool_test_func<TYPE_DECIMAL64, 18, 1>();
+    from_bool_test_func<TYPE_DECIMAL64, 18, 9>();
+    from_bool_test_func<TYPE_DECIMAL64, 18, 17>();
 
-    from_bool_test_func<Decimal128V2, 27, 9>();
+    from_bool_test_func<TYPE_DECIMALV2, 27, 9>();
     // from_bool_test_func<Decimal128V2, 27, 1>();
     // from_bool_test_func<Decimal128V2, 27, 13>();
     // from_bool_test_func<Decimal128V2, 27, 26>();
 
-    from_bool_test_func<Decimal128V3, 38, 0>();
-    from_bool_test_func<Decimal128V3, 38, 1>();
-    from_bool_test_func<Decimal128V3, 38, 19>();
-    from_bool_test_func<Decimal128V3, 38, 37>();
+    from_bool_test_func<TYPE_DECIMAL128I, 38, 0>();
+    from_bool_test_func<TYPE_DECIMAL128I, 38, 1>();
+    from_bool_test_func<TYPE_DECIMAL128I, 38, 19>();
+    from_bool_test_func<TYPE_DECIMAL128I, 38, 37>();
 
-    from_bool_test_func<Decimal256, 76, 0>();
-    from_bool_test_func<Decimal256, 76, 1>();
-    from_bool_test_func<Decimal256, 76, 38>();
-    from_bool_test_func<Decimal256, 76, 75>();
+    from_bool_test_func<TYPE_DECIMAL256, 76, 0>();
+    from_bool_test_func<TYPE_DECIMAL256, 76, 1>();
+    from_bool_test_func<TYPE_DECIMAL256, 76, 38>();
+    from_bool_test_func<TYPE_DECIMAL256, 76, 75>();
 }
 
 TEST_F(FunctionCastToDecimalTest, test_from_int) {
-    from_int_test_func<Decimal32>();
-    from_int_test_func<Decimal64>();
-    from_int_test_func<Decimal128V2>();
-    from_int_test_func<Decimal128V3>();
-    from_int_test_func<Decimal256>();
+    from_int_test_func<TYPE_DECIMAL32>();
+    from_int_test_func<TYPE_DECIMAL64>();
+    from_int_test_func<TYPE_DECIMALV2>();
+    from_int_test_func<TYPE_DECIMAL128I>();
+    from_int_test_func<TYPE_DECIMAL256>();
 }
 /*
 MySQL 8.0:
@@ -1008,42 +1016,42 @@ mysql> select f1, f2, f1 = f2 from test_float;
 1 row in set (0.00 sec)
 */
 TEST_F(FunctionCastToDecimalTest, test_from_float_double) {
-    from_float_double_test_func<TYPE_FLOAT, Decimal32, 9, 0>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal32, 9, 3>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal32, 9, 8>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL32, 9, 0>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL32, 9, 3>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL32, 9, 8>();
 
-    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 0>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 9>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal64, 18, 17>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL64, 18, 0>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL64, 18, 9>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL64, 18, 17>();
 
-    from_float_double_test_func<TYPE_FLOAT, Decimal128V3, 38, 0>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal128V3, 38, 19>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal128V3, 38, 37>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL128I, 38, 0>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL128I, 38, 19>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL128I, 38, 37>();
 
-    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 0>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 38>();
-    from_float_double_test_func<TYPE_FLOAT, Decimal256, 76, 75>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL256, 76, 0>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL256, 76, 38>();
+    from_float_double_test_func<TYPE_FLOAT, TYPE_DECIMAL256, 76, 75>();
 
-    from_float_double_test_func<TYPE_DOUBLE, Decimal32, 9, 0>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal32, 9, 3>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal32, 9, 8>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL32, 9, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL32, 9, 3>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL32, 9, 8>();
 
-    from_float_double_test_func<TYPE_DOUBLE, Decimal64, 18, 0>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal64, 18, 9>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal64, 18, 17>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL64, 18, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL64, 18, 9>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL64, 18, 17>();
 
-    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 0>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 19>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal128V3, 38, 37>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL128I, 38, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL128I, 38, 19>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL128I, 38, 37>();
 
-    from_float_double_test_func<TYPE_DOUBLE, Decimal256, 76, 0>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal256, 76, 38>();
-    from_float_double_test_func<TYPE_DOUBLE, Decimal256, 76, 75>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL256, 76, 0>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL256, 76, 38>();
+    from_float_double_test_func<TYPE_DOUBLE, TYPE_DECIMAL256, 76, 75>();
 }
 TEST_F(FunctionCastToDecimalTest, test_between_decimal_types) {
-    from_any_decimals_to_this_decimal_test_func<Decimal32>();
-    from_any_decimals_to_this_decimal_test_func<Decimal64>();
-    from_any_decimals_to_this_decimal_test_func<Decimal128V3>();
-    from_any_decimals_to_this_decimal_test_func<Decimal256>();
+    from_any_decimals_to_this_decimal_test_func<TYPE_DECIMAL32>();
+    from_any_decimals_to_this_decimal_test_func<TYPE_DECIMAL64>();
+    from_any_decimals_to_this_decimal_test_func<TYPE_DECIMAL128I>();
+    from_any_decimals_to_this_decimal_test_func<TYPE_DECIMAL256>();
 }
 } // namespace doris::vectorized

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -78,10 +77,8 @@ public class ShowDataSkewCommand extends ShowCommand {
             tableRefInfo.analyze(ctx);
             Util.prohibitExternalCatalog(tableRefInfo.getTableNameInfo().getCtl(), this.getClass().getSimpleName());
 
-            PartitionNames partitionNames = (tableRefInfo.getPartitionNamesInfo() != null)
-                     ? tableRefInfo.getPartitionNamesInfo().translateToLegacyPartitionNames() : null;
             List<List<String>> results = MetadataViewer.getDataSkew(tableRefInfo.getTableNameInfo().getDb(),
-                    tableRefInfo.getTableNameInfo().getTbl(), partitionNames);
+                    tableRefInfo.getTableNameInfo().getTbl(), tableRefInfo.getPartitionNamesInfo());
             return new ShowResultSet(getMetaData(), results);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());

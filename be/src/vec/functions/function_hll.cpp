@@ -32,7 +32,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -296,8 +295,8 @@ struct HllToBase64 {
                 last_ser_size = cur_ser_size;
                 ser_buff.resize(cur_ser_size);
             }
-            hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
-            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+            size_t real_size = hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), real_size,
                                         chars_data + encoded_offset);
             DCHECK(outlen > 0);
 

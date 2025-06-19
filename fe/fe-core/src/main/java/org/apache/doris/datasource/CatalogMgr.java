@@ -22,8 +22,6 @@ import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.ShowCatalogStmt;
-import org.apache.doris.analysis.ShowCreateCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -56,7 +54,6 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -406,19 +403,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         alterCatalogProps(stmt.getCatalogName(), stmt.getNewProperties());
     }
 
-    /**
-     * List all catalog or get the special catalog with a name.
-     */
-    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt) throws AnalysisException {
-        return showCatalogs(showStmt, InternalCatalog.INTERNAL_CATALOG_NAME);
-    }
-
-    public ShowResultSet showCatalogs(ShowCatalogStmt showStmt, String currentCtlg) throws AnalysisException {
-        List<List<String>> rows = showCatalogs(showStmt.getCatalogName(), showStmt.getPattern(), currentCtlg);
-
-        return new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
     public List<List<String>> showCatalogs(
             String catalogName, String pattern, String currentCatalogName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
@@ -529,12 +513,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         return rows;
-    }
-
-    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
-        List<List<String>> rows = showCreateCatalog(showStmt.getCatalog());
-
-        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     /**

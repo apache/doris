@@ -50,11 +50,10 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -80,10 +79,10 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
@@ -98,7 +97,7 @@ class DateLUTImpl;
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 } // namespace vectorized
 } // namespace doris
@@ -154,11 +153,11 @@ struct ConvertImpl {
                           Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromDataType::PType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
         using ColVecTo =
-                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
                                    ColumnVector<ToDataType::PType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
@@ -373,9 +372,9 @@ struct ConvertImplToTimeType {
                           uint32_t result, size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
-        using ColVecFrom =
-                std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
-                                   ColumnVector<FromDataType::PType>>;
+        using ColVecFrom = std::conditional_t<IsDecimalNumber<FromFieldType>,
+                                              ColumnDecimal<FromDataType::PType>,
+                                              ColumnVector<FromDataType::PType>>;
 
         using DateValueType = std::conditional_t<
                 IsDatelikeV2Types<ToDataType>,
@@ -1000,13 +999,13 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
         return try_read_decimal_text<TYPE_DECIMALV2>(x, rb, precision, scale);
     }
 
-    if constexpr (std::is_same_v<DataTypeDecimal<Decimal32>, DataType>) {
+    if constexpr (std::is_same_v<DataTypeDecimal32, DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL32>(x, rb, precision, scale);
     }
 
-    if constexpr (std::is_same_v<DataTypeDecimal<Decimal64>, DataType>) {
+    if constexpr (std::is_same_v<DataTypeDecimal64, DataType>) {
         UInt32 scale = ((PrecisionScaleArg)additions).scale;
         UInt32 precision = ((PrecisionScaleArg)additions).precision;
         return try_read_decimal_text<TYPE_DECIMAL64>(x, rb, precision, scale);
@@ -1110,11 +1109,11 @@ using FunctionToFloat64 = FunctionConvert<DataTypeFloat64, NameToFloat64>;
 
 using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2, NameToFloat64>;
 using FunctionToString = FunctionConvert<DataTypeString, NameToString>;
-using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32>;
-using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64>;
-using FunctionToDecimal128 = FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128>;
-using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3>;
-using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256>;
+using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal32, NameToDecimal32>;
+using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal64, NameToDecimal64>;
+using FunctionToDecimal128 = FunctionConvert<DataTypeDecimalV2, NameToDecimal128>;
+using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal128, NameToDecimal128V3>;
+using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal256, NameToDecimal256>;
 using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4>;
 using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate>;
@@ -1158,23 +1157,23 @@ struct FunctionTo<DataTypeFloat64> {
     using Type = FunctionToFloat64;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal32>> {
+struct FunctionTo<DataTypeDecimal32> {
     using Type = FunctionToDecimal32;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal64>> {
+struct FunctionTo<DataTypeDecimal64> {
     using Type = FunctionToDecimal64;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128V2>> {
+struct FunctionTo<DataTypeDecimalV2> {
     using Type = FunctionToDecimal128;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal128V3>> {
+struct FunctionTo<DataTypeDecimal128> {
     using Type = FunctionToDecimal128V3;
 };
 template <>
-struct FunctionTo<DataTypeDecimal<Decimal256>> {
+struct FunctionTo<DataTypeDecimal256> {
     using Type = FunctionToDecimal256;
 };
 template <>
@@ -1242,7 +1241,7 @@ struct StringParsing {
                           uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo =
-                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToFieldType>,
+                std::conditional_t<IsDecimalNumber<ToFieldType>, ColumnDecimal<ToDataType::PType>,
                                    ColumnVector<ToDataType::PType>>;
 
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
@@ -1275,6 +1274,7 @@ struct StringParsing {
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
         [[maybe_unused]] UInt32 scale = 0;
+        // TODO: TimeV2 type also need scale
         if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
             const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                     block.get_by_position(result).type.get());
@@ -1314,20 +1314,20 @@ struct StringParsing {
 };
 
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal32>, Name>
-        : StringParsing<DataTypeDecimal<Decimal32>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal32, Name>
+        : StringParsing<DataTypeDecimal32, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal64>, Name>
-        : StringParsing<DataTypeDecimal<Decimal64>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal64, Name>
+        : StringParsing<DataTypeDecimal64, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V2>, Name>
-        : StringParsing<DataTypeDecimal<Decimal128V2>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimalV2, Name>
+        : StringParsing<DataTypeDecimalV2, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal128V3>, Name>
-        : StringParsing<DataTypeDecimal<Decimal128V3>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal128, Name>
+        : StringParsing<DataTypeDecimal128, Name> {};
 template <typename Name>
-struct ConvertImpl<DataTypeString, DataTypeDecimal<Decimal256>, Name>
-        : StringParsing<DataTypeDecimal<Decimal256>, Name> {};
+struct ConvertImpl<DataTypeString, DataTypeDecimal256, Name>
+        : StringParsing<DataTypeDecimal256, Name> {};
 template <typename Name>
 struct ConvertImpl<DataTypeString, DataTypeIPv4, Name> : StringParsing<DataTypeIPv4, Name> {};
 template <typename Name>
@@ -1500,7 +1500,7 @@ private:
         };
     }
 
-    template <typename FieldType>
+    template <PrimitiveType FieldType>
     WrapperType create_decimal_wrapper(const DataTypePtr& from_type,
                                        const DataTypeDecimal<FieldType>* to_type) const {
         using ToDataType = DataTypeDecimal<FieldType>;
@@ -2203,11 +2203,11 @@ private:
                 return true;
             }
 
-            if constexpr (std::is_same_v<ToDataType, DataTypeDecimal<Decimal32>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal64>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V2>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal128V3>> ||
-                          std::is_same_v<ToDataType, DataTypeDecimal<Decimal256>>) {
+            if constexpr (std::is_same_v<ToDataType, DataTypeDecimal32> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal64> ||
+                          std::is_same_v<ToDataType, DataTypeDecimalV2> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal128> ||
+                          std::is_same_v<ToDataType, DataTypeDecimal256>) {
                 ret = create_decimal_wrapper(from_type,
                                              check_and_get_data_type<ToDataType>(to_type.get()));
                 return true;

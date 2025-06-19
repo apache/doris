@@ -46,11 +46,11 @@ template <typename T>
 class DecimalField;
 template <DecimalNativeTypeConcept T>
 struct Decimal;
-template <typename T>
+template <PrimitiveType T>
 class ColumnComplexType;
-using ColumnBitmap = ColumnComplexType<BitmapValue>;
-using ColumnHLL = ColumnComplexType<HyperLogLog>;
-using ColumnQuantileState = ColumnComplexType<QuantileState>;
+using ColumnBitmap = ColumnComplexType<TYPE_BITMAP>;
+using ColumnHLL = ColumnComplexType<TYPE_HLL>;
+using ColumnQuantileState = ColumnComplexType<TYPE_QUANTILE_STATE>;
 template <PrimitiveType T>
 class DataTypeNumber;
 using DataTypeInt8 = DataTypeNumber<TYPE_TINYINT>;
@@ -67,8 +67,13 @@ class DataTypeDateTime;
 class DataTypeDate;
 class DataTypeDateTimeV2;
 class DataTypeDateV2;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeDecimal;
+using DataTypeDecimal32 = DataTypeDecimal<TYPE_DECIMAL32>;
+using DataTypeDecimal64 = DataTypeDecimal<TYPE_DECIMAL64>;
+using DataTypeDecimalV2 = DataTypeDecimal<TYPE_DECIMALV2>;
+using DataTypeDecimal128 = DataTypeDecimal<TYPE_DECIMAL128I>;
+using DataTypeDecimal256 = DataTypeDecimal<TYPE_DECIMAL256>;
 class DataTypeIPv4;
 class DataTypeIPv6;
 class DataTypeString;
@@ -101,14 +106,18 @@ using ColumnTime = ColumnVector<TYPE_TIME>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;
 using ColumnOffset64 = ColumnVector<TYPE_UINT64>;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
+using ColumnDecimal32 = ColumnDecimal<TYPE_DECIMAL32>;
+using ColumnDecimal64 = ColumnDecimal<TYPE_DECIMAL64>;
+using ColumnDecimal128V2 = ColumnDecimal<TYPE_DECIMALV2>;
+using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
+using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
 class ColumnArray;
 } // namespace vectorized
 
 class DecimalV2Value;
 struct StringRef;
-struct JsonBinaryValue;
 
 constexpr bool is_enumeration_type(PrimitiveType type) {
     switch (type) {
@@ -463,8 +472,8 @@ struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using StorageFieldType = decimal12_t;
     using CppNativeType = vectorized::Int128;
     using ColumnItemType = vectorized::Decimal128V2;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal128V2>;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V2>;
+    using DataType = vectorized::DataTypeDecimalV2;
+    using ColumnType = vectorized::ColumnDecimal128V2;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V2>;
     using AvgNearestFieldType = vectorized::Decimal128V2;
     using AvgNearestFieldType256 = vectorized::Decimal256;
@@ -478,8 +487,8 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
     using StorageFieldType = vectorized::Int32;
     using CppNativeType = vectorized::Int32;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal32>;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal32>;
+    using DataType = vectorized::DataTypeDecimal32;
+    using ColumnType = vectorized::ColumnDecimal32;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal32>;
     using AvgNearestFieldType = vectorized::Decimal128V3;
     using AvgNearestFieldType256 = vectorized::Decimal256;
@@ -493,8 +502,8 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using StorageFieldType = vectorized::Int64;
     using CppNativeType = vectorized::Int64;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal64>;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal64>;
+    using DataType = vectorized::DataTypeDecimal64;
+    using ColumnType = vectorized::ColumnDecimal64;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal64>;
     using AvgNearestFieldType = vectorized::Decimal128V3;
     using AvgNearestFieldType256 = vectorized::Decimal256;
@@ -508,8 +517,8 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using StorageFieldType = vectorized::Int128;
     using CppNativeType = vectorized::Int128;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal128V3>;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal128V3>;
+    using DataType = vectorized::DataTypeDecimal128;
+    using ColumnType = vectorized::ColumnDecimal128V3;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal128V3>;
     using AvgNearestFieldType = vectorized::Decimal128V3;
     using AvgNearestFieldType256 = vectorized::Decimal256;
@@ -523,8 +532,8 @@ struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
     using StorageFieldType = wide::Int256;
     using CppNativeType = wide::Int256;
     using ColumnItemType = CppType;
-    using DataType = vectorized::DataTypeDecimal<vectorized::Decimal256>;
-    using ColumnType = vectorized::ColumnDecimal<vectorized::Decimal256>;
+    using DataType = vectorized::DataTypeDecimal256;
+    using ColumnType = vectorized::ColumnDecimal256;
     using NearestFieldType = vectorized::DecimalField<vectorized::Decimal256>;
     using AvgNearestFieldType = vectorized::Decimal256;
     using AvgNearestFieldType256 = vectorized::Decimal256;

@@ -308,9 +308,10 @@ private:
     int _width;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalTruncatePartitionColumnTransform : public PartitionColumnTransform {
 public:
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
     DecimalTruncatePartitionColumnTransform(const DataTypePtr source_type, int width)
             : _source_type(source_type), _width(width) {}
 
@@ -334,10 +335,10 @@ public:
             is_nullable = false;
         }
 
-        const auto* const decimal_col = check_and_get_column<ColumnDecimal<T>>(column_ptr.get());
+        const auto* const decimal_col = check_and_get_column<ColumnDecimal<PT>>(column_ptr.get());
         const auto& vec_src = decimal_col->get_data();
 
-        auto col_res = ColumnDecimal<T>::create(vec_src.size(), decimal_col->get_scale());
+        auto col_res = ColumnDecimal<PT>::create(vec_src.size(), decimal_col->get_scale());
         auto& vec_res = col_res->get_data();
 
         const typename T::NativeType* __restrict p_in =
@@ -489,9 +490,10 @@ private:
     DataTypePtr _target_type;
 };
 
-template <typename T>
+template <PrimitiveType PT>
 class DecimalBucketPartitionColumnTransform : public PartitionColumnTransform {
 public:
+    using T = typename PrimitiveTypeTraits<PT>::ColumnItemType;
     DecimalBucketPartitionColumnTransform(const DataTypePtr source_type, int bucket_num)
             : _bucket_num(bucket_num),
               _target_type(DataTypeFactory::instance().create_data_type(TYPE_INT, false)) {}
@@ -516,7 +518,7 @@ public:
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
-        const auto& in_data = assert_cast<const ColumnDecimal<T>*>(column_ptr.get())->get_data();
+        const auto& in_data = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get())->get_data();
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();

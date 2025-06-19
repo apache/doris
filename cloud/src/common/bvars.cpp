@@ -20,7 +20,9 @@
 #include <bvar/multi_dimension.h>
 #include <bvar/reducer.h>
 #include <bvar/status.h>
+
 #include <bvar/window.h>
+
 
 #include <cstdint>
 #include <stdexcept>
@@ -103,6 +105,15 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycle
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
+bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
+bvar::Adder<int64_t> g_bvar_recycler_task_concurrency;
+
+// recycler's mbvars
+mBvarIntAdder g_bvar_recycler_instance_running("recycler_instance_running",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_instance_last_recycle_duration("recycler_instance_last_recycle_duration_ms",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_instance_next_time("recycler_instance_next_time_s",{"instance_id"});
+mBvarPairStatus<int64_t> g_bvar_recycler_instance_recycle_times("recycler_instance_recycle_times",{"instance_id"});
+mBvarLongStatus g_bvar_recycler_instance_recycle_last_success_times("recycler_instance_recycle_last_success_times",{"instance_id"});
 
 // recycler's mbvars
 // instance_id: unique identifier for the instance

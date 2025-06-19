@@ -34,8 +34,7 @@
 
 using std::string;
 #include "gutil/integral_types.h"
-// IWYU pragma: no_include <butil/macros.h>
-#include "gutil/macros.h" // IWYU pragma: keep
+#include "butil/macros.h"
 
 // Adapter functions for handling overflow and errno.
 int32 strto32_adapter(const char* nptr, char** endptr, int base);

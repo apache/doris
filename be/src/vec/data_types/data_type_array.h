@@ -67,7 +67,7 @@ public:
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Array"; }
+    const std::string get_family_name() const override { return "Array"; }
 
     MutableColumnPtr create_column() const override;
 

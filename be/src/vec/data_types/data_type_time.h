@@ -68,8 +68,10 @@ public:
         return std::make_shared<DataTypeTimeV2SerDe>(_scale, nesting_level);
     };
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_TIMEV2; }
-    const char* get_family_name() const override { return "timev2"; }
+    const std::string get_family_name() const override { return "timev2"; }
     UInt32 get_scale() const override { return _scale; }
+
+    Field get_field(const TExprNode& node) const override;
 
 private:
     UInt32 _scale;

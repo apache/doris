@@ -64,30 +64,10 @@ private:
         res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
-    template <typename Y>
-    void insert_default_decimal_value_res_column(const uint16_t* sel, size_t sel_size,
-                                                 ColumnDecimal<Y>* res_ptr) {
-        static_assert(std::is_same_v<ColumnDecimal<Y>, ColumnType>);
-        auto& res_data = res_ptr->get_data();
-        DCHECK(res_data.empty());
-        res_data.reserve(sel_size);
-        Y* y = (Y*)res_data.get_end_ptr();
-        for (size_t i = 0; i < sel_size; i++) {
-            if constexpr (std::is_same_v<Y, T>) {
-                y[i] = data[sel[i]];
-            } else {
-                static_assert(sizeof(Y) == sizeof(T));
-                memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
-                       sizeof(Y));
-            }
-        }
-        res_data.set_end_ptr(y + sel_size);
-    }
-
-    template <PrimitiveType Y>
+    template <PrimitiveType Y, template <PrimitiveType> typename ColumnContainer>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
-                                         ColumnVector<Y>* res_ptr) {
-        static_assert(std::is_same_v<ColumnVector<Y>, ColumnType>);
+                                         ColumnContainer<Y>* res_ptr) {
+        static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
@@ -344,7 +324,7 @@ public:
 
     void reserve(size_t n) override { data.reserve(n); }
 
-    std::string get_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return type_to_string(Type); }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -430,8 +410,6 @@ public:
             insert_string_to_res_column(sel, sel_size, column);
         } else if constexpr (Type == TYPE_BOOLEAN) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
-        } else if constexpr (is_decimal(Type)) {
-            insert_default_decimal_value_res_column(sel, sel_size, column);
         } else {
             insert_default_value_res_column(sel, sel_size, column);
         }

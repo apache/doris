@@ -1727,17 +1727,17 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
     case PrimitiveType::TYPE_INT:
         return _decode_int32_column<is_filter>(col_name, data_column, cvb, num_values);
     case PrimitiveType::TYPE_DECIMAL32:
-        return _decode_decimal_column<Decimal32, is_filter>(col_name, data_column, data_type, cvb,
-                                                            num_values);
+        return _decode_decimal_column<TYPE_DECIMAL32, is_filter>(col_name, data_column, data_type,
+                                                                 cvb, num_values);
     case PrimitiveType::TYPE_DECIMAL64:
-        return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
-                                                            num_values);
+        return _decode_decimal_column<TYPE_DECIMAL64, is_filter>(col_name, data_column, data_type,
+                                                                 cvb, num_values);
     case PrimitiveType::TYPE_DECIMALV2:
-        return _decode_decimal_column<Decimal128V2, is_filter>(col_name, data_column, data_type,
-                                                               cvb, num_values);
+        return _decode_decimal_column<TYPE_DECIMALV2, is_filter>(col_name, data_column, data_type,
+                                                                 cvb, num_values);
     case PrimitiveType::TYPE_DECIMAL128I:
-        return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
-                                                               cvb, num_values);
+        return _decode_decimal_column<TYPE_DECIMAL128I, is_filter>(col_name, data_column, data_type,
+                                                                   cvb, num_values);
     case PrimitiveType::TYPE_DATEV2:
         return _decode_time_column<DateV2Value<DateV2ValueType>, TYPE_DATEV2, orc::LongVectorBatch,
                                    is_filter>(col_name, data_column, cvb, num_values);
@@ -2246,7 +2246,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
     std::vector<orc::ColumnVectorBatch*> batch_vec;
     _fill_batch_vec(batch_vec, &data, 0);
-    std::vector<string> col_names;
+    std::vector<std::string> col_names;
     col_names.insert(col_names.end(), _lazy_read_ctx.predicate_columns.first.begin(),
                      _lazy_read_ctx.predicate_columns.first.end());
     if (_is_acid) {
@@ -2339,7 +2339,7 @@ Status OrcReader::fill_dict_filter_column_names(
     _dict_filter_conjuncts.clear();
     _non_dict_filter_conjuncts.clear();
 
-    const std::list<string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
+    const std::list<std::string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
     const std::vector<int>& predicate_col_slot_ids = _lazy_read_ctx.predicate_columns.second;
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {

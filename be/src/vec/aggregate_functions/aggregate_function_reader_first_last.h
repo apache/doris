@@ -21,8 +21,8 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -301,28 +301,28 @@ AggregateFunctionPtr create_function_single_value(const String& name,
                 argument_types);
     }
     case PrimitiveType::TYPE_DECIMAL32: {
-        return std::make_shared<ReaderFunctionData<FunctionData<
-                ColumnDecimal<Decimal32>, result_is_nullable, arg_is_nullable, is_copy>>>(
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal32, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_DECIMAL64: {
-        return std::make_shared<ReaderFunctionData<FunctionData<
-                ColumnDecimal<Decimal64>, result_is_nullable, arg_is_nullable, is_copy>>>(
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal64, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_DECIMAL128I: {
-        return std::make_shared<ReaderFunctionData<FunctionData<
-                ColumnDecimal<Decimal128V3>, result_is_nullable, arg_is_nullable, is_copy>>>(
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal128V3, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_DECIMALV2: {
-        return std::make_shared<ReaderFunctionData<FunctionData<
-                ColumnDecimal<Decimal128V2>, result_is_nullable, arg_is_nullable, is_copy>>>(
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal128V2, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_DECIMAL256: {
-        return std::make_shared<ReaderFunctionData<FunctionData<
-                ColumnDecimal<Decimal256>, result_is_nullable, arg_is_nullable, is_copy>>>(
+        return std::make_shared<ReaderFunctionData<
+                FunctionData<ColumnDecimal256, result_is_nullable, arg_is_nullable, is_copy>>>(
                 argument_types);
     }
     case PrimitiveType::TYPE_STRING:

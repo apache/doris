@@ -139,29 +139,29 @@ static size_t type_index_to_data_type(const std::vector<AnyType>& input_types, s
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMALV2:
-        type = std::make_shared<DataTypeDecimal<Decimal128V2>>(input_types[index].precision_or(27),
-                                                               input_types[index].scale_or(9));
+        type = std::make_shared<DataTypeDecimalV2>(input_types[index].precision_or(27),
+                                                   input_types[index].scale_or(9));
         desc = type;
         return 1;
     // for decimals in ut we set the default scale and precision. for more scales, we prefer test them in regression.
     case PrimitiveType::TYPE_DECIMAL32:
-        type = std::make_shared<DataTypeDecimal<Decimal32>>(input_types[index].precision_or(9),
-                                                            input_types[index].scale_or(5));
+        type = std::make_shared<DataTypeDecimal32>(input_types[index].precision_or(9),
+                                                   input_types[index].scale_or(5));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMAL64:
-        type = std::make_shared<DataTypeDecimal<Decimal64>>(input_types[index].precision_or(18),
-                                                            input_types[index].scale_or(9));
+        type = std::make_shared<DataTypeDecimal64>(input_types[index].precision_or(18),
+                                                   input_types[index].scale_or(9));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMAL128I:
-        type = std::make_shared<DataTypeDecimal<Decimal128V3>>(input_types[index].precision_or(38),
-                                                               input_types[index].scale_or(20));
+        type = std::make_shared<DataTypeDecimal128>(input_types[index].precision_or(38),
+                                                    input_types[index].scale_or(20));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DECIMAL256:
-        type = std::make_shared<DataTypeDecimal<Decimal256>>(input_types[index].precision_or(76),
-                                                             input_types[index].scale_or(40));
+        type = std::make_shared<DataTypeDecimal256>(input_types[index].precision_or(76),
+                                                    input_types[index].scale_or(40));
         desc = type;
         return 1;
     case PrimitiveType::TYPE_DATETIME:
@@ -374,8 +374,13 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const AnyType& 
         }
         case PrimitiveType::TYPE_JSONB: {
             auto str = any_cast<ut_type::STRING>(cell);
-            JsonBinaryValue jsonb_val(str.c_str(), str.size());
-            column->insert_data(jsonb_val.value(), jsonb_val.size());
+            JsonBinaryValue jsonb_val;
+            auto st = jsonb_val.from_json_string(str);
+            if (st.ok()) {
+                column->insert_data(jsonb_val.value(), jsonb_val.size());
+            } else {
+                column->insert_default();
+            }
             break;
         }
         case PrimitiveType::TYPE_BITMAP: {
