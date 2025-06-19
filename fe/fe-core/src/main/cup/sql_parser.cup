@@ -2802,43 +2802,6 @@ resume_routine_load_stmt ::=
     :}
     ;
 
-show_routine_load_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
-    :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, true, null);
-    :}
-    | KW_SHOW KW_ROUTINE KW_LOAD opt_wild_where
-    {:
-        RESULT = new ShowRoutineLoadStmt(null, false, parser.wild);
-    :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_wild_where
-    {:
-        RESULT = new ShowRoutineLoadStmt(null, true, parser.wild);
-    :}
-    ;
-
-show_routine_load_task_stmt ::=
-    KW_SHOW KW_ROUTINE KW_LOAD KW_TASK opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowRoutineLoadTaskStmt(dbName, parser.where);
-    :}
-    ;
-
-show_create_routine_load_stmt ::=
-    KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateRoutineLoadStmt(jobLabel, false);
-    :}
-    | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
-    :}
-    ;
-
 show_create_load_stmt ::=
     KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
     {:
@@ -4014,10 +3977,6 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
     :}
-    | KW_WORKLOAD KW_GROUPS opt_wild_where
-    {:
-        RESULT = new ShowWorkloadGroupsStmt(parser.wild, parser.where);
-    :}
     | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
         RESULT = new ShowTrashDiskStmt(backend);
@@ -4026,28 +3985,9 @@ show_param ::=
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
     :}
-    | KW_TRANSACTION opt_db:dbName opt_wild_where
-    {:
-        RESULT = new ShowTransactionStmt(dbName, parser.where);
-    :}
     | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
     {:
         RESULT = new ShowCacheHotSpotStmt(tablePath);
-    :}
-    /* show table stats */
-    | KW_TABLE KW_STATS table_name:tbl opt_partition_names:partitionNames opt_col_list:cols
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, cols, partitionNames, null);
-    :}
-    /* show table id stats */
-    | KW_TABLE KW_STATS INTEGER_LITERAL:tableId
-    {:
-        RESULT = new ShowTableStatsStmt(tableId);
-    :}
-    /* show index stats */
-    | KW_INDEX KW_STATS table_name:tbl ident:id
-    {:
-        RESULT = new ShowTableStatsStmt(tbl, null, null, id);
     :}
     /* show column stats */
     | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
