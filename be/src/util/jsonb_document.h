@@ -582,7 +582,7 @@ public:
     unsigned int size() const;
 
     //Get the number of jsonbvalue elements
-    int length() const;
+    int numElements() const;
 
     //Whether to include the jsonbvalue rhs
     bool contains(JsonbValue* rhs) const;
@@ -1272,7 +1272,7 @@ inline unsigned int JsonbValue::size() const {
     }
 }
 
-inline int JsonbValue::length() const {
+inline int JsonbValue::numElements() const {
     switch (type_) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
