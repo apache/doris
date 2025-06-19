@@ -1302,10 +1302,7 @@ public:
 class FunctionPreviousDay : public IFunction {
 public:
     static constexpr auto name = "previous_day"; // initializing the SQL function syntax call
-            static FunctionPtr
-            create() {
-        return std::make_shared<FunctionPreviousDay>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionPreviousDay>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments()
             const override { // The function takes only two arguments (date, day_of_week)
