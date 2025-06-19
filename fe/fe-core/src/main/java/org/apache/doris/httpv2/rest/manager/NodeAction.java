@@ -699,10 +699,10 @@ public class NodeAction extends RestBaseController {
             String brokerName = reqInfo.getBrokerName();
             if ("ADD".equals(action)) {
                 Env.getCurrentEnv().getBrokerMgr().addBrokers(
-                    brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
+                        brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
             } else if ("DROP".equals(action)) {
                 Env.getCurrentEnv().getBrokerMgr().dropBrokers(
-                    brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
+                        brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
             } else if ("DROP_ALL".equals(action)) {
                 Env.getCurrentEnv().getBrokerMgr().dropAllBroker(brokerName);
             } else {
