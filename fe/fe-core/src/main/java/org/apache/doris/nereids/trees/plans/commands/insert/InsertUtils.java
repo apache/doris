@@ -416,6 +416,9 @@ public class InsertUtils {
                             castValue = rewriteContext == null
                                     ? castValue
                                     : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
+                            if (!(castValue instanceof NamedExpression)) {
+                                castValue = new Alias(castValue);
+                            }
                             addColumnValue(analyzer, optimizedRowConstructor, (NamedExpression) castValue);
                         }
                     }
@@ -439,6 +442,9 @@ public class InsertUtils {
                             castValue = rewriteContext == null
                                     ? castValue
                                     : FoldConstantRuleOnFE.evaluate(castValue, rewriteContext);
+                            if (!(castValue instanceof NamedExpression)) {
+                                castValue = new Alias(castValue);
+                            }
                             addColumnValue(analyzer, optimizedRowConstructor, (NamedExpression) castValue);
                         }
                     }
