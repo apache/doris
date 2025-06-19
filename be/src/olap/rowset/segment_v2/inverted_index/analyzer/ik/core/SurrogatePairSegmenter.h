@@ -17,32 +17,23 @@
 
 #pragma once
 
-#include <unicode/utext.h>
-
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_common.h"
-
-using namespace lucene::analysis;
+#include "AnalyzeContext.h"
+#include "CharacterUtil.h"
+#include "ISegmenter.h"
+#include "Lexeme.h"
 
 namespace doris::segment_v2 {
 
-class BasicTokenizer : public Tokenizer {
+class SurrogatePairSegmenter : public ISegmenter {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
+            AnalyzeContext::SegmenterType::SURROGATE_PAIR_SEGMENTER;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    SurrogatePairSegmenter() = default;
+    ~SurrogatePairSegmenter() override = default;
 
-    void cut();
-
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    void analyze(AnalyzeContext& context) override;
+    void reset() override;
 };
 
 } // namespace doris::segment_v2

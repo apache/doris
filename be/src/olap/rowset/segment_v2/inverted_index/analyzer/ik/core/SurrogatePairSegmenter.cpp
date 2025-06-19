@@ -15,34 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <unicode/utext.h>
-
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/icu/icu_common.h"
-
-using namespace lucene::analysis;
+#include "SurrogatePairSegmenter.h"
 
 namespace doris::segment_v2 {
 
-class BasicTokenizer : public Tokenizer {
-public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
+    const auto& current_char_type = context.getCurrentCharType();
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    if (current_char_type == CharacterUtil::CHAR_SURROGATE) {
+        Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
+                         context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(),
+                         context.getCursor());
+        context.addLexeme(newLexeme);
+    }
 
-    void cut();
+    context.unlockBuffer(SEGMENTER_TYPE);
+}
 
-private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
-};
+void SurrogatePairSegmenter::reset() {}
 
 } // namespace doris::segment_v2
