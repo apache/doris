@@ -134,12 +134,14 @@ public:
                 {"meta_address", std::to_string((long)input_table.get())},
                 {"required_fields", input_table_schema.first},
                 {"columns_types", input_table_schema.second}};
-        jobject input_map = JniUtil::convert_to_java_map(env, input_params);
+        jobject input_map = nullptr;
+        RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
         // invoke add batch
         // Keep consistent with the function signature of executor_add_batch_id.
         env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place,
                               cast_set<int>(row_num_start), cast_set<int>(row_num_end),
                               places_address, cast_set<int>(place_offset), input_map);
+        RETURN_ERROR_IF_EXC(env);
         env->DeleteLocalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
@@ -204,9 +206,11 @@ public:
         std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                                   {"required_fields", output_table_schema.first},
                                                   {"columns_types", output_table_schema.second}};
-        jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+        jobject output_map = nullptr;
+        RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
         long output_address =
                 env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
+        RETURN_ERROR_IF_EXC(env);
         env->DeleteLocalRef(output_map);
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         return JniConnector::fill_block(&output_block, {0}, output_address);
