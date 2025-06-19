@@ -261,7 +261,7 @@ public abstract class ConnectProcessor {
     }
 
     public void executeQuery(String originStmt) throws Exception {
-        if (MetricRepo.isInit && !ctx.getSessionVariable().internalSession) {
+        if (MetricRepo.isInit && !ctx.getState().isInternal()) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
             if (Config.isCloudMode()) {
                 try {
@@ -687,7 +687,6 @@ public abstract class ConnectProcessor {
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
-            ctx.setExecutor(executor);
             // Set default catalog only if the catalog exists.
             if (request.isSetDefaultCatalog()) {
                 CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalog(request.getDefaultCatalog());
