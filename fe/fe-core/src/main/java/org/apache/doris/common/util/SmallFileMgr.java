@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -168,13 +167,6 @@ public class SmallFileMgr implements Writable {
     private Map<Long, SmallFile> idToFiles = Maps.newHashMap();
 
     public SmallFileMgr() {
-    }
-
-    public void createFile(CreateFileStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-        downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
-                stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
     }
 
     public void createFile(String dbName, String catalog, String fileName, String downloadUrl, String md5sum,

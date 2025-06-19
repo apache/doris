@@ -22,7 +22,6 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -44,6 +43,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
@@ -708,10 +708,10 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testStopRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
-            @Mocked AccessControllerManager accessManager,
-            @Mocked ConnectContext connectContext) throws UserException {
+    public void testStopRoutineLoadJob(@Injectable StopRoutineLoadCommand stopRoutineLoadCommand, @Mocked Env env,
+                                       @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
+                                       @Mocked AccessControllerManager accessManager,
+                                       @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
@@ -724,10 +724,10 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                stopRoutineLoadStmt.getDbFullName();
+                stopRoutineLoadCommand.getDbFullName();
                 minTimes = 0;
                 result = "";
-                stopRoutineLoadStmt.getName();
+                stopRoutineLoadCommand.getLabel();
                 minTimes = 0;
                 result = "";
                 env.getInternalCatalog();
@@ -754,7 +754,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadStmt);
+        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadCommand);
 
         Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
     }
@@ -953,7 +953,7 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
+    public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadCommand stopRoutineLoadCommand, @Mocked Env env,
             @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
             @Mocked AccessControllerManager accessManager,
             @Mocked ConnectContext connectContext) throws UserException {
@@ -969,10 +969,10 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                stopRoutineLoadStmt.getDbFullName();
+                stopRoutineLoadCommand.getDbFullName();
                 minTimes = 0;
                 result = "";
-                stopRoutineLoadStmt.getName();
+                stopRoutineLoadCommand.getLabel();
                 minTimes = 0;
                 result = "";
                 env.getInternalCatalog();
@@ -999,7 +999,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadStmt);
+        routineLoadManager.stopRoutineLoadJob(stopRoutineLoadCommand);
 
         Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
     }
