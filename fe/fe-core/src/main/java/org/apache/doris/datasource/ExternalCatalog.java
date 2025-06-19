@@ -1001,6 +1001,12 @@ public abstract class ExternalCatalog
         }
     }
 
+    public void replayCreateDb(String dbName) {
+        if (metadataOps != null) {
+            metadataOps.afterCreateDb(dbName);
+        }
+    }
+
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
         makeSureInitialized();
