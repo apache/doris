@@ -28,15 +28,7 @@ namespace doris {
 template <JsonbDecimalType T>
 void JsonbToJson::decimal_to_json(const T& value, const uint32_t precision, const uint32_t scale) {
     auto value_str = value.to_string(precision, scale);
-
-    StringParser::ParseResult result;
-    auto double_value =
-            StringParser::string_to_float<double>(value_str.data(), value_str.size(), &result);
-    if (result != StringParser::PARSE_SUCCESS) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Failed to convert decimal to double: {}",
-                        value_str);
-    }
-    os_.write(double_value);
+    os_.write(value_str.data(), value_str.size());
 }
 
 template void JsonbToJson::decimal_to_json<vectorized::Decimal32>(

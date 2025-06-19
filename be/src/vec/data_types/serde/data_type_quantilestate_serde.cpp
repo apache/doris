@@ -38,7 +38,7 @@ void DataTypeQuantileStateSerDe::write_one_cell_to_jsonb(const IColumn& column, 
 void DataTypeQuantileStateSerDe::read_one_cell_from_jsonb(IColumn& column,
                                                           const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnQuantileState&>(column);
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     QuantileState val;
     val.deserialize(Slice(blob->getBlob(), blob->getBlobLen()));
     col.insert_value(val);

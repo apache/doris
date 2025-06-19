@@ -71,7 +71,6 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -90,6 +89,47 @@ concept JsonbDecimalType = std::same_as<T, doris::vectorized::Decimal256> ||
                            std::same_as<T, doris::vectorized::Decimal32>;
 
 namespace doris {
+
+template <typename T>
+constexpr bool is_pod_v = std::is_trivial_v<T> && std::is_standard_layout_v<T>;
+
+struct JsonbStringVal;
+struct ObjectVal;
+struct ArrayVal;
+struct JsonbBinaryVal;
+struct ContainerVal;
+
+template <JsonbDecimalType T>
+struct JsonbDecimalVal;
+
+using JsonbDecimal256 = JsonbDecimalVal<vectorized::Decimal256>;
+using JsonbDecimal128 = JsonbDecimalVal<vectorized::Decimal128V3>;
+using JsonbDecimal64 = JsonbDecimalVal<vectorized::Decimal64>;
+using JsonbDecimal32 = JsonbDecimalVal<vectorized::Decimal32>;
+
+template <typename T>
+    requires std::is_integral_v<T> || std::is_floating_point_v<T>
+struct NumberValT;
+
+using JsonbInt8Val = NumberValT<int8_t>;
+using JsonbInt16Val = NumberValT<int16_t>;
+using JsonbInt32Val = NumberValT<int32_t>;
+using JsonbInt64Val = NumberValT<int64_t>;
+using JsonbInt128Val = NumberValT<int128_t>;
+using JsonbDoubleVal = NumberValT<double>;
+using JsonbFloatVal = NumberValT<float>;
+
+template <typename T>
+concept JsonbPodType = (std::same_as<T, JsonbStringVal> || std::same_as<T, ObjectVal> ||
+                        std::same_as<T, ContainerVal> || std::same_as<T, ArrayVal> ||
+                        std::same_as<T, JsonbBinaryVal> || std::same_as<T, JsonbDecimal32> ||
+                        std::same_as<T, JsonbDecimal64> || std::same_as<T, JsonbDecimal128> ||
+                        std::same_as<T, JsonbDecimal256> || std::same_as<T, JsonbDecimal32> ||
+                        std::same_as<T, JsonbInt8Val> || std::same_as<T, JsonbInt16Val> ||
+                        std::same_as<T, JsonbInt32Val> || std::same_as<T, JsonbInt64Val> ||
+                        std::same_as<T, JsonbInt128Val> || std::same_as<T, JsonbFloatVal> ||
+                        std::same_as<T, JsonbFloatVal> || std::same_as<T, JsonbDoubleVal>);
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wzero-length-array"
@@ -101,8 +141,7 @@ namespace doris {
 using int128_t = __int128;
 
 // forward declaration
-class JsonbValue;
-class ObjectVal;
+struct JsonbValue;
 
 const int MaxNestingLevel = 100;
 
@@ -204,9 +243,9 @@ public:
 
     unsigned int numPackedBytes() const;
 
-    ObjectVal* operator->() { return ((ObjectVal*)payload_); }
+    // ObjectVal* operator->();
 
-    const ObjectVal* operator->() const { return ((const ObjectVal*)payload_); }
+    const ObjectVal* operator->() const;
 
     bool operator==(const JsonbDocument& other) const {
         assert(false);
@@ -532,8 +571,7 @@ public:
  * variable - type info, which can be retrieved by member functions is[Type]()
  * or type().
  */
-class JsonbValue {
-public:
+struct JsonbValue {
     static const uint32_t sMaxValueLen = 1 << 24; // 16M
 
     bool isNull() const { return (type == JsonbType::T_Null); }
@@ -618,170 +656,93 @@ public:
 
     JsonbType type; // type info
 
+    char payload[0]; // payload, which is the packed bytes of the value
+
+    /**
+    * @brief Unpacks the underlying Jsonb binary content as a pointer to type `T`.
+    *
+    * @tparam T A POD (Plain Old Data) type that must satisfy the `JsonbPodType` concept.
+    *           This ensures that `T` is trivially copyable, standard-layout, and safe to
+    *           reinterpret from raw bytes without invoking undefined behavior.
+    *
+    * @return A pointer to a `const T` object, interpreted from the internal buffer.
+    *
+    * @note The caller must ensure that the current JsonbValue actually contains data
+    *       compatible with type `T`, otherwise the result is undefined.
+    */
+    template <JsonbPodType T>
+    const T* unpack() const {
+        static_assert(is_pod_v<T>, "T must be a POD type");
+        return reinterpret_cast<const T*>(payload);
+    }
+
+    // /**
+    // * @brief Unpacks the underlying Jsonb binary content as a pointer to type `T`.
+    // *
+    // * @tparam T A POD (Plain Old Data) type that must satisfy the `JsonbPodType` concept.
+    // *           This ensures that `T` is trivially copyable, standard-layout, and safe to
+    // *           reinterpret from raw bytes without invoking undefined behavior.
+    // *
+    // * @return A pointer to a `T` object, interpreted from the internal buffer.
+    // *
+    // * @note The caller must ensure that the current JsonbValue actually contains data
+    // *       compatible with type `T`, otherwise the result is undefined.
+    // */
+    // template <JsonbPodType T>
+    // T* unpack() {
+    //     static_assert(is_pod_v<T>, "T must be a POD type");
+    //     return reinterpret_cast<T*>(payload);
+    // }
+
+    int128_t int_val() const;
+
     JsonbValue() = delete;
 };
+
+// inline ObjectVal* JsonbDocument::operator->() {
+//     return (((JsonbValue*)payload_)->unpack<ObjectVal>());
+// }
+
+inline const ObjectVal* JsonbDocument::operator->() const {
+    return (((JsonbValue*)payload_)->unpack<ObjectVal>());
+}
 
 /*
  * NumerValT is the template class (derived from JsonbValue) of all number
  * types (integers and double).
  */
 template <typename T>
-class NumberValT : public JsonbValue {
+    requires std::is_integral_v<T> || std::is_floating_point_v<T>
+struct NumberValT {
 public:
     NumberValT() = delete;
     T val() const { return num; }
 
-    unsigned int numPackedBytes() const { return sizeof(JsonbValue) + sizeof(T); }
-
-    // catch all unknow specialization of the template class
-    bool setVal(T value) { return false; }
+    static unsigned int numPackedBytes() { return sizeof(JsonbValue) + sizeof(T); }
 
     T num;
 };
 
-using JsonbInt8Val = NumberValT<int8_t>;
-
-// override setVal for Int8Val
-template <>
-inline bool JsonbInt8Val::setVal(int8_t value) {
-    if (!isInt8()) {
-        return false;
+inline int128_t JsonbValue::int_val() const {
+    switch (type) {
+    case JsonbType::T_Int8:
+        return unpack<JsonbInt8Val>()->val();
+    case JsonbType::T_Int16:
+        return unpack<JsonbInt16Val>()->val();
+    case JsonbType::T_Int32:
+        return unpack<JsonbInt32Val>()->val();
+    case JsonbType::T_Int64:
+        return unpack<JsonbInt64Val>()->val();
+    case JsonbType::T_Int128:
+        return unpack<JsonbInt128Val>()->val();
+    default:
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                        static_cast<int32_t>(type));
     }
-
-    num = value;
-    return true;
 }
-
-using JsonbInt16Val = NumberValT<int16_t>;
-
-// override setVal for Int16Val
-template <>
-inline bool JsonbInt16Val::setVal(int16_t value) {
-    if (!isInt16()) {
-        return false;
-    }
-
-    num = value;
-    return true;
-}
-using JsonbInt32Val = NumberValT<int32_t>;
-
-// override setVal for Int32Val
-template <>
-inline bool JsonbInt32Val::setVal(int32_t value) {
-    if (!isInt32()) {
-        return false;
-    }
-
-    num = value;
-    return true;
-}
-
-using JsonbInt64Val = NumberValT<int64_t>;
-
-// override setVal for Int64Val
-template <>
-inline bool JsonbInt64Val::setVal(int64_t value) {
-    if (!isInt64()) {
-        return false;
-    }
-
-    num = value;
-    return true;
-}
-
-using JsonbInt128Val = NumberValT<int128_t>;
-
-// override setVal for Int128Val
-template <>
-inline bool JsonbInt128Val::setVal(int128_t value) {
-    if (!isInt128()) {
-        return false;
-    }
-
-    num = value;
-    return true;
-}
-
-using JsonbDoubleVal = NumberValT<double>;
-
-// override setVal for DoubleVal
-template <>
-inline bool JsonbDoubleVal::setVal(double value) {
-    if (!isDouble()) {
-        return false;
-    }
-
-    num = value;
-    return true;
-}
-
-using JsonbFloatVal = NumberValT<float>;
-
-// override setVal for DoubleVal
-template <>
-inline bool JsonbFloatVal::setVal(float value) {
-    if (!isFloat()) {
-        return false;
-    }
-
-    num = value;
-    return true;
-}
-
-// A class to get an integer
-class JsonbIntVal : public JsonbValue {
-public:
-    int128_t val() const {
-        switch (type) {
-        case JsonbType::T_Int8:
-            return ((JsonbInt8Val*)this)->val();
-        case JsonbType::T_Int16:
-            return ((JsonbInt16Val*)this)->val();
-        case JsonbType::T_Int32:
-            return ((JsonbInt32Val*)this)->val();
-        case JsonbType::T_Int64:
-            return ((JsonbInt64Val*)this)->val();
-        case JsonbType::T_Int128:
-            return ((JsonbInt128Val*)this)->val();
-        default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
-                            static_cast<JsonbTypeUnder>(type));
-        }
-    }
-    bool setVal(int128_t val) {
-        switch (type) {
-        case JsonbType::T_Int8:
-            if (val < std::numeric_limits<int8_t>::min() ||
-                val > std::numeric_limits<int8_t>::max()) {
-                return false;
-            }
-            return ((JsonbInt8Val*)this)->setVal((int8_t)val);
-        case JsonbType::T_Int16:
-            if (val < std::numeric_limits<int16_t>::min() ||
-                val > std::numeric_limits<int16_t>::max()) {
-                return false;
-            }
-            return ((JsonbInt16Val*)this)->setVal((int16_t)val);
-        case JsonbType::T_Int32:
-            if (val < std::numeric_limits<int32_t>::min() ||
-                val > std::numeric_limits<int32_t>::max()) {
-                return false;
-            }
-            return ((JsonbInt32Val*)this)->setVal((int32_t)val);
-        case JsonbType::T_Int64:
-            return ((JsonbInt64Val*)this)->setVal((int64_t)val);
-        case JsonbType::T_Int128:
-            return ((JsonbInt128Val*)this)->setVal(val);
-        default:
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
-                            static_cast<JsonbTypeUnder>(type));
-        }
-    }
-};
 
 template <JsonbDecimalType T>
-class JsonbDecimalVal : public JsonbValue {
+struct JsonbDecimalVal {
 public:
     using NativeType = typename T::NativeType;
     JsonbDecimalVal() = delete;
@@ -793,33 +754,16 @@ public:
         return sizeof(JsonbValue) + sizeof(precision) + sizeof(scale) + sizeof(value);
     }
 
-    // set the decimal value
-    bool setVal(const T& decimal, uint32_t precision_, uint32_t scale_) {
-        if (!isDecimal()) {
-            return false;
-        }
-
-        precision = precision_;
-        scale = scale_;
-        value = decimal.value;
-        return true;
-    }
-
     uint32_t precision;
     uint32_t scale;
     NativeType value;
 };
 
-using JsonbDecimal256 = JsonbDecimalVal<vectorized::Decimal256>;
-using JsonbDecimal128 = JsonbDecimalVal<vectorized::Decimal128V3>;
-using JsonbDecimal64 = JsonbDecimalVal<vectorized::Decimal64>;
-using JsonbDecimal32 = JsonbDecimalVal<vectorized::Decimal32>;
-
 /*
  * BlobVal is the base class (derived from JsonbValue) for string and binary
  * types. The size indicates the total bytes of the payload.
  */
-class JsonbBlobVal : public JsonbValue {
+struct JsonbBinaryVal {
 public:
     // size of the blob payload only
     unsigned int getBlobLen() const { return size; }
@@ -834,61 +778,23 @@ public:
     uint32_t size;
     char payload[0];
 
-    // set new blob bytes
-    bool internalSetVal(const char* blob, uint32_t blobSize) {
-        // if we cannot fit the new blob, fail the operation
-        if (blobSize > size) {
-            return false;
-        }
-
-        memcpy(payload, blob, blobSize);
-
-        // Set the reset of the bytes to 0.  Note we cannot change the size of the
-        // current payload, as all values are packed.
-        memset(payload + blobSize, 0, size - blobSize);
-
-        return true;
-    }
-
-    JsonbBlobVal();
-};
-
-/*
- * Binary type
- */
-class JsonbBinaryVal : public JsonbBlobVal {
-public:
     JsonbBinaryVal() = delete;
-    bool setVal(const char* blob, uint32_t blobSize) {
-        if (!isBinary()) {
-            return false;
-        }
-
-        return internalSetVal(blob, blobSize);
-    }
 };
 
 /*
  * String type
  * Note: JSONB string may not be a c-string (NULL-terminated)
  */
-class JsonbStringVal : public JsonbBlobVal {
+struct JsonbStringVal : public JsonbBinaryVal {
 public:
     JsonbStringVal() = delete;
-    bool setVal(const char* str, uint32_t blobSize) {
-        if (!isString()) {
-            return false;
-        }
-
-        return internalSetVal(str, blobSize);
-    }
     /*
     This function return the actual size of a string. Since for
     a string, it can be null-terminated with null paddings or it
     can take all the space in the payload without null in the end.
     So we need to check it to get the true actual length of a string.
   */
-    size_t length() {
+    size_t length() const {
         // It's an empty string
         if (0 == size) {
             return size;
@@ -922,8 +828,7 @@ public:
  * ContainerVal is the base class (derived from JsonbValue) for object and
  * array types. The size indicates the total bytes of the payload.
  */
-class ContainerVal : public JsonbValue {
-public:
+struct ContainerVal {
     // size of the container payload only
     unsigned int getContainerSize() const { return size; }
 
@@ -937,14 +842,13 @@ public:
     uint32_t size;
     char payload[0];
 
-    ContainerVal();
+    ContainerVal() = delete;
 };
 
 /*
  * Object type
  */
-class ObjectVal : public ContainerVal {
-public:
+struct ObjectVal : public ContainerVal {
     using value_type = JsonbKeyValue;
     using pointer = value_type*;
     using const_pointer = const value_type*;
@@ -1102,8 +1006,7 @@ private:
 /*
  * Array type
  */
-class ArrayVal : public ContainerVal {
-public:
+struct ArrayVal : public ContainerVal {
     using value_type = JsonbValue;
     using pointer = value_type*;
     using const_pointer = const value_type*;
@@ -1243,12 +1146,12 @@ inline unsigned int JsonbValue::numPackedBytes() const {
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
-        return ((JsonbBlobVal*)(this))->numPackedBytes();
+        return unpack<JsonbBinaryVal>()->numPackedBytes();
     }
 
     case JsonbType::T_Object:
     case JsonbType::T_Array: {
-        return ((ContainerVal*)(this))->numPackedBytes();
+        return unpack<ContainerVal>()->numPackedBytes();
     }
     case JsonbType::T_Decimal32: {
         return JsonbDecimal32::numPackedBytes();
@@ -1262,10 +1165,12 @@ inline unsigned int JsonbValue::numPackedBytes() const {
     case JsonbType::T_Decimal256: {
         return JsonbDecimal256::numPackedBytes();
     }
-    default:
-        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
-                        static_cast<JsonbTypeUnder>(type));
+    case JsonbType::NUM_TYPES:
+        break;
     }
+
+    throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                    static_cast<int32_t>(type));
 }
 
 inline int JsonbValue::numElements() const {
@@ -1289,15 +1194,16 @@ inline int JsonbValue::numElements() const {
         return 1;
     }
     case JsonbType::T_Object: {
-        return ((ObjectVal*)this)->numElem();
+        return unpack<ObjectVal>()->numElem();
     }
     case JsonbType::T_Array: {
-        return ((ArrayVal*)this)->numElem();
+        return unpack<ArrayVal>()->numElem();
     }
-    default:
-        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
-                        static_cast<JsonbTypeUnder>(type));
+    case JsonbType::NUM_TYPES:
+        break;
     }
+    throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                    static_cast<int32_t>(type));
 }
 
 inline bool JsonbValue::contains(JsonbValue* rhs) const {
@@ -1307,25 +1213,23 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     case JsonbType::T_Int32:
     case JsonbType::T_Int64:
     case JsonbType::T_Int128: {
-        return ((JsonbIntVal*)(this))->val() == ((JsonbIntVal*)(rhs))->val();
+        return rhs->isInt() && this->int_val() == rhs->int_val();
     }
-    case JsonbType::T_Double: {
-        if (rhs->isDouble()) {
-            return ((JsonbDoubleVal*)(this))->val() == ((JsonbDoubleVal*)(rhs))->val();
-        }
-        return false;
-    }
+    case JsonbType::T_Double:
     case JsonbType::T_Float: {
-        if (rhs->isDouble()) {
-            return ((JsonbFloatVal*)(this))->val() == ((JsonbFloatVal*)(rhs))->val();
+        if (!rhs->isDouble() && !rhs->isFloat()) {
+            return false;
         }
-        return false;
+        double left = isDouble() ? unpack<JsonbDoubleVal>()->val() : unpack<JsonbFloatVal>()->val();
+        double right = rhs->isDouble() ? rhs->unpack<JsonbDoubleVal>()->val()
+                                       : rhs->unpack<JsonbFloatVal>()->val();
+        return left == right;
     }
     case JsonbType::T_String:
     case JsonbType::T_Binary: {
-        if (rhs->isString()) {
-            auto* str_value1 = (JsonbStringVal*)this;
-            auto* str_value2 = (JsonbStringVal*)rhs;
+        if (rhs->isString() || rhs->isBinary()) {
+            const auto* str_value1 = unpack<JsonbStringVal>();
+            const auto* str_value2 = rhs->unpack<JsonbStringVal>();
             return str_value1->length() == str_value2->length() &&
                    std::memcmp(str_value1->getBlob(), str_value2->getBlob(),
                                str_value1->length()) == 0;
@@ -1333,16 +1237,16 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
         return false;
     }
     case JsonbType::T_Array: {
-        int lhs_num = ((ArrayVal*)this)->numElem();
+        int lhs_num = unpack<ArrayVal>()->numElem();
         if (rhs->isArray()) {
-            int rhs_num = ((ArrayVal*)rhs)->numElem();
+            int rhs_num = rhs->unpack<ArrayVal>()->numElem();
             if (rhs_num > lhs_num) {
                 return false;
             }
             int contains_num = 0;
             for (int i = 0; i < lhs_num; ++i) {
                 for (int j = 0; j < rhs_num; ++j) {
-                    if (((ArrayVal*)this)->get(i)->contains(((ArrayVal*)rhs)->get(j))) {
+                    if (unpack<ArrayVal>()->get(i)->contains(rhs->unpack<ArrayVal>()->get(j))) {
                         contains_num++;
                         break;
                     }
@@ -1351,7 +1255,7 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
             return contains_num == rhs_num;
         }
         for (int i = 0; i < lhs_num; ++i) {
-            if (((ArrayVal*)this)->get(i)->contains(rhs)) {
+            if (unpack<ArrayVal>()->get(i)->contains(rhs)) {
                 return true;
             }
         }
@@ -1359,8 +1263,8 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     }
     case JsonbType::T_Object: {
         if (rhs->isObject()) {
-            auto* str_value1 = (ObjectVal*)this;
-            auto* str_value2 = (ObjectVal*)rhs;
+            const auto* str_value1 = unpack<ObjectVal>();
+            auto* str_value2 = rhs->unpack<ObjectVal>();
             for (int i = 0; i < str_value2->numElem(); ++i) {
                 JsonbKeyValue* key = str_value2->getJsonbKeyValue(i);
                 JsonbValue* value = str_value1->find(key->getKeyStr(), key->klen());
@@ -1383,40 +1287,46 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
     }
     case JsonbType::T_Decimal32: {
         if (rhs->isDecimal32()) {
-            return ((JsonbDecimal32*)(this))->val() == ((JsonbDecimal32*)(rhs))->val() &&
-                   ((JsonbDecimal32*)(this))->precision == ((JsonbDecimal32*)(rhs))->precision &&
-                   ((JsonbDecimal32*)(this))->scale == ((JsonbDecimal32*)(rhs))->scale;
+            return unpack<JsonbDecimal32>()->val() == rhs->unpack<JsonbDecimal32>()->val() &&
+                   unpack<JsonbDecimal32>()->precision ==
+                           rhs->unpack<JsonbDecimal32>()->precision &&
+                   unpack<JsonbDecimal32>()->scale == rhs->unpack<JsonbDecimal32>()->scale;
         }
         return false;
     }
     case JsonbType::T_Decimal64: {
         if (rhs->isDecimal64()) {
-            return ((JsonbDecimal64*)(this))->val() == ((JsonbDecimal64*)(rhs))->val() &&
-                   ((JsonbDecimal64*)(this))->precision == ((JsonbDecimal64*)(rhs))->precision &&
-                   ((JsonbDecimal64*)(this))->scale == ((JsonbDecimal64*)(rhs))->scale;
+            return unpack<JsonbDecimal64>()->val() == rhs->unpack<JsonbDecimal64>()->val() &&
+                   unpack<JsonbDecimal64>()->precision ==
+                           rhs->unpack<JsonbDecimal64>()->precision &&
+                   unpack<JsonbDecimal64>()->scale == rhs->unpack<JsonbDecimal64>()->scale;
         }
         return false;
     }
     case JsonbType::T_Decimal128: {
         if (rhs->isDecimal128()) {
-            return ((JsonbDecimal128*)(this))->val() == ((JsonbDecimal128*)(rhs))->val() &&
-                   ((JsonbDecimal128*)(this))->precision == ((JsonbDecimal128*)(rhs))->precision &&
-                   ((JsonbDecimal128*)(this))->scale == ((JsonbDecimal128*)(rhs))->scale;
+            return unpack<JsonbDecimal128>()->val() == rhs->unpack<JsonbDecimal128>()->val() &&
+                   unpack<JsonbDecimal128>()->precision ==
+                           rhs->unpack<JsonbDecimal128>()->precision &&
+                   unpack<JsonbDecimal128>()->scale == rhs->unpack<JsonbDecimal128>()->scale;
         }
         return false;
     }
     case JsonbType::T_Decimal256: {
         if (rhs->isDecimal256()) {
-            return ((JsonbDecimal256*)(this))->val() == ((JsonbDecimal256*)(rhs))->val() &&
-                   ((JsonbDecimal256*)(this))->precision == ((JsonbDecimal256*)(rhs))->precision &&
-                   ((JsonbDecimal256*)(this))->scale == ((JsonbDecimal256*)(rhs))->scale;
+            return unpack<JsonbDecimal256>()->val() == rhs->unpack<JsonbDecimal256>()->val() &&
+                   unpack<JsonbDecimal256>()->precision ==
+                           rhs->unpack<JsonbDecimal256>()->precision &&
+                   unpack<JsonbDecimal256>()->scale == rhs->unpack<JsonbDecimal256>()->scale;
         }
         return false;
     }
-    default:
-        throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
-                        static_cast<JsonbTypeUnder>(type));
+    case JsonbType::NUM_TYPES:
+        break;
     }
+
+    throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid JSONB value type: {}",
+                    static_cast<int32_t>(type));
 }
 
 inline bool JsonbPath::seek(const char* key_path, size_t kp_len) {
@@ -1455,9 +1365,9 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
                     continue;
                 }
 
-                pval = ((ObjectVal*)pval)
-                               ->find(path.get_leg_from_leg_vector(i)->leg_ptr,
-                                      path.get_leg_from_leg_vector(i)->leg_len, handler);
+                pval = pval->unpack<ObjectVal>()->find(path.get_leg_from_leg_vector(i)->leg_ptr,
+                                                       path.get_leg_from_leg_vector(i)->leg_len,
+                                                       handler);
 
                 if (!pval) {
                     return nullptr;
@@ -1489,11 +1399,10 @@ inline JsonbValue* JsonbValue::findValue(JsonbPath& path, hDictFind handler) {
             }
 
             if (path.get_leg_from_leg_vector(i)->array_index >= 0) {
-                pval = ((ArrayVal*)pval)->get(path.get_leg_from_leg_vector(i)->array_index);
+                pval = pval->unpack<ArrayVal>()->get(path.get_leg_from_leg_vector(i)->array_index);
             } else {
-                pval = ((ArrayVal*)pval)
-                               ->get(((ArrayVal*)pval)->numElem() +
-                                     path.get_leg_from_leg_vector(i)->array_index);
+                pval = pval->unpack<ArrayVal>()->get(pval->unpack<ArrayVal>()->numElem() +
+                                                     path.get_leg_from_leg_vector(i)->array_index);
             }
 
             if (!pval) {
@@ -1677,23 +1586,32 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
     return true;
 }
 
-static_assert(std::is_standard_layout_v<JsonbDocument> && std::is_trivial_v<JsonbDocument>,
-              "JsonbDocument must be standard layout and trivial");
-
-static_assert(std::is_standard_layout_v<JsonbValue> && std::is_trivial_v<JsonbValue>,
-              "JsonbValue must be standard layout and trivial");
+static_assert(is_pod_v<JsonbDocument>, "JsonbDocument must be standard layout and trivial");
+static_assert(is_pod_v<JsonbValue>, "JsonbValue must be standard layout and trivial");
+static_assert(is_pod_v<JsonbDecimal32>, "JsonbDecimal32 must be standard layout and trivial");
+static_assert(is_pod_v<JsonbDecimal64>, "JsonbDecimal64 must be standard layout and trivial");
+static_assert(is_pod_v<JsonbDecimal128>, "JsonbDecimal128 must be standard layout and trivial");
+static_assert(is_pod_v<JsonbDecimal256>, "JsonbDecimal256 must be standard layout and trivial");
+static_assert(is_pod_v<JsonbInt8Val>, "JsonbInt8Val must be standard layout and trivial");
+static_assert(is_pod_v<JsonbInt32Val>, "JsonbInt32Val must be standard layout and trivial");
+static_assert(is_pod_v<JsonbInt64Val>, "JsonbInt64Val must be standard layout and trivial");
+static_assert(is_pod_v<JsonbInt128Val>, "JsonbInt128Val must be standard layout and trivial");
+static_assert(is_pod_v<JsonbDoubleVal>, "JsonbDoubleVal must be standard layout and trivial");
+static_assert(is_pod_v<JsonbFloatVal>, "JsonbFloatVal must be standard layout and trivial");
+static_assert(is_pod_v<JsonbBinaryVal>, "JsonbBinaryVal must be standard layout and trivial");
+static_assert(is_pod_v<ContainerVal>, "ContainerVal must be standard layout and trivial");
 
 #define ASSERT_DECIMAL_LAYOUT(type)                \
-    static_assert(offsetof(type, precision) == 1); \
-    static_assert(offsetof(type, scale) == 5);     \
-    static_assert(offsetof(type, value) == 9);
+    static_assert(offsetof(type, precision) == 0); \
+    static_assert(offsetof(type, scale) == 4);     \
+    static_assert(offsetof(type, value) == 8);
 
 ASSERT_DECIMAL_LAYOUT(JsonbDecimal32)
 ASSERT_DECIMAL_LAYOUT(JsonbDecimal64)
 ASSERT_DECIMAL_LAYOUT(JsonbDecimal128)
 ASSERT_DECIMAL_LAYOUT(JsonbDecimal256)
 
-#define ASSERT_NUMERIC_LAYOUT(type) static_assert(offsetof(type, num) == 1);
+#define ASSERT_NUMERIC_LAYOUT(type) static_assert(offsetof(type, num) == 0);
 
 ASSERT_NUMERIC_LAYOUT(JsonbInt8Val)
 ASSERT_NUMERIC_LAYOUT(JsonbInt32Val)
@@ -1701,11 +1619,11 @@ ASSERT_NUMERIC_LAYOUT(JsonbInt64Val)
 ASSERT_NUMERIC_LAYOUT(JsonbInt128Val)
 ASSERT_NUMERIC_LAYOUT(JsonbDoubleVal)
 
-static_assert(offsetof(JsonbBlobVal, size) == 1);
-static_assert(offsetof(JsonbBlobVal, payload) == 5);
+static_assert(offsetof(JsonbBinaryVal, size) == 0);
+static_assert(offsetof(JsonbBinaryVal, payload) == 4);
 
-static_assert(offsetof(ContainerVal, size) == 1);
-static_assert(offsetof(ContainerVal, payload) == 5);
+static_assert(offsetof(ContainerVal, size) == 0);
+static_assert(offsetof(ContainerVal, payload) == 4);
 
 #pragma pack(pop)
 #if defined(__clang__)

@@ -566,7 +566,7 @@ private:
                 dst_arr.insert_default();
                 continue;
             }
-            ObjectVal* obj = (ObjectVal*)obj_val;
+            auto* obj = obj_val->unpack<ObjectVal>();
             for (auto it = obj->begin(); it != obj->end(); ++it) {
                 dst_nested_column.insert_data(it->getKeyStr(), it->klen());
             }
@@ -763,7 +763,7 @@ private:
                                         i, res_data, res_offsets);
         } else {
             if (LIKELY(value->isString())) {
-                auto str_value = (JsonbStringVal*)value;
+                auto str_value = value->unpack<JsonbStringVal>();
                 StringOP::push_value_string(
                         std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
                         res_offsets);
@@ -774,17 +774,17 @@ private:
             } else if (value->isFalse()) {
                 StringOP::push_value_string("false", i, res_data, res_offsets);
             } else if (value->isInt8()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt8Val*)value)->val()), i,
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt8Val>()->val()), i,
                                             res_data, res_offsets);
             } else if (value->isInt16()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt16Val*)value)->val()), i,
-                                            res_data, res_offsets);
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt16Val>()->val()),
+                                            i, res_data, res_offsets);
             } else if (value->isInt32()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt32Val*)value)->val()), i,
-                                            res_data, res_offsets);
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt32Val>()->val()),
+                                            i, res_data, res_offsets);
             } else if (value->isInt64()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt64Val*)value)->val()), i,
-                                            res_data, res_offsets);
+                StringOP::push_value_string(std::to_string(value->unpack<JsonbInt64Val>()->val()),
+                                            i, res_data, res_offsets);
             } else {
                 if (!formater) {
                     formater.reset(new JsonbToJson());
@@ -1044,14 +1044,14 @@ private:
             }
         } else if constexpr (std::is_same_v<int32_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32()) {
-                res[i] = (int32_t)((const JsonbIntVal*)value)->val();
+                res[i] = (int32_t)value->int_val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
             }
         } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
-                res[i] = (int64_t)((const JsonbIntVal*)value)->val();
+                res[i] = (int64_t)value->int_val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
@@ -1059,17 +1059,17 @@ private:
         } else if constexpr (std::is_same_v<int128_t, typename ValueType::T>) {
             if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64() ||
                 value->isInt128()) {
-                res[i] = (int128_t)((const JsonbIntVal*)value)->val();
+                res[i] = (int128_t)value->int_val();
             } else {
                 null_map[i] = 1;
                 res[i] = 0;
             }
         } else if constexpr (std::is_same_v<double, typename ValueType::T>) {
             if (value->isDouble()) {
-                res[i] = ((const JsonbDoubleVal*)value)->val();
+                res[i] = value->unpack<JsonbDoubleVal>()->val();
             } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
                        value->isInt64()) {
-                res[i] = static_cast<typename ValueType::T>(((const JsonbIntVal*)value)->val());
+                res[i] = static_cast<typename ValueType::T>(value->int_val());
             } else {
                 null_map[i] = 1;
                 res[i] = 0;

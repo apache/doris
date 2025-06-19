@@ -401,20 +401,20 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                       const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnType&>(column);
     if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
-        col.insert_value(static_cast<const JsonbInt8Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt8Val>()->val());
     } else if constexpr (T == TYPE_SMALLINT) {
-        col.insert_value(static_cast<const JsonbInt16Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt16Val>()->val());
     } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
-        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt32Val>()->val());
     } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
                          T == TYPE_DATETIMEV2) {
-        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
     } else if constexpr (T == TYPE_LARGEINT) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_FLOAT) {
-        col.insert_value(static_cast<const JsonbFloatVal*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbFloatVal>()->val());
     } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
-        col.insert_value(static_cast<const JsonbDoubleVal*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbDoubleVal>()->val());
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "read_one_cell_from_jsonb with type '{}'", arg->typeName());

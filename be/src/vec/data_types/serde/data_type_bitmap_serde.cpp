@@ -145,7 +145,7 @@ Status DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const N
 
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    auto* blob = arg->unpack<JsonbBinaryVal>();
     BitmapValue bitmap_value(blob->getBlob());
     col.insert_value(bitmap_value);
 }

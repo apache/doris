@@ -79,68 +79,70 @@ private:
             break;
         }
         case JsonbType::T_Int8: {
-            os_.write(((JsonbInt8Val*)val)->val());
+            os_.write(val->unpack<JsonbInt8Val>()->val());
             break;
         }
         case JsonbType::T_Int16: {
-            os_.write(((JsonbInt16Val*)val)->val());
+            os_.write(val->unpack<JsonbInt16Val>()->val());
             break;
         }
         case JsonbType::T_Int32: {
-            os_.write(((JsonbInt32Val*)val)->val());
+            os_.write(val->unpack<JsonbInt32Val>()->val());
             break;
         }
         case JsonbType::T_Int64: {
-            os_.write(((JsonbInt64Val*)val)->val());
+            os_.write(val->unpack<JsonbInt64Val>()->val());
             break;
         }
         case JsonbType::T_Double: {
-            os_.write(((JsonbDoubleVal*)val)->val());
+            os_.write(val->unpack<JsonbDoubleVal>()->val());
             break;
         }
         case JsonbType::T_Float: {
-            os_.write(((JsonbFloatVal*)val)->val());
+            os_.write(val->unpack<JsonbFloatVal>()->val());
             break;
         }
         case JsonbType::T_Int128: {
-            os_.write(((JsonbInt128Val*)val)->val());
+            os_.write(val->unpack<JsonbInt128Val>()->val());
             break;
         }
         case JsonbType::T_String: {
-            string_to_json(((JsonbStringVal*)val)->getBlob(), ((JsonbStringVal*)val)->length());
+            string_to_json(val->unpack<JsonbStringVal>()->getBlob(),
+                           val->unpack<JsonbStringVal>()->length());
             break;
         }
         case JsonbType::T_Binary: {
             os_.write("\"<BINARY>", 9);
-            os_.write(((JsonbBinaryVal*)val)->getBlob(), ((JsonbBinaryVal*)val)->getBlobLen());
+            os_.write(val->unpack<JsonbBinaryVal>()->getBlob(),
+                      val->unpack<JsonbBinaryVal>()->getBlobLen());
             os_.write("<BINARY>\"", 9);
             break;
         }
         case JsonbType::T_Object: {
-            object_to_json((ObjectVal*)val);
+            object_to_json(val->unpack<ObjectVal>());
             break;
         }
         case JsonbType::T_Array: {
-            array_to_json((ArrayVal*)val);
+            array_to_json(val->unpack<ArrayVal>());
             break;
         }
         case JsonbType::T_Decimal32: {
-            const auto* decimal_val = static_cast<const JsonbDecimal32*>(val);
+            const auto* decimal_val = val->unpack<JsonbDecimal32>();
             decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
             break;
         }
         case JsonbType::T_Decimal64: {
-            const auto* decimal_val = static_cast<const JsonbDecimal64*>(val);
+            const auto* decimal_val = val->unpack<JsonbDecimal64>();
             decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
             break;
         }
         case JsonbType::T_Decimal128: {
-            const auto* decimal_val = static_cast<const JsonbDecimal128*>(val);
+            const auto* decimal_val = val->unpack<JsonbDecimal128>();
             decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
             break;
         }
         case JsonbType::T_Decimal256: {
-            const auto* decimal_val = static_cast<const JsonbDecimal256*>(val);
+            const auto* decimal_val = val->unpack<JsonbDecimal256>();
             decimal_to_json(decimal_val->val(), decimal_val->precision, decimal_val->scale);
             break;
         }

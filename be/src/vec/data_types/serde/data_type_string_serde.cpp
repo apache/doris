@@ -209,7 +209,7 @@ template <typename ColumnType>
 void DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_jsonb(IColumn& column,
                                                                    const JsonbValue* arg) const {
     assert(arg->isBinary());
-    const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+    const auto* blob = arg->unpack<JsonbBinaryVal>();
     assert_cast<ColumnType&>(column).insert_data(blob->getBlob(), blob->getBlobLen());
 }
 

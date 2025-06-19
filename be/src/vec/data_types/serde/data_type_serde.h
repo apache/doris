@@ -100,7 +100,7 @@ struct ColumnVectorBatch;
 
 namespace doris {
 class PValues;
-class JsonbValue;
+struct JsonbValue;
 class JsonbOutStream;
 class SlotDescriptor;
 

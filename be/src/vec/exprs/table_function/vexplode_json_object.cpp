@@ -68,7 +68,7 @@ void VExplodeJsonObjectTableFunction::process_row(size_t row_idx) {
         auto writer = std::make_unique<JsonbWriter>();
         if (value->isObject()) {
             _cur_size = value->numElements();
-            auto* obj = (ObjectVal*)value;
+            auto* obj = value->unpack<ObjectVal>();
             _object_pairs.first =
                     ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
             _object_pairs.second =

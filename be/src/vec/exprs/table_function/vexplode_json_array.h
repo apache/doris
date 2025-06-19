@@ -25,7 +25,7 @@
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris {
-class ArrayVal;
+struct ArrayVal;
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
@@ -38,7 +38,7 @@ struct ParsedData {
         _values_null_flag.clear();
     }
     virtual int set_output(rapidjson::Document& document, int value_size) = 0;
-    virtual int set_output(ArrayVal& array_doc, int value_size) = 0;
+    virtual int set_output(const ArrayVal& array_doc, int value_size) = 0;
     virtual void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                                 int max_step) = 0;
     virtual void insert_many_same_value_from_parsed_data(MutableColumnPtr& column,
@@ -54,7 +54,7 @@ struct ParsedDataInt : public ParsedData<int64_t> {
     static constexpr auto MAX_VALUE = std::numeric_limits<int64_t>::max(); //9223372036854775807
     static constexpr auto MIN_VALUE = std::numeric_limits<int64_t>::min(); //-9223372036854775808
     int set_output(rapidjson::Document& document, int value_size) override;
-    int set_output(ArrayVal& array_doc, int value_size) override;
+    int set_output(const ArrayVal& array_doc, int value_size) override;
     void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                         int max_step) override;
     void insert_many_same_value_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
@@ -63,7 +63,7 @@ struct ParsedDataInt : public ParsedData<int64_t> {
 struct ParsedDataDouble : public ParsedData<double> {
     int set_output(rapidjson::Document& document, int value_size) override;
 
-    int set_output(ArrayVal& array_doc, int value_size) override;
+    int set_output(const ArrayVal& array_doc, int value_size) override;
 
     void insert_result_from_parsed_data(MutableColumnPtr& column, int64_t cur_offset,
                                         int max_step) override;
@@ -87,13 +87,13 @@ struct ParsedDataStringBase : public ParsedData<std::string> {
 struct ParsedDataString : public ParsedDataStringBase {
     int set_output(rapidjson::Document& document, int value_size) override;
 
-    int set_output(ArrayVal& array_doc, int value_size) override;
+    int set_output(const ArrayVal& array_doc, int value_size) override;
 };
 
 struct ParsedDataJSON : public ParsedDataStringBase {
     int set_output(rapidjson::Document& document, int value_size) override;
 
-    int set_output(ArrayVal& array_doc, int value_size) override;
+    int set_output(const ArrayVal& array_doc, int value_size) override;
 };
 
 template <typename DataImpl>

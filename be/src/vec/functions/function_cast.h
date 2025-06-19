@@ -646,7 +646,7 @@ struct ConvertImplGenericFromJsonb {
                 }
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
-                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto* blob = value->unpack<JsonbBinaryVal>();
                     assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
                             blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
@@ -654,7 +654,7 @@ struct ConvertImplGenericFromJsonb {
                 }
                 std::string input_str;
                 if (context->jsonb_string_as_string() && value->isString()) {
-                    const auto* blob = static_cast<const JsonbBlobVal*>(value);
+                    const auto* blob = value->unpack<JsonbBinaryVal>();
                     input_str = std::string(blob->getBlob(), blob->getBlobLen());
                 } else {
                     input_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
@@ -806,10 +806,10 @@ struct ConvertImplFromJsonb {
                     } else if (value->isFalse()) {
                         res[i] = 0;
                     } else if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val() == 0 ? 0 : 1;
+                        res[i] = value->int_val() == 0 ? 0 : 1;
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
-                                         ((const JsonbDoubleVal*)value)->val()) == 0
+                                         value->unpack<JsonbDoubleVal>()->val()) == 0
                                          ? 0
                                          : 1;
                     } else {
@@ -823,10 +823,10 @@ struct ConvertImplFromJsonb {
                                      type == PrimitiveType::TYPE_LARGEINT) {
                     // cast from json value to integer types
                     if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = value->int_val();
                     } else if (value->isDouble()) {
                         res[i] = static_cast<ColumnType::value_type>(
-                                ((const JsonbDoubleVal*)value)->val());
+                                value->unpack<JsonbDoubleVal>()->val());
                     } else if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
@@ -839,15 +839,15 @@ struct ConvertImplFromJsonb {
                                      type == PrimitiveType::TYPE_DOUBLE) {
                     // cast from json value to floating point types
                     if (value->isDouble()) {
-                        res[i] = ((const JsonbDoubleVal*)value)->val();
+                        res[i] = value->unpack<JsonbDoubleVal>()->val();
                     } else if (value->isFloat()) {
-                        res[i] = ((const JsonbFloatVal*)value)->val();
+                        res[i] = value->unpack<JsonbFloatVal>()->val();
                     } else if (value->isTrue()) {
                         res[i] = 1;
                     } else if (value->isFalse()) {
                         res[i] = 0;
                     } else if (value->isInt()) {
-                        res[i] = ((const JsonbIntVal*)value)->val();
+                        res[i] = value->int_val();
                     } else {
                         null_map[i] = 1;
                         res[i] = 0;

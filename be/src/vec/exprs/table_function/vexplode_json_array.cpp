@@ -74,21 +74,21 @@ int ParsedDataInt::set_output(rapidjson::Document& document, int value_size) {
     }
     return value_size;
 }
-int ParsedDataInt::set_output(ArrayVal& array_doc, int value_size) {
+int ParsedDataInt::set_output(const ArrayVal& array_doc, int value_size) {
     _values_null_flag.resize(value_size, 0);
     _backup_data.resize(value_size);
     int i = 0;
-    for (auto& val : array_doc) {
+    for (const auto& val : array_doc) {
         if (val.isInt8()) {
-            _backup_data[i] = static_cast<const JsonbInt8Val&>(val).val();
+            _backup_data[i] = val.unpack<JsonbInt8Val>()->val();
         } else if (val.isInt16()) {
-            _backup_data[i] = static_cast<const JsonbInt16Val&>(val).val();
+            _backup_data[i] = val.unpack<JsonbInt16Val>()->val();
         } else if (val.isInt32()) {
-            _backup_data[i] = static_cast<const JsonbInt32Val&>(val).val();
+            _backup_data[i] = val.unpack<JsonbInt32Val>()->val();
         } else if (val.isInt64()) {
-            _backup_data[i] = static_cast<const JsonbInt64Val&>(val).val();
+            _backup_data[i] = val.unpack<JsonbInt64Val>()->val();
         } else if (val.isDouble()) {
-            auto value = static_cast<const JsonbDoubleVal&>(val).val();
+            auto value = val.unpack<JsonbDoubleVal>()->val();
             // target slot is int64(cast double to int64). so compare with int64_max
             if (static_cast<int64_t>(value) > MAX_VALUE) {
                 _backup_data[i] = MAX_VALUE;
@@ -134,13 +134,13 @@ int ParsedDataDouble::set_output(rapidjson::Document& document, int value_size) 
     return value_size;
 }
 
-int ParsedDataDouble::set_output(ArrayVal& array_doc, int value_size) {
+int ParsedDataDouble::set_output(const ArrayVal& array_doc, int value_size) {
     _values_null_flag.resize(value_size, 0);
     _backup_data.resize(value_size);
     int i = 0;
-    for (auto& val : array_doc) {
+    for (const auto& val : array_doc) {
         if (val.isDouble()) {
-            _backup_data[i] = static_cast<const JsonbDoubleVal&>(val).val();
+            _backup_data[i] = val.unpack<JsonbDoubleVal>()->val();
         } else {
             _backup_data[i] = 0;
             _values_null_flag[i] = 1;
@@ -240,16 +240,16 @@ int ParsedDataString::set_output(rapidjson::Document& document, int value_size) 
     return value_size;
 }
 
-int ParsedDataString::set_output(ArrayVal& array_doc, int value_size) {
+int ParsedDataString::set_output(const ArrayVal& array_doc, int value_size) {
     _data_string_ref.clear();
     _backup_data.clear();
     _values_null_flag.clear();
     int32_t wbytes = 0;
-    for (auto& val : array_doc) {
+    for (const auto& val : array_doc) {
         switch (val.type) {
         case JsonbType::T_String: {
-            _backup_data.emplace_back(static_cast<const JsonbStringVal&>(val).getBlob(),
-                                      static_cast<const JsonbStringVal&>(val).getBlobLen());
+            _backup_data.emplace_back(val.unpack<JsonbStringVal>()->getBlob(),
+                                      val.unpack<JsonbStringVal>()->getBlobLen());
             _values_null_flag.emplace_back(false);
             break;
             // do not set _data_string here.
@@ -257,36 +257,32 @@ int ParsedDataString::set_output(ArrayVal& array_doc, int value_size) {
             // change each time `emplace_back()` is called.
         }
         case JsonbType::T_Int8: {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d",
-                              static_cast<const JsonbInt8Val&>(val).val());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", val.unpack<JsonbInt8Val>()->val());
             _backup_data.emplace_back(tmp_buf, wbytes);
             _values_null_flag.emplace_back(false);
             break;
         }
         case JsonbType::T_Int16: {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d",
-                              static_cast<const JsonbInt16Val&>(val).val());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", val.unpack<JsonbInt16Val>()->val());
             _backup_data.emplace_back(tmp_buf, wbytes);
             _values_null_flag.emplace_back(false);
             break;
         }
         case JsonbType::T_Int64: {
             wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64,
-                              static_cast<const JsonbInt64Val&>(val).val());
+                              val.unpack<JsonbInt64Val>()->val());
             _backup_data.emplace_back(tmp_buf, wbytes);
             _values_null_flag.emplace_back(false);
             break;
         }
         case JsonbType::T_Double: {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f",
-                              static_cast<const JsonbDoubleVal&>(val).val());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%f", val.unpack<JsonbDoubleVal>()->val());
             _backup_data.emplace_back(tmp_buf, wbytes);
             _values_null_flag.emplace_back(false);
             break;
         }
         case JsonbType::T_Int32: {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d",
-                              static_cast<const JsonbInt32Val&>(val).val());
+            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", val.unpack<JsonbInt32Val>()->val());
             _backup_data.emplace_back(tmp_buf, wbytes);
             _values_null_flag.emplace_back(false);
             break;
@@ -341,12 +337,12 @@ int ParsedDataJSON::set_output(rapidjson::Document& document, int value_size) {
     return value_size;
 }
 
-int ParsedDataJSON::set_output(ArrayVal& array_doc, int value_size) {
+int ParsedDataJSON::set_output(const ArrayVal& array_doc, int value_size) {
     _data_string_ref.clear();
     _backup_data.clear();
     _values_null_flag.clear();
     auto writer = std::make_unique<JsonbWriter>();
-    for (auto& v : array_doc) {
+    for (const auto& v : array_doc) {
         if (v.isObject()) {
             writer->reset();
             writer->writeValue(&v);
@@ -394,7 +390,7 @@ void VExplodeJsonArrayTableFunction<DataImpl>::process_row(size_t row_idx) {
             JsonbDocument* doc = nullptr;
             auto st = JsonbDocument::checkAndCreateDocument(text.data, text.size, &doc);
             if (st.ok() && doc && doc->getValue() && doc->getValue()->isArray()) {
-                auto* a = (ArrayVal*)doc->getValue();
+                const auto* a = doc->getValue()->unpack<ArrayVal>();
                 if (a->numElem() > 0) {
                     _cur_size = _parsed_data.set_output(*a, a->numElem());
                 }

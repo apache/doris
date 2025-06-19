@@ -384,17 +384,17 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
                                                        const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnDecimal<T>&>(column);
     if constexpr (T == TYPE_DECIMALV2) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_DECIMAL128I) {
-        col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt128Val>()->val());
     } else if constexpr (T == TYPE_DECIMAL32) {
-        col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt32Val>()->val());
     } else if constexpr (T == TYPE_DECIMAL64) {
-        col.insert_value(static_cast<const JsonbInt64Val*>(arg)->val());
+        col.insert_value(arg->unpack<JsonbInt64Val>()->val());
     } else if constexpr (T == TYPE_DECIMAL256) {
         // use binary type, since jsonb does not support int256
-        const wide::Int256 val = *reinterpret_cast<const wide::Int256*>(
-                static_cast<const JsonbBlobVal*>(arg)->getBlob());
+        const wide::Int256 val =
+                *reinterpret_cast<const wide::Int256*>(arg->unpack<JsonbBinaryVal>()->getBlob());
         col.insert_value(Decimal256(val));
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
