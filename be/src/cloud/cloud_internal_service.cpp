@@ -216,7 +216,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         .file_system = storage_resource.value()->fs,
                         .ctx =
                                 {
-                                        .is_index_data = true,
+                                        .is_index_data = false, // DORIS-20877
                                         .expiration_time = expiration_time,
                                         .is_dryrun = config::
                                                 enable_reader_dryrun_when_download_file_cache,
