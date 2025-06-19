@@ -177,7 +177,7 @@ public:
     // Since we are using std::shared_ptr, so lify cycle of the page is not managed by
     // this cache alone.
     // User could store a weak_ptr to the page, and lock it when needed.
-    // See Segment::_get_segment_footer for example.
+    // See Segment::get_segment_footer for example.
     template <typename T>
     void insert(const CacheKey& key, T data, size_t size, PageCacheHandle* handle,
                 segment_v2::PageTypePB page_type, bool in_memory = false);
