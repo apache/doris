@@ -853,7 +853,7 @@ public class Alter {
         String tableName = tableNameInfo.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
         modifyViewDef(db, view, info.translateInlineViewDef(ctx), ctx.getSessionVariable().getSqlMode(),
-            info.getColumns(), info.getComment());
+                info.getColumns(), info.getComment());
     }
 
     public void processAlterView(AlterViewStmt stmt, ConnectContext ctx) throws UserException {
