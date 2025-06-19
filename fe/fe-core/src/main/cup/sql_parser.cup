@@ -2954,10 +2954,6 @@ drop_stmt ::=
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
-    | KW_DROP KW_RESOURCE opt_if_exists:ifExists ident_or_text:resourceName
-    {:
-        RESULT = new DropResourceStmt(ifExists, resourceName);
-    :}
     | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:
         RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);

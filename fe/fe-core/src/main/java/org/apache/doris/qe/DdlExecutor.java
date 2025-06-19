@@ -85,7 +85,6 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropStageStmt;
@@ -282,8 +281,6 @@ public class DdlExecutor {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceStmt) {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropResourceStmt) {
-            env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
