@@ -18,17 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.View;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
 
@@ -61,37 +51,6 @@ public class AlterViewStmt extends BaseViewStmt implements NotFallbackInParser {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        if (tableName == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
-        }
-        tableName.analyze(analyzer);
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
-        DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-        TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
-        if (!(table instanceof View)) {
-            throw new AnalysisException(
-                    String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
-        }
-
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(),
-                        PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
-                    PrivPredicate.ALTER.getPrivs().toString(), tableName.getTbl());
-        }
-
-        if (cols != null) {
-            cloneStmt = viewDefStmt.clone();
-        }
-
-        viewDefStmt.setNeedToSql(true);
-        Analyzer viewAnalyzer = new Analyzer(analyzer);
-        viewDefStmt.analyze(viewAnalyzer);
-        checkQueryAuth();
-        createColumnAndViewDefs(analyzer);
     }
 
     public void setInlineViewDef(String querySql) {

@@ -114,7 +114,7 @@ public class SplitAssignment {
                         assignment.computeIfAbsent(backend, be -> new LinkedBlockingQueue<>(10000));
                 try {
                     if (queue.offer(locations, 100, TimeUnit.MILLISECONDS)) {
-                        return;
+                        break;
                     }
                 } catch (InterruptedException e) {
                     addUserException(new UserException("Failed to offer batch split by interrupted", e));

@@ -19,7 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
@@ -1932,11 +1931,6 @@ public class Auth implements Writable {
 
     public List<List<String>> getPasswdPolicyInfo(UserIdentity userIdent) {
         return passwdPolicyManager.getPolicyInfo(userIdent);
-    }
-
-    public void alterUser(AlterUserStmt stmt) throws DdlException {
-        alterUserInternal(stmt.isIfExist(), stmt.getOpType(), stmt.getUserIdent(), stmt.getPassword(), stmt.getRole(),
-                stmt.getPasswordOptions(), stmt.getComment(), false);
     }
 
     public void alterUser(AlterUserInfo info) throws DdlException {

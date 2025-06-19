@@ -83,19 +83,6 @@ Status TrinoConnectorJniReader::init_reader(
     return _jni_connector->open(_state, _profile);
 }
 
-Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    return _jni_connector->get_next_block(block, read_rows, eof);
-}
-
-Status TrinoConnectorJniReader::get_columns(
-        std::unordered_map<std::string, DataTypePtr>* name_to_type,
-        std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
-}
-
 Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));

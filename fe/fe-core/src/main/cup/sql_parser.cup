@@ -1439,14 +1439,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterPolicyStmt(policyName, properties);
     :}
-    | KW_ALTER KW_USER
-      opt_if_exists:ifExists
-      grant_user:user
-      opt_password_option:passwdOptions
-      opt_comment_null:comment
-    {:
-        RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions, comment);
-    :}
     | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
     {:
         RESULT = new AlterRepositoryStmt(repoName, properties);
@@ -1973,10 +1965,6 @@ create_stmt ::=
     | KW_ALTER KW_ROLE ident:role KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new AlterRoleStmt(role, comment);
-    :}
-    | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new CreateFileStmt(fileName, db, properties);
     :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
     {:

@@ -496,7 +496,6 @@ private:
     size_t _max_query_cache_size = 0;
 
     mutable std::mutex _mutex;
-    std::unique_ptr<FileCacheStorage> _storage;
     bool _close {false};
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
@@ -577,6 +576,11 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
     std::shared_ptr<bvar::LatencyRecorder> _ttl_gc_latency_us;
+    // keep _storage last so it will deconstruct first
+    // otherwise, load_cache_info_into_memory might crash
+    // coz it will use other members of BlockFileCache
+    // so join this async load thread first
+    std::unique_ptr<FileCacheStorage> _storage;
 };
 
 } // namespace doris::io

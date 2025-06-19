@@ -248,6 +248,7 @@ public class ShowLoadWarningsCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         try {
             URLConnection urlConnection = url.openConnection();
+            urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
             InputStream inputStream = urlConnection.getInputStream();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
                 int limit = 100;
