@@ -43,7 +43,6 @@ import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
@@ -230,9 +229,6 @@ public class DdlExecutor {
             env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterSystemStmt) {
-            AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
-            env.alterSystem(stmt);
         } else if (ddlStmt instanceof CancelAlterSystemStmt) {
             CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
             env.cancelAlterSystem(stmt);
