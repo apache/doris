@@ -119,8 +119,9 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
                                               input_map, output_map);
     RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(input_map);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(output_map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    RETURN_ERROR_IF_EXC(env);
     return JniConnector::fill_block(&block, {result}, output_address);
 }
 

@@ -68,7 +68,9 @@ public:
         Defer defer {[&]() {
             if (env != nullptr) {
                 env->DeleteGlobalRef(executor_cl);
+                RETURN_ERROR_IF_EXC(env);
                 env->DeleteGlobalRef(executor_obj);
+                RETURN_ERROR_IF_EXC(env);
             }
         }};
         Status st = JniUtil::GetJNIEnv(&env);
