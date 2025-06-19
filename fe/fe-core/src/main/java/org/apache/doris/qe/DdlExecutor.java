@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
-import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterCatalogCommentStmt;
@@ -268,8 +267,6 @@ public class DdlExecutor {
             env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCleanTrashStmt) {
-            env.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
@@ -436,7 +433,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt
                 || ddlStmt instanceof AdminCheckTabletsStmt
-                || ddlStmt instanceof AdminCleanTrashStmt
                 || ddlStmt instanceof AlterResourceStmt
                 || ddlStmt instanceof AlterPolicyStmt
                 || ddlStmt instanceof CancelAlterSystemStmt) {

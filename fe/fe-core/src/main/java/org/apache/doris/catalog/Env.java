@@ -28,7 +28,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
-import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
@@ -285,7 +284,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -6700,17 +6698,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void cleanTrash(AdminCleanTrashStmt stmt) {
-        List<Backend> backends = stmt.getBackends();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Backend backend : backends) {
-            CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
-            batchTask.addTask(cleanTrashTask);
-            LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
-        }
-        AgentTaskExecutor.submit(batchTask);
     }
 
     public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
