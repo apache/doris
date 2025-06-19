@@ -323,10 +323,11 @@ public abstract class ExternalCatalog
                             Util.logAndThrowRuntimeException(LOG,
                                     String.format("failed to forward init catalog %s operation to master.", name), e);
                         }
-                        init();
+                        return;
                     }
-                    initialized = true;
+                    init();
                 }
+                initialized = true;
             }
         } finally {
             isInitializing = false;

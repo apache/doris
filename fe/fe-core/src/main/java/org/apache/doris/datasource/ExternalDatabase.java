@@ -191,10 +191,11 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                                     String.format("failed to forward init external db %s operation to master", name),
                                     e);
                         }
-                        init();
+                        return;
                     }
-                    initialized = true;
+                    init();
                 }
+                initialized = true;
             }
         } finally {
             isInitializing = false;
