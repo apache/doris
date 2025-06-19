@@ -49,7 +49,7 @@ suite("test_regexp_count") {
     (7, 'book keeper', 'oo|ee'),        
     (8, 'ababab', '(ab)(ab)(ab)'),       
     (9, 'aabbcc', '(aa|bb|cc)'),         
-    (10, 'apple,banana', '[aeiou][a-z]+'); 
+    (10, 'apple,banana', '[aeiou][a-z]+');
 """
 
     qt_table_basic "SELECT id, regexp_count(text_data, pattern) as count_result FROM test_table_for_regexp_count ORDER BY id;"
