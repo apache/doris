@@ -18,8 +18,8 @@
 package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
