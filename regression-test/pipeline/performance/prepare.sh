@@ -98,10 +98,6 @@ if _get_pr_changed_files "${pr_num_from_trigger}"; then
         # if PR changed the doris meta file, the next PR deployment on the same mechine which built this PR will fail.
         # make a copy of the meta file for the meta changed PR.
         target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
-        if [[ "${target_branch}" == "branch30" ]]; then
-            # branch-3.0 also use master data
-            target_branch="master"
-        fi
         meta_changed_suffix="_2"
         rsync -a --delete "/data/doris-meta-${target_branch}/" "/data/doris-meta-${target_branch}${meta_changed_suffix}"
         rsync -a --delete "/data/doris-storage-${target_branch}/" "/data/doris-storage-${target_branch}${meta_changed_suffix}"
