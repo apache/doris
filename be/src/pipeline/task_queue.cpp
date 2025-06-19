@@ -52,6 +52,7 @@ void PriorityTaskQueue::close() {
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     _closed = true;
     _wait_task.notify_all();
+    DorisMetrics::instance()->pipeline_task_queue_size->increment(-_total_task_size);
 }
 
 PipelineTaskSPtr PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
