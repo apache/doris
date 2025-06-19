@@ -99,8 +99,8 @@ if _get_pr_changed_files "${pr_num_from_trigger}"; then
         # make a copy of the meta file for the meta changed PR.
         target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
         if [[ "${target_branch}" == "branch31" ]]; then
-            # branch-3.1 also use master data
-            target_branch="master"
+            # branch-3.1 also use branch30 data
+            target_branch="branch30"
         fi
         meta_changed_suffix="_2"
         rsync -a --delete "/data/doris-meta-${target_branch}/" "/data/doris-meta-${target_branch}${meta_changed_suffix}"
