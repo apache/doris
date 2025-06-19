@@ -20,7 +20,6 @@ package org.apache.doris.policy;
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
-import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -574,16 +573,6 @@ public class PolicyMgr implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    /**
-     * Show objects which is using the storage policy
-     **/
-    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
-        String targetPolicyName = showStmt.getPolicyName();
-        List<List<String>> rows = showStoragePolicyUsing(targetPolicyName);
-
-        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void addTablePolicies(RowPolicy policy) {
