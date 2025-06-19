@@ -44,21 +44,29 @@ enum TExprNodeType {
   INFO_FUNC = 19,
   FUNCTION_CALL = 20,
   ARRAY_LITERAL = 21,
+  
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL = 22,
   LARGE_INT_LITERAL = 23,
+  
   // only used in runtime filter
   BLOOM_PRED = 24,
+  
   // for josn
   JSON_LITERAL = 25,
+  
   // only used in runtime filter
   BITMAP_PRED = 26,
+  
   // for fulltext search
   MATCH_PRED = 27,
+  
   // for map 
   MAP_LITERAL = 28,
+  
   // for struct
   STRUCT_LITERAL = 29,
+  
   // for schema change
   SCHEMA_CHANGE_EXPR = 30,
   // for lambda function expr
@@ -66,8 +74,10 @@ enum TExprNodeType {
   LAMBDA_FUNCTION_CALL_EXPR = 32,
   // for column_ref expr
   COLUMN_REF = 33,
+  
   IPV4_LITERAL = 34,
   IPV6_LITERAL = 35,
+  
   // only used in runtime filter
   // to prevent push to storage layer
   NULL_AWARE_IN_PRED = 36,
@@ -275,3 +285,5 @@ struct TExpr {
 struct TExprList {
   1: required list<TExpr> exprs
 }
+
+
