@@ -256,12 +256,15 @@ enum TExplainLevel {
 
 enum TRuntimeFilterMode {
   // No filters are computed in the FE or the BE.
-  OFF = 0,
+  OFF = 0
+
   // Only broadcast filters are computed in the BE, and are only published to the local
   // fragment.
-  LOCAL = 1,
+  LOCAL = 1
+
   // Only shuffle filters are computed in the BE, and are only published globally.
-  REMOTE = 2,
+  REMOTE = 2
+
   // All fiters are computed in the BE, and are published globally.
   GLOBAL = 3
 }
@@ -746,10 +749,6 @@ enum TMetadataType {
   HUDI = 11,
 }
 
-enum TIcebergQueryType {
-  SNAPSHOTS = 0
-}
-
 enum THudiQueryType {
   TIMELINE = 0
 }
@@ -765,3 +764,4 @@ const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
 const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
 // the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
 const i32 TPREFER_SNAPSHOT_REQ_VERSION = TSNAPSHOT_REQ_VERSION2;
+
