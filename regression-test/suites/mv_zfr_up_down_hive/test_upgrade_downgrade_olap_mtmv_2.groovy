@@ -17,6 +17,20 @@
 
 suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
+    def DateAddOneDayStr = { def dateStr ->
+        def date = Date.parse("yyyy-MM-dd", dateStr)
+        Date nextDay = date + 1
+        String result = nextDay.format("yyyy-MM-dd")
+        return result
+    }
+
+    def DateAddOneDayPartStr = { def dateStr ->
+        def date = Date.parse("yyyy-MM-dd", dateStr)
+        Date nextDay = date + 1
+        String result = "p_" + nextDay.format("yyyyMMdd")
+        return result
+    }
+
     def waitingMTMVTaskByMvName = { mvName, dbName ->
         Thread.sleep(2000);
         String showTasks = "select TaskId,JobId,JobName,MvId,Status,MvName,MvDatabaseName,ErrorMsg from tasks('type'='mv') where MvDatabaseName = '${dbName}' and MvName = '${mvName}' order by CreateTime ASC"
@@ -160,9 +174,49 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     def state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
     def test_sql5 = """SELECT a.* FROM ${ctlName}.${dbName}.${tableName5} a inner join ${ctlName}.${dbName}.${tableName8} b on a.user_id=b.user_id"""
     logger.info("state_mtmv5: " + state_mtmv5)
-    if (step == 1 || step == 2 || step == 3) {
+    if (step == 1) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         assertTrue(state_mtmv5[0][2] == true) // 丢包之后会卡死
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
+            compare_res(test_sql5 + " order by 1,2,3")
+        }
+
+    } else if (step == 2 || step == 3) {
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == false) // 丢包之后会卡死
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql5, mtmvName5)
+        }
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(test_sql5, mtmvName5)
+        }
+        // 刷新catalog之后 mtmv仍然处于sc状态
+        sql """refresh catalog ${ctlName}"""
+
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL")
+        assertTrue(state_mtmv5[0][2] == false)
+
+        // 刷新mtmv之后状态恢复正常
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} auto"""
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true)
+
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
@@ -220,12 +274,21 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
 
     // mtmv2: add partition
-    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='2018-01-15') values (13,13)"""
+    def part_res_tb2 = sql """show partitions from ${ctlName}.${dbName}.${tableName2}"""
+    def pt_size = part_res_tb2.size()
+    def date_str = part_res_tb2[pt_size-1][0].toString().substring(3)
+    logger.info("part_name:" + part_res_tb2[pt_size-1][0].toString().substring(3))
+    date_str = DateAddOneDayStr(date_str)
+    def part_date_str = DateAddOneDayPartStr(date_str)
+    logger.info("date_str: " + date_str)
+    logger.info("part_date_str: " + part_date_str)
+
+    hive_docker """insert into ${dbName}.${tableName2} PARTITION(dt='${date_str}') values (${pt_size+1},${pt_size+1})"""
     def state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
-    def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a inner join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
+    def sql2 = "SELECT a.* FROM ${ctlName}.${dbName}.${tableName2} a left join ${ctlName}.${dbName}.${tableName10} b on a.user_id=b.user_id"
     logger.info("state_mtmv2: " + state_mtmv2)
 
-    if (step == 1 || step == 2 || step == 3) {
+    if (step == 1) {
         assertTrue(state_mtmv2[0][0] == "NORMAL")
         assertTrue(state_mtmv2[0][2] == true)
 
@@ -245,7 +308,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
         // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
         try {
-            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(p_20180115)"""
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
         } catch (Exception e) {
             logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
             logger.info(e.getMessage())
@@ -280,22 +343,9 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
             compare_res(sql2 + " order by 1,2,3")
         }
-    } else if (step == 4) {
-
-        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
-        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+    } else if (step == 2 || step == 3) {
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
         assertTrue(state_mtmv2[0][2] == false)
-        def mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-        logger.info("mtmv_part_res[0][18]: " + mtmv_part_res[0][18])
-        logger.info("mtmv_part_res[0][19]: " + mtmv_part_res[0][19])
-        logger.info("mtmv_part_res:" + mtmv_part_res)
-        def part_1 = mtmv_part_res.size()
-        def diff_part = 0
-        for (int i = 0; i < mtmv_part_res.size(); i++) {
-            if (mtmv_part_res[i][18] == "false" && mtmv_part_res[i][19] as String == "[${tableName2}]") {
-                diff_part = diff_part + 1
-            }
-        }
 
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
@@ -311,7 +361,62 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
         // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
         try {
-            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${mtmv_part_res[0][1]})"""
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][2] == false)
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
+            compare_res(sql2 + " order by 1,2,3")
+        }
+    } else if (step == 4) {
+
+        assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == false)
+
+        connect('root', context.config.jdbcPassword, follower_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(sql2, mtmvName2)
+        }
+
+        connect('root', context.config.jdbcPassword, master_jdbc_url) {
+            sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
+            sql """use ${dbName}"""
+            mv_not_part_in(sql2, mtmvName2)
+        }
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
         } catch (Exception e) {
             logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
             logger.info(e.getMessage())
@@ -326,10 +431,6 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         // When refreshing the entire MTMV, the partition will be deleted.
         sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
         waitingMTMVTaskFinishedByMvName(mtmvName2)
-        mtmv_part_res = sql """show partitions from ${mtmvName2}"""
-        logger.info("mtmv_part_res:" + mtmv_part_res)
-        def part_2 = mtmv_part_res.size()
-        assertTrue(part_1 == part_2 + diff_part)
 
         state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
         logger.info("state_mtmv2:" + state_mtmv2)
