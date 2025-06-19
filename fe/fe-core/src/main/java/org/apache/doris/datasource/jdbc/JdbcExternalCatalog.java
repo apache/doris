@@ -258,7 +258,6 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public List<String> listDatabaseNames() {
-        makeSureInitialized();
         return jdbcClient.getDatabaseNameList();
     }
 
