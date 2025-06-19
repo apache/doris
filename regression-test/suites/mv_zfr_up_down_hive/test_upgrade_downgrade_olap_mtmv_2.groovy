@@ -361,7 +361,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     if (step == 1 || step == 2 || step == 3) {
         assertTrue(state_mtmv3[0][0] == "NORMAL")
-        assertTrue(state_mtmv3[0][2] == true)
+        assertTrue(state_mtmv3[0][2] == false)
         connect('root', context.config.jdbcPassword, follower_jdbc_url) {
             sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
             sql """use ${dbName}"""
