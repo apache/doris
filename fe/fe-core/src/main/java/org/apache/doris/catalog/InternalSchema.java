@@ -124,6 +124,7 @@ public class InternalSchema {
         AUDIT_SCHEMA = new ArrayList<>();
         AUDIT_SCHEMA.add(new ColumnDef("query_id", TypeDef.createVarchar(48), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("time", TypeDef.createDatetimeV2(3), ColumnNullableType.NULLABLE));
+        AUDIT_SCHEMA.add(new ColumnDef("session_id", TypeDef.createVarchar(36), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("client_ip", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("user", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));
         AUDIT_SCHEMA.add(new ColumnDef("catalog", TypeDef.createVarchar(128), ColumnNullableType.NULLABLE));

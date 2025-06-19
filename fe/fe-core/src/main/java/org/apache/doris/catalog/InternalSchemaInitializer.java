@@ -294,7 +294,7 @@ public class InternalSchemaInitializer extends Thread {
                 FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
 
         String engineName = "olap";
-        ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "client_ip");
+        ArrayList<String> dupKeys = Lists.newArrayList("query_id", "time", "session_id");
         KeysDesc keysDesc = new KeysDesc(KeysType.DUP_KEYS, dupKeys);
         // partition
         PartitionDesc partitionDesc = new RangePartitionDesc(Lists.newArrayList("time"), Lists.newArrayList());

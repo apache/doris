@@ -141,6 +141,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // should be same order as InternalSchema.AUDIT_SCHEMA
         logBuffer.append(event.queryId).append("\t");
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
+        logBuffer.append(event.sessionId).append("\t");
         logBuffer.append(event.clientIp).append("\t");
         logBuffer.append(event.user).append("\t");
         logBuffer.append(event.ctl).append("\t");
