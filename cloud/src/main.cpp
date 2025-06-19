@@ -236,10 +236,8 @@ int main(int argc, char** argv) {
         std::cout << "try to start meta_service, recycler" << std::endl;
     }
 
-    if (config::enable_recycler_metrics) {
-        google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
-                                     config::bvar_max_dump_multi_dimension_metric_num.c_str());
-    }
+    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number",
+                                 config::bvar_max_dump_multi_dimension_metric_num.c_str());
 
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;

@@ -20,9 +20,7 @@
 #include <brpc/builtin_service.pb.h>
 #include <brpc/server.h>
 #include <butil/endpoint.h>
-
 #include <butil/strings/string_split.h>
-
 #include <bvar/status.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -283,11 +281,11 @@ void Recycler::recycle_callback() {
         if (stopped()) return;
         LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        g_bvar_recycler_task_concurrency << 1;
+        g_bvar_recycler_instance_recycle_task_concurrency << 1;
         g_bvar_recycler_instance_running.put({instance_id}, 1);
-        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, -1));
+        g_bvar_recycler_instance_recycle_st_ts.put({instance_id}, ctime_ms);
         ret = instance_recycler->do_recycle();
-        g_bvar_recycler_task_concurrency << -1;
+        g_bvar_recycler_instance_recycle_task_concurrency << -1;
         g_bvar_recycler_instance_running.put({instance_id}, -1);
         // If instance recycler has been aborted, don't finish this job
         if (!instance_recycler->stopped()) {
@@ -300,15 +298,15 @@ void Recycler::recycle_callback() {
         }
         auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         auto elpased_ms = now - ctime_ms;
-        g_bvar_recycler_instance_recycle_times.put({instance_id}, std::make_pair(ctime_ms, now));
+        g_bvar_recycler_instance_recycle_ed_ts.put({instance_id}, now);
         g_bvar_recycler_instance_last_recycle_duration.put({instance_id}, elpased_ms);
-        g_bvar_recycler_instance_next_time.put({instance_id},
-                                               now + config::recycle_interval_seconds * 1000);
+        g_bvar_recycler_instance_next_ts.put({instance_id},
+                                             now + config::recycle_interval_seconds * 1000);
         LOG(INFO) << "recycle instance done, "
                   << "instance_id=" << instance_id << " ret=" << ret << " ctime_ms: " << ctime_ms
                   << " now: " << now;
 
-        g_bvar_recycler_instance_recycle_last_success_times.put({instance_id}, now);
+        g_bvar_recycler_instance_recycle_last_success_ts.put({instance_id}, now);
 
         LOG_INFO("finish recycle instance")
                 .tag("instance_id", instance_id)
@@ -1837,11 +1835,11 @@ int InstanceRecycler::delete_rowset_data(
                                       rs_meta != rowsets.end()) {
                                       if (path.ends_with(".idx") &&
                                           rs_meta->second.has_index_disk_size()) {
-                                          metrics_context.total_recycle_data_size +=
+                                          metrics_context.total_recycled_data_size +=
                                                   rs_meta->second.index_disk_size();
                                       } else if (path.ends_with(".dat") &&
                                                  rs_meta->second.has_data_disk_size()) {
-                                          metrics_context.total_recycle_data_size +=
+                                          metrics_context.total_recycled_data_size +=
                                                   rs_meta->second.data_disk_size();
                                       }
                                       metrics_context.total_recycled_num++;
@@ -1861,7 +1859,7 @@ int InstanceRecycler::delete_rowset_data(
             int ret = delete_rowset_data(resource_id, tablet_id, rowset_id);
             if (!ret) {
                 auto rs = rowsets.at(rowset_id);
-                metrics_context.total_recycle_data_size += rs.total_disk_size();
+                metrics_context.total_recycled_data_size += rs.total_disk_size();
                 metrics_context.total_recycled_num++;
                 metrics_context.report();
             }
@@ -2154,10 +2152,12 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
         concurrent_delete_executor.add([&, rs = rs_meta, rs_id = resource_id,
                                         accessor_ptr = accessor_map_[resource_id]]() {
             std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
-                g_bvar_recycler_vault_recycle_task_concurrency.put({instance_id_, rs_id}, -1);
+                g_bvar_recycler_vault_recycle_task_concurrency.put(
+                        {instance_id_, metrics_context.operation_type, rs_id}, -1);
                 metrics_context.report();
             });
-            g_bvar_recycler_vault_recycle_task_concurrency.put({instance_id_, rs_id}, 1);
+            g_bvar_recycler_vault_recycle_task_concurrency.put(
+                    {instance_id_, metrics_context.operation_type, rs_id}, 1);
             int res = accessor_ptr->delete_directory(tablet_path_prefix(tablet_id));
             if (res != 0) {
                 LOG(WARNING) << "failed to delete rowset data of tablet " << tablet_id
@@ -2165,7 +2165,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                 g_bvar_recycler_vault_recycle_status.put({instance_id_, rs_id, "abnormal"}, 1);
                 return -1;
             }
-            metrics_context.total_recycle_data_size += rs.total_disk_size();
+            metrics_context.total_recycled_data_size += rs.total_disk_size();
             g_bvar_recycler_vault_recycle_status.put({instance_id_, rs_id, "normal"}, 1);
             return 0;
         });
