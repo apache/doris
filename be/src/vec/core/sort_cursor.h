@@ -61,12 +61,12 @@ struct MergeSortCursorImpl {
 
     void reverse(IColumn::Permutation& reverse_perm) {
         MutableColumns columns_reversed;
-        reverse_perm.resize(rows);
-        for (size_t i = 0; i < rows; ++i) {
+        reverse_perm.resize(rows - pos);
+        for (int i = 0; i + pos < rows; ++i) {
             reverse_perm[i] = rows - i - 1;
         }
         for (auto& column : columns) {
-            columns_reversed.push_back(column->permute(reverse_perm, 0));
+            columns_reversed.push_back(column->permute(reverse_perm, rows - pos));
         }
         block->set_columns(std::move(columns_reversed));
         for (auto& column_desc : desc) {
