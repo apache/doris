@@ -189,6 +189,8 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
         assertTrue(state_mtmv5[0][0] == "NORMAL")
 
         sql """refresh MATERIALIZED VIEW ${mtmvName5} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
+
         state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         assertTrue(state_mtmv5[0][2] == true)
@@ -229,6 +231,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
         // 刷新mtmv之后状态恢复正常
         sql """refresh MATERIALIZED VIEW ${mtmvName5} auto"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
         state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         assertTrue(state_mtmv5[0][2] == true)
