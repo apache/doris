@@ -31,6 +31,10 @@
 
 namespace doris {
 uint64_t g_tablet_report_inactive_duration_ms = 0;
+bvar::Adder<uint64_t> g_base_compaction_not_frozen_tablet_num(
+        "g_base_compaction_not_frozen_tablet_num");
+bvar::Adder<uint64_t> g_cumu_compaction_not_frozen_tablet_num(
+        "g_cumu_compaction_not_frozen_tablet_num");
 namespace {
 
 // port from
@@ -393,6 +397,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
             bool is_frozen = (now - t->last_load_time_ms > config::compaction_load_max_freeze_interval_s * 1000
                    && now - t->last_base_compaction_success_time_ms < config::base_compaction_freeze_interval_s * 1000
                    && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
+            g_base_compaction_not_frozen_tablet_num << !is_frozen;
             return is_recent_failure || is_frozen;
         }
         
@@ -403,6 +408,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
         bool is_frozen = (now - t->last_load_time_ms > config::compaction_load_max_freeze_interval_s * 1000
                && now - t->last_cumu_compaction_success_time_ms < config::cumu_compaction_interval_s * 1000
                && t->fetch_add_approximate_num_rowsets(0) < max_version_config / 2);
+        g_cumu_compaction_not_frozen_tablet_num << !is_frozen;
         return is_recent_failure || is_recent_no_suitable_version || is_frozen;
     };
     // We don't schedule tablets that are disabled for compaction
