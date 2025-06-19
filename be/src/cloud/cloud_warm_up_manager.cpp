@@ -68,9 +68,11 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                                                std::shared_ptr<bthread::CountdownEvent> wait) {
     if (file_size < 0) {
         auto st = file_system->file_size(path, &file_size);
-        LOG(WARNING) << "get file size failed: " << path;
-        file_cache_warm_up_failed_task_num << 1;
-        return;
+        if (!st.ok()) [[unlikely]] {
+            LOG(WARNING) << "get file size failed: " << path;
+            file_cache_warm_up_failed_task_num << 1;
+            return;
+        }
     }
 
     const int64_t chunk_size = 10 * 1024 * 1024; // 10MB
