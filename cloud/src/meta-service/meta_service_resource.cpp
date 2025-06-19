@@ -3885,8 +3885,6 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to create txn err=" << err;
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats(
-                (int*)0x01, [&](int*) { stats.get_counter += txn->num_get_keys(); });
         err = txn->get(key, &val);
         LOG(INFO) << "get instance_key=" << hex(key);
 
@@ -3894,7 +3892,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to get instance, instance_id=" << instance_id << " err=" << err;
             return;
         }
-
+        stats.get_counter++;
         InstanceInfoPB instance;
         if (!instance.ParseFromString(val)) {
             LOG(WARNING) << "failed to parse InstanceInfoPB";

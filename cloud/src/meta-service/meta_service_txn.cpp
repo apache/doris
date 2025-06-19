@@ -1024,9 +1024,11 @@ void commit_txn_immediately(
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.get_counter += txn->num_get_keys();
-            stats.put_counter += txn->num_put_keys();
-            stats.del_counter += txn->num_del_keys();
+            if (txn != nullptr) {
+                stats.get_counter += txn->num_get_keys();
+                stats.put_counter += txn->num_put_keys();
+                stats.del_counter += txn->num_del_keys();
+            }
         });
 
         // Get txn info with db_id and txn_id
@@ -1608,9 +1610,11 @@ void commit_txn_eventually(
             return;
         }
         std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-            stats.get_counter += txn->num_get_keys();
-            stats.put_counter += txn->num_put_keys();
-            stats.del_counter += txn->num_del_keys();
+            if (txn != nullptr) {
+                stats.get_counter += txn->num_get_keys();
+                stats.put_counter += txn->num_put_keys();
+                stats.del_counter += txn->num_del_keys();
+            }
         });
 
         // tablet_id -> {table/index/partition}_id
@@ -1977,9 +1981,11 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats.get_counter += txn->num_get_keys();
-        stats.put_counter += txn->num_put_keys();
-        stats.del_counter += txn->num_del_keys();
+        if (txn != nullptr) {
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        }
     });
 
     // Get db id with txn id
@@ -3654,9 +3660,11 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
         return err;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        stats.get_counter += txn->num_get_keys();
-        stats.put_counter += txn->num_put_keys();
-        stats.del_counter += txn->num_del_keys();
+        if (txn != nullptr) {
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        }
     });
 
     err = txn->get(label_key, &label_val);
@@ -3813,8 +3821,11 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                           << " end=" << hex(end_label_key);
                 return;
             }
-            std::unique_ptr<int, std::function<void(int*)>> defer_stats(
-                    (int*)0x01, [&](int*) { stats.get_counter += txn->num_get_keys(); });
+            std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+                if (txn != nullptr) {
+                    stats.get_counter += txn->num_get_keys();
+                }
+            });
 
             err = txn->get(begin_label_key, end_label_key, &it, snapshot, limit);
             if (err != TxnErrorCode::TXN_OK) {
