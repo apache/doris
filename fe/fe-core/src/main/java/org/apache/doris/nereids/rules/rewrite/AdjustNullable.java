@@ -303,6 +303,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
         public Expression visitSlotReference(SlotReference slotReference, Map<ExprId, Slot> context) {
             if (context.containsKey(slotReference.getExprId())) {
                 Slot slot = context.get(slotReference.getExprId());
+                if (slot.nullable()) {
+                    return slotReference;
+                }
                 if (slot.getDataType().isAggStateType()) {
                     // we must replace data type, because nested type and agg state contains nullable of their children.
                     // TODO: remove if statement after we ensure be constant folding do not change expr type at all.
