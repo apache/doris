@@ -19,6 +19,7 @@
 
 #include <brpc/http_method.h>
 #include <bthread/bthread.h>
+#include <endian.h>
 #include <fmt/format.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
@@ -269,6 +270,164 @@ Status IndexChannel::check_tablet_filtered_rows_consistency() {
         }
     }
     return Status::OK();
+}
+
+static Status cancel_channel_and_check_intolerable_failure(Status status,
+                                                           const std::string& err_msg,
+                                                           IndexChannel& ich, VNodeChannel& nch) {
+    LOG(WARNING) << nch.channel_info() << ", close channel failed, err: " << err_msg;
+    ich.mark_as_failed(&nch, err_msg, -1);
+    // cancel the node channel in best effort
+    nch.cancel(err_msg);
+
+    // check if index has intolerable failure
+    if (Status index_st = ich.check_intolerable_failure(); !index_st.ok()) {
+        status = std::move(index_st);
+    } else if (Status receive_st = ich.check_tablet_received_rows_consistency(); !receive_st.ok()) {
+        status = std::move(receive_st);
+    } else if (Status filter_st = ich.check_tablet_filtered_rows_consistency(); !filter_st.ok()) {
+        status = std::move(filter_st);
+    }
+    return status;
+}
+
+Status IndexChannel::close_wait(
+        RuntimeState* state, WriterStats* writer_stats,
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+        std::unordered_set<int64_t> unfinished_node_channel_ids,
+        bool need_wait_after_quorum_success) {
+    Status status = Status::OK();
+    // wait quorum success
+    while (true) {
+        status = check_each_node_channel_close(&unfinished_node_channel_ids,
+                                               node_add_batch_counter_map, writer_stats, status);
+        bool quorum_success = _quorum_success();
+        if (!status.ok() || unfinished_node_channel_ids.empty() || quorum_success) {
+            LOG(INFO) << "quorum success, quorum_success: " << quorum_success
+                      << ", is all unfinished: " << unfinished_node_channel_ids.empty()
+                      << ", status: " << status << ", txn_id: " << _parent->_txn_id
+                      << ", load_id: " << print_id(_parent->_load_id);
+            break;
+        }
+        bthread_usleep(1000 * 10);
+    }
+
+    // Wait for all node channel to complete as much as possible,
+    // if wait time is more than max_wait_time_seconds,
+    // or remaining time is less than load_timeout_remaining_seconds,
+    // cancel unfinished node channel.
+    if (status.ok() && !unfinished_node_channel_ids.empty() && need_wait_after_quorum_success) {
+        int64_t max_wait_time_ms = _calc_max_wait_time_ms(unfinished_node_channel_ids);
+        LOG(INFO) << "max_wait_time_ms: " << max_wait_time_ms
+                  << ", load_id: " << print_id(_parent->_load_id);
+        while (true) {
+            status = check_each_node_channel_close(
+                    &unfinished_node_channel_ids, node_add_batch_counter_map, writer_stats, status);
+            if (unfinished_node_channel_ids.empty() || !status.ok()) {
+                break;
+            }
+            int64_t elapsed_ms = UnixMillis() - _start_time;
+            LOG(INFO) << "elapsed_ms: " << elapsed_ms << ", max_wait_time_ms: " << max_wait_time_ms
+                      << ", load_channel_timeout_s: " << _parent->_load_channel_timeout_s;
+            if (elapsed_ms > max_wait_time_ms ||
+                _parent->_load_channel_timeout_s - elapsed_ms / 1000 <
+                        config::load_timeout_remaining_seconds) {
+                // cancel unfinished node channel
+                std::stringstream unfinished_node_channel_host_str;
+                for (auto& it : unfinished_node_channel_ids) {
+                    unfinished_node_channel_host_str << _node_channels[it]->host() << ",";
+                    _node_channels[it]->cancel("timeout");
+                }
+                LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
+                             << ", cancel unfinished node channel and finish close"
+                             << ", load id: " << print_id(_parent->_load_id)
+                             << ", txn_id: " << _parent->_txn_id << ", unfinished node channel: "
+                             << unfinished_node_channel_host_str.str();
+                break;
+            }
+            bthread_usleep(1000 * 10);
+        }
+    }
+    return status;
+}
+
+Status IndexChannel::check_each_node_channel_close(
+        std::unordered_set<int64_t>* unfinished_node_channel_ids,
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map,
+        WriterStats* writer_stats, Status status) {
+    Status final_status = Status::OK();
+    for (auto& it : _node_channels) {
+        std::shared_ptr<VNodeChannel> node_channel = it.second;
+        // If the node channel is not in the unfinished_node_channel_ids,
+        // it means the node channel is already closed.
+        if (!unfinished_node_channel_ids->contains(it.first)) {
+            continue;
+        }
+        bool node_channel_closed = false;
+        auto close_status = it.second->close_wait(_parent->_state, &node_channel_closed);
+        if (node_channel_closed) {
+            close_status = it.second->after_close_handle(_parent->_state, writer_stats,
+                                                         node_add_batch_counter_map);
+            unfinished_node_channel_ids->erase(it.first);
+        }
+        if (!close_status.ok()) {
+            final_status = cancel_channel_and_check_intolerable_failure(
+                    std::move(final_status), close_status.to_string(), *this, *it.second);
+        }
+    }
+    return final_status;
+}
+
+bool IndexChannel::_quorum_success() {
+    if (_write_tablets.empty()) {
+        return false;
+    }
+    const int num_replicas = _parent->_num_replicas;
+    const int quorum = num_replicas / 2 + 1;
+    for (const auto& tablet : _write_tablets) {
+        // check if all write tablets has received rows from quorum number of nodes
+        auto it = _tablets_received_rows.find(tablet);
+        if (it == _tablets_received_rows.end()) {
+            return false;
+        }
+        if (it->second.size() < quorum) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int64_t IndexChannel::_calc_max_wait_time_ms(
+        const std::unordered_set<int64_t>& unfinished_node_channel_ids) {
+    // calculate avg speed of all unfinished node channel
+    int64_t elapsed_ms = UnixMillis() - _start_time;
+    int64_t total_bytes = 0;
+    for (const auto& [_, bytes] : _node_channel_write_bytes) {
+        total_bytes += bytes;
+    }
+    if (total_bytes <= 0 || elapsed_ms <= 0) {
+        return 0;
+    }
+    double avg_speed =
+            static_cast<double>(total_bytes) / static_cast<double>(elapsed_ms); // bytes/ms
+
+    // calculate max wait time of each unfinished node channel and return the max value
+    int64_t max_wait_time_ms = 0;
+    for (int64_t id : unfinished_node_channel_ids) {
+        int64_t bytes = _node_channel_write_bytes[id];
+        int64_t wait =
+                avg_speed > 0 ? static_cast<int64_t>(static_cast<double>(bytes) / avg_speed) : 0;
+        max_wait_time_ms = std::max(max_wait_time_ms, wait);
+    }
+
+    // if max_wait_time_ms is greater than 3 minutes, wait (1 + config::max_wait_time_multiplier) * max_wait_time_ms
+    // if max_wait_time_ms is less than 3 minutes, wait max_wait_time_ms + (30 * 1000)ms
+    if (max_wait_time_ms >= 60 * 3 * 1000) {
+        max_wait_time_ms *= (1 + config::max_wait_time_multiplier);
+    } else {
+        max_wait_time_ms += 30 * 1000;
+    }
+    return max_wait_time_ms;
 }
 
 static Status none_of(std::initializer_list<bool> vars) {
@@ -554,6 +713,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     for (auto tablet_id : payload->second) {
         _cur_add_block_request->add_tablet_ids(tablet_id);
     }
+    _index_channel->update_node_channel_write_bytes(_node_id, _cur_mutable_block->bytes());
 
     if (_cur_mutable_block->rows() >= _batch_size ||
         _cur_mutable_block->bytes() > config::doris_scanner_row_bytes) {
@@ -936,12 +1096,14 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     static_cast<void>(request->release_id());
 }
 
-Status VNodeChannel::close_wait(RuntimeState* state) {
+Status VNodeChannel::close_wait(RuntimeState* state, bool* is_closed) {
     DBUG_EXECUTE_IF("VNodeChannel.close_wait_full_gc", {
         std::thread t(injection_full_gc_fn);
         t.join();
     });
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
+
+    *is_closed = true;
 
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
@@ -955,19 +1117,27 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         }
     }
 
+    if (state->is_cancelled()) {
+        _cancel_with_msg(state->cancel_reason().to_string());
+    }
+
     // Waiting for finished until _add_batches_finished changed by rpc's finished callback.
     // it may take a long time, so we couldn't set a timeout
     // For pipeline engine, the close is called in async writer's process block method,
     // so that it will not block pipeline thread.
-    while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
-        bthread_usleep(1000);
+    if (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
+        *is_closed = false;
+        return Status::OK();
     }
     VLOG_CRITICAL << _parent->_sender_id << " close wait finished";
-    _close_time_ms = UnixMillis() - _close_time_ms;
+    return Status::OK();
+}
 
-    if (state->is_cancelled()) {
-        _cancel_with_msg(state->cancel_reason().to_string());
-    }
+Status VNodeChannel::after_close_handle(
+        RuntimeState* state, WriterStats* writer_stats,
+        std::unordered_map<int64_t, AddBatchCounter>* node_add_batch_counter_map) {
+    Status st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
+    _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_add_batches_finished) {
         _close_check();
@@ -981,10 +1151,11 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         // only when normal close, we set _is_closed to true.
         // otherwise, we will set it to true in cancel().
         _is_closed = true;
-        return Status::OK();
+        st = Status::OK();
     }
 
-    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
+    time_report(node_add_batch_counter_map, writer_stats);
+    return st;
 }
 
 void VNodeChannel::_close_check() {
@@ -1107,6 +1278,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
     VLOG_DEBUG << "list of open index id = " << fmt::to_string(buf);
 
     for (const auto& index_channel : _channels) {
+        index_channel->set_start_time(UnixMillis());
         index_channel->for_each_node_channel([&index_channel](
                                                      const std::shared_ptr<VNodeChannel>& ch) {
             auto st = ch->open_wait();
@@ -1390,25 +1562,6 @@ Status VTabletWriter::_incremental_open_node_channel(
     return Status::OK();
 }
 
-static Status cancel_channel_and_check_intolerable_failure(Status status,
-                                                           const std::string& err_msg,
-                                                           IndexChannel& ich, VNodeChannel& nch) {
-    LOG(WARNING) << nch.channel_info() << ", close channel failed, err: " << err_msg;
-    ich.mark_as_failed(&nch, err_msg, -1);
-    // cancel the node channel in best effort
-    nch.cancel(err_msg);
-
-    // check if index has intolerable failure
-    if (Status index_st = ich.check_intolerable_failure(); !index_st.ok()) {
-        status = std::move(index_st);
-    } else if (Status receive_st = ich.check_tablet_received_rows_consistency(); !receive_st.ok()) {
-        status = std::move(receive_st);
-    } else if (Status filter_st = ich.check_tablet_filtered_rows_consistency(); !filter_st.ok()) {
-        status = std::move(filter_st);
-    }
-    return status;
-}
-
 void VTabletWriter::_cancel_all_channel(Status status) {
     for (const auto& index_channel : _channels) {
         index_channel->for_each_node_channel([&status](const std::shared_ptr<VNodeChannel>& ch) {
@@ -1487,19 +1640,9 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
                 if (!status.ok()) {
                     break;
                 }
-                index_channel->for_init_node_channel(
-                        [this, &index_channel, &status](const std::shared_ptr<VNodeChannel>& ch) {
-                            if (!status.ok() || ch->is_closed()) {
-                                return;
-                            }
-                            auto s = ch->close_wait(_state);
-                            VLOG_DEBUG << index_channel->_parent->_sender_id << "'s " << ch->host()
-                                       << "close1 wait finished!";
-                            if (!s.ok()) {
-                                status = cancel_channel_and_check_intolerable_failure(
-                                        std::move(status), s.to_string(), *index_channel, *ch);
-                            }
-                        });
+
+                status = index_channel->close_wait(_state, nullptr, nullptr,
+                                                   index_channel->init_node_channel_ids(), false);
                 if (!status.ok()) {
                     break;
                 }
@@ -1565,16 +1708,7 @@ Status VTabletWriter::close(Status exec_status) {
         auto status = Status::OK();
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
-        int64_t serialize_batch_ns = 0;
-        int64_t queue_push_lock_ns = 0;
-        int64_t actual_consume_ns = 0;
-        int64_t total_add_batch_exec_time_ns = 0;
-        int64_t max_add_batch_exec_time_ns = 0;
-        int64_t total_wait_exec_time_ns = 0;
-        int64_t max_wait_exec_time_ns = 0;
-        int64_t total_add_batch_num = 0;
-        int64_t num_node_channels = 0;
-        VNodeChannelStat channel_stat;
+        WriterStats writer_stats;
 
         for (const auto& index_channel : _channels) {
             if (!status.ok()) {
@@ -1582,28 +1716,8 @@ Status VTabletWriter::close(Status exec_status) {
             }
             int64_t add_batch_exec_time = 0;
             int64_t wait_exec_time = 0;
-            index_channel->for_each_node_channel(
-                    [this, &index_channel, &status, &node_add_batch_counter_map,
-                     &serialize_batch_ns, &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                     &total_add_batch_exec_time_ns, &add_batch_exec_time, &total_wait_exec_time_ns,
-                     &wait_exec_time,
-                     &total_add_batch_num](const std::shared_ptr<VNodeChannel>& ch) {
-                        if (!status.ok() || (ch->is_closed() && !ch->is_cancelled())) {
-                            return;
-                        }
-                        // in pipeline, all node channels are done or canceled, will not block.
-                        // no pipeline, close may block waiting.
-                        auto s = ch->close_wait(_state);
-                        if (!s.ok()) {
-                            status = cancel_channel_and_check_intolerable_failure(
-                                    std::move(status), s.to_string(), *index_channel, *ch);
-                        }
-                        ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                        &channel_stat, &queue_push_lock_ns, &actual_consume_ns,
-                                        &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                                        &total_wait_exec_time_ns, &wait_exec_time,
-                                        &total_add_batch_num);
-                    });
+            status = index_channel->close_wait(_state, &writer_stats, &node_add_batch_counter_map,
+                                               index_channel->each_node_channel_ids(), true);
 
             // Due to the non-determinism of compaction, the rowsets of each replica may be different from each other on different
             // BE nodes. The number of rows filtered in SegmentWriter depends on the historical rowsets located in the correspoding
@@ -1618,21 +1732,22 @@ Status VTabletWriter::close(Status exec_status) {
                 }
             }
 
-            num_node_channels += index_channel->num_node_channels();
-            if (add_batch_exec_time > max_add_batch_exec_time_ns) {
-                max_add_batch_exec_time_ns = add_batch_exec_time;
+            writer_stats.num_node_channels += index_channel->num_node_channels();
+            if (add_batch_exec_time > writer_stats.max_add_batch_exec_time_ns) {
+                writer_stats.max_add_batch_exec_time_ns = add_batch_exec_time;
             }
-            if (wait_exec_time > max_wait_exec_time_ns) {
-                max_wait_exec_time_ns = wait_exec_time;
+            if (wait_exec_time > writer_stats.max_wait_exec_time_ns) {
+                writer_stats.max_wait_exec_time_ns = wait_exec_time;
             }
         } // end for index channels
 
         if (status.ok()) {
             // TODO need to be improved
-            LOG(INFO) << "total mem_exceeded_block_ns=" << channel_stat.mem_exceeded_block_ns
-                      << ", total queue_push_lock_ns=" << queue_push_lock_ns
-                      << ", total actual_consume_ns=" << actual_consume_ns
-                      << ", load id=" << print_id(_load_id);
+            LOG(INFO) << "total mem_exceeded_block_ns="
+                      << writer_stats.channel_stat.mem_exceeded_block_ns
+                      << ", total queue_push_lock_ns=" << writer_stats.queue_push_lock_ns
+                      << ", total actual_consume_ns=" << writer_stats.actual_consume_ns
+                      << ", load id=" << print_id(_load_id) << ", txn_id=" << _txn_id;
 
             COUNTER_SET(_input_rows_counter, _number_input_rows);
             COUNTER_SET(_output_rows_counter, _number_output_rows);
@@ -1643,18 +1758,19 @@ Status VTabletWriter::close(Status exec_status) {
             COUNTER_SET(_send_data_timer, _send_data_ns);
             COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
             COUNTER_SET(_filter_timer, _filter_ns);
-            COUNTER_SET(_append_node_channel_timer, channel_stat.append_node_channel_ns);
-            COUNTER_SET(_where_clause_timer, channel_stat.where_clause_ns);
-            COUNTER_SET(_wait_mem_limit_timer, channel_stat.mem_exceeded_block_ns);
+            COUNTER_SET(_append_node_channel_timer,
+                        writer_stats.channel_stat.append_node_channel_ns);
+            COUNTER_SET(_where_clause_timer, writer_stats.channel_stat.where_clause_ns);
+            COUNTER_SET(_wait_mem_limit_timer, writer_stats.channel_stat.mem_exceeded_block_ns);
             COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
-            COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
-            COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);
-            COUNTER_SET(_total_add_batch_exec_timer, total_add_batch_exec_time_ns);
-            COUNTER_SET(_max_add_batch_exec_timer, max_add_batch_exec_time_ns);
-            COUNTER_SET(_total_wait_exec_timer, total_wait_exec_time_ns);
-            COUNTER_SET(_max_wait_exec_timer, max_wait_exec_time_ns);
-            COUNTER_SET(_add_batch_number, total_add_batch_num);
-            COUNTER_SET(_num_node_channels, num_node_channels);
+            COUNTER_SET(_serialize_batch_timer, writer_stats.serialize_batch_ns);
+            COUNTER_SET(_non_blocking_send_work_timer, writer_stats.actual_consume_ns);
+            COUNTER_SET(_total_add_batch_exec_timer, writer_stats.total_add_batch_exec_time_ns);
+            COUNTER_SET(_max_add_batch_exec_timer, writer_stats.max_add_batch_exec_time_ns);
+            COUNTER_SET(_total_wait_exec_timer, writer_stats.total_wait_exec_time_ns);
+            COUNTER_SET(_max_wait_exec_timer, writer_stats.max_wait_exec_time_ns);
+            COUNTER_SET(_add_batch_number, writer_stats.total_add_batch_num);
+            COUNTER_SET(_num_node_channels, writer_stats.num_node_channels);
 
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
@@ -1791,6 +1907,9 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
         for (const auto& entry : channel_to_payload[i]) {
             // if this node channel is already failed, this add_row will be skipped
             // entry.second is a [row -> tablet] mapping
+            for (const auto& tablet_id : entry.second.second) {
+                _channels[i]->update_write_tablets(tablet_id);
+            }
             auto st = entry.first->add_block(block.get(), &entry.second);
             if (!st.ok()) {
                 _channels[i]->mark_as_failed(entry.first, st.to_string());
