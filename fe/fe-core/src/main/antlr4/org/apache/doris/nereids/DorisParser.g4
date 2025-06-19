@@ -1279,7 +1279,7 @@ qualifyClause
     : QUALIFY booleanExpression
     ;
 
-selectHint: hintStatements+=hintStatement (COMMA hintStatements+=hintStatement)*;
+selectHint: hintStatements+=hintStatement (COMMA hintStatements+=hintStatement)* EOF;
 
 hintStatement
     : (LEADING | JOIN_ORDER) LEFT_PAREN tableSpecs RIGHT_PAREN                                                              #leadingHint
@@ -1289,7 +1289,7 @@ hintStatement
     | SET_VAR (LEFT_PAREN parameters+=hintAssignment (COMMA? parameters+=hintAssignment)* RIGHT_PAREN)?                     #setVarHint
     | QB_NAME LEFT_PAREN identifier? RIGHT_PAREN                                                                            #qbNameHint
     | SKEW                                                                                                                  #skewHint
-    | (PREAGG_ON | PREAGG_OFF)                                                                                              #preAggHint
+    | (PREAGG_ON | PREAGG_OFF | PREAGGOPEN)                                                                                 #preAggHint
     ;
 
 tableSpecs

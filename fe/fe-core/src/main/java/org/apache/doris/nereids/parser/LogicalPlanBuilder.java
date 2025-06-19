@@ -4174,9 +4174,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean useMv = mvHintContext.USE_MV() != null;
         List<List<String>> tableList = getTableList(mvHintContext.tableList);
         if (useMv) {
-            return new SelectHintUseMv("use_mv", tableList, true, err);
+            return new SelectHintUseMv("USE_MV", tableList, true, err);
         } else {
-            return new SelectHintUseMv("no_use_mv", tableList, false, err);
+            return new SelectHintUseMv("NO_USE_MV", tableList, false, err);
         }
     }
 
@@ -4196,7 +4196,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 parameters.put(parameterName, value);
             }
         }
-        SelectHintSetVar setVar = new SelectHintSetVar("set_var", parameters, err);
+        SelectHintSetVar setVar = new SelectHintSetVar("SET_VAR", parameters, err);
         setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
         return setVar;
     }
@@ -4215,20 +4215,20 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (err == null && !errs.isEmpty()) {
             err = StringUtils.join(errs, ",");
         }
-        return new SelectHintLeading("leading", parameters, strToHint, originalText, err);
+        return new SelectHintLeading("LEADING", parameters, strToHint, originalText, err);
     }
 
     private SelectHintOrdered createOrderedHint(String err) {
-        return new SelectHintOrdered("ordered", err);
+        return new SelectHintOrdered("ORDERED", err);
     }
 
     private SelectHintUseCboRule createCboRuleHint(DorisParser.CboRuleHintContext cboRuleHintContext, String err) {
         boolean useRule = cboRuleHintContext.USE_CBO_RULE() != null;
         List<String> rules = visitIdentifierList(cboRuleHintContext.identifierList());
         if (useRule) {
-            return new SelectHintUseCboRule("use_cbo_rule", rules, true, err);
+            return new SelectHintUseCboRule("USE_CBO_RULE", rules, false, err);
         } else {
-            return new SelectHintUseCboRule("no_use_cbo_rule", rules, false, err);
+            return new SelectHintUseCboRule("NO_USE_CBO_RULE", rules, true, err);
         }
     }
 

@@ -46,7 +46,19 @@ public class DeepCopierContext {
 
     private final Map<Optional<String>, Optional<String>> oldQbNameToNewQbName = Maps.newHashMap();
 
-    private final StatementContext statementContext = ConnectContext.get().getStatementContext();
+    private StatementContext statementContext;
+
+    /**
+     * DeepCopierContext
+     */
+    public DeepCopierContext() {
+        if (ConnectContext.get() != null) {
+            statementContext = ConnectContext.get().getStatementContext();
+        }
+        if (statementContext == null) {
+            statementContext = new StatementContext();
+        }
+    }
 
     public void putRelation(RelationId relationId, LogicalRelation newRelation) {
         relationReplaceMap.put(relationId, newRelation);
