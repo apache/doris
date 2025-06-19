@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_regexp_count") {
-    qt_basic_count1 "SELECT regexp_count('a.b:c;d', '[.:;]');"
-    qt_basic_count2 "SELECT regexp_count('a.b:c;d', '.');"
+    qt_basic_count1 "SELECT regexp_count('a.b:c;d', '[\\.:;]');"
+    qt_basic_count2 "SELECT regexp_count('a.b:c;d', '\\.');"
     qt_basic_count3 "SELECT regexp_count('a.b:c;d', ':');"
     qt_basic_count4 "SELECT regexp_count('Hello123World!', '[a-zA-Z]');"
     qt_basic_count5 "SELECT regexp_count('a1b2c3d', '[^0-9]');"
