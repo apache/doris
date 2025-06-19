@@ -100,7 +100,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
             GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
                               "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;"));
 
-    jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
+    jobject jtable_type = nullptr;
+    RETURN_IF_ERROR(_get_java_table_type(env, _conn_param.table_type, &jtable_type));
 
     JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
             jobject, executor_name, env,
@@ -110,7 +111,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     const char* executor_name_str = env->GetStringUTFChars((jstring)executor_name, nullptr);
 
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
-    env->DeleteLocalRef(jtable_type);
+
+    env->DeleteGlobalRef(jtable_type);
     env->ReleaseStringUTFChars((jstring)executor_name, executor_name_str);
 
 #undef GET_BASIC_JAVA_CLAZZ
@@ -236,6 +238,7 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
         SCOPED_RAW_TIMER(&_jdbc_statistic._has_next_timer); // Timer for hasNext check
         has_next = env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz,
                                                     _executor_has_next_id);
+        RETURN_ERROR_IF_EXC(env);
     } // _has_next_timer stops here
 
     if (has_next != JNI_TRUE) {
@@ -264,7 +267,7 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     } // _get_block_address_timer stops here
 
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteLocalRef(map);
+    env->DeleteGlobalRef(map);
 
     std::vector<uint32_t> all_columns;
     for (uint32_t i = 0; i < column_size; ++i) {
@@ -610,13 +613,17 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     return Status::OK();
 }
 
-jobject JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType) {
-    jclass enumClass = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
-    jmethodID findByValueMethod = env->GetStaticMethodID(
-            enumClass, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
-    jobject javaEnumObj =
-            env->CallStaticObjectMethod(enumClass, findByValueMethod, static_cast<jint>(tableType));
-    return javaEnumObj;
+Status JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
+                                           jobject* java_enum_obj) {
+    jclass enum_class = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
+    jmethodID find_by_value_method = env->GetStaticMethodID(
+            enum_class, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
+    jobject java_enum_local_obj = env->CallStaticObjectMethod(enum_class, find_by_value_method,
+                                                              static_cast<jint>(table_type));
+    RETURN_ERROR_IF_EXC(env);
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, java_enum_local_obj, java_enum_obj));
+    env->DeleteLocalRef(java_enum_local_obj);
+    return Status::OK();
 }
 
 std::string JdbcConnector::_get_real_url(const std::string& url) {

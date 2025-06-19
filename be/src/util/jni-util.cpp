@@ -484,8 +484,12 @@ Status JniUtil::init_jni_scanner_loader(JNIEnv* env) {
 Status JniUtil::clean_udf_class_load_cache(const std::string& function_signature) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    jstring function_signature_jstr = env->NewStringUTF(function_signature.c_str());
+    RETURN_ERROR_IF_EXC(env);
     env->CallVoidMethod(jni_scanner_loader_obj_, _clean_udf_cache_method_id,
-                        env->NewStringUTF(function_signature.c_str()));
+                        function_signature_jstr);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteLocalRef(function_signature_jstr);
     RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
@@ -493,12 +497,20 @@ Status JniUtil::clean_udf_class_load_cache(const std::string& function_signature
 Status JniUtil::get_jni_scanner_class(JNIEnv* env, const char* classname,
                                       jclass* jni_scanner_class) {
     // Get JNI scanner class by class name;
-    jobject loaded_class_obj = env->CallObjectMethod(
-            jni_scanner_loader_obj_, jni_scanner_loader_method_, env->NewStringUTF(classname));
+    jstring class_name_str = env->NewStringUTF(classname);
     RETURN_ERROR_IF_EXC(env);
+
+    jobject loaded_class_obj = env->CallObjectMethod(jni_scanner_loader_obj_,
+                                                     jni_scanner_loader_method_, class_name_str);
+    RETURN_ERROR_IF_EXC(env);
+
     *jni_scanner_class = reinterpret_cast<jclass>(env->NewGlobalRef(loaded_class_obj));
     RETURN_ERROR_IF_EXC(env);
+
     env->DeleteLocalRef(loaded_class_obj);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteLocalRef(class_name_str);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 

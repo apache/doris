@@ -142,7 +142,7 @@ public:
                               cast_set<int>(row_num_start), cast_set<int>(row_num_end),
                               places_address, cast_set<int>(place_offset), input_map);
         RETURN_ERROR_IF_EXC(env);
-        env->DeleteLocalRef(input_map);
+        env->DeleteGlobalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -211,7 +211,7 @@ public:
         long output_address =
                 env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
         RETURN_ERROR_IF_EXC(env);
-        env->DeleteLocalRef(output_map);
+        env->DeleteGlobalRef(output_map);
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         return JniConnector::fill_block(&output_block, {0}, output_address);
     }
