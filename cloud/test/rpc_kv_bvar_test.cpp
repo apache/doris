@@ -2807,9 +2807,9 @@ TEST(RpcKvBvarTest, GetCurrentMaxTxnId) {
     GetCurrentMaxTxnResponse max_txn_id_res;
 
     std::unique_ptr<Transaction> txn;
-    auto _ = mem_kv->create_txn(&txn);
+    auto err = mem_kv->create_txn(&txn);
     txn->put("schema change", "val");
-    _ = txn->commit();
+    err = txn->commit();
 
     max_txn_id_req.set_cloud_unique_id(cloud_unique_id);
 
