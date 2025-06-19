@@ -29,6 +29,7 @@
 namespace doris::vectorized {
 // This test aim to make sense for text serde of data types.
 //  we use default formatOption and special formatOption to equal serde for wrapperField.
+using string = std::string;
 TEST(TestSerdeText, ScalaDataTypeSerdeTextTest) {
     // arithmetic scala field types
     {
