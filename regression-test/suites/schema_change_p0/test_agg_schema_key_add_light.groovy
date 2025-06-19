@@ -109,6 +109,10 @@ suite("test_agg_schema_key_add_light", "p0") {
     }, "", false, "${tbName1}")
     checkAddKey(true)
 
+    qt_sql """ select * from ${tbName1} where user_id = 234567890 and light_mid = 'light_mid' """
+
+    qt_sql """ select * from ${tbName1} where user_id = 234567890; """
+
     // a heavy schema change after light schema change without writing.
     sql """ alter  table ${tbName1} add column heavy_mid VARCHAR(16) KEY DEFAULT "heavy_mid" AFTER `user_id`; """
     waitForSchemaChangeDone({
