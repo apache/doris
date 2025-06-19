@@ -20,18 +20,9 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.exceptions.MustFallbackException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -57,35 +48,35 @@ public class StmtExecutorTest extends TestWithFeService {
     public void testShowNull() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKill() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillOtherFail() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1000");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testKillNoCtx() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "kill 1");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testSet() throws Exception {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
@@ -97,35 +88,35 @@ public class StmtExecutorTest extends TestWithFeService {
                 + "                + \"   \\\"catalog\\\" = \\\"kafka\\\"\\n\"\n"
                 + "                + \");");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUse() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalog() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
     @Test
     public void testUseWithCatalogFail() throws Exception {
         StmtExecutor executor = new StmtExecutor(connectContext, "use internal.nondb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, connectContext.getState().getStateType());
     }
 
     @Test
@@ -144,7 +135,7 @@ public class StmtExecutorTest extends TestWithFeService {
         } catch (Exception ignore) {
             // do nothing
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "AlterStmt, CreateFileCommand";
@@ -156,7 +147,7 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         Config.block_sql_ast_names = "CreateFunctionStmt, CreateFileCommand";
@@ -171,18 +162,18 @@ public class StmtExecutorTest extends TestWithFeService {
             executor.execute();
         } catch (Exception ignore) {
             ignore.printStackTrace();
-            Assert.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
+            Assertions.assertTrue(ignore.getMessage().contains("SQL is blocked with AST name: CreateFileCommand"));
         }
 
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
 
         Config.block_sql_ast_names = "";
         StmtExecutor.initBlockSqlAstNames();
         executor = new StmtExecutor(connectContext, "use testDb");
         executor.execute();
-        Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+        Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
     }
 
 }
