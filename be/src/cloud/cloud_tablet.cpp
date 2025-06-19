@@ -543,27 +543,33 @@ void CloudTablet::add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets
 }
 
 void CloudTablet::remove_unused_rowsets() {
-    int64_t removed_rowsets_num = 0;
+    std::vector<std::shared_ptr<Rowset>> removed_rowsets;
     OlapStopWatch watch;
-    std::lock_guard<std::mutex> lock(_gc_mutex);
+
+    {
+        std::lock_guard<std::mutex> lock(_gc_mutex);
+        // 1. remove unused rowsets's cache data and delete bitmap
+        for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
+            auto& rs = it->second;
+            if (rs.use_count() > 1) {
+                LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id()
+                             << " has " << rs.use_count() << " references, it cannot be removed";
+                ++it;
+                continue;
+            }
+            tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            rs->clear_cache();
+            removed_rowsets.push_back(std::move(rs));
+            g_unused_rowsets_count << -1;
+            it = _unused_rowsets.erase(it);
+        }
+    }
+
     std::vector<RowsetId> rowset_ids;
     std::vector<int64_t> num_segments;
     std::vector<std::vector<std::string>> index_file_names;
-    // 1. remove unused rowsets's cache data and delete bitmap
-    for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-        std::shared_ptr<Rowset> rs = it->second;
-        if (rs.use_count() > 1) {
-            LOG(WARNING) << "tablet_id:" << tablet_id() << " rowset: " << rs->rowset_id() << " has "
-                         << rs.use_count() << " references, it cannot be removed";
-            ++it;
-            continue;
-        }
-        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
-        rs->clear_cache();
-        it = _unused_rowsets.erase(it);
-        g_unused_rowsets_count << -1;
-        removed_rowsets_num++;
 
+    for (auto& rs : removed_rowsets) {
         rowset_ids.push_back(rs->rowset_id());
         num_segments.push_back(rs->num_segments());
         auto index_names = rs->get_index_file_names();
@@ -576,14 +582,16 @@ void CloudTablet::remove_unused_rowsets() {
         g_file_cache_recycle_cached_data_segment_size << segment_size_sum;
         g_file_cache_recycle_cached_data_index_num << index_names.size();
     }
-    if (!rowset_ids.empty()) {
+
+    if (removed_rowsets.size() > 0) {
         auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
         manager.recycle_cache(tablet_id(), rowset_ids, num_segments, index_file_names);
-    }
 
-    LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
-              << ", removed_rowsets_num=" << removed_rowsets_num
-              << ", cost(us)=" << watch.get_elapse_time_us();
+        LOG(INFO) << "tablet_id=" << tablet_id()
+                  << ", unused_rowset size=" << _unused_rowsets.size()
+                  << ", removed_rowsets_num=" << removed_rowsets.size()
+                  << ", cost(us)=" << watch.get_elapse_time_us();
+    }
 }
 
 void CloudTablet::update_base_size(const Rowset& rs) {
