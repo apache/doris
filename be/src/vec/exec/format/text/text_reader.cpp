@@ -21,6 +21,9 @@
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 
+#include <cstddef>
+#include <vector>
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exec/line_reader.h"
@@ -41,18 +44,62 @@ namespace doris::vectorized {
 void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
     const size_t size = line.size;
-    size_t value_start = 0;
-    for (size_t i = 0; i < size; ++i) {
-        if (data[i] == _value_sep[0]) {
-            // hive will escape the field separator in string
-            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
-                continue;
+    if (_value_sep_len == 1) {
+        size_t value_start = 0;
+        for (size_t i = 0; i < size; ++i) {
+            if (data[i] == _value_sep[0]) {
+                // hive will escape the field separator in string
+                if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
+                    continue;
+                }
+                process_value_func(data, value_start, i - value_start, _trimming_char,
+                                   splitted_values);
+                value_start = i + _value_sep_len;
             }
-            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
-            value_start = i + _value_sep_len;
         }
+        process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
+    } else {
+        size_t start = 0;
+        size_t curpos = 0;
+
+        std::vector<int> next(_value_sep_len);
+        next[0] = -1;
+        for (int i = 1, j = -1; i < _value_sep_len; i++) {
+            while (j > -1 && _value_sep[i] != _value_sep[j + 1]) {
+                j = next[j];
+            }
+            if (_value_sep[i] == _value_sep[j + 1]) {
+                j++;
+            }
+            next[i] = j;
+        }
+
+        // KMP search
+        for (int i = 0, j = -1; i < size; i++) {
+            while (j > -1 && data[i] != _value_sep[j + 1]) {
+                j = next[j];
+            }
+            if (data[i] == _value_sep[j + 1]) {
+                j++;
+            }
+            if (j == _value_sep_len - 1) {
+                curpos = i - _value_sep_len + 1;
+                if (_escape_char != 0 && curpos > 0 && data[curpos - 1] == _escape_char) {
+                    j = next[j];
+                    continue;
+                }
+
+                if (curpos >= start) {
+                    process_value_func(data, start, curpos - start, _trimming_char,
+                                       splitted_values);
+                    start = i + 1;
+                }
+
+                j = next[j];
+            }
+        }
+        process_value_func(data, start, size - start, _trimming_char, splitted_values);
     }
-    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
 }
 
 TextReader::TextReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,

@@ -431,6 +431,8 @@ public class HiveScanNode extends FileQueryScanNode {
                 type = TFileFormatType.FORMAT_TEXT;
             } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_CSV_SERDE)) {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
             } else {
                 throw new UserException("Unsupported hive table serde: " + serDeLib);
             }
@@ -456,6 +458,25 @@ public class HiveScanNode extends FileQueryScanNode {
             // set properties of LazySimpleSerDe
             // 1. set column separator
             textParams.setColumnSeparator(HiveProperties.getFieldDelimiter(table));
+            // 2. set line delimiter
+            textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
+            // 3. set mapkv delimiter
+            textParams.setMapkvDelimiter(HiveProperties.getMapKvDelimiter(table));
+            // 4. set collection delimiter
+            textParams.setCollectionDelimiter(HiveProperties.getCollectionDelimiter(table));
+            // 5. set escape delimiter
+            HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
+            // 6. set null format
+            textParams.setNullFormat(HiveProperties.getNullFormat(table));
+            fileAttributes.setTextParams(textParams);
+            fileAttributes.setHeaderType("");
+            fileAttributes.setEnableTextValidateUtf8(
+                    sessionVariable.enableTextValidateUtf8);
+        } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_MULTI_DELIMIT_SERDE)) {
+            TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+            // set properties of MultiDelimitSerDe
+            // 1. set column separator (support multi-character delimiters)
+            textParams.setColumnSeparator(HiveProperties.getMultiDelimitFieldDelimiter(table));
             // 2. set line delimiter
             textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
             // 3. set mapkv delimiter
