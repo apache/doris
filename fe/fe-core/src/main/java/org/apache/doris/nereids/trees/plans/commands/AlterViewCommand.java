@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -43,13 +42,16 @@ public class AlterViewCommand extends Command implements ForwardWithSync {
         if (alterViewInfo.getComment() == null) {
             alterViewInfo.validate(ctx);
         }
-        AlterViewStmt alterViewStmt = alterViewInfo.translateToLegacyStmt(ctx);
-        Env.getCurrentEnv().alterView(alterViewStmt);
+        Env.getCurrentEnv().alterView(this);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitAlterViewCommand(this, context);
+    }
+
+    public AlterViewInfo getAlterViewInfo() {
+        return alterViewInfo;
     }
 
     @Override

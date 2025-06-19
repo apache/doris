@@ -205,6 +205,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusComman
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -212,8 +213,6 @@ import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
-import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -4939,6 +4938,13 @@ public class Env {
 
     public void alterTable(AlterTableCommand command) throws UserException {
         this.alter.processAlterTable(command);
+    }
+
+    /**
+     * used for handling AlterViewCommand
+     */
+    public void alterView(AlterViewCommand command) throws UserException {
+        this.alter.processAlterView(command, ConnectContext.get());
     }
 
     /**

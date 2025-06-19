@@ -17,9 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.ColWithComment;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -33,8 +32,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -89,24 +86,20 @@ public class AlterViewInfo extends BaseViewInfo {
         createFinalCols(outputs);
     }
 
-    /**translateToLegacyStmt*/
-    public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
-        if (querySql == null) {
-            return new AlterViewStmt(viewName.transferToTableName(), comment);
-        }
-        // expand star(*) in project list and replace table name with qualifier
+    public String translateInlineViewDef(ConnectContext ctx) {
         String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
         checkViewSql(rewrittenSql);
-        List<ColWithComment> cols = Lists.newArrayList();
-        for (SimpleColumnDefinition def : simpleColumnDefinitions) {
-            cols.add(def.translateToColWithComment());
-        }
-        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, null, comment);
-        alterViewStmt.setInlineViewDef(rewrittenSql);
-        alterViewStmt.setFinalColumns(finalCols);
-        return alterViewStmt;
+        return rewrittenSql;
+    }
+
+    public TableNameInfo getTableNameInfo() {
+        return viewName;
+    }
+
+    public List<Column> getColumns() {
+        return finalCols;
     }
 
     public String getComment() {
