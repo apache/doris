@@ -1004,8 +1004,9 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "alter_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -1523,8 +1524,9 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
 TEST(MetaServiceHttpTest, get_stage_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                          [&](...) { sp->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
 
     GetStageResponse res;
     auto* stage = res.add_stage();
@@ -1557,8 +1559,9 @@ TEST(MetaServiceHttpTest, get_stage_response_sk) {
 TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                          [&](...) { sp->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
 
     GetObjStoreInfoResponse res;
     auto* obj_info = res.add_obj_info();

@@ -95,8 +95,9 @@ v v             v                                 v                 v           
 
     // test empty body branch
     auto sp = doris::SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("process_http_encode_key::empty_body", [](auto&& args) {
         auto* body = doris::try_any_cast<std::string*>(args[0]);
         body->clear();

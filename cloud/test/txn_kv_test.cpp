@@ -284,8 +284,9 @@ TEST(TxnKvTest, PutLargeValueTest) {
     auto txn_kv = std::make_shared<MemTxnKv>();
 
     auto sp = doris::SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->enable_processing();
 
     doris::TabletSchemaCloudPB schema;
@@ -573,8 +574,9 @@ TEST(TxnKvTest, FullRangeGetIterator) {
     encode_int64(INT64_MAX, &end);
 
     auto* sp = doris::SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { doris::SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        doris::SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->enable_processing();
 
     {

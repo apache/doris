@@ -114,8 +114,9 @@ TEST(DetachSchemaKVTest, TabletTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -396,8 +397,9 @@ TEST(DetachSchemaKVTest, RowsetTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -527,9 +529,9 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         }
         // check get rowset response
         auto get_rowset_res = google::protobuf::Arena::CreateMessage<GetRowsetResponse>(arena);
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (!arena) delete get_rowset_res;
-        });
+        };
         get_rowset(meta_service.get(), table_id, index_id, partition_id, tablet_id,
                    *get_rowset_res);
         ASSERT_EQ(get_rowset_res->rowset_meta_size(), schema_versions.size());
@@ -578,8 +580,9 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -633,9 +636,9 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
                                               tablet_id, next_rowset_id(), 1));
         auto committed_rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), 2, 2);
         auto res = google::protobuf::Arena::CreateMessage<CreateRowsetResponse>(arena);
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (!arena) delete res;
-        });
+        };
         prepare_rowset(meta_service.get(), committed_rowset, *res);
         ASSERT_EQ(res->status().code(), MetaServiceCode::OK);
         res->Clear();
@@ -671,8 +674,9 @@ TEST(SchemaKVTest, InsertExistedRowsetTest) {
     // meta_service->resource_mgr().reset(); // Do not use resource manager
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
