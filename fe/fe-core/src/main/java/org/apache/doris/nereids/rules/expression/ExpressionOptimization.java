@@ -25,8 +25,8 @@ import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
-import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
@@ -47,8 +47,8 @@ public class ExpressionOptimization extends ExpressionRewrite {
                 SimplifyComparisonPredicate.INSTANCE,
                 SimplifyInPredicate.INSTANCE,
                 SimplifyDecimalV3Comparison.INSTANCE,
-                OrToIn.INSTANCE,
                 SimplifyRange.INSTANCE,
+                SimplifyConflictCompound.INSTANCE,
                 DateFunctionRewrite.INSTANCE,
                 ArrayContainToArrayOverlap.INSTANCE,
                 CaseWhenToIf.INSTANCE,

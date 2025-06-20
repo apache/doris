@@ -70,10 +70,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -123,18 +125,24 @@ public class ExpressionUtils {
 
     private static List<Expression> extract(Class<? extends Expression> type, Expression expr) {
         List<Expression> result = Lists.newArrayList();
-        extract(type, expr, result);
+        Deque<Expression> stack = new ArrayDeque<>();
+        stack.push(expr);
+        while (!stack.isEmpty()) {
+            Expression current = stack.pop();
+            if (type.isInstance(current)) {
+                for (Expression child : current.children()) {
+                    stack.push(child);
+                }
+            } else {
+                result.add(current);
+            }
+        }
+        result = Lists.reverse(result);
         return result;
     }
 
     private static void extract(Class<? extends Expression> type, Expression expr, Collection<Expression> result) {
-        if (type.isInstance(expr)) {
-            CompoundPredicate predicate = (CompoundPredicate) expr;
-            extract(type, predicate.left(), result);
-            extract(type, predicate.right(), result);
-        } else {
-            result.add(expr);
-        }
+        result.addAll(extract(type, expr));
     }
 
     public static Optional<Pair<Slot, Slot>> extractEqualSlot(Expression expr) {
@@ -775,8 +783,7 @@ public class ExpressionUtils {
     public static ImmutableMap<Slot, Expression> extractUniformSlot(Expression expression) {
         ImmutableMap.Builder<Slot, Expression> builder = new ImmutableMap.Builder<>();
         if (expression instanceof And) {
-            builder.putAll(extractUniformSlot(expression.child(0)));
-            builder.putAll(extractUniformSlot(expression.child(1)));
+            expression.children().forEach(child -> builder.putAll(extractUniformSlot(child)));
         }
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
@@ -1008,5 +1015,34 @@ public class ExpressionUtils {
             }
         }
         return true;
+    }
+
+    /**
+     * mergeList
+     */
+    public static List<Expression> mergeList(List<Expression> list1, List<Expression> list2) {
+        ImmutableList.Builder<Expression> builder = ImmutableList.builder();
+        for (Expression expression : list1) {
+            if (expression != null) {
+                builder.add(expression);
+            }
+        }
+        for (Expression expression : list2) {
+            if (expression != null) {
+                builder.add(expression);
+            }
+        }
+        return builder.build();
+    }
+
+    /**
+     * OR expression, also remove duplicate expression, boolean literal
+     */
+    public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
+        if (values.size() < 2) {
+            return or(values.stream().map(value -> new EqualTo(reference, value)).collect(Collectors.toList()));
+        } else {
+            return new InPredicate(reference, ImmutableList.copyOf(values));
+        }
     }
 }
