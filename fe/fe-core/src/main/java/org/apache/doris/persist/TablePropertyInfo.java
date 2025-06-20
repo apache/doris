@@ -18,13 +18,10 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -77,30 +74,8 @@ public class TablePropertyInfo implements Writable {
     }
 
     public static TablePropertyInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_119) {
-            TablePropertyInfo info = new TablePropertyInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TablePropertyInfo.class);
-        }
-    }
-
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        tableId = in.readLong();
-        if (in.readBoolean()) {
-            groupId = GroupId.read(in);
-        }
-
-        int size = in.readInt();
-        propertyMap = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            propertyMap.put(key, value);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TablePropertyInfo.class);
     }
 
     @Override

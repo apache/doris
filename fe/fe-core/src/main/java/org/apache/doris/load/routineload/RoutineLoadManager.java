@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
-import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -467,40 +466,6 @@ public class RoutineLoadManager implements Writable {
                 // if user want to pause a certain job and failed, return error.
                 // if user want to pause all possible jobs, skip error jobs.
                 if (!pauseRoutineLoadStmt.isAll()) {
-                    throw e;
-                }
-                continue;
-            }
-        }
-    }
-
-    public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
-
-        List<RoutineLoadJob> jobs = Lists.newArrayList();
-        if (resumeRoutineLoadStmt.isAll()) {
-            jobs = checkPrivAndGetAllJobs(resumeRoutineLoadStmt.getDbFullName());
-        } else {
-            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
-                    resumeRoutineLoadStmt.getName());
-            jobs.add(routineLoadJob);
-        }
-
-        for (RoutineLoadJob routineLoadJob : jobs) {
-            try {
-                routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
-                routineLoadJob.autoResumeCount = 0;
-                routineLoadJob.latestResumeTimestamp = 0;
-                routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
-                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                        .add("current_state", routineLoadJob.getState())
-                        .add("user", ConnectContext.get().getQualifiedUser())
-                        .add("msg", "routine load job has been resumed by user")
-                        .build());
-            } catch (UserException e) {
-                LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
-                // if user want to resume a certain job and failed, return error.
-                // if user want to resume all possible jobs, skip error jobs.
-                if (!resumeRoutineLoadStmt.isAll()) {
                     throw e;
                 }
                 continue;
