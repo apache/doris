@@ -89,9 +89,17 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     }
 
     @Override
+    public Expression getSubqueryOutput() {
+        // `t1.a  > (select t2.x from t2 limit 1)`,
+        // the output is t2.x, even if t2.x is not null, when t2 output 0 line, t2.x still be null.
+        // make the output nullable
+        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0).withNullable(true));
+    }
+
+    @Override
     public DataType getDataType() throws UnboundException {
         Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
-        return typeCoercionExpr.orElse(queryPlan.getOutput().get(0)).getDataType();
+        return getSubqueryOutput().getDataType();
     }
 
     @Override
@@ -110,10 +118,11 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
 
     @Override
     public Expression withTypeCoercion(DataType dataType) {
-        return new ScalarSubquery(queryPlan, correlateSlots,
-                dataType == queryPlan.getOutput().get(0).getDataType()
-                    ? Optional.of(queryPlan.getOutput().get(0))
-                    : Optional.of(new Cast(queryPlan.getOutput().get(0), dataType)), limitOneIsEliminated);
+        Optional<Expression> newTypeCoercionExpr = typeCoercionExpr;
+        if (!getDataType().equals(dataType)) {
+            newTypeCoercionExpr = Optional.of(new Cast(getSubqueryOutput(), dataType));
+        }
+        return new ScalarSubquery(queryPlan, correlateSlots, newTypeCoercionExpr, limitOneIsEliminated);
     }
 
     @Override
