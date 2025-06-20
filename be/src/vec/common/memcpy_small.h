@@ -50,6 +50,7 @@
   */
 
 namespace doris::vectorized::detail {
+#include "common/compile_check_begin.h"
 inline void memcpy_small_allow_read_write_overflow15_impl(char* __restrict dst,
                                                           const char* __restrict src, ssize_t n) {
     while (n > 0) {
@@ -122,4 +123,5 @@ inline void memcpy_small<2>(char* lhs, const char* rhs, size_t n) {
     } else {
         memcpy_fixed<uint8_t>(lhs, rhs);
     }
+#include "common/compile_check_end.h"
 }

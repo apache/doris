@@ -26,6 +26,7 @@
 #include "vec/common/bit_helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class ArenaWithFreeLists : private Allocator<false>, private boost::noncopyable {
 private:
@@ -100,4 +101,5 @@ public:
     size_t allocated_bytes() const { return pool.size(); }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

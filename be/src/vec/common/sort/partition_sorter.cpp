@@ -29,6 +29,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowDescriptor;
 class RuntimeProfile;
 class RuntimeState;
@@ -205,4 +206,5 @@ Status PartitionSorter::_read_row_rank(Block* output_block, bool* eos, int batch
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
