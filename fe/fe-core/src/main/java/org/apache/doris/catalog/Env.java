@@ -314,6 +314,7 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -563,6 +564,8 @@ public class Env {
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
+
+    private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
@@ -974,6 +977,10 @@ public class Env {
 
     public DNSCache getDnsCache() {
         return dnsCache;
+    }
+
+    public List<String> getForceSkipJournalIds() {
+        return forceSkipJournalIds;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -2849,7 +2856,19 @@ public class Env {
             Long logId = kv.first;
             JournalEntity entity = kv.second;
             if (entity == null) {
-                break;
+                if (logId != null && forceSkipJournalIds.contains(String.valueOf(logId))) {
+                    replayedJournalId.incrementAndGet();
+                    String msg = "journal " + replayedJournalId + " has skipped by config force_skip_journal_id";
+                    LOG.info(msg);
+                    LogUtils.stdout(msg);
+                    if (MetricRepo.isInit) {
+                        // Metric repo may not init after this replay thread start
+                        MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+                    }
+                    continue;
+                } else {
+                    break;
+                }
             }
             hasLog = true;
             EditLog.loadJournal(this, logId, entity);
