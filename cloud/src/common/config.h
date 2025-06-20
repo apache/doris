@@ -104,6 +104,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 // **just for TEST**
 CONF_Bool(force_immediate_recycle, "false");
 
+CONF_mBool(enable_mow_compaction_key_check, "false");
+CONF_mInt64(compaction_key_check_expiration_diff_seconds, "600"); // 10min
+
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
 CONF_String(test_s3_endpoint, "");
@@ -273,6 +276,12 @@ CONF_Bool(enable_check_instance_id, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");
+
+// delete_bitmap_lock version config
+CONF_mString(use_delete_bitmap_lock_version, "v1");
+// FOR DEBUGGING
+CONF_mBool(use_delete_bitmap_lock_random_version, "false");
+
 // Which vaults should be recycled. If empty, recycle all vaults.
 // Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
 CONF_Strings(recycler_storage_vault_white_list, "");
