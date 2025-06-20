@@ -37,8 +37,8 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.plugin.AuditEvent;
@@ -168,8 +168,8 @@ public class AuditLogHelper {
         for (Plan child : children) {
             if (child instanceof UnboundOneRowRelation) {
                 cnt++;
-            } else if (child instanceof LogicalInlineTable) {
-                cnt += ((LogicalInlineTable) child).getConstantExprsList().size();
+            } else if (child instanceof InlineTable) {
+                cnt += ((InlineTable) child).getConstantExprsList().size();
             } else if (child instanceof LogicalUnion) {
                 cnt += countValues(child.children());
             }

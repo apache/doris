@@ -43,6 +43,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
@@ -82,7 +83,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new HavingExpressionRewrite().build());
     }
 
-    private class GenerateExpressionRewrite extends OneRewriteRuleFactory {
+    /** GenerateExpressionRewrite */
+    public class GenerateExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalGenerate().thenApply(ctx -> {
@@ -100,7 +102,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class OneRowRelationExpressionRewrite extends OneRewriteRuleFactory {
+    /** OneRowRelationExpressionRewrite */
+    public class OneRowRelationExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalOneRowRelation().thenApply(ctx -> {
@@ -108,19 +111,25 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<NamedExpression> projects = oneRowRelation.getProjects();
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
 
-                List<NamedExpression> newProjects = projects
-                        .stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr, context))
-                        .collect(ImmutableList.toImmutableList());
-                if (projects.equals(newProjects)) {
-                    return oneRowRelation;
+                Builder<NamedExpression> rewrittenExprs
+                        = ImmutableList.builderWithExpectedSize(projects.size());
+                boolean changed = false;
+                for (NamedExpression project : projects) {
+                    NamedExpression newProject = (NamedExpression) rewriter.rewrite(project, context);
+                    if (!changed && !project.deepEquals(newProject)) {
+                        changed = true;
+                    }
+                    rewrittenExprs.add(newProject);
                 }
-                return new LogicalOneRowRelation(oneRowRelation.getRelationId(), newProjects);
+                return changed
+                        ? new LogicalOneRowRelation(oneRowRelation.getRelationId(), rewrittenExprs.build())
+                        : oneRowRelation;
             }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
         }
     }
 
-    private class ProjectExpressionRewrite extends OneRewriteRuleFactory {
+    /** ProjectExpressionRewrite */
+    public class ProjectExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalProject().thenApply(ctx -> {
@@ -136,7 +145,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class FilterExpressionRewrite extends OneRewriteRuleFactory {
+    /** FilterExpressionRewrite */
+    public class FilterExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalFilter().thenApply(ctx -> {
@@ -152,7 +162,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class AggExpressionRewrite extends OneRewriteRuleFactory {
+    /** AggExpressionRewrite */
+    public class AggExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalAggregate().thenApply(ctx -> {
@@ -172,7 +183,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class JoinExpressionRewrite extends OneRewriteRuleFactory {
+    /** JoinExpressionRewrite */
+    public class JoinExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalJoin().thenApply(ctx -> {
@@ -227,7 +239,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class SortExpressionRewrite extends OneRewriteRuleFactory {
+    /** SortExpressionRewrite */
+    public class SortExpressionRewrite extends OneRewriteRuleFactory {
 
         @Override
         public Rule build() {
@@ -248,7 +261,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class HavingExpressionRewrite extends OneRewriteRuleFactory {
+    /** HavingExpressionRewrite */
+    public class HavingExpressionRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalHaving().thenApply(ctx -> {
@@ -264,7 +278,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class LogicalRepeatRewrite extends OneRewriteRuleFactory {
+    /** LogicalRepeatRewrite */
+    public class LogicalRepeatRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalRepeat().thenApply(ctx -> {

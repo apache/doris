@@ -26,19 +26,22 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.NoForward;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -69,16 +72,34 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
 
     public static final Logger LOG = LogManager.getLogger(BatchInsertIntoTableCommand.class);
 
-    private LogicalPlan logicalQuery;
+    private LogicalPlan originLogicalQuery;
+    private Optional<LogicalPlan> logicalQuery;
 
     public BatchInsertIntoTableCommand(LogicalPlan logicalQuery) {
         super(PlanType.BATCH_INSERT_INTO_TABLE_COMMAND);
-        this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
+        this.originLogicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
+        this.logicalQuery = Optional.empty();
+    }
+
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery.orElse(originLogicalQuery);
     }
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) throws Exception {
-        return InsertUtils.getPlanForExplain(ctx, this.logicalQuery);
+        Optional<CascadesContext> analyzeContext = Optional.of(
+                CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
+        );
+        return InsertUtils.getPlanForExplain(ctx, analyzeContext, getLogicalQuery());
+    }
+
+    @Override
+    public Optional<NereidsPlanner> getExplainPlanner(LogicalPlan logicalPlan, StatementContext ctx) throws Exception {
+        ConnectContext connectContext = ctx.getConnectContext();
+        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, connectContext);
+        boolean supportFastInsertIntoValues
+                = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, connectContext);
+        return Optional.of(new FastInsertIntoValuesPlanner(ctx, supportFastInsertIntoValues));
     }
 
     @Override
@@ -88,19 +109,32 @@ public class BatchInsertIntoTableCommand extends Command implements NoForward, E
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) logicalQuery;
+        UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) originLogicalQuery;
         Plan query = unboundTableSink.child();
-        if (!(query instanceof LogicalInlineTable)) {
+        if (!(query instanceof InlineTable)) {
             throw new AnalysisException("Insert into ** select is not supported in a transaction");
         }
 
         PhysicalOlapTableSink<?> sink;
-        TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
+        TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         targetTableIf.readLock();
         try {
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+            StatementContext statementContext = ctx.getStatementContext();
+            Optional<CascadesContext> analyzeContext = Optional.of(
+                    CascadesContext.initContext(statementContext, originLogicalQuery, PhysicalProperties.ANY)
+            );
+
+            this.logicalQuery = Optional.of((LogicalPlan) InsertUtils.normalizePlan(
+                originLogicalQuery, targetTableIf, analyzeContext, Optional.empty()
+            ));
+
+            LogicalPlan logicalQuery = this.logicalQuery.get();
+            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, statementContext);
+
+            boolean supportFastInsertIntoValues
+                    = InsertUtils.supportFastInsertIntoValues(logicalQuery, targetTableIf, ctx);
+            FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
+                    statementContext, supportFastInsertIntoValues, true);
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.checkBlockRules();
             if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {

@@ -33,9 +33,9 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -134,9 +134,9 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
                     && ((OlapInsertCommandContext) insertCtx.get()).isOverwrite()), () -> "is overwrite command"));
             Plan tableSinkChild = tableSink.child();
             conditions.add(Pair.of(
-                    () -> tableSinkChild instanceof OneRowRelation || (tableSinkChild instanceof LogicalUnion
-                            && tableSinkChild.getExpressions().size() > 0)
-                            || tableSinkChild instanceof LogicalInlineTable,
+                    () -> tableSinkChild instanceof OneRowRelation
+                            || (tableSinkChild instanceof LogicalUnion && tableSinkChild.getExpressions().size() > 0)
+                            || tableSinkChild instanceof InlineTable,
                     () -> "should be one row relation or union or inline table, class: "
                             + tableSinkChild.getClass().getName() + (tableSinkChild instanceof LogicalUnion
                             ? ", expression size is 0" : "")));
