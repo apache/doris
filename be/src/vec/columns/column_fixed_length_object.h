@@ -217,7 +217,7 @@ public:
         return pos;
     }
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         if (limit == 0) {
             limit = size();
         } else {
