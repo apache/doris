@@ -1711,7 +1711,7 @@ bool strtox(const std::string& valstr, std::string& retval) {
 }
 
 template <typename T>
-bool convert(const std::string key, const std::string& value, T& retval) {
+bool convert(std::string_view key, const std::string& value, T& retval) {
     std::string valstr(value);
     trim(valstr);
     if (!replaceenv(key, valstr)) {
