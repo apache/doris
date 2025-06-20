@@ -871,9 +871,7 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
 
 TabletSchema::TabletSchema() = default;
 
-TabletSchema::~TabletSchema() {
-    clear_column_cache_handlers();
-}
+TabletSchema::~TabletSchema() = default;
 
 int64_t TabletSchema::get_metadata_size() const {
     return sizeof(TabletSchema) + _vl_field_mem_size;
