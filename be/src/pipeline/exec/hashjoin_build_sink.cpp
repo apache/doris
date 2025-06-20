@@ -161,17 +161,6 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
             });
             vectorized::ColumnUInt8::MutablePtr null_map_val;
-            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
-                converted_columns = _convert_block_to_null(block);
-                // first row is mocked
-                for (int i = 0; i < block.columns(); i++) {
-                    auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
-                            ->get_null_map_column()
-                            .get_data()
-                            .data()[0] = 1;
-                }
-            }
 
             null_map_val = vectorized::ColumnUInt8::create();
             null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
@@ -372,17 +361,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
     vectorized::ColumnUInt8::MutablePtr null_map_val;
-    if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-        // first row is mocked
-        for (int i = 0; i < block.columns(); i++) {
-            auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .data()[0] = 1;
-        }
-    }
 
     _set_build_side_has_external_nullmap(block, _build_col_ids);
     if (_build_side_has_external_nullmap) {
