@@ -18,9 +18,9 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -37,24 +37,21 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/data_types/serde/data_type_string_serde.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class BufferWritable;
 class IColumn;
 class ReadBuffer;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-#include "common/compile_check_begin.h"
 class DataTypeJsonb final : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = JsonbField;
+    static constexpr PrimitiveType PType = TYPE_JSONB;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "JSONB"; }
-    TypeIndex get_type_id() const override { return TypeIndex::JSONB; }
+    const std::string get_family_name() const override { return "JSONB"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
@@ -68,18 +65,24 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    virtual Field get_default() const override {
+    Field get_default() const override {
         std::string default_json = "null";
-        JsonBinaryValue binary_val(default_json.c_str(), static_cast<Int32>(default_json.size()));
+        // convert default_json to binary
+        JsonBinaryValue jsonb_value;
+        THROW_IF_ERROR(jsonb_value.from_json_string(default_json));
         // Throw exception if default_json.size() is large than INT32_MAX
-        return JsonbField(binary_val.value(), cast_set<Int32>(binary_val.size()));
+        // JsonbField keeps its own memory
+        return Field::create_field<TYPE_JSONB>(
+                JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
     }
 
     Field get_field(const TExprNode& node) const override {
         DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
         DCHECK(node.__isset.json_literal);
-        JsonBinaryValue value(node.json_literal.value);
-        return Field(String(value.value(), value.size()));
+        JsonBinaryValue jsonb_value;
+        THROW_IF_ERROR(jsonb_value.from_json_string(node.json_literal.value));
+        return Field::create_field<TYPE_JSONB>(
+                JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size())));
     }
 
     bool equals(const IDataType& rhs) const override;

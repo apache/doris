@@ -23,7 +23,7 @@ using namespace ut_type;
 
 TEST_F(FunctionCastTest, test_from_int_to_bool) {
     {
-        InputTypeSet input_types = {TypeIndex::Int32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_INT};
         DataSet data_set = {
                 {{Int32 {1}}, UInt8(1)},
                 {{Int32 {0}}, UInt8(0)},
@@ -32,7 +32,7 @@ TEST_F(FunctionCastTest, test_from_int_to_bool) {
         check_function_for_cast<DataTypeBool>(input_types, data_set);
     }
     {
-        InputTypeSet input_types = {TypeIndex::Int64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BIGINT};
         DataSet data_set = {
                 {{Int64 {1}}, UInt8(1)},
                 {{Int64 {0}}, UInt8(0)},
@@ -41,7 +41,7 @@ TEST_F(FunctionCastTest, test_from_int_to_bool) {
         check_function_for_cast<DataTypeBool>(input_types, data_set);
     }
     {
-        InputTypeSet input_types = {TypeIndex::Int128};
+        InputTypeSet input_types = {PrimitiveType::TYPE_LARGEINT};
         DataSet data_set = {
                 {{Int128 {1}}, UInt8(1)},
                 {{Int128 {0}}, UInt8(0)},
@@ -52,7 +52,7 @@ TEST_F(FunctionCastTest, test_from_int_to_bool) {
 }
 
 TEST_F(FunctionCastTest, test_from_string_to_bool) {
-    InputTypeSet input_types = {TypeIndex::String};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("null")}, Null()},
             {{std::string("true")}, uint8_t(1)},
@@ -78,7 +78,7 @@ TEST_F(FunctionCastTest, test_from_string_to_bool) {
 }
 
 TEST_F(FunctionCastTest, test_from_bool_to_string) {
-    InputTypeSet input_types = {TypeIndex::UInt8};
+    InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
     DataSet data_set = {
             {{UInt8 {1}}, std::string("1")},
             {{UInt8 {0}}, std::string("0")},
@@ -88,7 +88,7 @@ TEST_F(FunctionCastTest, test_from_bool_to_string) {
 
 TEST_F(FunctionCastTest, test_from_bool_to_int) {
     {
-        InputTypeSet input_types = {TypeIndex::UInt8};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
         DataSet data_set = {
                 {{UInt8 {1}}, Int32(1)},
                 {{UInt8 {0}}, Int32(0)},
@@ -96,7 +96,7 @@ TEST_F(FunctionCastTest, test_from_bool_to_int) {
         check_function_for_cast<DataTypeInt32>(input_types, data_set);
     }
     {
-        InputTypeSet input_types = {TypeIndex::UInt8};
+        InputTypeSet input_types = {PrimitiveType::TYPE_BOOLEAN};
         DataSet data_set = {
                 {{UInt8 {1}}, Int64(1)},
                 {{UInt8 {0}}, Int64(0)},
@@ -107,7 +107,7 @@ TEST_F(FunctionCastTest, test_from_bool_to_int) {
 
 TEST_F(FunctionCastTest, test_from_float_to_bool) {
     {
-        InputTypeSet input_types = {TypeIndex::Float32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
         DataSet data_set = {
                 {{Float32 {1.0}}, UInt8(1)},  {{Float32 {0.0}}, UInt8(0)},
                 {{Float32 {+0.0}}, UInt8(0)}, {{Float32 {-0.0}}, UInt8(0)},
@@ -117,7 +117,7 @@ TEST_F(FunctionCastTest, test_from_float_to_bool) {
         check_function_for_cast<DataTypeBool>(input_types, data_set);
     }
     {
-        InputTypeSet input_types = {TypeIndex::Float64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
         DataSet data_set = {
                 {{Float64 {1.0}}, UInt8(1)},  {{Float64 {0.0}}, UInt8(0)},
                 {{Float64 {+0.0}}, UInt8(0)}, {{Float64 {-0.0}}, UInt8(0)},
@@ -130,7 +130,7 @@ TEST_F(FunctionCastTest, test_from_float_to_bool) {
 
 TEST_F(FunctionCastTest, test_from_decimal_to_bool) {
     {
-        InputTypeSet input_types = {TypeIndex::Decimal32};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMAL32};
         DataSet data_set = {
                 {{Decimal32 {1}}, UInt8(1)},    {{Decimal32 {0}}, UInt8(0)},
                 {{Decimal32 {+0}}, UInt8(0)},   {{Decimal32 {-0}}, UInt8(0)},
@@ -140,7 +140,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_bool) {
         check_function_for_cast<DataTypeBool>(input_types, data_set);
     }
     {
-        InputTypeSet input_types = {TypeIndex::Decimal64};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMAL64};
         DataSet data_set = {
                 {{Decimal64 {1}}, UInt8(1)},    {{Decimal64 {0}}, UInt8(0)},
                 {{Decimal64 {+0}}, UInt8(0)},   {{Decimal64 {-0}}, UInt8(0)},
@@ -151,7 +151,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_bool) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Decimal128V2};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMALV2};
         DataSet data_set = {
                 {{Decimal128V2 {1}}, UInt8(1)},    {{Decimal128V2 {0}}, UInt8(0)},
                 {{Decimal128V2 {+0}}, UInt8(0)},   {{Decimal128V2 {-0}}, UInt8(0)},
@@ -162,7 +162,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_bool) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Decimal128V3};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMAL128I};
         DataSet data_set = {
                 {{Decimal128V3 {1}}, UInt8(1)},    {{Decimal128V3 {0}}, UInt8(0)},
                 {{Decimal128V3 {+0}}, UInt8(0)},   {{Decimal128V3 {-0}}, UInt8(0)},
@@ -173,7 +173,7 @@ TEST_F(FunctionCastTest, test_from_decimal_to_bool) {
     }
 
     {
-        InputTypeSet input_types = {TypeIndex::Decimal256};
+        InputTypeSet input_types = {PrimitiveType::TYPE_DECIMAL256};
         DataSet data_set = {
                 {{Decimal256 {1}}, UInt8(1)},    {{Decimal256 {0}}, UInt8(0)},
                 {{Decimal256 {+0}}, UInt8(0)},   {{Decimal256 {-0}}, UInt8(0)},

@@ -6939,7 +6939,7 @@ true
 \N
 
 -- !sql_map_agg --
-\N	{}
+\N	{null:"null"}
 0	{1:"string1"}
 1	{2:"string2"}
 2	{3:"string3"}

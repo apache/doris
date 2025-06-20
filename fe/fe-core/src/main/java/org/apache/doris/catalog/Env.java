@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
@@ -169,7 +168,6 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.GroupCommitManager;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -181,8 +179,6 @@ import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
-import org.apache.doris.load.sync.SyncChecker;
-import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInfoCollector;
@@ -203,11 +199,20 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelBuildIndexCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
+import org.apache.doris.nereids.trees.plans.commands.TruncateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.UninstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -262,7 +267,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.resource.workloadgroup.BindWgToComputeGroupThread;
+import org.apache.doris.resource.workloadgroup.WorkloadGroupChecker;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -362,7 +367,7 @@ public class Env {
     private static final Logger LOG = LogManager.getLogger(Env.class);
     // 0 ~ 9999 used for qe
     public static final long NEXT_ID_INIT_VALUE = 10000;
-    private static final int HTTP_TIMEOUT_SECOND = 5;
+    private static final int HTTP_TIMEOUT_SECOND = Config.sync_image_timeout_second;
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
     private static final String BDB_DIR = "/bdb";
@@ -387,7 +392,6 @@ public class Env {
 
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
-    private Load load;
     protected LoadManager loadManager;
     private ProgressManager progressManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
@@ -396,7 +400,6 @@ public class Env {
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
-    private SyncJobManager syncJobManager;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
@@ -519,8 +522,6 @@ public class Env {
 
     private RoutineLoadTaskScheduler routineLoadTaskScheduler;
 
-    private SyncChecker syncChecker;
-
     private SmallFileMgr smallFileMgr;
 
     private DynamicPartitionScheduler dynamicPartitionScheduler;
@@ -577,6 +578,8 @@ public class Env {
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
+
+    private WorkloadGroupChecker workloadGroupCheckerThread;
 
     private MTMVService mtmvService;
     private EventProcessor eventProcessor;
@@ -715,12 +718,10 @@ public class Env {
     // if isCheckpointCatalog is true, it means that we should not collect thread pool metric
     public Env(boolean isCheckpointCatalog) {
         this.catalogMgr = new CatalogMgr();
-        this.load = new Load();
         this.routineLoadManager = EnvFactory.getInstance().createRoutineLoadManager();
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
-        this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
         this.lock = new MonitoredReentrantLock(true);
@@ -810,7 +811,6 @@ public class Env {
         this.routineLoadScheduler = new RoutineLoadScheduler(routineLoadManager);
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
-        this.syncChecker = new SyncChecker(syncJobManager);
         this.smallFileMgr = new SmallFileMgr();
 
         this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
@@ -846,6 +846,7 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.workloadGroupCheckerThread = new WorkloadGroupChecker();
         this.mtmvService = new MTMVService();
         this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
@@ -1936,8 +1937,6 @@ public class Env {
         // start routine load scheduler
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
-        // start sync checker
-        syncChecker.start();
         // start dynamic partition task
         dynamicPartitionScheduler.start();
         // start daemon thread to update db used data quota for db txn manager periodically
@@ -1962,7 +1961,7 @@ public class Env {
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
 
-        new BindWgToComputeGroupThread().start();
+        workloadGroupCheckerThread.start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -2294,14 +2293,6 @@ public class Env {
         }
         LOG.info("finished replay exportJob from image");
         return newChecksum;
-    }
-
-    public long loadSyncJobs(DataInputStream dis, long checksum) throws IOException, DdlException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_103) {
-            syncJobManager.readField(dis);
-        }
-        LOG.info("finished replay syncJobMgr from image");
-        return checksum;
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum)
@@ -2663,11 +2654,6 @@ public class Env {
         return checksum;
     }
 
-    public long saveSyncJobs(CountingDataOutputStream dos, long checksum) throws IOException {
-        syncJobManager.write(dos);
-        return checksum;
-    }
-
     public long saveAlterJob(CountingDataOutputStream dos, long checksum) throws IOException {
         for (JobType type : JobType.values()) {
             checksum = saveAlterJob(dos, checksum, type);
@@ -2832,7 +2818,6 @@ public class Env {
         labelCleaner = new MasterDaemon("LoadLabelCleaner", Config.label_clean_interval_second * 1000L) {
             @Override
             protected void runAfterCatalogReady() {
-                load.removeOldLoadJobs();
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
                 deleteHandler.removeOldDeleteInfos();
@@ -3362,6 +3347,17 @@ public class Env {
         catalogIf.createDb(stmt);
     }
 
+    // The interface which DdlExecutor needs.
+    public void createDb(CreateDatabaseCommand command) throws DdlException {
+        CatalogIf<?> catalogIf;
+        if (StringUtils.isEmpty(command.getCtlName())) {
+            catalogIf = getCurrentCatalog();
+        } else {
+            catalogIf = catalogMgr.getCatalog(command.getCtlName());
+        }
+        catalogIf.createDb(command);
+    }
+
     // For replay edit log, need't lock metadata
     public void unprotectCreateDb(Database db) {
         getInternalCatalog().unprotectCreateDb(db);
@@ -3453,6 +3449,10 @@ public class Env {
         getInternalCatalog().alterDatabaseProperty(stmt);
     }
 
+    public void alterDatabaseProperty(String dbName, Map<String, String> properties) throws DdlException {
+        getInternalCatalog().alterDatabaseProperty(dbName, properties);
+    }
+
     public void replayAlterDatabaseProperty(String dbName, Map<String, String> properties)
             throws MetaNotFoundException {
         getInternalCatalog().replayAlterDatabaseProperty(dbName, properties);
@@ -3491,10 +3491,6 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         return catalogIf.createTable(stmt);
-    }
-
-    public void createTableLike(CreateTableLikeStmt stmt) throws DdlException {
-        getInternalCatalog().createTableLike(stmt);
     }
 
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
@@ -4363,6 +4359,12 @@ public class Env {
         catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
     }
 
+    public void dropView(String catalogName, String dbName, String tableName, boolean ifExists) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.dropTable(dbName, tableName, true, false, ifExists, false);
+    }
+
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
                                       Long recycleTime) {
         return getInternalCatalog().unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
@@ -4642,10 +4644,6 @@ public class Env {
         return this.deleteHandler;
     }
 
-    public Load getLoadInstance() {
-        return this.load;
-    }
-
     public LoadManager getLoadManager() {
         return loadManager;
     }
@@ -4696,10 +4694,6 @@ public class Env {
 
     public ExportMgr getExportMgr() {
         return this.exportMgr;
-    }
-
-    public SyncJobManager getSyncJobManager() {
-        return this.syncJobManager;
     }
 
     public JobManager getJobManager() {
@@ -4968,6 +4962,28 @@ public class Env {
     }
 
     /*
+     * used for handling CancelAlterCommand (for client is the CANCEL ALTER
+     * command). including SchemaChangeHandler and RollupHandler
+     */
+    public void cancelAlter(CancelAlterTableCommand command) throws DdlException {
+        if (command.getAlterType() == CancelAlterTableCommand.AlterType.ROLLUP
+                || command.getAlterType() == CancelAlterTableCommand.AlterType.MV) {
+            this.getMaterializedViewHandler().cancel(command);
+        } else if (command.getAlterType() == CancelAlterTableCommand.AlterType.COLUMN) {
+            this.getSchemaChangeHandler().cancel(command);
+        } else {
+            throw new DdlException("Cancel " + command.getAlterType() + " does not implement yet");
+        }
+    }
+
+    /*
+     * used for handling CancelIndexCommand
+     */
+    public void cancelBuildIndex(CancelBuildIndexCommand command) throws DdlException {
+        this.getSchemaChangeHandler().cancelIndexJob(command);
+    }
+
+    /*
      * used for handling CancelAlterStmt (for client is the CANCEL ALTER
      * command). including SchemaChangeHandler and RollupHandler
      */
@@ -4991,6 +5007,10 @@ public class Env {
 
     public void restore(RestoreStmt stmt) throws DdlException {
         getBackupHandler().process(stmt);
+    }
+
+    public void cancelBackup(CancelBackupCommand command) throws DdlException {
+        getBackupHandler().cancel(command);
     }
 
     public void cancelBackup(CancelBackupStmt stmt) throws DdlException {
@@ -5823,10 +5843,6 @@ public class Env {
      * used for handling AlterSystemStmt
      * (for client is the ALTER SYSTEM command).
      */
-    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterSystem(stmt);
-    }
-
     public void alterSystem(AlterSystemCommand command) throws UserException {
         this.alter.processAlterSystem(command);
     }
@@ -5877,10 +5893,6 @@ public class Env {
     // for test only
     public void clear() {
         getInternalCatalog().clearDbs();
-        if (load.getIdToLoadJob() != null) {
-            load.getIdToLoadJob().clear();
-            // load = null;
-        }
         System.gc();
     }
 
@@ -5911,6 +5923,7 @@ public class Env {
             AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
                     stmt.getViewDefStmt(), comment);
             alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
+            alterViewStmt.setFinalColumns(stmt.getColumns());
             try {
                 alterView(alterViewStmt);
             } catch (UserException e) {
@@ -6043,7 +6056,6 @@ public class Env {
             }
             LOG.info("acquired all the tables' read lock.");
 
-            load.readLock();
             LOG.info("acquired all jobs' read lock.");
             long journalId = getMaxJournalId();
             File dumpFile = new File(Config.meta_dir, "image." + journalId);
@@ -6060,7 +6072,6 @@ public class Env {
             }
         } finally {
             // unlock all
-            load.readUnlock();
             for (int i = databases.size() - 1; i >= 0; i--) {
                 MetaLockUtils.readUnlockTables(tableLists.get(i));
             }
@@ -6087,6 +6098,23 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getTblRef().getName().getCtl(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.truncateTable(stmt);
+    }
+
+    /*
+     * Truncate specified table or partitions.
+     * The main idea is:
+     *
+     * 1. using the same schema to create new table(partitions)
+     * 2. use the new created table(partitions) to replace the old ones.
+     *
+     * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
+     * otherwise, it will only truncate those specified partitions.
+     *
+     */
+    public void truncateTable(TruncateTableCommand command) throws DdlException {
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(command.getTableNameInfo().getCtl(),
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.truncateTable(command);
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
@@ -6155,7 +6183,7 @@ public class Env {
      * we can't set callback which is in fe-core to config items which are in fe-common. so wrap them here. it's not so
      * good but is best for us now.
      */
-    public void setMutableConfigwithCallback(String key, String value) throws ConfigException {
+    public void setMutableConfigWithCallback(String key, String value) throws ConfigException {
         ConfigBase.setMutableConfig(key, value);
         if (configtoThreads.get(key) != null) {
             try {
@@ -6175,7 +6203,7 @@ public class Env {
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             try {
-                setMutableConfigwithCallback(entry.getKey(), entry.getValue());
+                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
             } catch (ConfigException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -6193,6 +6221,36 @@ public class Env {
                 if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
                     throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
                             fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
+                }
+            }
+        }
+    }
+
+    public void setConfig(AdminSetFrontendConfigCommand command) throws Exception {
+        Map<String, String> configs = command.getConfigs();
+        Preconditions.checkState(configs.size() == 1);
+
+        for (Map.Entry<String, String> entry : configs.entrySet()) {
+            try {
+                setMutableConfigWithCallback(entry.getKey(), entry.getValue());
+            } catch (ConfigException e) {
+                throw new DdlException(e.getMessage());
+            }
+        }
+
+        if (command.isApplyToAll()) {
+            for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
+                if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
+                    continue;
+                }
+
+                TNetworkAddress feAddr = new TNetworkAddress(fe.getHost(), fe.getRpcPort());
+                FEOpExecutor executor = new FEOpExecutor(feAddr, command.getLocalSetStmt(),
+                        ConnectContext.get(), false);
+                executor.execute();
+                if (executor.getStatusCode() != TStatusCode.OK.getValue()) {
+                    throw new DdlException(String.format("failed to apply to fe %s:%s, error message: %s",
+                        fe.getHost(), fe.getRpcPort(), executor.getErrMsg()));
                 }
             }
         }
@@ -6355,13 +6413,13 @@ public class Env {
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
-        long version;
+        long version = 0L;
         long versionTime = System.currentTimeMillis();
+        // In cloud mode, the internal partition deletion logic will update the table version,
+        // so here we only need to handle non-cloud mode.
         if (Config.isNotCloudMode()) {
             version = olapTable.getNextVersion();
             olapTable.updateVisibleVersionAndTime(version, versionTime);
-        } else {
-            version = olapTable.getVisibleVersion();
         }
         // Here, we only wait for the EventProcessor to finish processing the event,
         // but regardless of the success or failure of the result,
@@ -6398,8 +6456,12 @@ public class Env {
             olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
                     replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isForce());
-            olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
-                    replaceTempPartitionLog.getVersionTime());
+            // In cloud mode, the internal partition deletion logic will update the table version,
+            // so here we only need to handle non-cloud mode.
+            if (Config.isNotCloudMode()) {
+                olapTable.updateVisibleVersionAndTime(replaceTempPartitionLog.getVersion(),
+                        replaceTempPartitionLog.getVersionTime());
+            }
         } catch (DdlException e) {
             throw new MetaNotFoundException(e);
         } finally {
@@ -6436,6 +6498,14 @@ public class Env {
             editLog.logUninstallPlugin(info);
         }
         LOG.info("uninstall plugin = " + stmt.getPluginName());
+    }
+
+    public void uninstallPlugin(UninstallPluginCommand cmd) throws IOException, UserException {
+        PluginInfo info = pluginMgr.uninstallPlugin(cmd.getPluginName());
+        if (null != info) {
+            editLog.logUninstallPlugin(info);
+        }
+        LOG.info("uninstall plugin = " + cmd.getPluginName());
     }
 
     public void replayUninstallPlugin(PluginInfo pluginInfo) throws MetaNotFoundException {
@@ -6493,6 +6563,14 @@ public class Env {
     }
 
     // Set specified replica's status. If replica does not exist, just ignore it.
+    public void setReplicaStatus(AdminSetReplicaStatusCommand command) throws MetaNotFoundException {
+        long tabletId = command.getTabletId();
+        long backendId = command.getBackendId();
+        ReplicaStatus status = command.getStatus();
+        long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
+        setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
+    }
+
     public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
         long tabletId = stmt.getTabletId();
         long backendId = stmt.getBackendId();
@@ -6561,6 +6639,18 @@ public class Env {
                 updateTime, false);
     }
 
+    // Set specified replica's version. If replica does not exist, just ignore it.
+    public void setReplicaVersion(AdminSetReplicaVersionCommand command) throws MetaNotFoundException {
+        long tabletId = command.getTabletId();
+        long backendId = command.getBackendId();
+        Long version = command.getVersion();
+        Long lastSuccessVersion = command.getLastSuccessVersion();
+        Long lastFailedVersion = command.getLastFailedVersion();
+        long updateTime = System.currentTimeMillis();
+        setReplicaVersionInternal(tabletId, backendId, version, lastSuccessVersion, lastFailedVersion,
+                updateTime, false);
+    }
+
     public void replaySetReplicaVersion(SetReplicaVersionOperationLog log) throws MetaNotFoundException {
         setReplicaVersionInternal(log.getTabletId(), log.getBackendId(), log.getVersion(),
                 log.getLastSuccessVersion(), log.getLastFailedVersion(), log.getUpdateTime(), true);
@@ -6603,9 +6693,6 @@ public class Env {
     }
 
     public void eraseDatabase(long dbId, boolean needEditLog) {
-        // remove jobs
-        Env.getCurrentEnv().getLoadInstance().removeDbLoadJob(dbId);
-
         // remove database transaction manager
         Env.getCurrentGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
 

@@ -14,116 +14,72 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-#ifndef DORIS_BE_RUNTIME_JSON_VALUE_H
-#define DORIS_BE_RUNTIME_JSON_VALUE_H
-
-#include <glog/logging.h>
-
+#pragma once
 #include <cstddef>
-#include <ostream>
 #include <string>
 
 #include "common/status.h"
-#include "util/hash_util.hpp"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
+#include "util/jsonb_utils.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
-struct JsonBinaryValue {
-    static const int MAX_LENGTH = (1 << 30);
+// JsonBinaryValue wraps a Doris jsonb object.
+// The jsonb object is written using JsonbWriter.
+// JsonBinaryValue is non-movable and non-copyable; it is only a simple wrapper.
+// To parse a string to a jsonb object, use it like this:
+//     JsonBinaryValue jsonb_value;
+//     RETURN_IF_ERROR(jsonb_value.from_json_string(slice.data, slice.size));
+//     insert_data(jsonb_value.value(), jsonb_value.size());
+// insert_data should use copy semantics.
+//
+// from_json_string can be called multiple times.
+// Example:
+//     JsonBinaryValue jsonb_value;
+//     for (;;) {
+//         RETURN_IF_ERROR(jsonb_value.from_json_string(slice.data, slice.size));
+//         insert_data(jsonb_value.value(), jsonb_value.size());
+//     }
 
+struct JsonBinaryValue final {
+    static constexpr int MAX_LENGTH = (1 << 30);
+
+    JsonBinaryValue() = default;
+    JsonBinaryValue(const JsonBinaryValue&) = delete;
+    JsonBinaryValue& operator=(const JsonBinaryValue&) = delete;
+    JsonBinaryValue(JsonBinaryValue&&) = delete;
+    JsonBinaryValue& operator=(JsonBinaryValue&&) = delete;
+
+    const char* value() const { return ptr; }
+
+    size_t size() const { return len; }
+
+    Status from_json_string(const std::string& s) { return from_json_string(s.data(), s.length()); }
+    Status from_json_string(const char* s, size_t length) {
+        // reset all fields
+        ptr = nullptr;
+        len = 0;
+        writer.reset();
+        RETURN_IF_ERROR(JsonbParser::parse(s, length, writer));
+        ptr = writer.getOutput()->getBuffer();
+        len = writer.getOutput()->getSize();
+        if (len > MAX_LENGTH) {
+            return Status::InternalError(
+                    "Jsonb value length {} exceeds maximum allowed length of {} bytes", len,
+                    MAX_LENGTH);
+        }
+        return Status::OK();
+    }
+
+    std::string to_json_string() const { return JsonbToJson::jsonb_to_json_string(ptr, len); }
+
+private:
     // default nullprt and size 0 for invalid or NULL value
     const char* ptr = nullptr;
     size_t len = 0;
-    JsonbParser parser;
-
-    JsonBinaryValue() : ptr(nullptr), len(0) {}
-    JsonBinaryValue(char* ptr, size_t len) {
-        static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
-    }
-    JsonBinaryValue(const std::string& s) {
-        static_cast<void>(from_json_string(s.c_str(), s.length()));
-    }
-    JsonBinaryValue(const char* ptr, int len) { static_cast<void>(from_json_string(ptr, len)); }
-
-    const char* value() { return ptr; }
-
-    size_t size() { return len; }
-
-    void replace(char* ptr, int len) {
-        this->ptr = ptr;
-        this->len = len;
-    }
-
-    bool operator==(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-    // !=
-    bool ne(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-    // <=
-    bool le(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-    // >=
-    bool ge(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-    // <
-    bool lt(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-    // >
-    bool gt(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-
-    bool operator!=(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-
-    bool operator<=(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-
-    bool operator>=(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-
-    bool operator<(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-
-    bool operator>(const JsonBinaryValue& other) const {
-        throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-    }
-
-    Status from_json_string(const char* s, size_t len);
-
-    std::string to_json_string() const;
-
-    struct HashOfJsonBinaryValue {
-        size_t operator()(const JsonBinaryValue& v) const {
-            return HashUtil::hash(v.ptr, v.len, 0);
-        }
-    };
+    JsonbWriter writer;
 };
 
-// This function must be called 'hash_value' to be picked up by boost.
-inline std::size_t hash_value(const JsonBinaryValue& v) {
-    return HashUtil::hash(v.ptr, v.len, 0);
-}
-
-std::ostream& operator<<(std::ostream& os, const JsonBinaryValue& json_value);
-
-std::size_t operator-(const JsonBinaryValue& v1, const JsonBinaryValue& v2);
-
+#include "common/compile_check_end.h"
 } // namespace doris
-
-#endif

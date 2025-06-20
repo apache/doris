@@ -32,12 +32,7 @@
 #include "common/status.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
-#include "util/jsonb_error.h"
-#ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
-#else
-#include "util/jsonb_parser.h"
-#endif
 #include "util/jsonb_stream.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
@@ -47,7 +42,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -83,7 +77,7 @@ template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mod
 class FunctionJsonbParseBase : public IFunction {
 private:
     struct FunctionJsonbParseState {
-        JsonbParser default_value_parser;
+        JsonBinaryValue default_value_parser;
         bool has_const_default_value = false;
     };
 
@@ -167,21 +161,13 @@ public:
             if (context->is_col_constant(1)) {
                 const auto default_value_col = context->get_constant_col(1)->column_ptr;
                 const auto& default_value = default_value_col->get_data_at(0);
-
-                JsonbErrType error = JsonbErrType::E_NONE;
                 if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
                     auto* state = reinterpret_cast<FunctionJsonbParseState*>(
                             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
-                    if (!state->default_value_parser.parse(
-                                default_value.data,
-                                static_cast<unsigned int>(default_value.size))) {
-                        error = state->default_value_parser.getErrorCode();
-                        return Status::InvalidArgument(
-                                "invalid default json value: {} , error: {}",
-                                std::string_view(default_value.data, default_value.size),
-                                JsonbErrMsg::getErrMsg(error));
-                    }
+                    RETURN_IF_ERROR(state->default_value_parser.from_json_string(
+                            default_value.data, default_value.size));
+
                     state->has_const_default_value = true;
                 }
             }
@@ -242,8 +228,7 @@ public:
         col_to->reserve(size);
 
         // parser can be reused for performance
-        JsonbParser parser;
-        JsonbErrType error = JsonbErrType::E_NONE;
+        JsonBinaryValue jsonb_value;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
@@ -253,18 +238,14 @@ public:
             }
 
             const auto& val = col_from_string->get_data_at(i);
-            if (parser.parse(val.data, static_cast<unsigned int>(val.size))) {
+            auto st = jsonb_value.from_json_string(val.data, val.size);
+            if (st.ok()) {
                 // insert jsonb format data
-                col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                    (size_t)parser.getWriter().getOutput()->getSize());
+                col_to->insert_data(jsonb_value.value(), jsonb_value.size());
             } else {
-                error = parser.getErrorCode();
-
                 switch (parse_error_handle_mode) {
                 case JsonbParseErrorMode::FAIL:
-                    return Status::InvalidArgument("json parse error: {} for value: {}",
-                                                   JsonbErrMsg::getErrMsg(error),
-                                                   std::string_view(val.data, val.size));
+                    return st;
                 case JsonbParseErrorMode::RETURN_NULL: {
                     if (is_nullable) {
                         null_map->get_data()[i] = 1;
@@ -273,26 +254,16 @@ public:
                     continue;
                 }
                 case JsonbParseErrorMode::RETURN_VALUE: {
-                    FunctionJsonbParseState* state = reinterpret_cast<FunctionJsonbParseState*>(
+                    auto* state = reinterpret_cast<FunctionJsonbParseState*>(
                             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
                     if (state->has_const_default_value) {
-                        col_to->insert_data(
-                                state->default_value_parser.getWriter().getOutput()->getBuffer(),
-                                (size_t)state->default_value_parser.getWriter()
-                                        .getOutput()
-                                        ->getSize());
+                        col_to->insert_data(state->default_value_parser.value(),
+                                            state->default_value_parser.size());
                     } else {
                         auto value = block.get_by_position(arguments[1]).column->get_data_at(i);
-                        if (parser.parse(value.data, static_cast<unsigned int>(value.size))) {
-                            // insert jsonb format data
-                            col_to->insert_data(parser.getWriter().getOutput()->getBuffer(),
-                                                (size_t)parser.getWriter().getOutput()->getSize());
-                        } else {
-                            return Status::InvalidArgument(
-                                    "json parse error: {} for default value: {}",
-                                    JsonbErrMsg::getErrMsg(error),
-                                    std::string_view(value.data, value.size));
-                        }
+                        RETURN_IF_ERROR(jsonb_value.from_json_string(
+                                value.data, static_cast<unsigned int>(value.size)));
+                        col_to->insert_data(jsonb_value.value(), jsonb_value.size());
                     }
                     continue;
                 }
@@ -421,8 +392,7 @@ public:
             }
             if (is_invalid_json_path) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                          rdata.size()));
             }
@@ -531,10 +501,8 @@ private:
         if constexpr (JSONB_PATH_PARAM && JSON_PATH_CONST) {
             StringRef r_raw_ref = jsonb_path_column->get_data_at(0);
             if (!const_path.seek(r_raw_ref.data, r_raw_ref.size)) {
-                return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
-                        r_raw_ref.to_string());
+                return Status::InvalidArgument("Json path error: Invalid Json Path for value: {}",
+                                               r_raw_ref.to_string());
             }
         }
         const auto& ldata = col_from_string.get_chars();
@@ -578,8 +546,7 @@ private:
                     JsonbPath path;
                     if (!path.seek(r_raw, r_size)) {
                         return Status::InvalidArgument(
-                                "Json path error: {} for value: {}",
-                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                                "Json path error: Invalid Json Path for value: {}",
                                 std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                                  rdata.size()));
                     }
@@ -611,7 +578,7 @@ class FunctionJsonbExtractPath : public IFunction {
 public:
     static constexpr auto name = "json_exists_path";
     static constexpr auto alias = "jsonb_exists_path";
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     using Container = typename ColumnType::Container;
     static FunctionPtr create() { return std::make_shared<FunctionJsonbExtractPath>(); }
     String get_name() const override { return name; }
@@ -657,8 +624,7 @@ public:
         }
         if (is_invalid_json_path) {
             return Status::InvalidArgument(
-                    "Json path error: {} for value: {}",
-                    JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                    "Json path error: Invalid Json Path for value: {}",
                     std::string_view(reinterpret_cast<const char*>(rdata.data()), rdata.size()));
         }
 
@@ -798,7 +764,7 @@ private:
                         std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
                         res_offsets);
             } else if (value->isNull()) {
-                StringOP::push_value_string("null", i, res_data, res_offsets);
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else if (value->isTrue()) {
                 StringOP::push_value_string("true", i, res_data, res_offsets);
             } else if (value->isFalse()) {
@@ -855,8 +821,7 @@ public:
             JsonbPath path;
             if (!path.seek(r_raw, r_size)) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                          rdata.size()));
             }
@@ -1194,49 +1159,49 @@ public:
 struct JsonbTypeExists {
     using T = uint8_t;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = true;
 };
 
 struct JsonbTypeNull {
     using T = void;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeBool {
     using T = bool;
     using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnVector<uint8_t>;
+    using ColumnType = ColumnUInt8;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt {
     using T = int32_t;
     using ReturnType = DataTypeInt32;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt32;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt64 {
     using T = int64_t;
     using ReturnType = DataTypeInt64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt64;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeInt128 {
     using T = int128_t;
     using ReturnType = DataTypeInt128;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt128;
     static const bool only_check_exists = false;
 };
 
 struct JsonbTypeDouble {
     using T = double;
     using ReturnType = DataTypeFloat64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnFloat64;
     static const bool only_check_exists = false;
 };
 
@@ -1380,8 +1345,7 @@ struct JsonbLengthUtil {
             auto path_value = path_column->get_data_at(0);
             if (!path.seek(path_value.data, path_value.size)) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(path_value.data),
                                          path_value.size));
             }
@@ -1402,8 +1366,7 @@ struct JsonbLengthUtil {
                 path.clean();
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
-                            "Json path error: {} for value: {}",
-                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                            "Json path error: Invalid Json Path for value: {}",
                             std::string_view(reinterpret_cast<const char*>(path_value.data),
                                              path_value.size));
                 }
@@ -1418,7 +1381,7 @@ struct JsonbLengthUtil {
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            auto length = value->length();
+            auto length = value->numElements();
             res->insert_data(const_cast<const char*>((char*)&length), 0);
         }
         block.replace_by_position(result,
@@ -1506,8 +1469,7 @@ struct JsonbContainsUtil {
             auto path_value = path_column->get_data_at(0);
             if (!path.seek(path_value.data, path_value.size)) {
                 return Status::InvalidArgument(
-                        "Json path error: {} for value: {}",
-                        JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                        "Json path error: Invalid Json Path for value: {}",
                         std::string_view(reinterpret_cast<const char*>(path_value.data),
                                          path_value.size));
             }
@@ -1529,8 +1491,7 @@ struct JsonbContainsUtil {
                 path.clean();
                 if (!path.seek(path_value.data, path_value.size)) {
                     return Status::InvalidArgument(
-                            "Json path error: {} for value: {}",
-                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                            "Json path error: Invalid Json Path for value: {}",
                             std::string_view(reinterpret_cast<const char*>(path_value.data),
                                              path_value.size));
                 }

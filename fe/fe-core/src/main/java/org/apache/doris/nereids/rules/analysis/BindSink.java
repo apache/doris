@@ -706,7 +706,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (!(pair.second instanceof OlapTable)) {
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
@@ -718,7 +718,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (pair.second instanceof HMSExternalTable) {
             HMSExternalTable table = (HMSExternalTable) pair.second;
             if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
@@ -733,7 +733,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (pair.second instanceof IcebergExternalTable) {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
@@ -745,7 +745,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (pair.second instanceof JdbcExternalTable) {
             return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
         }

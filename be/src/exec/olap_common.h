@@ -91,7 +91,8 @@ std::string cast_to_string(T value, int scale) {
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using IteratorType = typename std::set<CppType>::iterator;
 
     ColumnValueRange();
@@ -1014,7 +1015,8 @@ template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos,
                                      bool* should_break) {
-    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
+    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
+                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using ConstIterator = typename std::set<CppType>::const_iterator;
 
     // 1. clear ScanKey if some column range is empty

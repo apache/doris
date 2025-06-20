@@ -5,7 +5,7 @@
 -- !replace --
 test_base_replace_on_commit_mtmv_mv	SCHEMA_CHANGE	SUCCESS
 
--- !replace --
+-- !replace_normal --
 test_base_replace_on_commit_mtmv_mv	NORMAL	SUCCESS
 
 -- !select_replace --

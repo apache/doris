@@ -18,7 +18,6 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.BackupJob.BackupJobState;
@@ -29,9 +28,11 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
@@ -96,6 +97,9 @@ public class BackupJobTest {
 
     private MockRepositoryMgr repoMgr;
 
+    public BackupJobTest() throws UserException {
+    }
+
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
         public MockBackupHandler(Env env) {
@@ -124,7 +128,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            FileSystemFactory.get("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+            FileSystemFactory.get(BrokerProperties.of("broker", Maps.newHashMap())));
 
     @BeforeClass
     public static void start() {

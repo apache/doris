@@ -158,7 +158,6 @@ private:
             const S3ClientConf& s3_conf);
 
     S3ClientFactory();
-    static std::string get_valid_ca_cert_path();
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;

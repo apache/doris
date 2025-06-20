@@ -25,21 +25,16 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.ShowCreateFunctionStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -68,7 +63,9 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -81,8 +78,6 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -158,13 +153,13 @@ public abstract class TestWithFeService {
         // this.enableAdvanceNextId may be reset by children classes
         Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
-        FeConstants.bindWgToComputeGroup = false;
+        FeConstants.disableWGCheckerForUT = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
         createDorisCluster();
+        Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
         runBeforeAll();
-        Env.getCurrentEnv().getWorkloadGroupMgr().tryCreateNormalWorkloadGroup();
     }
 
     protected void beforeCluster() {
@@ -658,37 +653,12 @@ public abstract class TestWithFeService {
         connectContext.setDatabase(dbName);
     }
 
-    protected ShowResultSet showCreateTable(String sql) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateFunction(String sql) throws Exception {
-        ShowCreateFunctionStmt stmt = (ShowCreateFunctionStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showFunctions(String sql) throws Exception {
-        ShowFunctionsStmt stmt = (ShowFunctionsStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateTableByName(String table) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt("show create table " + table);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
     public void createTable(String sql) throws Exception {
         createTable(sql, false);
     }
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();
@@ -758,13 +728,15 @@ public abstract class TestWithFeService {
     }
 
     public void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     protected void createPolicy(String sql) throws Exception {
-        CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     public void createFunction(String sql) throws Exception {

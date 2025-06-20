@@ -18,6 +18,7 @@
 package org.apache.doris.resource.workloadgroup;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -575,6 +576,20 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.first));
             } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.second));
+            } else if (COMPUTE_GROUP.equals(key)) {
+                String val = properties.get(key);
+                if (!StringUtils.isEmpty(val) && Config.isCloudMode()) {
+                    try {
+                        String cgName = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getClusterNameByClusterId(
+                                val);
+                        if (!StringUtils.isEmpty(cgName)) {
+                            val = cgName;
+                        }
+                    } catch (Throwable t) {
+                        LOG.debug("get compute group failed, ", t);
+                    }
+                }
+                row.add(val);
             } else {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {
@@ -589,10 +604,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
         result.addRow(row);
-    }
-
-    public int getCpuHardLimitWhenCalSum() {
-        return cpuHardLimit == -1 ? 0 : cpuHardLimit;
     }
 
     public double getMemoryLimitPercentWhenCalSum() {
@@ -661,14 +672,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
         if (memOvercommitStr != null) {
             tWorkloadGroupInfo.setEnableMemoryOvercommit(Boolean.valueOf(memOvercommitStr));
-        }
-        // enable_cpu_hard_limit = true, using cpu hard limit
-        // enable_cpu_hard_limit = false, using cpu soft limit
-        tWorkloadGroupInfo.setEnableCpuHardLimit(Config.enable_cpu_hard_limit);
-
-        if (Config.enable_cpu_hard_limit && cpuHardLimit <= 0) {
-            LOG.warn("enable_cpu_hard_limit=true but cpuHardLimit value not illegal,"
-                    + "id=" + id + ",name=" + name);
         }
 
         String scanThreadNumStr = properties.get(SCAN_THREAD_NUM);

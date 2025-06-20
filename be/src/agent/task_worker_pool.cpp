@@ -1272,9 +1272,9 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 
     LOG(INFO) << "get snapshot task. signature=" << req.signature;
 
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false; // not used
-    std::vector<string> snapshot_files;
+    std::vector<std::string> snapshot_files;
     Status status = engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
                                                          &allow_incremental_clone);
     if (status.ok() && snapshot_request.__isset.list_files) {
@@ -1323,7 +1323,7 @@ void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& r
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    const string& snapshot_path = release_snapshot_request.snapshot_path;
+    const std::string& snapshot_path = release_snapshot_request.snapshot_path;
     Status status = engine.snapshot_mgr()->release_snapshot(snapshot_path);
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
@@ -1884,8 +1884,9 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
+                        int32_t max_version_config = tablet->max_version_config();
                         if (tablet->exceed_version_limit(
-                                    config::max_tablet_version_num *
+                                    max_version_config *
                                     config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
@@ -2067,12 +2068,17 @@ void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
     } else {
         LOG_INFO("successfully clone tablet")
                 .tag("signature", req.signature)
-                .tag("tablet_id", clone_req.tablet_id);
+                .tag("tablet_id", clone_req.tablet_id)
+                .tag("copy_size", engine_task.get_copy_size())
+                .tag("copy_time_ms", engine_task.get_copy_time_ms());
+
         if (engine_task.is_new_tablet()) {
             increase_report_version();
             finish_task_request.__set_report_version(s_report_version);
         }
         finish_task_request.__set_finish_tablet_infos(tablet_infos);
+        finish_task_request.__set_copy_size(engine_task.get_copy_size());
+        finish_task_request.__set_copy_time_ms(engine_task.get_copy_time_ms());
     }
 
     finish_task(finish_task_request);

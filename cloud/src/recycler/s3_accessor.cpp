@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #endif
@@ -120,6 +121,33 @@ public:
             return std::make_shared<DorisAWSLogger>(logLevel);
         };
         Aws::InitAPI(aws_options_);
+
+#ifdef USE_AZURE
+        auto azureLogLevel =
+                static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+        Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+        Azure::Core::Diagnostics::Logger::SetListener(
+                [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                    switch (level) {
+                    case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                        LOG(INFO) << message;
+                        break;
+                    case Azure::Core::Diagnostics::Logger::Level::Informational:
+                        LOG(INFO) << message;
+                        break;
+                    case Azure::Core::Diagnostics::Logger::Level::Warning:
+                        LOG(WARNING) << message;
+                        break;
+                    case Azure::Core::Diagnostics::Logger::Level::Error:
+                        LOG(ERROR) << message;
+                        break;
+                    default:
+                        LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                     << ", message: " << message;
+                        break;
+                    }
+                });
+#endif
     }
 
     ~S3Environment() { Aws::ShutdownAPI(aws_options_); }
@@ -260,8 +288,18 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
+        Aws::Client::ClientConfiguration clientConfiguration;
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>());
+                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
+                clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
                 s3_conf.role_arn, Aws::String(), s3_conf.external_id,
@@ -298,8 +336,7 @@ int S3Accessor::init() {
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
         // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
-        options.PerRetryPolicies.emplace_back(
-                std::make_unique<AzureRetryRecordPolicy>(config::max_s3_client_retry));
+        options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
@@ -334,6 +371,14 @@ int S3Accessor::init() {
         }
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry /*scaleFactor = 25*/);
+
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            aws_config.caFile = _ca_cert_file_path;
+        }
         auto s3_client = std::make_shared<Aws::S3::S3Client>(
                 get_aws_credentials_provider(conf_), std::move(aws_config),
                 Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,

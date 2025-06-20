@@ -19,8 +19,6 @@
 
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
 #endif
 #include <unistd.h>
 
@@ -205,6 +203,7 @@ public:
     }
 
     // Gcc will do auto simd in this function
+    // if input empty, return true
     static bool is_ascii(const StringRef& str) {
 #ifdef __AVX2__
         return validate_ascii_fast_avx(str.data, str.size);

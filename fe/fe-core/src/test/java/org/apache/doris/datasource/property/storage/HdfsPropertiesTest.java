@@ -19,6 +19,7 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
@@ -32,10 +33,12 @@ import java.util.Map;
 
 public class HdfsPropertiesTest {
 
-
     @Test
     public void testBasicHdfsCreate() throws UserException {
         // Test 1: Check default authentication type (should be "simple")
+        Map<String, String> simpleHdfsProperties = new HashMap<>();
+        simpleHdfsProperties.put("uri", "hdfs://test/1.orc");
+        Assertions.assertEquals(HdfsProperties.class,  StorageProperties.createPrimary(simpleHdfsProperties).getClass());
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
@@ -101,9 +104,9 @@ public class HdfsPropertiesTest {
     @Test
     public void testNonParamsException() throws UserException {
         Map<String, String> origProps = new HashMap<>();
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> StorageProperties.createPrimary(origProps));
+        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps));
         origProps.put("nonhdfs", "hdfs://localhost:9000");
-        Assertions.assertThrowsExactly(RuntimeException.class, () -> {
+        Assertions.assertThrowsExactly(StoragePropertiesException.class, () -> {
             StorageProperties.createPrimary(origProps);
         });
         origProps.put(StorageProperties.FS_HDFS_SUPPORT, "true");

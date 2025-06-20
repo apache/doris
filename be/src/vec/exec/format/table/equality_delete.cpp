@@ -60,7 +60,8 @@ Status SimpleEqualityDelete::filter_data_block(Block* data_block) {
     if (_filter == nullptr) {
         _filter = std::make_unique<IColumn::Filter>(rows, 0);
     } else {
-        _filter->resize_fill(rows, 0);
+        // reset the array capacity and fill all elements using the 0
+        _filter->assign(rows, UInt8(0));
     }
 
     if (column_and_type->column->is_nullable()) {
@@ -107,7 +108,7 @@ Status MultiEqualityDelete::_build_set() {
 Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     SCOPED_TIMER(equality_delete_time);
     size_t column_index = 0;
-    for (string column_name : _delete_block->get_names()) {
+    for (std::string column_name : _delete_block->get_names()) {
         auto* column_and_type = data_block->try_get_by_name(column_name);
         if (column_and_type == nullptr) {
             return Status::InternalError("Can't find the delete column '{}' in data file",
@@ -132,7 +133,8 @@ Status MultiEqualityDelete::filter_data_block(Block* data_block) {
     if (_filter == nullptr) {
         _filter = std::make_unique<IColumn::Filter>(rows, 1);
     } else {
-        _filter->resize_fill(rows, 1);
+        //reset the array capacity and fill all elements using the 0
+        _filter->assign(rows, UInt8(1));
     }
     auto* filter_data = _filter->data();
     for (size_t i = 0; i < rows; ++i) {

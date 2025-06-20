@@ -32,9 +32,12 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.Collection;
@@ -46,7 +49,7 @@ import java.util.Optional;
  * Physical olap scan plan.
  */
 public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapScan {
-
+    private static final Logger LOG = LogManager.getLogger(PhysicalOlapScan.class);
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;
@@ -82,7 +85,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<TableSample> tableSample,
             Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_OLAP_SCAN, olapTable, qualifier,
-                groupExpression, logicalProperties, physicalProperties, statistics);
+                groupExpression, logicalProperties, physicalProperties, statistics, operativeSlots);
         this.selectedIndexId = selectedIndexId;
         this.selectedTabletIds = ImmutableList.copyOf(selectedTabletIds);
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
@@ -139,8 +142,16 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         }
         // NOTE: embed version info avoid mismatching under data maintaining
         // TODO: more efficient way to ignore the ignorable data maintaining
+        long version = 0;
+        try {
+            version = getTable().getVisibleVersion();
+        } catch (RpcException e) {
+            String errMsg = "table " + getTable().getName() + "in cloud getTableVisibleVersion error";
+            LOG.warn(errMsg, e);
+            throw new IllegalStateException(errMsg);
+        }
         return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
-                + "#" + getRelationId() + "@" + getTable().getVisibleVersion()
+                + "#" + getRelationId() + "@" + version
                 + "@" + getTable().getVisibleVersionTime());
     }
 
@@ -247,5 +258,10 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs,
                 groupExpression, getLogicalProperties(), getPhysicalProperties(), statistics,
                 tableSample, operativeSlots);
+    }
+
+    @Override
+    public List<Slot> getOperativeSlots() {
+        return operativeSlots;
     }
 }

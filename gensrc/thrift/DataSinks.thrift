@@ -141,6 +141,11 @@ struct TResultFileSinkOptions {
     // orc_writer_version = 1 means doris FE is higher than version 2.1.5
     // orc_writer_version = 0 means doris FE is less than or equal to version 2.1.5
     20: optional i64 orc_writer_version;
+
+    //iceberg write sink use int64
+    //hive write sink use int96
+    //export data to file use by user define properties
+    21: optional bool enable_int96_timestamps
 }
 
 struct TMemoryScratchSink {
@@ -355,6 +360,7 @@ struct THiveTableSink {
     9: optional map<string, string> hadoop_config
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
+    12: optional list<Types.TNetworkAddress> broker_addresses;
 }
 
 enum TUpdateMode {
@@ -415,6 +421,7 @@ struct TIcebergTableSink {
     11: optional Types.TFileType file_type
     12: optional string original_output_path
     13: optional PlanNodes.TFileCompressType compression_type
+    14: optional list<Types.TNetworkAddress> broker_addresses;
 }
 
 enum TDictLayoutType {

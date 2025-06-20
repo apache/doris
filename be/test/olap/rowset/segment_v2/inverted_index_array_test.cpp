@@ -230,17 +230,17 @@ public:
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is ["amory", "commiter"]
         vectorized::Array a1, a2;
-        a1.push_back("amory");
-        a1.push_back("doris");
-        a2.push_back("amory");
-        a2.push_back("commiter");
+        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
+        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
+        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
+        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("commiter"));
 
         // Construct array type: DataTypeArray(DataTypeString)
         vectorized::DataTypePtr s1 = std::make_shared<vectorized::DataTypeString>();
         vectorized::DataTypePtr array_type = std::make_shared<vectorized::DataTypeArray>(s1);
         vectorized::MutableColumnPtr col = array_type->create_column();
-        col->insert(a1);
-        col->insert(a2);
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
         vectorized::ColumnPtr column_array = std::move(col);
         vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
@@ -315,19 +315,19 @@ public:
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is [NULL, "amory", "commiter"]
         vectorized::Array a1, a2;
-        a1.push_back("amory");
-        a1.push_back("doris");
-        a2.push_back(vectorized::Null());
-        a2.push_back("amory");
-        a2.push_back("commiter");
+        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
+        a1.push_back(vectorized::Field::create_field<TYPE_STRING>("doris"));
+        a2.push_back(vectorized::Field());
+        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("amory"));
+        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("commiter"));
 
         // Construct array type: DataTypeArray(DataTypeNullable(DataTypeString))
         vectorized::DataTypePtr s1 = std::make_shared<vectorized::DataTypeNullable>(
                 std::make_shared<vectorized::DataTypeString>());
         vectorized::DataTypePtr array_type = std::make_shared<vectorized::DataTypeArray>(s1);
         vectorized::MutableColumnPtr col = array_type->create_column();
-        col->insert(a1);
-        col->insert(a2);
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
         vectorized::ColumnPtr column_array = std::move(col);
         vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
@@ -422,24 +422,24 @@ public:
         // Row 4: a5 = ["non-null"]
         vectorized::MutableColumnPtr col = final_type->create_column();
         // Row 0: insert null
-        col->insert(vectorized::Null());
+        col->insert(vectorized::Field());
         // Row 1: insert a2
         vectorized::Array a2;
-        a2.push_back(vectorized::Null());
-        a2.push_back("test");
-        col->insert(a2);
+        a2.push_back(vectorized::Field());
+        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("test"));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
         // Row 2: insert a3
         vectorized::Array a3;
-        a3.push_back("mixed");
-        a3.push_back(vectorized::Null());
-        a3.push_back("data");
-        col->insert(a3);
+        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("mixed"));
+        a3.push_back(vectorized::Field());
+        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("data"));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
         // Row 3: insert null
-        col->insert(vectorized::Null());
+        col->insert(vectorized::Field());
         // Row 4: insert a5
         vectorized::Array a5;
-        a5.push_back("non-null");
-        col->insert(a5);
+        a5.push_back(vectorized::Field::create_field<TYPE_STRING>("non-null"));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a5));
 
         vectorized::ColumnPtr column_array = std::move(col);
         vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
@@ -536,24 +536,24 @@ public:
         // Row 4: a5 = ["non-null"]
         vectorized::MutableColumnPtr col = final_type->create_column();
         // Row 0: insert null
-        col->insert(vectorized::Null());
+        col->insert(vectorized::Field());
         // Row 1: insert a2
         vectorized::Array a2;
-        a2.push_back(vectorized::Null());
-        a2.push_back("test");
-        col->insert(a2);
+        a2.push_back(vectorized::Field());
+        a2.push_back(vectorized::Field::create_field<TYPE_STRING>("test"));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
         // Row 2: insert a3
         vectorized::Array a3;
-        a3.push_back("mixed");
-        a3.push_back(vectorized::Null());
-        a3.push_back("data");
-        col->insert(a3);
+        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("mixed"));
+        a3.push_back(vectorized::Field());
+        a3.push_back(vectorized::Field::create_field<TYPE_STRING>("data"));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
         // Row 3: insert null
-        col->insert(vectorized::Null());
+        col->insert(vectorized::Field());
         // Row 4: insert a5
         vectorized::Array a5;
-        a5.push_back("non-null");
-        col->insert(a5);
+        a5.push_back(vectorized::Field::create_field<TYPE_STRING>("non-null"));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a5));
 
         vectorized::ColumnPtr column_array = std::move(col);
         vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
@@ -644,20 +644,20 @@ public:
             // construct MutableColumn
             vectorized::MutableColumnPtr col = final_type->create_column();
             // simulate outer null: row0 and row3 are null, the rest are non-null
-            col->insert(vectorized::Null()); // row0: null
+            col->insert(vectorized::Field()); // row0: null
             {
                 // row1: non-null, array with 1 element: "block1_data1"
                 vectorized::Array arr;
-                arr.push_back("block1_data1");
-                col->insert(arr);
+                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block1_data1"));
+                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
             }
             {
                 // row2: non-null, array with 1 element: "block1_data2"
                 vectorized::Array arr;
-                arr.push_back("block1_data2");
-                col->insert(arr);
+                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block1_data2"));
+                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
             }
-            col->insert(vectorized::Null()); // row3: null
+            col->insert(vectorized::Field()); // row3: null
 
             vectorized::ColumnPtr column_array = std::move(col);
             vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
@@ -707,11 +707,11 @@ public:
             // row0: non-null, array with 1 element: "block2_data1"
             {
                 vectorized::Array arr;
-                arr.push_back("block2_data1");
-                col->insert(arr);
+                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block2_data1"));
+                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
             }
             // row1: null
-            col->insert(vectorized::Null());
+            col->insert(vectorized::Field());
 
             vectorized::ColumnPtr column_array = std::move(col);
             vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
@@ -757,11 +757,11 @@ public:
             // row0: non-null, array with 1 element: "block3_data1"
             {
                 vectorized::Array arr;
-                arr.push_back("block3_data1");
-                col->insert(arr);
+                arr.push_back(vectorized::Field::create_field<TYPE_STRING>("block3_data1"));
+                col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
             }
             // row1: null
-            col->insert(vectorized::Null());
+            col->insert(vectorized::Field());
 
             vectorized::ColumnPtr column_array = std::move(col);
             vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");
@@ -836,18 +836,18 @@ public:
         // row0: non-null, array [123, 456]
         {
             vectorized::Array arr;
-            arr.push_back(123);
-            arr.push_back(456);
-            col->insert(arr);
+            arr.push_back(vectorized::Field::create_field<TYPE_INT>(123));
+            arr.push_back(vectorized::Field::create_field<TYPE_INT>(456));
+            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
         }
         // row1: null
-        col->insert(vectorized::Null());
+        col->insert(vectorized::Field());
         // row2: non-null, array [789, 101112]
         {
             vectorized::Array arr;
-            arr.push_back(789);
-            arr.push_back(101112);
-            col->insert(arr);
+            arr.push_back(vectorized::Field::create_field<TYPE_INT>(789));
+            arr.push_back(vectorized::Field::create_field<TYPE_INT>(101112));
+            col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
         }
         // wrap the constructed column into a ColumnWithTypeAndName
         vectorized::ColumnPtr column_array = std::move(col);
@@ -978,8 +978,8 @@ public:
                 std::make_shared<vectorized::DataTypeNullable>(array_type);
 
         vectorized::MutableColumnPtr col = final_type->create_column();
-        col->insert(vectorized::Null());
-        col->insert(vectorized::Null());
+        col->insert(vectorized::Field());
+        col->insert(vectorized::Field());
 
         vectorized::ColumnPtr column_array = std::move(col);
         vectorized::ColumnWithTypeAndName type_and_name(column_array, final_type, "arr1");

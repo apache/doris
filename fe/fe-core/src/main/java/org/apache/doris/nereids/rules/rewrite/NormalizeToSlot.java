@@ -156,11 +156,6 @@ public interface NormalizeToSlot {
             }
             return result.build();
         }
-
-        public NamedExpression pushDownToNamedExpression(Expression expr) {
-            NormalizeToSlotTriplet normalizeToSlotTriplet = normalizeToSlotMap.get(expr);
-            return normalizeToSlotTriplet == null ? (NamedExpression) expr : normalizeToSlotTriplet.pushedExpr;
-        }
     }
 
     /**

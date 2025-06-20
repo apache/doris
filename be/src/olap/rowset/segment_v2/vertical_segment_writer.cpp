@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
-#include "gutil/port.h"
 #include "inverted_index_fs_directory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -65,7 +64,6 @@
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
@@ -169,6 +167,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     for (uint32_t i = 0; i < column.num_sparse_columns(); i++) {
         _init_column_meta(meta->add_sparse_columns(), -1, column.sparse_column_at(i));
     }
+    meta->set_result_is_nullable(column.get_result_is_nullable());
+    meta->set_function_name(column.get_aggregation_name());
+    meta->set_be_exec_version(column.get_be_exec_version());
 }
 
 Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& column,
@@ -238,7 +239,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
     DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
     DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(BITMAP, "object")
     DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
     DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
     DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
@@ -1043,7 +1044,7 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
             _flush_schema->copy_from(*_tablet_schema);
         }
         auto column_ref = data.block->get_by_position(i).column;
-        const vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+        const vectorized::ColumnVariant& object_column = assert_cast<vectorized::ColumnVariant&>(
                 remove_nullable(column_ref)->assume_mutable_ref());
         const TabletColumnPtr& parent_column = _tablet_schema->columns()[i];
 
@@ -1339,7 +1340,7 @@ Status VerticalSegmentWriter::_generate_short_key_index(
     return Status::OK();
 }
 
-void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, string* encoded_keys) {
+void VerticalSegmentWriter::_encode_rowid(const uint32_t rowid, std::string* encoded_keys) {
     encoded_keys->push_back(KEY_NORMAL_MARKER);
     _rowid_coder->full_encode_ascending(&rowid, encoded_keys);
 }
@@ -1380,7 +1381,8 @@ std::string VerticalSegmentWriter::_full_encode_keys(
 }
 
 void VerticalSegmentWriter::_encode_seq_column(
-        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos, string* encoded_keys) {
+        const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+        std::string* encoded_keys) {
     const auto* field = seq_column->get_data_at(pos);
     // To facilitate the use of the primary key index, encode the seq column
     // to the minimum value of the corresponding length when the seq column

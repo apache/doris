@@ -64,7 +64,7 @@ public:
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
     bool is_materialized() const { return _is_materialized; }
-    bool is_nullable() const { return _type->is_nullable(); }
+    bool is_nullable() const;
     vectorized::DataTypePtr get_data_type_ptr() const;
 
     const std::string& col_name() const { return _col_name; }
@@ -87,7 +87,7 @@ public:
     bool is_sequence_col() const { return _col_name == SEQUENCE_COL; }
 
     const std::string& col_default_value() const { return _col_default_value; }
-    PrimitiveType col_type() const { return _type->get_primitive_type(); }
+    PrimitiveType col_type() const;
 
 private:
     friend class DescriptorTbl;
@@ -278,30 +278,6 @@ private:
     std::string _user;
     std::string _passwd;
     std::string _charset;
-};
-
-class ODBCTableDescriptor : public TableDescriptor {
-public:
-    ODBCTableDescriptor(const TTableDescriptor& tdesc);
-    std::string debug_string() const override;
-    std::string db() const { return _db; }
-    std::string table() const { return _table; }
-    std::string host() const { return _host; }
-    std::string port() const { return _port; }
-    std::string user() const { return _user; }
-    std::string passwd() const { return _passwd; }
-    std::string driver() const { return _driver; }
-    TOdbcTableType::type type() const { return _type; }
-
-private:
-    std::string _db;
-    std::string _table;
-    std::string _host;
-    std::string _port;
-    std::string _user;
-    std::string _passwd;
-    std::string _driver;
-    TOdbcTableType::type _type;
 };
 
 class JdbcTableDescriptor : public TableDescriptor {

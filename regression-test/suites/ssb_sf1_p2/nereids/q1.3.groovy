@@ -40,6 +40,6 @@ suite("ssb_sf1_q1_3_nereids") {
         AND lo_quantity BETWEEN  26 AND 35;
         """
 
-        resultFile(file = "../sql/q1.3.out", tag = "q1.3")
+        resultFile("../sql/q1.3.out", "q1.3")
     }
 }

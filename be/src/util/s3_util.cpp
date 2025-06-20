@@ -32,6 +32,7 @@
 
 #include <atomic>
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
 #include <cstdlib>
@@ -140,7 +141,7 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
-    _ca_cert_file_path = get_valid_ca_cert_path();
+    _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     _rate_limiters = {
             std::make_unique<S3RateLimiterHolder>(
                     config::s3_get_token_per_second, config::s3_get_bucket_tokens,
@@ -150,17 +151,33 @@ S3ClientFactory::S3ClientFactory() {
                     config::s3_put_token_per_second, config::s3_put_bucket_tokens,
                     config::s3_put_token_limit,
                     metric_func_factory(put_rate_limit_ns, put_rate_limit_exceed_req_num))};
-}
 
-std::string S3ClientFactory::get_valid_ca_cert_path() {
-    auto vec_ca_file_path = doris::split(config::ca_cert_file_paths, ";");
-    auto it = vec_ca_file_path.begin();
-    for (; it != vec_ca_file_path.end(); ++it) {
-        if (std::filesystem::exists(*it)) {
-            return *it;
-        }
-    }
-    return "";
+#ifdef USE_AZURE
+    auto azureLogLevel =
+            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+    Azure::Core::Diagnostics::Logger::SetListener(
+            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                switch (level) {
+                case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Informational:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Warning:
+                    LOG(WARNING) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Error:
+                    LOG(ERROR) << message;
+                    break;
+                default:
+                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                 << ", message: " << message;
+                    break;
+                }
+            });
+#endif
 }
 
 S3ClientFactory::~S3ClientFactory() {
@@ -215,7 +232,13 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
         }
     }
 
-    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(uri, cred);
+    Azure::Storage::Blobs::BlobClientOptions options;
+    options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+    options.Retry.MaxRetries = config::max_s3_client_retry;
+    options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
+
+    auto containerClient = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+            uri, cred, std::move(options));
     LOG_INFO("create one azure client with {}", s3_conf.to_string());
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient));
 #else
@@ -243,6 +266,14 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
         Aws::Client::ClientConfiguration clientConfiguration =
                 S3ClientFactory::getClientConfiguration();
 
+        if (_ca_cert_file_path.empty()) {
+            _ca_cert_file_path =
+                    get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+        }
+        if (!_ca_cert_file_path.empty()) {
+            clientConfiguration.caFile = _ca_cert_file_path;
+        }
+
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
                 std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
                 clientConfiguration);
@@ -264,27 +295,20 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_s3_client(
         aws_config.endpointOverride = s3_conf.endpoint;
     }
     aws_config.region = s3_conf.region;
-    std::string ca_cert = get_valid_ca_cert_path();
-    if ("" != _ca_cert_file_path) {
-        aws_config.caFile = _ca_cert_file_path;
-    } else {
-        // config::ca_cert_file_paths is valmutable,get newest value if file path invaild
-        _ca_cert_file_path = get_valid_ca_cert_path();
-        if ("" != _ca_cert_file_path) {
-            aws_config.caFile = _ca_cert_file_path;
-        }
+
+    if (_ca_cert_file_path.empty()) {
+        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
     }
+
+    if (!_ca_cert_file_path.empty()) {
+        aws_config.caFile = _ca_cert_file_path;
+    }
+
     if (s3_conf.max_connections > 0) {
         aws_config.maxConnections = s3_conf.max_connections;
     } else {
-#ifdef BE_TEST
-        // the S3Client may shared by many threads.
-        // So need to set the number of connections large enough.
-        aws_config.maxConnections = config::doris_scanner_thread_pool_thread_num;
-#else
-        aws_config.maxConnections =
-                ExecEnv::GetInstance()->scanner_scheduler()->remote_thread_pool_max_thread_num();
-#endif
+        // AWS SDK max concurrent tcp connections for a single http client to use. Default 25.
+        aws_config.maxConnections = std::max(config::doris_scanner_thread_pool_thread_num, 25);
     }
 
     aws_config.requestTimeoutMs = 30000;
@@ -452,6 +476,9 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     case cloud::ObjectStoreInfoPB_Provider_AZURE:
         type = io::ObjStorageType::AZURE;
         break;
+    case cloud::ObjectStoreInfoPB_Provider_TOS:
+        type = io::ObjStorageType::TOS;
+        break;
     default:
         __builtin_unreachable();
         LOG_FATAL("unknown provider type {}, info {}", info.provider(), ret.to_string());
@@ -514,6 +541,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
         break;
     case TObjStorageType::GCP:
         type = io::ObjStorageType::GCP;
+        break;
+    case TObjStorageType::TOS:
+        type = io::ObjStorageType::TOS;
         break;
     default:
         LOG_FATAL("unknown provider type {}, info {}", param.provider, ret.to_string());

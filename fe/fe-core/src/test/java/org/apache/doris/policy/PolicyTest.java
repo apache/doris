@@ -20,8 +20,6 @@ package org.apache.doris.policy;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
@@ -34,6 +32,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -47,6 +48,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Test for Policy.
@@ -77,19 +79,19 @@ public class PolicyTest extends TestWithFeService {
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze();
-        GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
-        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
-        grantStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
+        GrantTablePrivilegeCommand command = new GrantTablePrivilegeCommand(privileges, tablePattern, Optional.of(user), Optional.empty());
+        command.validate();
+        Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(command);
         //create role
         String role = "role1";
+        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         CreateRoleStmt createRoleStmt = new CreateRoleStmt(role);
         createRoleStmt.analyze(analyzer);
         Env.getCurrentEnv().getAuth().createRole(createRoleStmt);
         // grant role to user
-        grantStmt = new GrantStmt(Lists.newArrayList(role), user);
-        grantStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
+        GrantRoleCommand grantRoleCommand = new GrantRoleCommand(user, Lists.newArrayList(role));
+        grantRoleCommand.validate();
+        Env.getCurrentEnv().getAuth().grantRoleCommand(grantRoleCommand);
 
         useUser("test_policy");
     }
@@ -248,7 +250,7 @@ public class PolicyTest extends TestWithFeService {
                 + " AS PERMISSIVE TO test_policy USING (k1 = 1)";
         long tableId = 100;
         FilterType filterType = FilterType.PERMISSIVE;
-        Expr wherePredicate = null;
+        Expression wherePredicate = null;
 
         Policy rowPolicy = new RowPolicy(10000, policyName, dbId, user, null, originStmt, 0, tableId, filterType,
                 wherePredicate);

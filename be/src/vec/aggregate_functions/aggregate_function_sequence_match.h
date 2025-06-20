@@ -42,7 +42,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -75,9 +74,10 @@ static constexpr size_t MAX_EVENTS = 32;
 /// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
 constexpr auto sequence_match_max_iterations = 1000000l;
 
-template <typename DateValueType, typename NativeType, typename Derived>
+template <PrimitiveType T, typename Derived>
 struct AggregateFunctionSequenceMatchData final {
-    using Timestamp = DateValueType;
+    using Timestamp = typename PrimitiveTypeTraits<T>::CppType;
+    using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using Events = std::bitset<MAX_EVENTS>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
@@ -587,15 +587,15 @@ private:
     DFAStates dfa_states;
 };
 
-template <typename DateValueType, typename NativeType, typename Derived>
+template <PrimitiveType T, typename Derived>
 class AggregateFunctionSequenceBase
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>, Derived> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>,
+                                              Derived> {
 public:
+    using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     AggregateFunctionSequenceBase(const DataTypes& arguments)
-            : IAggregateFunctionDataHelper<
-                      AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
-                      Derived>(arguments) {
+            : IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>, Derived>(
+                      arguments) {
         arg_count = arguments.size();
     }
 
@@ -609,12 +609,10 @@ public:
                         .to_string();
         this->data(place).init(pattern, arg_count);
 
-        const auto& timestamp =
-                assert_cast<const ColumnVector<NativeType>&, TypeCheckOnRelease::DISABLE>(
-                        *columns[1])
-                        .get_data()[row_num];
-        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events
-                events;
+        const auto& timestamp = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*columns[1])
+                                        .get_data()[row_num];
+        typename AggregateFunctionSequenceMatchData<T, Derived>::Events events;
 
         for (auto i = 2; i < arg_count; i++) {
             const auto event =
@@ -623,7 +621,9 @@ public:
             events.set(i - 2, event);
         }
 
-        this->data(place).add(binary_cast<NativeType, DateValueType>(timestamp), events);
+        this->data(place).add(
+                binary_cast<NativeType, typename PrimitiveTypeTraits<T>::CppType>(timestamp),
+                events);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -648,21 +648,16 @@ private:
     size_t arg_count;
 };
 
-template <typename DateValueType, typename NativeType>
+template <PrimitiveType T>
 class AggregateFunctionSequenceMatch final
-        : public AggregateFunctionSequenceBase<
-                  DateValueType, NativeType,
-                  AggregateFunctionSequenceMatch<DateValueType, NativeType>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>> {
 public:
     AggregateFunctionSequenceMatch(const DataTypes& arguments, const String& pattern_)
-            : AggregateFunctionSequenceBase<
-                      DateValueType, NativeType,
-                      AggregateFunctionSequenceMatch<DateValueType, NativeType>>(arguments,
-                                                                                 pattern_) {}
+            : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>(arguments,
+                                                                                  pattern_) {}
 
-    using AggregateFunctionSequenceBase<DateValueType, NativeType,
-                                        AggregateFunctionSequenceMatch<DateValueType, NativeType>>::
-            AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<
+            T, AggregateFunctionSequenceMatch<T>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_match"; }
 
@@ -697,21 +692,16 @@ public:
     }
 };
 
-template <typename DateValueType, typename NativeType>
+template <PrimitiveType T>
 class AggregateFunctionSequenceCount final
-        : public AggregateFunctionSequenceBase<
-                  DateValueType, NativeType,
-                  AggregateFunctionSequenceCount<DateValueType, NativeType>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>> {
 public:
     AggregateFunctionSequenceCount(const DataTypes& arguments, const String& pattern_)
-            : AggregateFunctionSequenceBase<
-                      DateValueType, NativeType,
-                      AggregateFunctionSequenceCount<DateValueType, NativeType>>(arguments,
-                                                                                 pattern_) {}
+            : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>(arguments,
+                                                                                  pattern_) {}
 
-    using AggregateFunctionSequenceBase<DateValueType, NativeType,
-                                        AggregateFunctionSequenceCount<DateValueType, NativeType>>::
-            AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<
+            T, AggregateFunctionSequenceCount<T>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_count"; }
 

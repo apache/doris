@@ -173,8 +173,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     }
 
     // may be overridden
-    protected TableIf getTargetTableIf(ConnectContext ctx, List<String> qualifiedTargetTableName) {
-        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+    protected TableIf getTargetTableIf(
+            ConnectContext ctx, List<String> qualifiedTargetTableName) {
+        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv(), Optional.empty());
     }
 
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
@@ -455,7 +456,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
         // step 1, 2, 3
         planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("insert into plan for query_id: {} is: {}.", DebugUtil.printId(ctx.queryId()),
+                    planner.getPhysicalPlan().treeString());
+        }
         // step 4
         return executorFactoryRef.get().build();
     }

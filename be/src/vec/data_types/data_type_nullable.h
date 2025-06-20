@@ -53,12 +53,12 @@ namespace doris::vectorized {
 /// embodies this concept.
 class DataTypeNullable final : public IDataType {
 public:
+    static constexpr PrimitiveType PType = TYPE_NULL;
     explicit DataTypeNullable(const DataTypePtr& nested_data_type_);
     std::string do_get_name() const override {
         return "Nullable(" + nested_data_type->get_name() + ")";
     }
-    const char* get_family_name() const override { return "Nullable"; }
-    TypeIndex get_type_id() const override { return TypeIndex::Nullable; }
+    const std::string get_family_name() const override { return "Nullable"; }
     PrimitiveType get_primitive_type() const override {
         return nested_data_type->get_primitive_type();
     }
@@ -80,7 +80,7 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Null();
+            return Field();
         }
         return nested_data_type->get_field(node);
     }

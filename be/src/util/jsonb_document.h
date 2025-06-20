@@ -582,7 +582,7 @@ public:
     unsigned int size() const;
 
     //Get the number of jsonbvalue elements
-    int length() const;
+    int numElements() const;
 
     //Whether to include the jsonbvalue rhs
     bool contains(JsonbValue* rhs) const;
@@ -1272,7 +1272,7 @@ inline unsigned int JsonbValue::size() const {
     }
 }
 
-inline int JsonbValue::length() const {
+inline int JsonbValue::numElements() const {
     switch (type_) {
     case JsonbType::T_Int8:
     case JsonbType::T_Int16:
@@ -1499,6 +1499,10 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbPath* path) {
         // advance past the .
         stream->skip(1);
 
+        if (stream->exhausted()) {
+            return false;
+        }
+
         // $.[0]
         if (stream->peek() == BEGIN_ARRAY) {
             return parse_array(stream, path);
@@ -1523,6 +1527,10 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
         stream->skip(1);
+        if (stream->exhausted()) {
+            return false;
+        }
+
         if (stream->peek() == END_ARRAY) {
             std::unique_ptr<leg_info> leg(
                     new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));

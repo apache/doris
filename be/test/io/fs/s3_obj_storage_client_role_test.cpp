@@ -51,6 +51,9 @@ protected:
         S3ObjStorageClientRoleTest::obj_storage_client = S3ClientFactory::instance().create(
                 {.endpoint = endpoint,
                  .region = region,
+                 .ak = "",
+                 .sk = "",
+                 .token = "",
                  .bucket = bucket,
                  .provider = io::ObjStorageType::AWS,
                  .use_virtual_addressing = false,

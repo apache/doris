@@ -27,7 +27,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 AggregateFunctionPtr type_dispatch_for_aggregate_function_kurt(const DataTypes& argument_types,
                                                                const bool result_is_nullable,
                                                                bool nullable_input) {
@@ -61,28 +61,28 @@ AggregateFunctionPtr create_aggregate_function_kurt(const std::string& name,
     const bool nullable_input = argument_types[0]->is_nullable();
     switch (argument_types[0]->get_primitive_type()) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return type_dispatch_for_aggregate_function_kurt<UInt8>(argument_types, result_is_nullable,
-                                                                nullable_input);
+        return type_dispatch_for_aggregate_function_kurt<TYPE_BOOLEAN>(
+                argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_TINYINT:
-        return type_dispatch_for_aggregate_function_kurt<Int8>(argument_types, result_is_nullable,
-                                                               nullable_input);
+        return type_dispatch_for_aggregate_function_kurt<TYPE_TINYINT>(
+                argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_SMALLINT:
-        return type_dispatch_for_aggregate_function_kurt<Int16>(argument_types, result_is_nullable,
-                                                                nullable_input);
+        return type_dispatch_for_aggregate_function_kurt<TYPE_SMALLINT>(
+                argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_INT:
-        return type_dispatch_for_aggregate_function_kurt<Int32>(argument_types, result_is_nullable,
-                                                                nullable_input);
+        return type_dispatch_for_aggregate_function_kurt<TYPE_INT>(
+                argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_BIGINT:
-        return type_dispatch_for_aggregate_function_kurt<Int64>(argument_types, result_is_nullable,
-                                                                nullable_input);
+        return type_dispatch_for_aggregate_function_kurt<TYPE_BIGINT>(
+                argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_LARGEINT:
-        return type_dispatch_for_aggregate_function_kurt<Int128>(argument_types, result_is_nullable,
-                                                                 nullable_input);
+        return type_dispatch_for_aggregate_function_kurt<TYPE_LARGEINT>(
+                argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_FLOAT:
-        return type_dispatch_for_aggregate_function_kurt<Float32>(
+        return type_dispatch_for_aggregate_function_kurt<TYPE_FLOAT>(
                 argument_types, result_is_nullable, nullable_input);
     case PrimitiveType::TYPE_DOUBLE:
-        return type_dispatch_for_aggregate_function_kurt<Float64>(
+        return type_dispatch_for_aggregate_function_kurt<TYPE_DOUBLE>(
                 argument_types, result_is_nullable, nullable_input);
     default:
         LOG(WARNING) << "unsupported input type " << argument_types[0]->get_name()

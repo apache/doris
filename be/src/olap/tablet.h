@@ -116,7 +116,7 @@ public:
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
 
-    const std::string& tablet_path() const { return _tablet_path; }
+    const std::string& tablet_path() const override { return _tablet_path; }
 
     bool set_tablet_schema_into_rowset_meta();
     Status init();
@@ -160,10 +160,8 @@ public:
     size_t num_null_columns() const;
     size_t num_short_key_columns() const;
     size_t num_rows_per_row_block() const;
-    CompressKind compress_kind() const;
     double bloom_filter_fpp() const;
     size_t next_unique_id() const;
-    size_t row_size() const;
     int64_t avg_rs_meta_serialize_size() const;
 
     // operation in rowsets
@@ -265,9 +263,19 @@ public:
         _last_full_compaction_success_millis = millis;
     }
 
+    int64_t last_cumu_compaction_schedule_time() { return _last_cumu_compaction_schedule_millis; }
+    void set_last_cumu_compaction_schedule_time(int64_t millis) {
+        _last_cumu_compaction_schedule_millis = millis;
+    }
+
     int64_t last_base_compaction_schedule_time() { return _last_base_compaction_schedule_millis; }
     void set_last_base_compaction_schedule_time(int64_t millis) {
         _last_base_compaction_schedule_millis = millis;
+    }
+
+    int64_t last_full_compaction_schedule_time() { return _last_full_compaction_schedule_millis; }
+    void set_last_full_compaction_schedule_time(int64_t millis) {
+        _last_full_compaction_schedule_millis = millis;
     }
 
     void set_last_single_compaction_failure_status(std::string status) {
@@ -326,11 +334,23 @@ public:
         return _cumulative_compaction_policy;
     }
 
+    void set_last_cumu_compaction_status(std::string status) {
+        _last_cumu_compaction_status = std::move(status);
+    }
+
+    std::string get_last_cumu_compaction_status() { return _last_cumu_compaction_status; }
+
     void set_last_base_compaction_status(std::string status) {
         _last_base_compaction_status = std::move(status);
     }
 
     std::string get_last_base_compaction_status() { return _last_base_compaction_status; }
+
+    void set_last_full_compaction_status(std::string status) {
+        _last_full_compaction_status = std::move(status);
+    }
+
+    std::string get_last_full_compaction_status() { return _last_full_compaction_status; }
 
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
@@ -464,9 +484,6 @@ public:
 
     void set_binlog_config(BinlogConfig binlog_config);
 
-    void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
-    bool is_alter_failed() { return _alter_failed; }
-
     void set_is_full_compaction_running(bool is_full_compaction_running) {
         _is_full_compaction_running = is_full_compaction_running;
     }
@@ -573,13 +590,19 @@ private:
     std::atomic<int64_t> _last_base_compaction_success_millis;
     // timestamp of last full compaction success
     std::atomic<int64_t> _last_full_compaction_success_millis;
+    // timestamp of last cumu compaction schedule time
+    std::atomic<int64_t> _last_cumu_compaction_schedule_millis;
     // timestamp of last base compaction schedule time
     std::atomic<int64_t> _last_base_compaction_schedule_millis;
+    // timestamp of last full compaction schedule time
+    std::atomic<int64_t> _last_full_compaction_schedule_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int64_t> _cumulative_promotion_size;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
+    std::string _last_cumu_compaction_status;
     std::string _last_base_compaction_status;
+    std::string _last_full_compaction_status;
 
     // single replica compaction status
     std::string _last_single_compaction_failure_status;
@@ -612,8 +635,6 @@ private:
     // may delete compaction input rowsets.
     std::mutex _cold_compaction_lock;
     int64_t _last_failed_follow_cooldown_time = 0;
-    // `_alter_failed` is used to indicate whether the tablet failed to perform a schema change
-    std::atomic<bool> _alter_failed = false;
 
     int64_t _io_error_times = 0;
 
@@ -738,20 +759,12 @@ inline size_t Tablet::num_rows_per_row_block() const {
     return _tablet_meta->tablet_schema()->num_rows_per_row_block();
 }
 
-inline CompressKind Tablet::compress_kind() const {
-    return _tablet_meta->tablet_schema()->compress_kind();
-}
-
 inline double Tablet::bloom_filter_fpp() const {
     return _tablet_meta->tablet_schema()->bloom_filter_fpp();
 }
 
 inline size_t Tablet::next_unique_id() const {
     return _tablet_meta->tablet_schema()->next_column_unique_id();
-}
-
-inline size_t Tablet::row_size() const {
-    return _tablet_meta->tablet_schema()->row_size();
 }
 
 inline int64_t Tablet::avg_rs_meta_serialize_size() const {

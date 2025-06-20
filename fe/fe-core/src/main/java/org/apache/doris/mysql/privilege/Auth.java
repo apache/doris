@@ -19,17 +19,14 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.AlterUserStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetUserPropertyStmt;
@@ -62,8 +59,15 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -649,22 +653,27 @@ public class Auth implements Writable {
         }
     }
 
-    // grant
-    public void grant(GrantStmt stmt) throws DdlException {
-        if (stmt.getTblPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                    stmt.getColPrivileges(), true /* err on non exist */, false /* not replay */);
-        } else if (stmt.getResourcePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
-                    true /* err on non exist */, false /* not replay */);
-        } else if (stmt.getWorkloadGroupPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
-                    true /* err on non exist */, false /* not replay */);
-        } else {
-            grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
+    public void grantRoleCommand(GrantRoleCommand command) throws DdlException {
+        grantInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    public void grantTablePrivilegeCommand(GrantTablePrivilegeCommand command) throws DdlException {
+        PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+        grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null), command.getTablePattern(),
+                    privs, command.getColPrivileges(), true /* err on non exist */, false /* not replay */);
+    }
+
+    public void grantResourcePrivilegeCommand(GrantResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs, true /* err on non exist */,
+                    false /* not replay */);
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            grantInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null),
+                    privs, true /* err on non exist */, false /* not replay */);
         }
     }
 
@@ -846,22 +855,33 @@ public class Auth implements Writable {
         }
     }
 
-    // revoke
-    public void revoke(RevokeStmt stmt) throws DdlException {
-        if (stmt.getTblPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                    stmt.getColPrivileges(), true /* err on non exist */, false /* is replay */);
-        } else if (stmt.getResourcePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
+    // revoke role
+    public void revokeRole(RevokeRoleCommand command) throws DdlException {
+        revokeInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    // revoke resource
+    public void revokeResourcePrivilegeCommand(RevokeResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs,
                     true /* err on non exist */, false /* is replay */);
-        } else if (stmt.getWorkloadGroupPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null), privs,
                     true /* err on non exist */, false /* is replay */);
-        } else {
-            revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
+        }
+    }
+
+    // revoke table
+    public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
+        if (command.getTablePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getTablePattern(), privs, command.getColPrivileges(),
+                    true /* err on non exist */, false /* is replay */);
         }
     }
 
@@ -1042,6 +1062,10 @@ public class Auth implements Writable {
 
     public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
         ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
+    }
+
+    public void refreshLdap(RefreshLdapCommand command) {
+        ldapManager.refresh(command.getIsAll(), command.getUser());
     }
 
     // create role
@@ -1867,11 +1891,6 @@ public class Auth implements Writable {
 
     public List<List<String>> getPasswdPolicyInfo(UserIdentity userIdent) {
         return passwdPolicyManager.getPolicyInfo(userIdent);
-    }
-
-    public void alterUser(AlterUserStmt stmt) throws DdlException {
-        alterUserInternal(stmt.isIfExist(), stmt.getOpType(), stmt.getUserIdent(), stmt.getPassword(), stmt.getRole(),
-                stmt.getPasswordOptions(), stmt.getComment(), false);
     }
 
     public void alterUser(AlterUserInfo info) throws DdlException {

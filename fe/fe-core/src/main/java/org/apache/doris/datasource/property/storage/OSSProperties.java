@@ -25,6 +25,7 @@ import lombok.Setter;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -38,7 +39,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
 
     @Getter
-    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "ACCESS_KEY", "access_key"},
+    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY"},
             description = "The access key of OSS.")
     protected String accessKey = "";
 
@@ -56,16 +57,21 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
      * <p>
-     * Supported formats:
+     * Supported formats: <a href="https://help.aliyun.com/zh/oss/user-guide/regions-and-endpoints">aliyun oss</a>?
      * - oss-cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * - <a href="https://oss-cn-shanghai.aliyuncs.com">...</a>      => region = cn-shanghai
      * - oss-cn-beijing-internal.aliyuncs.com      => region = cn-beijing (internal endpoint)
      * - <a href="http://oss-cn-shenzhen-internal.aliyuncs.com">...</a> => region = cn-shenzhen
      * <p>
      * Group(1) captures the region name (e.g., cn-hangzhou).
+     *<p>
+     * Support S3 compatible endpoints:<a href="https://help.aliyun.com/zh/oss/developer-reference/
+     * use-amazon-s3-sdks-to-access-oss">...</a>
+     * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
+     * <p>
      */
     private static final Pattern ENDPOINT_PATTERN = Pattern
-            .compile("^(?:https?://)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
+            .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$");
 
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
@@ -78,12 +84,17 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return ENDPOINT_PATTERN.matcher(value).matches();
+            return (value.contains("aliyuncs.com") && !value.contains("oss-dls.aliyuncs.com"));
         }
-        if (!origProps.containsKey("uri")) {
+        Optional<String> uriValue = origProps.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
+                .map(Map.Entry::getValue)
+                .findFirst();
+        if (!uriValue.isPresent()) {
             return false;
         }
-        return origProps.get("uri").contains("aliyuncs.com");
+        String uri = uriValue.get();
+        return uri.contains("aliyuncs.com") && (!uri.contains("oss-dls.aliyuncs.com"));
     }
 
     @Override

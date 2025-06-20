@@ -164,7 +164,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                unboundRelation.getLocation());
 
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
@@ -178,7 +179,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                unboundRelation.getLocation());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -266,10 +268,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
+            SlotReference slot = SlotReference.fromColumn(olapTable, col, olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
-                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {
+                if (childSlot instanceof SlotReference && childSlot.getName().equals(col.getName())) {
                     exprId = childSlot.getExprId();
                     slot = slot.withExprId(exprId);
                     break;
@@ -385,7 +387,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
-        cascadesContext.getStatementContext().loadSnapshots(unboundRelation.getTableSnapshot());
+        cascadesContext.getStatementContext().loadSnapshots(
+                unboundRelation.getTableSnapshot(),
+                Optional.ofNullable(unboundRelation.getScanParams()));
         boolean isView = false;
         try {
             switch (table.getType()) {
@@ -412,14 +416,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
-                        hudiScan = hudiScan.withScanParams(hmsTable, unboundRelation.getScanParams());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of(), Optional.empty());
+                        hudiScan = hudiScan.withScanParams(
+                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
                                 unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(),
+                                ImmutableList.of(),
+                                Optional.ofNullable(unboundRelation.getScanParams()));
                     }
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
@@ -428,7 +435,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
-                            unboundRelation.getTableSnapshot());
+                            unboundRelation.getTableSnapshot(),
+                            ImmutableList.of(),
+                            Optional.ofNullable(unboundRelation.getScanParams()));
                 case SCHEMA:
                     // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
                     return new LogicalSubQueryAlias<>(qualifiedTableName,

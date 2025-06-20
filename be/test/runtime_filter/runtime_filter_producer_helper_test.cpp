@@ -26,7 +26,6 @@
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime_filter/runtime_filter_test_utils.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris {
@@ -71,8 +70,8 @@ TEST_F(RuntimeFilterProducerHelperTest, basic) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
@@ -97,8 +96,8 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     _tasks[0]->set_wake_up_early();
@@ -126,8 +125,8 @@ TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
@@ -151,8 +150,8 @@ TEST_F(RuntimeFilterProducerHelperTest, broadcast) {
 
     vectorized::Block block;
     auto column = vectorized::ColumnInt32::create();
-    column->insert(1);
-    column->insert(2);
+    column->insert(vectorized::Field::create_field<TYPE_INT>(1));
+    column->insert(vectorized::Field::create_field<TYPE_INT>(2));
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     std::map<int, std::shared_ptr<RuntimeFilterWrapper>> runtime_filters;
