@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -43,7 +44,8 @@ import java.util.Optional;
  *      GATHER_SORT: SORT the gather data
  *  MERGE_SORT AND GATHER_SORT need require gather for their child
  */
-public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements Sort {
+public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE>
+        implements Sort, PropagateFuncDeps {
     public PhysicalQuickSort(List<OrderKey> orderKeys,
             SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(orderKeys, phase, Optional.empty(), logicalProperties, child);
