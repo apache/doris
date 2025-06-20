@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/util.h"
@@ -188,12 +189,12 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
         auto sp = SyncPoint::get_instance();
         DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("alikms::generate_data_key", [](auto&& args) {
             auto* ret = try_any_cast_ret<int>(args);
             ret->first = -1;
             ret->second = true;
-        };
+        });
         sp->enable_processing();
 
         auto ret = init_global_encryption_key_info_map(mem_kv.get());
@@ -211,7 +212,7 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
         auto sp = SyncPoint::get_instance();
         DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("alikms::generate_data_key", [&](auto&& args) {
             auto* ciphertext = try_any_cast<std::string*>(args[0]);
             *ciphertext = mock_encoded_ciphertext;
@@ -220,7 +221,7 @@ TEST(EncryptionTest, RootKeyTestWithKms2) {
             auto* ret = try_any_cast_ret<int>(args);
             ret->first = 0;
             ret->second = true;
-        };
+        });
         sp->enable_processing();
         auto ret = init_global_encryption_key_info_map(mem_kv.get());
         ASSERT_EQ(ret, 0);

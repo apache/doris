@@ -30,6 +30,7 @@
 #include <random>
 #include <string>
 
+#include "common/defer.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"

@@ -41,6 +41,7 @@
 
 #include "common/config.h"
 #include "common/configbase.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"

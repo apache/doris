@@ -30,6 +30,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"

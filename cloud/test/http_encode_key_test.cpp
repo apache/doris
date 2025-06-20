@@ -19,6 +19,7 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
+#include "common/defer.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"

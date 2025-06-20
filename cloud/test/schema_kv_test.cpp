@@ -24,6 +24,7 @@
 #include <random>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service.h"
