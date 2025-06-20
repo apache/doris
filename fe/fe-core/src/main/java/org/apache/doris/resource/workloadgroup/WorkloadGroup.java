@@ -593,14 +593,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (memOvercommitStr != null) {
             tWorkloadGroupInfo.setEnableMemoryOvercommit(Boolean.valueOf(memOvercommitStr));
         }
-        // enable_cpu_hard_limit = true, using cpu hard limit
-        // enable_cpu_hard_limit = false, using cpu soft limit
-        tWorkloadGroupInfo.setEnableCpuHardLimit(Config.enable_cpu_hard_limit);
-
-        if (Config.enable_cpu_hard_limit && cpuHardLimit <= 0) {
-            LOG.warn("enable_cpu_hard_limit=true but cpuHardLimit value not illegal,"
-                    + "id=" + id + ",name=" + name);
-        }
 
         String scanThreadNumStr = properties.get(SCAN_THREAD_NUM);
         if (scanThreadNumStr != null) {
