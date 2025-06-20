@@ -537,7 +537,7 @@ void WorkloadGroup::upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info) {
 
     if (_cgroup_cpu_ctl) {
         _cgroup_cpu_ctl->update_cpu_hard_limit(cpu_hard_limit);
-        _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_share);
+        _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
     }
 }
 
