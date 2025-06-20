@@ -444,7 +444,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
 
     private static OlapTable getOlapTable(ConnectContext ctx, BulkLoadDataDesc dataDesc) throws AnalysisException {
         OlapTable targetTable;
-        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv());
+        TableIf table = RelationUtil.getTable(dataDesc.getNameParts(), ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("table must be olapTable in load command");
         }

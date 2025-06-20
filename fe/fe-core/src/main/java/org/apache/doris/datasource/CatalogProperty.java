@@ -20,12 +20,9 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -34,8 +31,6 @@ import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -47,7 +42,7 @@ import java.util.function.Function;
  * the properties in "properties" will overwrite properties in "resource"
  */
 @Data
-public class CatalogProperty implements Writable, GsonPostProcessable {
+public class CatalogProperty implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogProperty.class);
 
     @SerializedName(value = "resource")
@@ -142,17 +137,6 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
     public void deleteProperty(String key) {
         this.properties.remove(key);
         this.storagePropertiesMap = null;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-
-    public static CatalogProperty read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
     }
 
     @Override

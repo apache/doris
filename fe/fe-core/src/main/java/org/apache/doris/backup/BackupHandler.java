@@ -1227,12 +1227,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         return backupJob.getSnapshot();
     }
 
-    public static BackupHandler read(DataInput in) throws IOException {
-        BackupHandler backupHandler = new BackupHandler();
-        backupHandler.readFields(in);
-        return backupHandler;
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         repoMgr.write(out);

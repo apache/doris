@@ -239,12 +239,12 @@ struct TQueryIngestBinlogRequest {
 }
 
 enum TIngestBinlogStatus {
-    ANALYSIS_ERROR,
-    UNKNOWN,
-    NOT_FOUND,
-    OK,
-    FAILED,
-    DOING
+    ANALYSIS_ERROR = 0,
+    UNKNOWN = 1,
+    NOT_FOUND = 2,
+    OK = 3,
+    FAILED = 4,
+    DOING = 5
 }
 
 struct TQueryIngestBinlogResult {
@@ -253,8 +253,8 @@ struct TQueryIngestBinlogResult {
 }
 
 enum TTopicInfoType {
-    WORKLOAD_GROUP = 0
-    MOVE_QUERY_TO_GROUP = 1
+    WORKLOAD_GROUP = 0,
+    MOVE_QUERY_TO_GROUP = 1,
     WORKLOAD_SCHED_POLICY = 2
 }
 
@@ -287,17 +287,17 @@ struct TWorkloadGroupInfo {
 }
 
 enum TWorkloadMetricType {
-    QUERY_TIME = 0
-    BE_SCAN_ROWS = 1
-    BE_SCAN_BYTES = 2
+    QUERY_TIME = 0,
+    BE_SCAN_ROWS = 1,
+    BE_SCAN_BYTES = 2,
     QUERY_BE_MEMORY_BYTES = 3
 }
 
 enum TCompareOperator {
-    EQUAL = 0
-    GREATER = 1
-    GREATER_EQUAL = 2
-    LESS = 3
+    EQUAL = 0,
+    GREATER = 1,
+    GREATER_EQUAL = 2,
+    LESS = 3,
     LESS_EQUAL = 4
 }
 
@@ -308,7 +308,7 @@ struct TWorkloadCondition {
 }
 
 enum TWorkloadActionType {
-    MOVE_QUERY_TO_GROUP = 0
+    MOVE_QUERY_TO_GROUP = 0,
     CANCEL_QUERY = 1
 }
 
