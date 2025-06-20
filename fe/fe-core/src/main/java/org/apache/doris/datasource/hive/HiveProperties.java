@@ -88,6 +88,13 @@ public class HiveProperties {
                 DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat));
     }
 
+    public static String getMultiDelimitFieldDelimiter(Table table) {
+        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_FIELD_DELIMITER);
+        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SERIALIZATION_FORMAT);
+        return HiveMetaStoreClientHelper.firstPresentOrDefault(
+                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat);
+    }
+
     public static String getSeparatorChar(Table table) {
         Optional<String> separatorChar = HiveMetaStoreClientHelper.getSerdeProperty(table, PROP_SEPARATOR_CHAR);
         return HiveMetaStoreClientHelper.firstPresentOrDefault(
