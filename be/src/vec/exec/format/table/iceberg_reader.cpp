@@ -161,6 +161,7 @@ Status IcebergTableReader::_equality_delete_base(
         delete_desc.file_size = -1;
         std::unique_ptr<GenericReader> delete_reader = _create_equality_reader(delete_desc);
         if (!init_schema) {
+            RETURN_IF_ERROR(delete_reader->init_schema_reader());
             RETURN_IF_ERROR(delete_reader->get_parsed_schema(&equality_delete_col_names,
                                                              &equality_delete_col_types));
             _generate_equality_delete_block(&_equality_delete_block, equality_delete_col_names,
@@ -537,6 +538,7 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
 Status IcebergParquetReader::get_file_col_id_to_name(
         bool& exist_schema, std::map<int32_t, std::string>& file_col_id_to_name) {
     auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+    RETURN_IF_ERROR(parquet_reader->init_schema_reader());
     FieldDescriptor field_desc = parquet_reader->get_file_metadata_schema();
 
     if (field_desc.has_parquet_field_id()) {
