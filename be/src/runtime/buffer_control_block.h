@@ -103,6 +103,7 @@ protected:
     std::atomic_int _buffer_rows;
     const int _buffer_limit;
     int64_t _packet_num;
+    size_t _last_batch_bytes = 0;
 
     // blocking queue for batch
     ResultQueue _batch_queue;
