@@ -182,6 +182,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
             }
         }
+        if (stmt.isForceDrop()) {
+            // try to drop all tables in the database
+            List<String> tables = listTableNames(dbName);
+            for (String table : tables) {
+                performDropTable(dbName, table, true);
+            }
+            if (!tables.isEmpty()) {
+                LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, tables.size());
+            }
+        }
         nsCatalog.dropNamespace(getNamespace(dbName));
     }
 
@@ -261,11 +271,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private void performDropTable(DropTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTableName();
+        if (stmt == null) {
+            throw new DdlException("DropTableStmt is null");
+        }
+        performDropTable(stmt.getDbName(), stmt.getTableName(), stmt.isSetIfExists());
+    }
+
+    private void performDropTable(String dbName, String tableName, boolean ifExists) throws DdlException {
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("database [{}] does not exist when drop table[{}]", dbName, tableName);
                 return;
             } else {
@@ -274,7 +289,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
 
         if (!tableExist(dbName, tableName)) {
-            if (stmt.isSetIfExists()) {
+            if (ifExists) {
                 LOG.info("drop table[{}] which does not exist", tableName);
                 return;
             } else {
