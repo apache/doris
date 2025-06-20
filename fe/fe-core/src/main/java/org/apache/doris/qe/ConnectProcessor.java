@@ -320,8 +320,21 @@ public abstract class ConnectProcessor {
         long parseSqlFinishTime = System.currentTimeMillis();
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
+
+        // Prepare original statements for audit - try to split original statement if possible
+        List<String> origAuditStmtList = null;
+        if (stmts.size() > 1) {
+            try {
+                origAuditStmtList = SqlUtils.splitMultiStmts(originStmt);
+            } catch (Exception ignore) {
+                LOG.warn("Try to parse multi origAuditStmt failed, originStmt: \"{}\"", originStmt);
+            }
+        }
+        boolean usingOrigAuditStmt = origAuditStmtList != null && origAuditStmtList.size() == stmts.size();
+
         for (int i = 0; i < stmts.size(); ++i) {
             String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
+            String originalAuditStmt = usingOrigAuditStmt ? origAuditStmtList.get(i) : originStmt;
             if (stmts.size() > 1 && usingOrigSingleStmt) {
                 ctx.setSqlHash(DigestUtils.md5Hex(auditStmt));
             }
@@ -374,14 +387,16 @@ public abstract class ConnectProcessor {
                             break;
                         }
                     }
-                    auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(),
+                    auditAfterExec(originalAuditStmt,
+                            executor.getParsedStmt(),
+                            executor.getQueryStatisticsForAuditLog(),
                             true);
                     // execute failed, skip remaining stmts
                     if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                         break;
                     }
                 } catch (Throwable throwable) {
-                    handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
+                    handleQueryException(throwable, originalAuditStmt, executor.getParsedStmt(),
                             executor.getQueryStatisticsForAuditLog());
                     // execute failed, skip remaining stmts
                     throw throwable;
