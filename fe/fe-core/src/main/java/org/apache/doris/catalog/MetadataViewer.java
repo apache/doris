@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.ShowReplicaStatusStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -48,11 +47,6 @@ public class MetadataViewer {
     public static List<List<String>> getTabletStatus(ShowReplicaStatusCommand command) throws DdlException {
         return getTabletStatus(command.getDbName(), command.getTblName(), command.getPartitions(),
             command.getStatusFilter(), command.isEqual());
-    }
-
-    public static List<List<String>> getTabletStatus(ShowReplicaStatusStmt stmt) throws DdlException {
-        return getTabletStatus(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions(),
-                               stmt.getStatusFilter(), stmt.getOp());
     }
 
     private static List<List<String>> getTabletStatus(String dbName, String tblName, List<String> partitions,

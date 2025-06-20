@@ -51,7 +51,6 @@ import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
@@ -101,7 +100,6 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
-import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
@@ -181,8 +179,6 @@ public class DdlExecutor {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
             env.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
-            env.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
@@ -332,11 +328,6 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshLdapStmt) {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelCloudWarmUpStmt) {
-            if (Config.isCloudMode()) {
-                CancelCloudWarmUpStmt stmt = (CancelCloudWarmUpStmt) ddlStmt;
-                ((CloudEnv) env).cancelCloudWarmUp(stmt);
-            }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
         } else if (ddlStmt instanceof AlterRepositoryStmt) {

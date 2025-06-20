@@ -1757,7 +1757,7 @@ public abstract class RoutineLoadJob
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
-            sb.append("WHERE ").append(whereExpr.toSql()).append(",\n");
+            sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
         }
         // 4.4.partitions
         if (partitions != null) {
@@ -1765,7 +1765,7 @@ public abstract class RoutineLoadJob
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
-            sb.append("DELETE ON ").append(deleteCondition.toSql()).append(",\n");
+            sb.append("DELETE ON ").append(deleteCondition.toSqlWithoutTbl()).append(",\n");
         }
         // 4.6.source_sequence
         if (sequenceCol != null) {
@@ -1773,7 +1773,7 @@ public abstract class RoutineLoadJob
         }
         // 4.7.preceding_predicates
         if (precedingFilter != null) {
-            sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
+            sb.append("PRECEDING FILTER ").append(precedingFilter.toSqlWithoutTbl()).append(",\n");
         }
         // remove the last ,
         if (sb.charAt(sb.length() - 2) == ',') {
@@ -1866,8 +1866,8 @@ public abstract class RoutineLoadJob
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
-        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSqlWithoutTbl());
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
@@ -1888,7 +1888,7 @@ public abstract class RoutineLoadJob
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
