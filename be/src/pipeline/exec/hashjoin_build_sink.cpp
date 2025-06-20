@@ -147,9 +147,8 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         }
         size_to_reserve += _evaluate_mem_usage;
 
-        vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
-
         if (build_block_rows > 0) {
+            vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
             auto block = _build_side_mutable_block.to_block();
             std::vector<uint16_t> converted_columns;
             Defer defer([&]() {
@@ -161,23 +160,8 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                 _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
             });
             vectorized::ColumnUInt8::MutablePtr null_map_val;
-            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
-                converted_columns = _convert_block_to_null(block);
-                // first row is mocked
-                for (int i = 0; i < block.columns(); i++) {
-                    auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-                    assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
-                            ->get_null_map_column()
-                            .get_data()
-                            .data()[0] = 1;
-                }
-            }
-
-            null_map_val = vectorized::ColumnUInt8::create();
-            null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
-
-            // Get the key column that needs to be built
-            Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+            auto st =
+                    _finalize_build_block(state, block, raw_ptrs, null_map_val, converted_columns);
             if (!st.ok()) {
                 throw Exception(st);
             }
@@ -348,19 +332,12 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
     return Status::OK();
 }
 
-Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
-                                                        vectorized::Block& block) {
-    DCHECK(_should_build_hash_table);
+Status HashJoinBuildSinkLocalState::_finalize_build_block(
+        RuntimeState* state, vectorized::Block& block, vectorized::ColumnRawPtrs& raw_ptrs,
+        vectorized::ColumnUInt8::MutablePtr& null_map_val,
+        std::vector<uint16_t>& converted_columns) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
-    SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
-    if (UNLIKELY(rows == 0)) {
-        return Status::OK();
-    }
-
-    LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
-              << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
-              << PrettyPrinter::print_bytes(block.allocated_bytes());
     // 1. Dispose the overflow of ColumnString
     // 2. Finalize the ColumnObject to speed up
     for (auto& data : block) {
@@ -370,18 +347,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
         }
     }
 
-    vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
-    vectorized::ColumnUInt8::MutablePtr null_map_val;
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
-        _convert_block_to_null(block);
-        // first row is mocked
-        for (int i = 0; i < block.columns(); i++) {
-            auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
-            assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
-                    ->get_null_map_column()
-                    .get_data()
-                    .data()[0] = 1;
-        }
+        converted_columns = _convert_block_to_null(block);
     }
 
     _set_build_side_has_external_nullmap(block, _build_col_ids);
@@ -391,7 +358,23 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     }
 
     // Get the key column that needs to be built
-    RETURN_IF_ERROR(_extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids));
+    return _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+}
+
+Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
+                                                        vectorized::Block& block) {
+    DCHECK(_should_build_hash_table);
+    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    SCOPED_TIMER(_build_table_timer);
+    size_t rows = block.rows();
+    if (rows == 0) {
+        return Status::OK();
+    }
+
+    vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+    vectorized::ColumnUInt8::MutablePtr null_map_val;
+    std::vector<uint16_t> converted_columns;
+    RETURN_IF_ERROR(_finalize_build_block(state, block, raw_ptrs, null_map_val, converted_columns));
 
     Status st = std::visit(
             vectorized::Overload {
