@@ -26,7 +26,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/gutil")
 SET(SOURCE_FILES
         hash/city.cc
         ref_counted.cc
-        strings/numbers.cc)
+        strings/numbers.cc
+        threading/thread_collision_warner.cc)
 
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(SOURCE_FILES ${SOURCE_FILES} atomicops-internals-x86.cc)
