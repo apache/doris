@@ -82,7 +82,8 @@ public class LogicalOdbcScan extends LogicalCatalogRelation {
 
     @Override
     public Plan withHintContext(Optional<HintContext> hintContext) {
-        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
+        return new LogicalOdbcScan(relationId, table, qualifier, Optional.empty(), Optional.of(getLogicalProperties()),
+                hintContext);
     }
 
     @Override
