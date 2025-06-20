@@ -182,7 +182,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
     logger.info("state_mtmv5: " + state_mtmv5)
     if (step == 1) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc, 丢包之后会卡死
-    } else if (step == 2 || step == 3) {
+    } else if (step == 2) {
         assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
         sql """refresh catalog ${ctlName}"""
         state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
@@ -211,6 +211,19 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(test_sql5, mtmvName5)
             compare_res(test_sql5 + " order by 1,2,3")
         }
+
+    } else if (step == 3) {
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL")
+
+        sql """refresh MATERIALIZED VIEW ${mtmvName5} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName5)
+
+        state_mtmv5 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName5}';"""
+        assertTrue(state_mtmv5[0][0] == "NORMAL") // 升级master之后会变成sc
+        assertTrue(state_mtmv5[0][2] == true)
 
     } else if (step == 4) {
         assertTrue(state_mtmv5[0][0] == "SCHEMA_CHANGE")
@@ -310,7 +323,7 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
             compare_res(sql2 + " order by 1,2,3")
         }
-    } else if (step == 2 || step == 3) {
+    } else if (step == 2) {
         assertTrue(state_mtmv2[0][0] == "NORMAL")
 
         // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
@@ -355,6 +368,31 @@ suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
             mv_rewrite_success_without_check_chosen(sql2, mtmvName2)
             compare_res(sql2 + " order by 1,2,3")
         }
+    } else if (step == 3) {
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // An error occurred when refreshing the partition individually, and the partition was not deleted after the refresh.
+        try {
+            sql """refresh MATERIALIZED VIEW ${mtmvName2} partition(${part_date_str})"""
+        } catch (Exception e) {
+            logger.info("refresh MATERIALIZED VIEW: ${mtmvName2}")
+            logger.info(e.getMessage())
+        }
+
+        // 刷新catalog之后 mtmv处于sc状态
+        sql """refresh catalog ${ctlName}"""
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+
+        // When refreshing the entire MTMV, the partition will be deleted.
+        sql """refresh MATERIALIZED VIEW ${mtmvName2} complete"""
+        waitingMTMVTaskFinishedByMvName(mtmvName2)
+
+        state_mtmv2 = sql """select State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name = '${mtmvName2}';"""
+        logger.info("state_mtmv2:" + state_mtmv2)
+        assertTrue(state_mtmv2[0][0] == "NORMAL")
+        assertTrue(state_mtmv2[0][1] == "SUCCESS")
+        assertTrue(state_mtmv2[0][2] == true)
     } else if (step == 4) {
 
         assertTrue(state_mtmv2[0][0] == "SCHEMA_CHANGE")
