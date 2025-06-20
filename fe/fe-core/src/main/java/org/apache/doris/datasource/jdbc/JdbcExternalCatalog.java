@@ -156,6 +156,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getDatabaseTypeName() {
+        makeSureInitialized();
         return jdbcClient.getDbType();
     }
 
