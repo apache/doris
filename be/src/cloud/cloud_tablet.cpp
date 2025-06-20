@@ -1030,7 +1030,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
 
     std::unique_ptr<std::map<RowsetSharedPtr, RowLocationPairList>> location_map;
     if (config::enable_rowid_conversion_correctness_check &&
-        tablet_schema()->cluster_key_uids().empty()) {
+        enable_unique_key_merge_on_write() &&
+        tablet_schema()->cluster_key_uids().empty() &&
+        config::enable_compaction_unique_mow_by_mor) {
         location_map = std::make_unique<std::map<RowsetSharedPtr, RowLocationPairList>>();
         LOG(INFO) << "Location Map inited succ for tablet:" << tablet_id();
     }
