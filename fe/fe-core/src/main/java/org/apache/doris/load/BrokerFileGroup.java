@@ -502,7 +502,7 @@ public class BrokerFileGroup implements Writable {
             importColumnDescs = new ArrayList<>(columnExprList.size());
             for (ImportColumnDesc desc : columnExprList) {
                 Expression expression = desc.getExpr() != null
-                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSql()).get(0)
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
                         : null;
                 importColumnDescs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
