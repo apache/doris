@@ -147,7 +147,7 @@ bool HeapProfiler::heap_profiler_reset(size_t lg_sample) {
 #ifdef USE_JEMALLOC
     int ret = jemallctl("prof.reset", nullptr, nullptr, &lg_sample, sizeof(lg_sample));
     if (ret != 0) {
-        LOG(WARNING) << "jemallctl set prof.reset:" << lg_sample << " err";
+        LOG(WARNING) << "jemallctl failed to set prof.reset:" << lg_sample << ".Check whether JEMALLOC_CONF is configured with prof:true.";
         return false;
     }
 #endif
