@@ -219,9 +219,7 @@ std::pair<bool, std::string> ResourceManager::get_instance_id_by_cloud_unique_id
 bool ResourceManager::is_instance_id_registered(const std::string& instance_id) {
     // check kv
     auto [c0, m0] = get_instance(nullptr, instance_id, nullptr);
-    {
-        TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &c0);
-    }
+    { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &c0); }
     if (c0 != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to check instance instance_id=" << instance_id
                      << ", code=" << format_as(c0) << ", info=" + m0;
