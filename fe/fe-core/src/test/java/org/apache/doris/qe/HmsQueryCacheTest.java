@@ -36,6 +36,7 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.systable.SupportedSysTables;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -123,6 +124,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -173,6 +175,7 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl2, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl2, "dbName", "hms_db");
         Deencapsulation.setField(tbl2, "name", "hms_tbl2");
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl2) {
             {
                 tbl2.getId();
@@ -214,6 +217,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 tbl2.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                tbl2.getSupportedSysTables();
+                minTimes = 0;
+                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
             }
         };
 
@@ -268,6 +275,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view1.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                view1.getSupportedSysTables();
+                minTimes = 0;
+                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
             }
         };
 
@@ -321,6 +332,10 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
                 view2.getDatabase();
                 minTimes = 0;
                 result = db;
+
+                view2.getSupportedSysTables();
+                minTimes = 0;
+                result = SupportedSysTables.HIVE_SUPPORTED_SYS_TABLES;
             }
         };
 
