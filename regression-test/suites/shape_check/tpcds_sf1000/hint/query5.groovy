@@ -165,7 +165,7 @@ suite("query5") {
     explain shape plan
     with ssr as
  (select 
- /*+ leading(salesreturns broadcast date_dim broadcast store) */
+ /*+ leading(salesreturns [broadcast] date_dim [broadcast] store) */
  s_store_id,
         sum(sales_price) as sales,
         sum(profit) as profit,
@@ -198,7 +198,7 @@ suite("query5") {
  ,
  csr as
  (select 
-  /*+ leading(salesreturns broadcast date_dim broadcast catalog_page) */
+  /*+ leading(salesreturns [broadcast] date_dim [broadcast] catalog_page) */
  cp_catalog_page_id,
         sum(sales_price) as sales,
         sum(profit) as profit,

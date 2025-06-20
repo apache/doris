@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -369,7 +370,8 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             children = Lists.newArrayListWithCapacity(children.size());
             for (int i = 0; i < union.getArity(); i++) {
                 LogicalProject<?> project = new LogicalProject<>(
-                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))), union.child(i));
+                        ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1))), union.child(i),
+                        PlanUtils.getHintContext(union.child(i)));
                 regularChildrenOutputs.add((List) project.getOutput());
                 children.add(project);
             }
@@ -441,10 +443,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         }
         boolean isProject = plan instanceof LogicalProject;
         Plan prunedChild = child.accept(this, new PruneContext(childRequiredSlots, plan));
-
         // the case 2 in the class comment, prune child's output failed
         if (!isProject && !Sets.difference(prunedChild.getOutputSet(), childRequiredSlots).isEmpty()) {
-            prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild);
+            prunedChild = new LogicalProject<>(Utils.fastToImmutableList(childRequiredSlots), prunedChild,
+                    PlanUtils.getHintContext(prunedChild));
         }
         return prunedChild;
     }

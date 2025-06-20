@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -142,9 +143,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         tmpPlan = applyPlan;
                         newConjuncts.add(result.second.isPresent() ? result.second.get() : conjunct);
                     }
-                    Plan newFilter = new LogicalFilter<>(newConjuncts.build(), applyPlan);
+                    Plan newFilter = new LogicalFilter<>(newConjuncts.build(), applyPlan, filter.getHintContext());
                     return new LogicalProject<>(filter.getOutput().stream().collect(ImmutableList.toImmutableList()),
-                        newFilter);
+                        newFilter, filter.getHintContext());
                 })
             ),
             RuleType.PROJECT_SUBQUERY_TO_APPLY.build(logicalProject().thenApply(ctx -> {
@@ -200,7 +201,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     return new LogicalProject<Plan>(oneRowRelation.getProjects(),
                             oneRowRelation.withProjects(
                                     ImmutableList.of(new Alias(BooleanLiteral.of(true),
-                                            ctx.statementContext.generateColumnName()))));
+                                            ctx.statementContext.generateColumnName()))),
+                            oneRowRelation.getHintContext());
                 })),
             RuleType.JOIN_SUBQUERY_TO_APPLY
                 .build(logicalJoin()
@@ -457,12 +459,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 LogicalAggregate<Plan> aggregate;
                 if (((ScalarSubquery) subquery).limitOneIsEliminated()) {
                     aggregate = new LogicalAggregate<>(ImmutableList.of(),
-                            ImmutableList.of(anyValueAlias), subquery.getQueryPlan());
+                            ImmutableList.of(anyValueAlias), subquery.getQueryPlan(),
+                            PlanUtils.getHintContext(subquery.getQueryPlan()));
                 } else {
                     Alias countAlias = new Alias(new Count());
                     countSlot = countAlias.toSlot();
                     aggregate = new LogicalAggregate<>(ImmutableList.of(),
-                            ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan());
+                            ImmutableList.of(countAlias, anyValueAlias), subquery.getQueryPlan(),
+                            PlanUtils.getHintContext(subquery.getQueryPlan()));
                 }
                 anyValueSlot = anyValueAlias.toSlot();
                 subquery = subquery.withSubquery(aggregate);
@@ -494,7 +498,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 subQueryType, isNot, compareExpr, subquery.getTypeCoercionExpr(), Optional.empty(),
                 markJoinSlot,
                 needAddScalarSubqueryOutputToProjects, isProject, isMarkJoinSlotNotNull,
-                childPlan, subquery.getQueryPlan());
+                childPlan, subquery.getQueryPlan(), childPlan.getHintContext());
 
         ImmutableList.Builder<NamedExpression> projects =
                 ImmutableList.builderWithExpectedSize(childPlan.getOutput().size() + 3);
@@ -515,17 +519,18 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                             ExpressionUtils.or(new IsNull(countSlot),
                                     new LessThanEqual(countSlot, new IntegerLiteral(1))),
                             new VarcharLiteral("correlate scalar subquery must return only 1 row"))));
-                    logicalProject = new LogicalProject(projects.build(), newApply);
-                    logicalProject = new LogicalProject(upperProjects, logicalProject);
+                    logicalProject = new LogicalProject(projects.build(), newApply, newApply.getHintContext());
+                    logicalProject = new LogicalProject(upperProjects, logicalProject,
+                            logicalProject.getHintContext());
                 } else {
-                    logicalProject = new LogicalProject(projects.build(), newApply);
+                    logicalProject = new LogicalProject(projects.build(), newApply, newApply.getHintContext());
                 }
             } else {
                 projects.add(oldSubqueryOutput);
-                logicalProject = new LogicalProject(projects.build(), newApply);
+                logicalProject = new LogicalProject(projects.build(), newApply, newApply.getHintContext());
             }
         } else {
-            logicalProject = new LogicalProject(projects.build(), newApply);
+            logicalProject = new LogicalProject(projects.build(), newApply, newApply.getHintContext());
         }
 
         return Pair.of(logicalProject, newConjunct);

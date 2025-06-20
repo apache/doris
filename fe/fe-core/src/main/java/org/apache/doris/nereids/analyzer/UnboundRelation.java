@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -64,66 +65,70 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
 
     private final Optional<TableSnapshot> tableSnapshot;
 
-    public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(null, id, nameParts);
-    }
-
-    public UnboundRelation(Location location, RelationId id, List<String> nameParts) {
-        this(location, id, nameParts, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), false, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), null,
-                Optional.empty(), Optional.empty());
+    public UnboundRelation(RelationId id, List<String> nameParts, Optional<HintContext> hintContext) {
+        this(null, id, nameParts, hintContext);
     }
 
     public UnboundRelation(Location location, RelationId id, List<String> nameParts, List<String> partNames,
-            boolean isTempPart) {
+            boolean isTempPart, Optional<HintContext> hintContext) {
         this(location, id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), Optional.empty());
+                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), Optional.empty(),
+                hintContext);
+    }
+
+    public UnboundRelation(Location location, RelationId id, List<String> nameParts,
+            Optional<HintContext> hintContext) {
+        this(location, id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of(),
+                ImmutableList.of(), Optional.empty(), Optional.empty(), null, Optional.empty(), Optional.empty(),
+                hintContext);
     }
 
     public UnboundRelation(Location location, RelationId id, List<String> nameParts, List<String> partNames,
             boolean isTempPart, List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
-            Optional<String> indexName) {
+            Optional<String> indexName, Optional<HintContext> hintContext) {
         this(location, id, nameParts, Optional.empty(), Optional.empty(),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(),
-                Optional.empty());
+                Optional.empty(), hintContext);
     }
 
     public UnboundRelation(Location location, RelationId id, List<String> nameParts, List<String> partNames,
             boolean isTempPart, List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
-            Optional<String> indexName, TableScanParams scanParams, Optional<TableSnapshot> tableSnapshot) {
+            Optional<String> indexName,
+            TableScanParams scanParams, Optional<TableSnapshot> tableSnapshot, Optional<HintContext> hintContext) {
         this(location, id, nameParts, Optional.empty(), Optional.empty(),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, Optional.empty(),
-                tableSnapshot);
+                tableSnapshot, hintContext);
     }
 
     public UnboundRelation(Location location, RelationId id, List<String> nameParts,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<String> partNames, boolean isTempPart, List<Long> tabletIds, List<String> hints,
-            Optional<TableSample> tableSample, Optional<String> indexName) {
+            Optional<TableSample> tableSample, Optional<String> indexName,
+            Optional<HintContext> hintContext) {
         this(location, id, nameParts, groupExpression, logicalProperties, partNames,
-                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(), Optional.empty());
+                isTempPart, tabletIds, hints, tableSample, indexName, null, Optional.empty(),
+                Optional.empty(), hintContext);
     }
 
     public UnboundRelation(Location location, RelationId id, List<String> nameParts, List<String> partNames,
             boolean isTempPart, List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
             Optional<String> indexName, TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
-            Optional<TableSnapshot> tableSnapshot) {
+            Optional<TableSnapshot> tableSnapshot, Optional<HintContext> hintContext) {
         this(location, id, nameParts, Optional.empty(), Optional.empty(),
                 partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams, indexInSqlString,
-                tableSnapshot);
+                tableSnapshot, hintContext);
     }
 
     /**
      * constructor of UnboundRelation
      */
     public UnboundRelation(@Nullable Location location, RelationId id, List<String> nameParts,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            List<String> partNames, boolean isTempPart, List<Long> tabletIds, List<String> hints,
-            Optional<TableSample> tableSample, Optional<String> indexName, TableScanParams scanParams,
-            Optional<Pair<Integer, Integer>> indexInSqlString,
-            Optional<TableSnapshot> tableSnapshot) {
-        super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
+            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample, Optional<String> indexName,
+            TableScanParams scanParams, Optional<Pair<Integer, Integer>> indexInSqlString,
+            Optional<TableSnapshot> tableSnapshot, Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties, hintContext);
         this.location = Optional.ofNullable(location);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
@@ -154,22 +159,31 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts,
-                groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString, tableSnapshot);
+                groupExpression, Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints,
+                tableSample, indexName, scanParams, indexInSqlString, tableSnapshot, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts, groupExpression,
-                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, null,
-                indexInSqlString, tableSnapshot);
+                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
+                indexInSqlString, tableSnapshot, hintContext);
     }
 
     public UnboundRelation withIndexInSql(Pair<Integer, Integer> index) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts, groupExpression,
-                Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints, tableSample, indexName,
-                null, Optional.of(index), tableSnapshot);
+                Optional.of(getLogicalProperties()),
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
+                Optional.of(index), tableSnapshot, hintContext);
+    }
+
+    @Override
+    public UnboundRelation withHintContext(Optional<HintContext> hintContext) {
+        return new UnboundRelation(location.orElse(null), relationId, nameParts, groupExpression,
+                Optional.of(getLogicalProperties()),
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
+                indexInSqlString, tableSnapshot, hintContext);
     }
 
     @Override
@@ -186,8 +200,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public String toString() {
         List<Object> args = Lists.newArrayList(
                 "id", relationId,
-                "nameParts", StringUtils.join(nameParts, ".")
-        );
+                "nameParts", StringUtils.join(nameParts, "."));
         if (CollectionUtils.isNotEmpty(hints)) {
             args.add("hints");
             args.add(StringUtils.join(hints, ", "));

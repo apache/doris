@@ -43,10 +43,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 class PushDowFilterThroughProjectTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
             PlanConstructor.student,
-            ImmutableList.of(""));
+            ImmutableList.of(""), Optional.empty());
 
     @Test
     void pushDownFilterThroughProject() {

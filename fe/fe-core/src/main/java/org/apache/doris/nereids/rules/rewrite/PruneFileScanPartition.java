@@ -70,7 +70,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
                     }
                     LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
-                    return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
+                    return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan, filter.getHintContext());
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 

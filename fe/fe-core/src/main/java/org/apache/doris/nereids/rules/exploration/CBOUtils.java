@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
@@ -53,7 +54,7 @@ public class CBOUtils {
         List<NamedExpression> projects = plan.getOutput().stream()
                 .filter(namedExpr -> requiredExprIds.contains(namedExpr.getExprId()))
                 .collect(Collectors.toList());
-        return new LogicalProject<>(projects, plan);
+        return new LogicalProject<>(projects, plan, PlanUtils.getHintContext(plan));
     }
 
     /**

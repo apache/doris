@@ -164,7 +164,7 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     private Expr translateToLegacyExpr(Expression expression, ConnectContext ctx) {
         LogicalEmptyRelation plan = new LogicalEmptyRelation(
                 ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
+                new ArrayList<>(), Optional.empty());
         CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
                 PhysicalProperties.ANY);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);

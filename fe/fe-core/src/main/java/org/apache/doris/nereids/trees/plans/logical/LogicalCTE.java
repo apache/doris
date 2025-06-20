@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,13 +42,14 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     private final List<LogicalSubQueryAlias<Plan>> aliasQueries;
 
-    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child) {
-        this(aliasQueries, Optional.empty(), Optional.empty(), child);
+    public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, CHILD_TYPE child,
+            Optional<HintContext> hintContext) {
+        this(aliasQueries, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child, hintContext);
         this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
     }
 
@@ -101,8 +103,19 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(aliasQueries.size() > 0);
-        return new LogicalCTE<>(aliasQueries, children.get(0));
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalCTE<>(aliasQueries, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalCTE<>(aliasQueries, children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalCTE<>(aliasQueries, children.get(0), hintContext);
     }
 
     @Override
@@ -117,13 +130,14 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public LogicalCTE<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalCTE<>(aliasQueries, groupExpression, Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(aliasQueries.size() > 0);
-        return new LogicalCTE<>(aliasQueries, groupExpression, logicalProperties, children.get(0));
+        return new LogicalCTE<>(aliasQueries, groupExpression, logicalProperties, children.get(0), hintContext);
     }
 }

@@ -184,7 +184,7 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
             leftAggOutputBuilder.add(leftCnt);
         }
         LogicalAggregate<Plan> leftAgg = new LogicalAggregate<>(
-                ImmutableList.copyOf(leftGroupBy), leftAggOutputBuilder.build(), join.left());
+                ImmutableList.copyOf(leftGroupBy), leftAggOutputBuilder.build(), join.left(), agg.getHintContext());
         // right agg
         Map<Slot, NamedExpression> rightSlotToOutput = new HashMap<>();
         Builder<NamedExpression> rightAggOutputBuilder = ImmutableList.<NamedExpression>builder().addAll(rightGroupBy);
@@ -198,7 +198,7 @@ public class PushDownAggThroughJoin implements RewriteRuleFactory {
             rightAggOutputBuilder.add(rightCnt);
         }
         LogicalAggregate<Plan> rightAgg = new LogicalAggregate<>(
-                ImmutableList.copyOf(rightGroupBy), rightAggOutputBuilder.build(), join.right());
+                ImmutableList.copyOf(rightGroupBy), rightAggOutputBuilder.build(), join.right(), agg.getHintContext());
 
         Plan newJoin = join.withChildren(leftAgg, rightAgg);
 

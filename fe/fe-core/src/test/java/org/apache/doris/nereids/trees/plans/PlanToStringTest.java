@@ -41,12 +41,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class PlanToStringTest {
 
     @Test
     public void testLogicalLimit(@Mocked Plan child) {
-        LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child);
+        LogicalLimit<Plan> plan = new LogicalLimit<>(0, 0, LimitPhase.ORIGIN, child, Optional.empty());
 
         Assertions.assertEquals("LogicalLimit ( limit=0, offset=0, phase=ORIGIN )", plan.toString());
     }
@@ -54,7 +55,7 @@ public class PlanToStringTest {
     @Test
     public void testLogicalAggregate(@Mocked Plan child) {
         LogicalAggregate<Plan> plan = new LogicalAggregate<>(Lists.newArrayList(), ImmutableList.of(
-                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child, Optional.empty());
 
         Assertions.assertTrue(plan.toString()
                 .matches("LogicalAggregate\\[\\d+\\] \\( groupByExpr=\\[], outputExpr=\\[a#\\d+], hasRepeat=false \\)"));
@@ -62,7 +63,7 @@ public class PlanToStringTest {
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
-        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
+        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child, Optional.empty());
         Assertions.assertTrue(plan.toString().matches(
                 "LogicalFilter\\[\\d+\\] \\( predicates=\\(1 = 1\\) \\)"));
     }
@@ -72,7 +73,7 @@ public class PlanToStringTest {
         LogicalJoin<Plan, Plan> plan = new LogicalJoin<>(JoinType.INNER_JOIN, Lists.newArrayList(
                 new EqualTo(new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                left, right, null);
+                left, right, null, Optional.empty());
         System.out.println(plan.toString());
         Assertions.assertTrue(plan.toString().matches(
                 "LogicalJoin\\[\\d+\\] \\( type=INNER_JOIN, markJoinSlotReference=Optional.empty, hashJoinConjuncts=\\[\\(a#\\d+ = b#\\d+\\)], otherJoinConjuncts=\\[], markJoinConjuncts=\\[] \\)"));
@@ -90,7 +91,7 @@ public class PlanToStringTest {
     @Test
     public void testLogicalProject(@Mocked Plan child) {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
-                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
+                new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child, Optional.empty());
         Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+] \\)"));
     }
 
@@ -100,7 +101,7 @@ public class PlanToStringTest {
                 new OrderKey(new SlotReference("col1", IntegerType.INSTANCE), true, true),
                 new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true));
 
-        LogicalSort<Plan> plan = new LogicalSort<>(orderKeyList, child);
+        LogicalSort<Plan> plan = new LogicalSort<>(orderKeyList, child, Optional.empty());
         Assertions.assertTrue(plan.toString().matches("LogicalSort\\[\\d+\\] \\( orderKeys=\\[col1#\\d+ asc null first, col2#\\d+ asc null first] \\)"));
     }
 }

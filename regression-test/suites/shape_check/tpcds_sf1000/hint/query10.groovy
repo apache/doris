@@ -95,7 +95,7 @@ limit 100"""
     qt_ds_shape_10 '''
     explain shape plan
     select  
-    /*+ leading(customer_demographics broadcast {c broadcast ca}) */
+    /*+ leading(customer_demographics [broadcast] (c [broadcast] ca)) */
   cd_gender,
   cd_marital_status,
   cd_education_status,

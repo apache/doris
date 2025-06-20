@@ -53,7 +53,8 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
                 Set<Expression> newFilterPredicates = f.getConjuncts().stream().map(conjunct ->
                         ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
-                newChildren.add(new LogicalFilter<>(newFilterPredicates, setOperation.child(childIdx)));
+                newChildren.add(
+                        new LogicalFilter<>(newFilterPredicates, setOperation.child(childIdx), f.getHintContext()));
             }
 
             return setOperation.withChildren(newChildren);

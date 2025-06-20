@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -90,7 +91,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         plan = plan.accept(this, ctx);
         for (int i = ctx.cteProducerList.size() - 1; i >= 0; i--) {
             LogicalCTEProducer<? extends Plan> producer = ctx.cteProducerList.get(i);
-            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan);
+            plan = new LogicalCTEAnchor<>(producer.getCteId(), producer, plan, PlanUtils.getHintContext(plan));
         }
         return plan;
     }
@@ -104,7 +105,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         Plan child2 = anchor.child(1).accept(this, consumerContext);
         for (int i = consumerContext.cteProducerList.size() - 1; i >= 0; i--) {
             LogicalCTEProducer<? extends Plan> producer = consumerContext.cteProducerList.get(i);
-            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2);
+            child2 = new LogicalCTEAnchor<>(producer.getCteId(), producer, child2, anchor.getHintContext());
         }
         return anchor.withChildren(ImmutableList.of(child1, child2));
     }
@@ -122,7 +123,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
         LogicalAggregate<Plan> cloneAgg = (LogicalAggregate<Plan>) LogicalPlanDeepCopier.INSTANCE
                 .deepCopy(agg, new DeepCopierContext());
         LogicalCTEProducer<Plan> producer = new LogicalCTEProducer<>(ctx.statementContext.getNextCTEId(),
-                cloneAgg.child());
+                cloneAgg.child(), agg.getHintContext());
         ctx.cteProducerList.add(producer);
         Map<Slot, Slot> originToProducerSlot = new HashMap<>();
         for (int i = 0; i < agg.child().getOutput().size(); ++i) {
@@ -151,7 +152,8 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
                 // save replacedGroupBy
                 outputJoinGroupBys.addAll(replacedGroupBy);
             }
-            LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(replacedGroupBy, outputExpressions, consumer);
+            LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(replacedGroupBy, outputExpressions, consumer,
+                    agg.getHintContext());
             newAggs.add(newAgg);
             newToOriginDistinctFuncAlias.put(alias, distinctFuncWithAlias.get(i));
         }
@@ -180,7 +182,8 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
             outputExpressions.add(outputOtherFunc);
             newToOriginDistinctFuncAlias.put(outputOtherFunc, (Alias) otherAggFuncAlias);
         }
-        LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(replacedGroupBy, outputExpressions, consumer);
+        LogicalAggregate<Plan> newAgg = new LogicalAggregate<>(replacedGroupBy, outputExpressions, consumer,
+                cloneAgg.getHintContext());
         newAggs.add(newAgg);
     }
 
@@ -188,7 +191,7 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
             LogicalCTEProducer<Plan> producer, LogicalAggregate<Plan> cloneAgg, List<NamedExpression> outputExpressions,
             Map<Slot, Slot> producerToConsumerSlotMap, List<Expression> replacedGroupBy) {
         LogicalCTEConsumer consumer = new LogicalCTEConsumer(ctx.statementContext.getNextRelationId(),
-                producer.getCteId(), "", producer);
+                producer.getCteId(), "", producer, cloneAgg.getHintContext());
         ctx.cascadesContext.putCTEIdToConsumer(consumer);
         for (Map.Entry<Slot, Slot> entry : consumer.getConsumerToProducerOutputMap().entrySet()) {
             producerToConsumerSlotMap.put(entry.getValue(), entry.getKey());
@@ -256,16 +259,18 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
             Slot slot = (Slot) groupBy.get(i);
             projects.add(new Alias(slot.getExprId(), outputJoinGroupBys.get(i), slot.getName()));
         }
-        return new LogicalProject<>(projects, join);
+        return new LogicalProject<>(projects, join, join.getHintContext());
     }
 
     private static LogicalJoin<Plan, Plan> constructJoin(List<LogicalAggregate<Plan>> newAggs,
             List<Expression> groupBy) {
         LogicalJoin<Plan, Plan> join;
         if (groupBy.isEmpty()) {
-            join = new LogicalJoin<>(JoinType.CROSS_JOIN, newAggs.get(0), newAggs.get(1), null);
+            join = new LogicalJoin<>(JoinType.CROSS_JOIN, newAggs.get(0), newAggs.get(1), null,
+                    newAggs.get(0).getHintContext());
             for (int j = 2; j < newAggs.size(); ++j) {
-                join = new LogicalJoin<>(JoinType.CROSS_JOIN, join, newAggs.get(j), null);
+                join = new LogicalJoin<>(JoinType.CROSS_JOIN, join, newAggs.get(j), null,
+                        newAggs.get(j).getHintContext());
             }
         } else {
             int len = groupBy.size();
@@ -275,7 +280,8 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
             for (int i = 0; i < len; ++i) {
                 hashConditions.add(new NullSafeEqual(leftSlots.get(i), rightSlots.get(i)));
             }
-            join = new LogicalJoin<>(JoinType.INNER_JOIN, hashConditions, newAggs.get(0), newAggs.get(1), null);
+            join = new LogicalJoin<>(JoinType.INNER_JOIN, hashConditions, newAggs.get(0), newAggs.get(1), null,
+                    newAggs.get(0).getHintContext());
             for (int j = 2; j < newAggs.size(); ++j) {
                 List<Slot> belowJoinSlots = join.left().getOutput();
                 List<Slot> belowRightSlots = newAggs.get(j).getOutput();
@@ -283,7 +289,8 @@ public class SplitMultiDistinct extends DefaultPlanRewriter<DistinctSplitContext
                 for (int i = 0; i < len; ++i) {
                     aboveHashConditions.add(new NullSafeEqual(belowJoinSlots.get(i), belowRightSlots.get(i)));
                 }
-                join = new LogicalJoin<>(JoinType.INNER_JOIN, aboveHashConditions, join, newAggs.get(j), null);
+                join = new LogicalJoin<>(JoinType.INNER_JOIN, aboveHashConditions, join, newAggs.get(j), null,
+                        newAggs.get(j).getHintContext());
             }
         }
         return join;

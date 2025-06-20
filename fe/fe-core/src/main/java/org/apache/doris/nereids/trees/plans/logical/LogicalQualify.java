@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -47,13 +48,13 @@ public class LogicalQualify<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     private final Set<Expression> conjuncts;
 
-    public LogicalQualify(Set<Expression> conjuncts, CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), Optional.empty(), child);
+    public LogicalQualify(Set<Expression> conjuncts, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        this(conjuncts, Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     private LogicalQualify(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_QUALIFY, groupExpression, logicalProperties, child);
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_QUALIFY, groupExpression, logicalProperties, child, hintContext);
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts can not be null"));
     }
 
@@ -69,18 +70,32 @@ public class LogicalQualify<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalQualify<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalQualify<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child(),
+                hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalQualify<>(conjuncts, groupExpression, logicalProperties, children.get(0));
+        return new LogicalQualify<>(conjuncts, groupExpression, logicalProperties, children.get(0), hintContext);
     }
 
     public LogicalQualify<Plan> withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalQualify<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return new LogicalQualify<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child(),
+                hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalQualify<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child(),
+                hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalQualify<>(conjuncts, children.get(0), hintContext);
     }
 
     @Override
@@ -120,7 +135,7 @@ public class LogicalQualify<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public LogicalQualify<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalQualify<>(conjuncts, children.get(0));
+        return new LogicalQualify<>(conjuncts, children.get(0), hintContext);
     }
 
     @Override

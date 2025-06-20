@@ -43,16 +43,21 @@ public class LeadingJoin implements RewriteRuleFactory {
                             return ctx.root;
                         }
                         Hint leadingHint = ctx.cascadesContext.getHintMap().get("Leading");
-                        ((LeadingHint) leadingHint).setTotalBitmap(ctx.root.getInputRelations());
-                        Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
-                        if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
-                                && leadingHint.isSuccess()) {
-                            Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
-                            if (leadingHint.isSuccess() && leadingJoin != null) {
-                                ctx.cascadesContext.setLeadingDisableJoinReorder(true);
-                                ctx.cascadesContext.setLeadingJoin(false);
-                                return leadingJoin;
+                        try {
+                            ((LeadingHint) leadingHint).setTotalBitmap(ctx.root.getInputRelations());
+                            Long currentBitMap = LongBitmap.computeTableBitmap(ctx.root.getInputRelations());
+                            if (((LeadingHint) leadingHint).getTotalBitmap().equals(currentBitMap)
+                                    && leadingHint.isSuccess()) {
+                                Plan leadingJoin = ((LeadingHint) leadingHint).generateLeadingJoinPlan();
+                                if (leadingHint.isSuccess() && leadingJoin != null) {
+                                    ctx.cascadesContext.setLeadingDisableJoinReorder(true);
+                                    ctx.cascadesContext.setLeadingJoin(false);
+                                    return leadingJoin;
+                                }
                             }
+                        } catch (Exception e) {
+                            leadingHint.setErrorMessage(e.getMessage());
+                            leadingHint.setStatus(Hint.HintStatus.SYNTAX_ERROR);
                         }
                         return ctx.root;
                     }).toRule(RuleType.LEADING_JOIN)

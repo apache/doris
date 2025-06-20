@@ -46,7 +46,7 @@ public class MergeGenerates extends OneRewriteRuleFactory {
             generators.addAll(top.getGenerators());
             List<Slot> generatorsOutput = Lists.newArrayList(bottom.getGeneratorOutput());
             generatorsOutput.addAll(top.getGeneratorOutput());
-            return new LogicalGenerate<>(generators, generatorsOutput, bottom.child());
+            return new LogicalGenerate<>(generators, generatorsOutput, bottom.child(), top.getHintContext());
         }).toRule(RuleType.MERGE_GENERATES);
     }
 }

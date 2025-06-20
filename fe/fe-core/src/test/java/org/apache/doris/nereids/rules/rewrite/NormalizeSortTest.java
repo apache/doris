@@ -37,13 +37,14 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * NormalizeSortTest ut
  */
 class NormalizeSortTest implements MemoPatternMatchSupported {
-    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
+    LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score, Optional.empty());
 
     @Test
     void testOrderByExpr() {

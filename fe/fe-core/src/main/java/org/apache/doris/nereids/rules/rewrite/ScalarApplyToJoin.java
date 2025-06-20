@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import java.util.Optional;
 
@@ -59,13 +60,13 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
     private Plan unCorrelatedToJoin(LogicalApply apply) {
         LogicalAssertNumRows assertNumRows = new LogicalAssertNumRows<>(new AssertNumRowsElement(1,
                 apply.right().toString(), AssertNumRowsElement.Assertion.EQ),
-                (LogicalPlan) apply.right());
+                (LogicalPlan) apply.right(), PlanUtils.getHintContext((LogicalPlan) apply.right()));
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                (LogicalPlan) apply.left(), assertNumRows, null);
+                (LogicalPlan) apply.left(), assertNumRows, null, apply.getHintContext());
     }
 
     private Plan correlatedToJoin(LogicalApply apply) {
@@ -88,6 +89,6 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 ExpressionUtils.extractConjunction(correlationFilter.get()),
                 new DistributeHint(DistributeType.NONE),
                 apply.getMarkJoinSlotReference(),
-                apply.children(), null);
+                apply.children(), null, apply.getHintContext());
     }
 }

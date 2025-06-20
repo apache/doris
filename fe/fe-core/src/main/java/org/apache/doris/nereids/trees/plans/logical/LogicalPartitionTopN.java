@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -53,27 +54,27 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     private final long partitionLimit;
 
     public LogicalPartitionTopN(WindowExpression windowExpr, boolean hasGlobalLimit, long partitionLimit,
-                                CHILD_TYPE child) {
+                                CHILD_TYPE child, Optional<HintContext> hintContext) {
         this(windowExpr.getFunction(), windowExpr.getPartitionKeys(), windowExpr.getOrderKeys(),
                 hasGlobalLimit, partitionLimit, Optional.empty(),
-                Optional.empty(), child);
+                Optional.empty(), child, hintContext);
     }
 
     public LogicalPartitionTopN(WindowFuncType windowFuncType, List<Expression> partitionKeys,
                                 List<OrderExpression> orderKeys, boolean hasGlobalLimit, long partitionLimit,
-                                CHILD_TYPE child) {
+                                CHILD_TYPE child, Optional<HintContext> hintContext) {
         this(windowFuncType, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child, hintContext);
     }
 
     /**
      * Constructor for LogicalPartitionTopN.
      */
     public LogicalPartitionTopN(WindowFuncType windowFuncType, List<Expression> partitionKeys,
-                                List<OrderExpression> orderKeys, boolean hasGlobalLimit,
-                                long partitionLimit, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
+            List<OrderExpression> orderKeys, boolean hasGlobalLimit,
+            long partitionLimit, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child, hintContext);
         this.function = windowFuncType;
         this.partitionKeys = ImmutableList.copyOf(Objects.requireNonNull(partitionKeys,
             "partitionKeys can not be null"));
@@ -87,9 +88,9 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
      * Constructor for LogicalPartitionTopN.
      */
     public LogicalPartitionTopN(Expression expr, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
-                                boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
+            boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, Optional<HintContext> hintContext) {
+        super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child, hintContext);
         if (expr instanceof RowNumber) {
             this.function = WindowFuncType.ROW_NUMBER;
         } else if (expr instanceof Rank) {
@@ -180,20 +181,33 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     public LogicalPartitionTopN<Plan> withPartitionKeysAndOrderKeys(
             List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
+                Optional.empty(), Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
     public LogicalPartitionTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            children.get(0));
+            children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withHintContext(Optional<HintContext> hintContext) {
+        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+                children.get(0), hintContext);
+    }
+
+    @Override
+    public Plan withChildrenAndHintContext(List<Plan> children, Optional<HintContext> hintContext) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
+                children.get(0), hintContext);
     }
 
     @Override
     public LogicalPartitionTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            groupExpression, Optional.of(getLogicalProperties()), child());
+            groupExpression, Optional.of(getLogicalProperties()), child(), hintContext);
     }
 
     @Override
@@ -201,6 +215,6 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-                groupExpression, logicalProperties, children.get(0));
+                groupExpression, logicalProperties, children.get(0), hintContext);
     }
 }

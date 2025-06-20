@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.hint.HintContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
@@ -44,13 +45,15 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
     private final String functionName;
     private final Properties properties;
 
-    public UnboundTVFRelation(RelationId id, String functionName, Properties properties) {
-        this(id, functionName, properties, Optional.empty(), Optional.empty());
+    public UnboundTVFRelation(RelationId id, String functionName, Properties properties,
+            Optional<HintContext> hintContext) {
+        this(id, functionName, properties, Optional.empty(), Optional.empty(), hintContext);
     }
 
     public UnboundTVFRelation(RelationId id, String functionName, Properties properties,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties);
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+            Optional<HintContext> hintContext) {
+        super(id, PlanType.LOGICAL_UNBOUND_TVF_RELATION, groupExpression, logicalProperties, hintContext);
         this.functionName = Objects.requireNonNull(functionName, "functionName can not be null");
         this.properties = Objects.requireNonNull(properties, "properties can not be null");
     }
@@ -86,18 +89,25 @@ public class UnboundTVFRelation extends LogicalRelation implements TVFRelation, 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundTVFRelation(relationId, functionName, properties, groupExpression,
-                Optional.of(getLogicalProperties()));
+                Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression, logicalProperties);
+        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression, logicalProperties,
+                hintContext);
     }
 
     @Override
     public UnboundTVFRelation withRelationId(RelationId relationId) {
         throw new UnboundException("should not call UnboundTVFRelation's withRelationId method");
+    }
+
+    @Override
+    public UnboundTVFRelation withHintContext(Optional<HintContext> hintContext) {
+        return new UnboundTVFRelation(relationId, functionName, properties, groupExpression,
+                Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override

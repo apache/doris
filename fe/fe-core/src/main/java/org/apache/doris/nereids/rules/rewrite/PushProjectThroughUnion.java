@@ -73,7 +73,7 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                                     return e;
                                 })
                                 .collect(ImmutableList.toImmutableList());
-                        Plan newChild = new LogicalProject<>(childProjections, child);
+                        Plan newChild = new LogicalProject<>(childProjections, child, project.getHintContext());
                         newChildren.add(newChild);
                         newRegularChildrenOutput.add(childProjections.stream()
                                 .map(NamedExpression::toSlot)

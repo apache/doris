@@ -43,17 +43,17 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.PROJECT_TO_GLOBAL_AGGREGATE.build(
-           logicalProject().then(project -> {
-               boolean needGlobalAggregate = project.getProjects()
-                       .stream()
-                       .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
+            logicalProject().then(project -> {
+                boolean needGlobalAggregate = project.getProjects()
+                        .stream()
+                        .anyMatch(p -> p.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null));
 
-               if (needGlobalAggregate) {
-                   return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
-               } else {
-                   return project;
-               }
-           })
-        );
+                if (needGlobalAggregate) {
+                    return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child(),
+                            project.getHintContext());
+                } else {
+                    return project;
+                }
+            }));
     }
 }
