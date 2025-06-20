@@ -467,7 +467,7 @@ size_t ColumnMap::filter(const Filter& filter) {
     return get_offsets().size();
 }
 
-ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     // Make a temp column array
     auto k_arr =
             ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())

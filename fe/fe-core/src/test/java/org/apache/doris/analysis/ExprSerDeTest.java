@@ -24,21 +24,14 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.file.Files;
 
 public class ExprSerDeTest {
 
@@ -249,41 +242,5 @@ public class ExprSerDeTest {
     void testInformationFunction() {
         InformationFunction original = new InformationFunction("func");
         testSerDe(original);
-    }
-
-    @Test
-    public void testPersist() throws IOException {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
-        metaContext.setThreadLocalInfo();
-        // 1. Write objects to file
-        File file = new File("./expr_test");
-        boolean success = file.createNewFile();
-        if (!success) {
-            Assertions.fail("create file expr_test failed.");
-        }
-        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
-
-        // cos(1) + (100 / 200)
-        Expr child1 = new IntLiteral(1);
-        Expr functionCall = new FunctionCallExpr("cos", Lists.newArrayList(child1));
-        Expr child21 = new IntLiteral(100);
-        Expr child22 = new IntLiteral(200);
-        Expr arithExpr1 = new ArithmeticExpr(ArithmeticExpr.Operator.DIVIDE, child21, child22);
-        Expr arithExpr2 = new ArithmeticExpr(ArithmeticExpr.Operator.ADD, functionCall, arithExpr1);
-
-        Expr.writeTo(arithExpr2, dos);
-        dos.flush();
-        dos.close();
-
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
-        Expr readExpr = Expr.readIn(dis);
-        Assertions.assertInstanceOf(ArithmeticExpr.class, readExpr);
-        Assertions.assertEquals("(cos(1) + (100 / 200))", readExpr.toSql());
-
-        // 3. delete files
-        dis.close();
-        file.delete();
     }
 }

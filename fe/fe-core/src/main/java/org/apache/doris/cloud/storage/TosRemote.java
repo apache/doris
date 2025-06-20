@@ -15,35 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.privilege;
+package org.apache.doris.cloud.storage;
 
-import org.apache.doris.common.io.Text;
+import org.apache.doris.common.DdlException;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-// This class is used for keeping backward compatible
-@Deprecated
-public class UserResource {
-    public static void write(DataOutput out) throws IOException {
-        // resouce count
-        out.writeInt(0);
-        // group count
-        out.writeInt(0);
+
+public class TosRemote extends DefaultRemote {
+    private static final Logger LOG = LogManager.getLogger(TosRemote.class);
+
+    public TosRemote(ObjectInfo obj) {
+        super(obj);
     }
 
-    public static void readIn(DataInput in) throws IOException {
-        int numResource = in.readInt();
-        for (int i = 0; i < numResource; ++i) {
-            in.readInt();
-            in.readInt();
-        }
+    public String getPresignedUrl(String fileName) {
+        throw new UnsupportedOperationException("not unsupported for tos yet");
+    }
 
-        int numGroup = in.readInt();
-        for (int i = 0; i < numGroup; ++i) {
-            Text.readString(in);
-            in.readInt();
-        }
+    @Override
+    public Triple<String, String, String> getStsToken() throws DdlException {
+        throw new DdlException("Get sts token for tos is unsupported");
     }
 }

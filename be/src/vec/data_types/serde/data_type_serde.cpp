@@ -57,7 +57,8 @@ void DataTypeSerDe::convert_variant_map_to_rapidjson(
             continue;
         }
         rapidjson::Value key;
-        key.SetString(item.first.data(), cast_set<rapidjson::SizeType>(item.first.size()));
+        key.SetString(item.first.get_path().data(),
+                      cast_set<rapidjson::SizeType>(item.first.get_path().size()));
         rapidjson::Value val;
         convert_field_to_rapidjson(item.second, val, allocator);
         if (val.IsNull() && item.first.empty()) {

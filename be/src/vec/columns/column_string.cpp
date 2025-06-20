@@ -383,7 +383,7 @@ Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
 }
 
 template <typename T>
-ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
     if (limit == 0) {

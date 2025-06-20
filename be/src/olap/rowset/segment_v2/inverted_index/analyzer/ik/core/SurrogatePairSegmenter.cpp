@@ -15,24 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#include "SurrogatePairSegmenter.h"
 
-import org.junit.Assert;
-import org.junit.Test;
+namespace doris::segment_v2 {
 
-public class KillStmtTest {
-    @Test
-    public void testNormal() {
-        KillStmt stmt = new KillStmt(false, 1);
-        stmt.analyze(null);
-        Assert.assertEquals("KILL QUERY 1", stmt.toString());
-        Assert.assertEquals(false, stmt.isConnectionKill());
-        Assert.assertEquals(1, stmt.getConnectionId());
+void SurrogatePairSegmenter::analyze(AnalyzeContext& context) {
+    const auto& current_char_type = context.getCurrentCharType();
 
-        stmt = new KillStmt(true, 2);
-        stmt.analyze(null);
-        Assert.assertEquals(true, stmt.isConnectionKill());
-        Assert.assertEquals(2, stmt.getConnectionId());
-        Assert.assertEquals("KILL 2", stmt.toString());
+    if (current_char_type == CharacterUtil::CHAR_SURROGATE) {
+        Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
+                         context.getCurrentCharLen(), Lexeme::Type::CNChar, context.getCursor(),
+                         context.getCursor());
+        context.addLexeme(newLexeme);
     }
+
+    context.unlockBuffer(SEGMENTER_TYPE);
 }
+
+void SurrogatePairSegmenter::reset() {}
+
+} // namespace doris::segment_v2

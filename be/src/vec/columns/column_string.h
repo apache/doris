@@ -468,7 +468,7 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

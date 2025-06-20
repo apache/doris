@@ -422,7 +422,7 @@ public:
 
     size_t filter(const Filter&) override;
 
-    ColumnPtr permute(const Permutation&, size_t) const override;
+    MutableColumnPtr permute(const Permutation&, size_t) const override;
 
     bool is_variable_length() const override { return true; }
 

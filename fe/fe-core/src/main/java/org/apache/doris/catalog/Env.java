@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
@@ -2471,9 +2470,7 @@ public class Env {
     }
 
     public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_104) {
-            sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
-        }
+        sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
         LOG.info("finished replay sqlBlockRule from image");
         return checksum;
     }
@@ -2482,9 +2479,7 @@ public class Env {
      * Load policy through file.
      **/
     public long loadPolicy(DataInputStream in, long checksum) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_109) {
-            policyMgr = PolicyMgr.read(in);
-        }
+        policyMgr = PolicyMgr.read(in);
         LOG.info("finished replay policy from image");
         return checksum;
     }
@@ -5844,10 +5839,6 @@ public class Env {
      * used for handling AlterSystemStmt
      * (for client is the ALTER SYSTEM command).
      */
-    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterSystem(stmt);
-    }
-
     public void alterSystem(AlterSystemCommand command) throws UserException {
         this.alter.processAlterSystem(command);
     }

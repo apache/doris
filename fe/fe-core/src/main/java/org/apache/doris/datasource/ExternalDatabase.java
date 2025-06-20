@@ -28,8 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
@@ -55,8 +53,6 @@ import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -72,7 +68,7 @@ import java.util.stream.Collectors;
  * @param <T> External table type is ExternalTable or its subclass.
  */
 public abstract class ExternalDatabase<T extends ExternalTable>
-        implements DatabaseIf<T>, Writable, GsonPostProcessable {
+        implements DatabaseIf<T>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalDatabase.class);
 
     protected MonitoredReentrantReadWriteLock rwLock = new MonitoredReentrantReadWriteLock(true);
@@ -134,7 +130,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    public void setUnInitialized(boolean invalidCache) {
+    public synchronized void setUnInitialized(boolean invalidCache) {
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
         if (extCatalog.getUseMetaCache().isPresent()) {
@@ -635,17 +631,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public void setLastUpdateTime(long lastUpdateTime) {
         this.lastUpdateTime = lastUpdateTime;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @SuppressWarnings("rawtypes")
-    public static ExternalDatabase read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ExternalDatabase.class);
     }
 
     @Override
