@@ -255,6 +255,29 @@ public class HudiUtils {
         return Type.UNSUPPORTED;
     }
 
+    public static HudiMvccSnapshot getHudiMvccSnapshot(Optional<TableSnapshot> tableSnapshot,
+            HMSExternalTable hmsTable) {
+        long timestamp = 0L;
+        if (tableSnapshot.isPresent()) {
+            String queryInstant = tableSnapshot.get().getTime().replaceAll("[-: ]", "");
+            timestamp = Long.parseLong(queryInstant);
+        } else {
+            timestamp = getLastTimeStamp(hmsTable);
+        }
+
+        return new HudiMvccSnapshot(HudiUtils.getPartitionValues(tableSnapshot, hmsTable), timestamp);
+    }
+
+    public static long getLastTimeStamp(HMSExternalTable hmsTable) {
+        HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
+        HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+        Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+        if (!snapshotInstant.isPresent()) {
+            return 0L;
+        }
+        return Long.parseLong(snapshotInstant.get().getTimestamp());
+    }
+
     public static TablePartitionValues getPartitionValues(Optional<TableSnapshot> tableSnapshot,
             HMSExternalTable hmsTable) {
         TablePartitionValues partitionValues = new TablePartitionValues();
