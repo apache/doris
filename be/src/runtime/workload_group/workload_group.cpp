@@ -544,7 +544,7 @@ void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* e
     // step 6: update cgroup cpu if needed
     if (_cgroup_cpu_ctl) {
         _cgroup_cpu_ctl->update_cpu_hard_limit(cpu_hard_limit);
-        _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_share);
+        _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
     }
 }
 
