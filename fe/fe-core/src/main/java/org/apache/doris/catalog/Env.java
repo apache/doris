@@ -5716,8 +5716,10 @@ public class Env {
         }
 
         if (replace) {
+            String comment = stmt.getComment();
+            comment = comment == null || comment.isEmpty() ? null : comment;
             AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
-                    stmt.getViewDefStmt());
+                    stmt.getViewDefStmt(), comment);
             alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
             alterViewStmt.setFinalColumns(stmt.getColumns());
             try {
