@@ -74,6 +74,10 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             description = "The xml files of Hadoop configuration.")
     protected String hadoopConfigResources = "";
 
+    private String dfsNameServices;
+
+    private static final String DFS_NAME_SERVICES_KEY = "dfs.nameservices";
+
     private Map<String, String> backendConfigProperties;
 
     private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
@@ -165,6 +169,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (StringUtils.isNotBlank(hadoopUsername)) {
             conf.set("hadoop.username", hadoopUsername);
         }
+        this.dfsNameServices = conf.get(DFS_NAME_SERVICES_KEY, "");
         this.configuration = conf;
     }
 
@@ -189,12 +194,12 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return HdfsPropertiesUtils.convertUrlToFilePath(url, supportSchema);
+        return HdfsPropertiesUtils.convertUrlToFilePath(url, this.dfsNameServices, supportSchema);
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return HdfsPropertiesUtils.validateAndGetUri(loadProps, supportSchema);
+        return HdfsPropertiesUtils.validateAndGetUri(loadProps, this.dfsNameServices, supportSchema);
     }
 
     @Override

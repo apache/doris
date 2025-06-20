@@ -53,10 +53,17 @@ public abstract class AuthenticationConfig {
 
     /**
      * get kerberos config from hadoop conf
+     *
      * @param conf config
      * @return ugi
      */
     public static AuthenticationConfig getKerberosConfig(Configuration conf) {
+        return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
+    }
+
+    public static AuthenticationConfig getKerberosConfig(Map<String, String> params) {
+        Configuration conf = new Configuration();
+        params.forEach(conf::set);
         return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
     }
 
@@ -66,9 +73,10 @@ public abstract class AuthenticationConfig {
 
     /**
      * get kerberos config from hadoop conf
-     * @param conf config
+     *
+     * @param conf            config
      * @param krbPrincipalKey principal key
-     * @param krbKeytabKey keytab key
+     * @param krbKeytabKey    keytab key
      * @return ugi
      */
     public static AuthenticationConfig getKerberosConfig(Configuration conf,

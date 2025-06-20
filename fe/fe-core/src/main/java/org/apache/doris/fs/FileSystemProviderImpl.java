@@ -22,24 +22,21 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
 
-import java.util.List;
 import java.util.Map;
 
 public class FileSystemProviderImpl implements FileSystemProvider {
     private ExternalMetaCacheMgr extMetaCacheMgr;
-    private String bindBrokerName;
 
-    private Map<StorageProperties.Type,StorageProperties> storagePropertiesMap;
+    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
-    public FileSystemProviderImpl(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-                                  Map<StorageProperties.Type,StorageProperties> storagePropertiesMap) {
+    public FileSystemProviderImpl(ExternalMetaCacheMgr extMetaCacheMgr,
+                                  Map<StorageProperties.Type, StorageProperties> storagePropertiesMap) {
         this.extMetaCacheMgr = extMetaCacheMgr;
-        this.bindBrokerName = bindBrokerName;
         this.storagePropertiesMap = storagePropertiesMap;
     }
 
     @Override
     public FileSystem get(SessionContext ctx) {
-        return new SwitchingFileSystem(extMetaCacheMgr, bindBrokerName, storagePropertiesMap);
+        return new SwitchingFileSystem(extMetaCacheMgr, storagePropertiesMap);
     }
 }

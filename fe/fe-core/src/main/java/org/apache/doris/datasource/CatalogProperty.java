@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import lombok.Getter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.UserException;
@@ -38,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,10 +55,9 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    private volatile Resource catalogResource = null;
+    private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
-    @Getter
-    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private volatile Resource catalogResource = null;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
         this.resource = Strings.nullToEmpty(resource);
@@ -68,9 +65,6 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
         if (this.properties == null) {
             this.properties = Maps.newConcurrentMap();
         }
-        reInitCatalogStorageProperties();
-
-
     }
 
     private Resource catalogResource() {
@@ -111,17 +105,14 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
 
     public void modifyCatalogProps(Map<String, String> props) {
         properties.putAll(PropertyConverter.convertToMetaProperties(props));
-        reInitCatalogStorageProperties();
+        this.storagePropertiesMap = null;
     }
 
     private void reInitCatalogStorageProperties() {
-        this.storagePropertiesMap=new HashMap<>();
-        List<StorageProperties> storageProperties = null;
+        this.storagePropertiesMap = new HashMap<>();
+        List<StorageProperties> storageProperties;
         try {
             storageProperties = StorageProperties.createAll(this.properties);
-            if (storageProperties == null) {
-                storageProperties = new ArrayList<>();
-            }
             this.storagePropertiesMap.putAll(storageProperties.stream()
                     .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity())));
         } catch (UserException e) {
@@ -133,7 +124,7 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
     public void rollBackCatalogProps(Map<String, String> props) {
         properties.clear();
         properties = new HashMap<>(props);
-        reInitCatalogStorageProperties();
+        this.storagePropertiesMap = null;
     }
 
 
@@ -145,12 +136,12 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
 
     public void addProperty(String key, String val) {
         this.properties.put(key, val);
-        reInitCatalogStorageProperties();
+        this.storagePropertiesMap = null; // reset storage properties map
     }
 
     public void deleteProperty(String key) {
         this.properties.remove(key);
-        reInitCatalogStorageProperties();
+        this.storagePropertiesMap = null;
     }
 
     @Override
@@ -158,7 +149,7 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    
+
     public static CatalogProperty read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, CatalogProperty.class);
@@ -167,5 +158,16 @@ public class CatalogProperty implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         reInitCatalogStorageProperties();
+    }
+
+    public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+        if (storagePropertiesMap == null) {
+            synchronized (this) {
+                if (storagePropertiesMap == null) {
+                    reInitCatalogStorageProperties();
+                }
+            }
+        }
+        return storagePropertiesMap;
     }
 }

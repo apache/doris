@@ -84,8 +84,6 @@ public class DorisFE {
     public static void main(String[] args) {
         // Every doris version should have a final meta version, it should not change
         // between small releases. Add a check here to avoid mistake.
-        ///Users/calvinkirs/soft/be/conf/krb5.conf
-        System.setProperty("java.security.krb5.conf", "/Users/calvinkirs/soft/be/conf/krb5.conf");
         if (Version.DORIS_FE_META_VERSION > 0
                 && FeMetaVersion.VERSION_CURRENT != Version.DORIS_FE_META_VERSION) {
             System.err.println("This release's fe meta version should be "

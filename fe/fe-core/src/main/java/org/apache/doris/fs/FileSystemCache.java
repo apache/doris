@@ -19,16 +19,11 @@ package org.apache.doris.fs;
 
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import org.apache.hadoop.conf.Configuration;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 
@@ -75,10 +70,8 @@ public class FileSystemCache {
             }
             FileSystemCacheKey o = (FileSystemCacheKey) obj;
             //fixme 需要重写吗
-            boolean equalsWithoutBroker =
-                   fsIdent.equals(o.fsIdent)
-                    && properties.equals(o.properties);
-            return equalsWithoutBroker;
+            return fsIdent.equals(o.fsIdent)
+                            && properties.equals(o.properties);
         }
 
         @Override
