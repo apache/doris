@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <queue>
+#include <unordered_set>
 
 #include "vec/exec/executor/time_sharing/split_queue.h"
 
@@ -34,8 +35,10 @@ public:
     int compute_level(int64_t scheduled_nanos) override { return 0; }
 
     void offer(std::shared_ptr<PrioritizedSplitRunner> split) override {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _queue.push(split);
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _queue.push(split);
+        }
         _not_empty.notify_one();
     }
 
@@ -59,21 +62,43 @@ public:
 
     void remove(std::shared_ptr<PrioritizedSplitRunner> split) override {
         std::lock_guard<std::mutex> lock(_mutex);
-        if (!_queue.empty() && _queue.front() == split) {
+        std::queue<std::shared_ptr<PrioritizedSplitRunner>> new_queue;
+        while (!_queue.empty()) {
+            auto current = _queue.front();
             _queue.pop();
+            if (current != split) {
+                new_queue.emplace(std::move(current));
+            }
+        }
+        _queue.swap(new_queue);
+        if (_queue.empty()) {
+            _not_empty.notify_all();
         }
     }
 
     void remove_all(const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits) override {
         std::lock_guard<std::mutex> lock(_mutex);
+        std::unordered_set<std::shared_ptr<PrioritizedSplitRunner>> to_remove(splits.begin(),
+                                                                              splits.end());
+        std::queue<std::shared_ptr<PrioritizedSplitRunner>> new_queue;
         while (!_queue.empty()) {
+            auto current = _queue.front();
             _queue.pop();
+            if (!to_remove.count(current)) {
+                new_queue.emplace(std::move(current));
+            }
+        }
+        _queue.swap(new_queue);
+        if (_queue.empty()) {
+            _not_empty.notify_all();
         }
     }
 
     void interrupt() override {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _interrupted = true;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _interrupted = true;
+        }
         _not_empty.notify_all();
     }
 

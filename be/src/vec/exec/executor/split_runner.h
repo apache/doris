@@ -34,6 +34,7 @@ public:
     virtual bool is_finished() = 0;
     virtual Status finished_status() = 0;
     virtual std::string get_info() const = 0;
+    virtual bool is_auto_reschedule() const { return true; }
 };
 
 } // namespace vectorized

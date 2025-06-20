@@ -92,9 +92,16 @@ std::vector<std::shared_ptr<PrioritizedSplitRunner>> TimeSharingTaskHandle::clos
     result.reserve(_running_intermediate_splits.size() + _running_leaf_splits.size() +
                    _queued_leaf_splits.size());
 
-    result.insert(result.end(), _running_intermediate_splits.begin(),
-                  _running_intermediate_splits.end());
-    result.insert(result.end(), _running_leaf_splits.begin(), _running_leaf_splits.end());
+    //result.insert(result.end(), _running_intermediate_splits.begin(),
+    //              _running_intermediate_splits.end());
+    //result.insert(result.end(), _running_leaf_splits.begin(), _running_leaf_splits.end());
+
+    for (auto& kv : _running_intermediate_splits) {
+        result.push_back(kv.second);
+    }
+    for (auto& kv : _running_leaf_splits) {
+        result.push_back(kv.second);
+    }
 
     while (!_queued_leaf_splits.empty()) {
         result.push_back(_queued_leaf_splits.front());
@@ -122,7 +129,8 @@ bool TimeSharingTaskHandle::record_intermediate_split(
     if (_closed) {
         return false;
     }
-    _running_intermediate_splits.emplace_back(std::move(split));
+    //_running_intermediate_splits.emplace_back(std::move(split));
+    _running_intermediate_splits[split->split_runner()] = split;
     return true;
 }
 
@@ -153,7 +161,8 @@ std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskHandle::poll_next_split()
 
     auto split = _queued_leaf_splits.front();
     _queued_leaf_splits.pop();
-    _running_leaf_splits.push_back(split);
+    //_running_leaf_splits.push_back(split);
+    _running_leaf_splits[split->split_runner()] = split;
     return split;
 }
 
@@ -162,7 +171,7 @@ void TimeSharingTaskHandle::split_finished(std::shared_ptr<PrioritizedSplitRunne
     _concurrency_controller.split_finished(split->scheduled_nanos(), _utilization_supplier(),
                                            _running_leaf_splits.size());
 
-    auto it = std::find(_running_intermediate_splits.begin(), _running_intermediate_splits.end(),
+    /*auto it = std::find(_running_intermediate_splits.begin(), _running_intermediate_splits.end(),
                         split);
     if (it != _running_intermediate_splits.end()) {
         _running_intermediate_splits.erase(it);
@@ -171,11 +180,32 @@ void TimeSharingTaskHandle::split_finished(std::shared_ptr<PrioritizedSplitRunne
     it = std::find(_running_leaf_splits.begin(), _running_leaf_splits.end(), split);
     if (it != _running_leaf_splits.end()) {
         _running_leaf_splits.erase(it);
-    }
+    }*/
+
+    _running_intermediate_splits.erase(split->split_runner());
+    _running_leaf_splits.erase(split->split_runner());
 }
 
 int TimeSharingTaskHandle::next_split_id() {
     return _next_split_id.fetch_add(1);
+}
+
+std::shared_ptr<PrioritizedSplitRunner> TimeSharingTaskHandle::get_split(
+        std::shared_ptr<SplitRunner> split, bool intermediate) const {
+    std::lock_guard<std::mutex> lock(_mutex);
+    if (!intermediate) {
+        auto it = _running_leaf_splits.find(split);
+        if (it != _running_leaf_splits.end()) {
+            return it->second;
+        }
+        return nullptr;
+    } else {
+        auto it = _running_intermediate_splits.find(split);
+        if (it != _running_intermediate_splits.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
 }
 
 } // namespace vectorized

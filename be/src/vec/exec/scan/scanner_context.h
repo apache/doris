@@ -37,6 +37,7 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/exec/executor/split_runner.h"
 #include "vec/exec/scan/scanner.h"
 
 namespace doris {
@@ -85,6 +86,8 @@ private:
 public:
     std::weak_ptr<ScannerDelegate> scanner;
     std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
+    bool is_first_schedule = true;
+    std::weak_ptr<SplitRunner> split_runner;
 
     void set_status(Status _status) {
         if (_status.is<ErrorCode::END_OF_FILE>()) {
@@ -143,7 +146,7 @@ public:
     // set the next scanned block to `ScanTask::current_block`
     // set the error state to `ScanTask::status`
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
-    Status submit_scan_task(std::weak_ptr<ScannerDelegate> scanner, std::unique_lock<std::mutex>&);
+    Status submit_scan_task(std::shared_ptr<ScanTask> scan_task, std::unique_lock<std::mutex>&);
 
     // Push back a scan task.
     void push_back_scan_task(std::shared_ptr<ScanTask> scan_task);

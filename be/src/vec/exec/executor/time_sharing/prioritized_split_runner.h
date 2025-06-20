@@ -60,7 +60,11 @@ public:
     int split_id() const;
     virtual Priority priority() const;
 
+    bool is_auto_reschedule() const { return _split_runner->is_auto_reschedule(); }
+
     std::string get_info() const;
+
+    std::shared_ptr<SplitRunner> split_runner() const { return _split_runner; }
 
 private:
     static std::atomic<int64_t> _next_worker_id;

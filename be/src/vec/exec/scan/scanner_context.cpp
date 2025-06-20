@@ -205,19 +205,22 @@ Status ScannerContext::init() {
     COUNTER_SET(_local_state->_max_scan_concurrency, (int64_t)_max_scan_concurrency);
     COUNTER_SET(_local_state->_min_scan_concurrency, (int64_t)_min_scan_concurrency);
 
-    //std::unique_lock<std::mutex> l(_transfer_lock);
-    //RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
-
     std::unique_lock<std::mutex> l(_transfer_lock);
+    RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
+
+    /*std::unique_lock<std::mutex> l(_transfer_lock);
     for (const std::weak_ptr<ScannerDelegate>& scanner : _all_scanners) {
         RETURN_IF_ERROR(submit_scan_task(scanner, l));
-    }
+    }*/
 
     return Status::OK();
 }
 
 ScannerContext::~ScannerContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
+    /*for (auto& task : _tasks_queue) {
+        task->split_runner = nullptr;
+    }*/
     _tasks_queue.clear();
     vectorized::BlockUPtr block;
     while (_free_blocks.try_dequeue(block)) {
@@ -227,6 +230,7 @@ ScannerContext::~ScannerContext() {
     DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     if (_task_handle) {
         static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
+        _task_handle = nullptr;
     }
 }
 
@@ -260,16 +264,16 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     }
 }
 
-Status ScannerContext::submit_scan_task(std::weak_ptr<ScannerDelegate> scanner,
+Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task,
                                         std::unique_lock<std::mutex>& /*transfer_lock*/) {
     // increase _num_finished_scanners no matter the scan_task is submitted successfully or not.
     // since if submit failed, it will be added back by ScannerContext::push_back_scan_task
     // and _num_finished_scanners will be reduced.
     // if submit succeed, it will be also added back by ScannerContext::push_back_scan_task
     // see ScannerScheduler::_scanner_scan.
-
+    //
     _num_scheduled_scanners++;
-    return _scanner_scheduler_global->submit(shared_from_this(), scanner);
+    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
 }
 
 void ScannerContext::clear_free_blocks() {
@@ -355,11 +359,11 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             if (scan_task->is_eos()) {
                 // 1. if eos, record a finished scanner.
                 _num_finished_scanners++;
-                //RETURN_IF_ERROR(
-                //        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
+                RETURN_IF_ERROR(
+                        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
             } else {
-                //RETURN_IF_ERROR(
-                //        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
+                RETURN_IF_ERROR(
+                        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
             }
         }
     }
@@ -417,6 +421,9 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             sc->_scanner->try_stop();
         }
     }
+    /*for (auto& task : _tasks_queue) {
+        task->split_runner = nullptr;
+    }*/
     _tasks_queue.clear();
     if (_task_handle) {
         static_cast<void>(_scanner_scheduler->task_executor()->remove_task(_task_handle));
@@ -533,10 +540,10 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
     std::list<std::shared_ptr<ScanTask>> tasks_to_submit;
 
-    int32_t margin = _get_margin(transfer_lock, scheduler_lock);
+    //int32_t margin = _get_margin(transfer_lock, scheduler_lock);
 
     // margin is less than zero. Means this scan operator could not submit any scan task for now.
-    if (margin <= 0) {
+    /*if (margin <= 0) {
         // Be careful with current scan task.
         // We need to add it back to task queue to make sure it could be resubmitted.
         if (current_scan_task) {
@@ -558,7 +565,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 #endif
 
         return Status::OK();
-    }
+    }*/
 
     bool first_pull = true;
 
@@ -610,7 +617,7 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
                               _pending_scanners.size());
 
     for (auto& scan_task_iter : tasks_to_submit) {
-        Status submit_status = submit_scan_task(scan_task_iter->scanner, transfer_lock);
+        Status submit_status = submit_scan_task(scan_task_iter, transfer_lock);
         if (!submit_status.ok()) {
             _process_status = submit_status;
             _set_scanner_done();
@@ -623,13 +630,13 @@ Status ScannerContext::_schedule_scan_task(std::shared_ptr<ScanTask> current_sca
 
 std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
-    if (current_concurrency >= _max_scan_concurrency) {
+    /*if (current_concurrency >= _max_scan_concurrency) {
         VLOG_DEBUG << fmt::format(
                 "ScannerContext {} current concurrency {} >= _max_scan_concurrency {}, skip "
                 "pull",
                 ctx_id, current_concurrency, _max_scan_concurrency);
         return nullptr;
-    }
+    }*/
 
     if (current_scan_task != nullptr) {
         if (!current_scan_task->cached_blocks.empty() || current_scan_task->is_eos()) {
