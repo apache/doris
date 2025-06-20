@@ -131,9 +131,11 @@ void WorkloadGroupMgr::delete_workload_group_by_ids(std::set<uint64_t> used_wg_i
         }
     }
     int64_t time_cost_ms = MonotonicMillis() - begin_time;
-    LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: " << time_cost_ms
-              << " ms, deleted group size:" << deleted_task_groups.size()
-              << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
+    if (deleted_task_groups.size() > 0) {
+        LOG(INFO) << "[topic_publish_wg]finish clear unused workload group, time cost: "
+                  << time_cost_ms << " ms, deleted group size:" << deleted_task_groups.size()
+                  << ", before wg size=" << old_wg_size << ", after wg size=" << new_wg_size;
+    }
 }
 
 struct WorkloadGroupMemInfo {
