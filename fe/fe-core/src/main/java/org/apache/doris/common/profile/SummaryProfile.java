@@ -19,6 +19,8 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
@@ -202,6 +204,7 @@ public class SummaryProfile {
     private long nereidsLockTableFinishTime = -1;
 
     private long nereidsCollectTablePartitionFinishTime = -1;
+    private long nereidsCollectTablePartitionTime = 0;
     private long nereidsAnalysisFinishTime = -1;
     private long nereidsRewriteFinishTime = -1;
     private long nereidsOptimizeFinishTime = -1;
@@ -414,6 +417,10 @@ public class SummaryProfile {
 
     public void setNereidsCollectTablePartitionFinishTime() {
         this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void addCollectTablePartitionTime(long elapsed) {
+        nereidsCollectTablePartitionTime += elapsed;
     }
 
     public void setNereidsAnalysisTime() {
@@ -675,7 +682,9 @@ public class SummaryProfile {
 
 
     public String getPrettyNereidsCollectTablePartitionTime() {
-        return getPrettyTime(nereidsCollectTablePartitionFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
+        long totalTime = nereidsCollectTablePartitionFinishTime
+                - nereidsRewriteFinishTime + nereidsCollectTablePartitionTime;
+        return RuntimeProfile.printCounter(totalTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsOptimizeTime() {
@@ -802,5 +811,16 @@ public class SummaryProfile {
 
     public void setExecutedByFrontend(boolean executedByFrontend) {
         executionSummaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
+    }
+
+    public static SummaryProfile getSummaryProfile(ConnectContext connectContext) {
+        ConnectContext ctx = connectContext == null ? ConnectContext.get() : connectContext;
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
     }
 }
