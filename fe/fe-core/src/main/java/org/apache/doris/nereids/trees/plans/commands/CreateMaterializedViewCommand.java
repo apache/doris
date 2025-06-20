@@ -273,7 +273,7 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
                 translatorContext.createSlotDesc(tupleDescriptor, (SlotReference) slot, olapTable);
                 SlotRef slotRef = translatorContext.findSlotRef(slot.getExprId());
                 slotRef.setLabel("`" + slot.getName() + "`");
-                slotRef.setDisableTableName(true);
+                slotRef.disableTableName();
             }
             return olapScan;
         }
@@ -605,12 +605,12 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
             }
             Expr expr = translateToLegacyExpr(defineExpr, ctx.planTranslatorContext);
             return new MVColumnItem(mvDataType.toCatalogDataType(), mvAggType, expr,
-                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql()));
+                    CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
         }
 
         private Expr translateToLegacyExpr(Expression expression, PlanTranslatorContext context) {
             Expr expr = ExpressionTranslator.translate(expression, context);
-            expr.setDisableTableName(true);
+            expr.disableTableName();
             return expr;
         }
 
