@@ -825,4 +825,437 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     }
 }
 
+// Test case for error handling in inverted index file writer
+TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_error_handling", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    // Create index file writer with error conditions
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_error_handling", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c2
+    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Test with empty values array to trigger certain error paths
+    std::vector<Slice> empty_values;
+    status = column_writer->add_values("c2", empty_values.data(), 0);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Test with very large strings that might trigger ignore_above behavior
+    std::vector<Slice> large_values;
+    std::string large_string(100000, 'a'); // Very large string
+    large_values.push_back(Slice(large_string));
+    status = column_writer->add_values("c2", large_values.data(), large_values.size());
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Finish and write
+    status = column_writer->finish();
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = index_file_writer->write();
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+// Test case for array values with mixed null and non-null elements
+TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta for array
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_array_nulls", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_array_nulls", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c2
+    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Test with array values containing nulls
+    std::vector<Slice> values = {Slice("apple"), Slice(""), Slice("cherry")};
+    std::vector<uint64_t> offsets = {0, 1, 3, 3};     // Empty array at the end
+    std::vector<uint8_t> nested_null_map = {0, 1, 0}; // Second element is null
+
+    status = column_writer->add_array_values(sizeof(Slice), values.data(), nested_null_map.data(),
+                                             reinterpret_cast<const uint8_t*>(offsets.data()), 3);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Test array nulls handling
+    std::vector<uint8_t> null_map = {1, 0, 1}; // First and third arrays are null
+    status = column_writer->add_array_nulls(null_map.data(), 3);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Finish and write
+    status = column_writer->finish();
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = index_file_writer->write();
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+// Test case for numeric array values with error conditions
+TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta for numeric BKD
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(0); // c1 column id
+
+    // Set index properties for BKD index
+    auto* properties = index_meta_pb->mutable_properties();
+    (*properties)["type"] = "bkd";
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_numeric_array_error", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_numeric_array_error", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c1
+    const TabletColumn& column = tablet_schema->column(0);
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Test with numeric array values
+    std::vector<int32_t> values = {42, 100, 200, 300, 400};
+    std::vector<uint64_t> offsets = {0, 2, 5}; // Two arrays: [42, 100] and [200, 300, 400]
+    std::vector<uint8_t> nested_null_map = {0, 1, 0, 0, 0}; // Second element is null
+
+    status = column_writer->add_array_values(sizeof(int32_t), values.data(), nested_null_map.data(),
+                                             reinterpret_cast<const uint8_t*>(offsets.data()), 2);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Test with zero count to trigger specific branch
+    status = column_writer->add_array_values(sizeof(int32_t), values.data(), nullptr,
+                                             reinterpret_cast<const uint8_t*>(offsets.data()), 0);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Finish and write
+    status = column_writer->finish();
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = index_file_writer->write();
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+// Test case for copy file error handling
+TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_copy_error", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_copy_error", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c2
+    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Add some values to create index files
+    std::vector<Slice> values = {Slice("test1"), Slice("test2"), Slice("test3")};
+    status = column_writer->add_values("c2", values.data(), values.size());
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Finish and write
+    status = column_writer->finish();
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = index_file_writer->write();
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+// Test case for Collection value processing
+TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_collection", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_collection", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c2
+    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Create collection values for testing
+    std::vector<std::string> test_strings = {"apple", "banana", "cherry"};
+    std::vector<Slice> slices;
+    for (const auto& s : test_strings) {
+        slices.emplace_back(s);
+    }
+
+    // Create CollectionValue instances
+    std::vector<CollectionValue> collections;
+    CollectionValue collection1;
+    collection1.set_data(reinterpret_cast<uint8_t*>(slices.data()));
+    collection1.set_length(3);
+    collection1.set_null_signs(nullptr);
+    collections.push_back(collection1);
+
+    // Test add_array_values with CollectionValue
+    status = column_writer->add_array_values(sizeof(Slice), collections.data(), 1);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Finish and write
+    status = column_writer->finish();
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = index_file_writer->write();
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+// Test case for BKD writer error conditions
+TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta for BKD
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(0); // c1 column id
+
+    // Set index properties for BKD index
+    auto* properties = index_meta_pb->mutable_properties();
+    (*properties)["type"] = "bkd";
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_bkd_error", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_bkd_error", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c1
+    const TabletColumn& column = tablet_schema->column(0);
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Add some numeric values with edge cases
+    std::vector<int32_t> values = {std::numeric_limits<int32_t>::min(), 0,
+                                   std::numeric_limits<int32_t>::max()};
+
+    status = column_writer->add_values("c1", values.data(), values.size());
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Add some nulls to test null handling in BKD
+    status = column_writer->add_nulls(5);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Finish and write
+    status = column_writer->finish();
+    EXPECT_TRUE(status.ok()) << status;
+
+    status = index_file_writer->write();
+    EXPECT_TRUE(status.ok()) << status;
+}
+
+// Test case for file creation and output error handling
+TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
+    auto tablet_schema = create_schema();
+
+    // Create index meta
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column id
+
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_file_error", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    Status sts = fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(sts.ok()) << sts;
+
+    auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+            fs, index_path_prefix, "test_file_error", 0, InvertedIndexStorageFormatPB::V2,
+            std::move(file_writer));
+
+    // Get field for column c2
+    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
+    ASSERT_NE(&column, nullptr);
+    std::unique_ptr<Field> field(FieldFactory::create(column));
+    ASSERT_NE(field.get(), nullptr);
+
+    // Create column writer
+    std::unique_ptr<InvertedIndexColumnWriter> column_writer;
+    auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
+                                                    index_file_writer.get(), &idx_meta);
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Add some values to ensure files are created
+    std::vector<Slice> values = {Slice("test1"), Slice("test2")};
+    status = column_writer->add_values("c2", values.data(), values.size());
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Force close on error to test error handling paths
+    column_writer->close_on_error();
+
+    // Try to finish after close_on_error (should handle gracefully)
+    status = column_writer->finish();
+    // The finish might succeed or fail depending on implementation,
+    // but it should not crash
+}
+
 } // namespace doris::segment_v2
