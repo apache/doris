@@ -146,6 +146,16 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    public boolean isStandByComputeGroup(String clusterName) {
+        List<ComputeGroup> virtualGroups = getComputeGroups(true);
+        for (ComputeGroup vcg : virtualGroups) {
+            if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<ComputeGroup> getComputeGroups(boolean virtual) {
         LOG.debug("get virtual {} computeGroupIdToComputeGroup : {} ", virtual, computeGroupIdToComputeGroup);
         try {
