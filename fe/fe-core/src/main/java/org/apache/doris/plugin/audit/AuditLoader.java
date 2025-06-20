@@ -46,8 +46,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
+    // the "\\u001F" and "\\u001E" are used to separate columns and lines in audit log data
     public static final String AUDIT_TABLE_COL_SEPARATOR = "\\u001F";
     public static final String AUDIT_TABLE_LINE_DELIMITER = "\\u001E";
+    // the "\\x1F" and "\\x1E" are used to specified column and line delimiter in stream load request
+    // which is corresponding to the "\\u001F" and "\\u001E" in audit log data.
     public static final String AUDIT_TABLE_COL_SEPARATOR_STR = "\\x1F";
     public static final String AUDIT_TABLE_LINE_DELIMITER_STR = "\\x1E";
 
