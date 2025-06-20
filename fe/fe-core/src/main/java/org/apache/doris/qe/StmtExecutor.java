@@ -36,7 +36,6 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
-import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LoadType;
@@ -169,7 +168,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
-import org.apache.doris.nereids.trees.plans.commands.utils.KillUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -1134,8 +1132,6 @@ public class StmtExecutor {
                 }
             } else if (parsedStmt instanceof ShowStmt) {
                 handleShow();
-            } else if (parsedStmt instanceof KillStmt) {
-                handleKill();
             } else if (parsedStmt instanceof ExportStmt) {
                 handleExportStmt();
             } else if (parsedStmt instanceof UnlockTablesStmt) {
@@ -1172,10 +1168,6 @@ public class StmtExecutor {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseWithSuppressedMessage(e));
-            if (parsedStmt instanceof KillStmt) {
-                // ignore kill stmt execute err(not monitor it)
-                context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-            }
         } finally {
             if (!context.isTxnModel() && parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
@@ -1680,14 +1672,6 @@ public class StmtExecutor {
             }
         }
         return Optional.empty();
-    }
-
-    // Handle kill statement.
-    private void handleKill() throws UserException {
-        KillStmt killStmt = (KillStmt) parsedStmt;
-        String queryId = killStmt.getQueryId();
-        int id = killStmt.getConnectionId();
-        KillUtils.kill(context, killStmt.isConnectionKill(), queryId, id, parsedStmt.getOrigStmt());
     }
 
     // Process set statement.
