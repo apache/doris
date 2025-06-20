@@ -55,6 +55,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -419,10 +420,14 @@ public class CloudTabletRebalancer extends MasterDaemon {
             LOG.info("before pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
             Backend destBackend = cloudSystemInfoService.getBackend(entry.getKey());
             if (destBackend == null || (!destBackend.isAlive() && destBackend.getLastUpdateMs() < needRehashDeadTime)) {
+                List<InfightTablet> toRemove = new LinkedList<>();
                 for (InfightTask task : entry.getValue()) {
                     for (InfightTablet key : tabletToInfightTask.keySet()) {
-                        tabletToInfightTask.remove(new InfightTablet(task.pickedTablet.getId(), key.clusterId));
+                        toRemove.add(new InfightTablet(task.pickedTablet.getId(), key.clusterId));
                     }
+                }
+                for (InfightTablet key : toRemove) {
+                    tabletToInfightTask.remove(key);
                 }
                 continue;
             }
