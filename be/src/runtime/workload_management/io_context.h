@@ -106,6 +106,13 @@ public:
     void update_scan_bytes_from_remote_storage(int64_t delta) const {
         stats_.scan_bytes_from_remote_storage_counter_->update(delta);
     }
+    void set_scan_bytes(int64_t value) const { stats_.scan_bytes_counter_->set(value); }
+    void set_scan_bytes_from_local_storage(int64_t value) const {
+        stats_.scan_bytes_from_local_storage_counter_->set(value);
+    }
+    void set_scan_bytes_from_remote_storage(int64_t value) const {
+        stats_.scan_bytes_from_remote_storage_counter_->set(value);
+    }
     void update_returned_rows(int64_t delta) const { stats_.returned_rows_counter_->update(delta); }
     void update_shuffle_send_bytes(int64_t delta) const {
         stats_.shuffle_send_bytes_counter_->update(delta);
