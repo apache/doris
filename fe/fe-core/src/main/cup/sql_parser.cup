@@ -4652,26 +4652,6 @@ restore_stmt ::=
     :}
     ;
 
-// Kill statement
-kill_stmt ::=
-    KW_KILL INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(true, value.intValue());
-    :}
-    | KW_KILL KW_CONNECTION INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(true, value.intValue());
-    :}
-    | KW_KILL KW_QUERY INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(false, value.intValue());
-    :}
-    | KW_KILL KW_QUERY STRING_LITERAL:value
-    {:
-        RESULT = new KillStmt(value);
-    :}
-    ;
-
 // TODO(zhaochun): stolen from MySQL. Why not use value list, maybe avoid shift/reduce conflict
 // Set statement
 set_stmt ::=
