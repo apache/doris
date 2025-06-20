@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -297,6 +299,12 @@ public class IntLiteral extends NumericLiteralExpr {
 
     @Override
     public String toSqlImpl() {
+        return getStringValue();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return getStringValue();
     }
 

@@ -330,7 +330,6 @@ public class OlapTableSink extends DataSink {
                     || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                 throw new AnalysisException("Can't do partial update when table is doing schema change.");
             }
-
             for (String s : partialUpdateInputColumns) {
                 schemaParam.addToPartialUpdateInputColumns(s);
             }

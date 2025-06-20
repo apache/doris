@@ -272,11 +272,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
             Expr selectListItemExpr = selectListItem.getExpr();
-            selectListItemExpr.setDisableTableName(true);
+            selectListItemExpr.disableTableName();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                        + "Error column: " + selectListItemExpr.toSql());
+                        + "Error column: " + selectListItemExpr.toSqlWithoutTbl());
             }
 
             if (!isReplay && selectListItemExpr.hasAutoInc()) {
@@ -297,14 +297,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 if (!isReplay && selectListItemExpr.containsAggregate()) {
                     throw new AnalysisException(
                             "The materialized view's expr calculations cannot be included outside aggregate functions"
-                                    + ", expr: " + selectListItemExpr.toSql());
+                                    + ", expr: " + selectListItemExpr.toSqlWithoutTbl());
                 }
                 List<SlotRef> slots = new ArrayList<>();
                 selectListItemExpr.collect(SlotRef.class, slots);
                 if (!isReplay && slots.size() == 0) {
                     throw new AnalysisException(
                             "The materialized view contain constant expr is disallowed, expr: "
-                                    + selectListItemExpr.toSql());
+                                    + selectListItemExpr.toSqlWithoutTbl());
                 }
                 if (meetAggregate) {
                     throw new AnalysisException("The aggregate column should be after the single column");
@@ -423,7 +423,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
             if (!mvColumnItem.getDefineExpr().equals(orderByElement)) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSql() + " vs "
+                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSqlWithoutTbl()
+                        + " vs "
                         + orderByElement.toSql());
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
@@ -604,7 +605,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (SelectListItem selectListItem : selectList.getItems()) {
             Expr selectListItemExpr = selectListItem.getExpr();
             Expr expr = selectListItemExpr;
-            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
+            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
