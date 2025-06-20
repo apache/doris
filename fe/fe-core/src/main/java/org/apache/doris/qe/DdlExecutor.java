@@ -63,7 +63,6 @@ import org.apache.doris.analysis.CleanProfileStmt;
 import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFileStmt;
@@ -109,7 +108,6 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
-import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -119,12 +117,10 @@ import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
-import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
-import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -142,7 +138,6 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
-import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.statistics.StatisticsRepository;
@@ -327,27 +322,12 @@ public class DdlExecutor {
             env.getWorkloadGroupMgr().createWorkloadGroup((CreateWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
-        }  else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
+        } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
-            CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
-            SyncJobManager syncJobMgr = env.getSyncJobManager();
-            if (!syncJobMgr.isJobNameExist(createSyncJobStmt.getDbName(), createSyncJobStmt.getJobName())) {
-                syncJobMgr.addDataSyncJob((CreateDataSyncJobStmt) ddlStmt);
-            } else {
-                throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName() + "' in database ["
-                        + createSyncJobStmt.getDbName() + "] is already exists.");
-            }
-        } else if (ddlStmt instanceof ResumeSyncJobStmt) {
-            env.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);
-        } else if (ddlStmt instanceof PauseSyncJobStmt) {
-            env.getSyncJobManager().pauseSyncJob((PauseSyncJobStmt) ddlStmt);
-        } else if (ddlStmt instanceof StopSyncJobStmt) {
-            env.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCleanTrashStmt) {
             env.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {

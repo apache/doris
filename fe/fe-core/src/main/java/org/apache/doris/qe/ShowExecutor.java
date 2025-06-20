@@ -100,7 +100,6 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.ShowStorageVaultStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
-import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableCreationStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatsStmt;
@@ -451,8 +450,6 @@ public class ShowExecutor {
             handleShowLoadProfile();
         } else if (stmt instanceof ShowDataSkewStmt) {
             handleShowDataSkew();
-        } else if (stmt instanceof ShowSyncJobStmt) {
-            handleShowSyncJobs();
         } else if (stmt instanceof ShowSqlBlockRuleStmt) {
             handleShowSqlBlockRule();
         } else if (stmt instanceof ShowTableStatsStmt) {
@@ -2335,26 +2332,6 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
-    }
-
-    private void handleShowSyncJobs() throws AnalysisException {
-        ShowSyncJobStmt showStmt = (ShowSyncJobStmt) stmt;
-        Env env = Env.getCurrentEnv();
-        DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
-
-        List<List<Comparable>> syncInfos = env.getSyncJobManager().getSyncJobsInfoByDbId(db.getId());
-        Collections.sort(syncInfos, new ListComparator<List<Comparable>>(0));
-
-        List<List<String>> rows = Lists.newArrayList();
-        for (List<Comparable> syncInfo : syncInfos) {
-            List<String> row = new ArrayList<String>(syncInfo.size());
-
-            for (Comparable element : syncInfo) {
-                row.add(element.toString());
-            }
-            rows.add(row);
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowGrants() {
