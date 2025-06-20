@@ -32,8 +32,6 @@ import org.apache.doris.thrift.TIntLiteral;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -358,17 +356,6 @@ public class IntLiteral extends NumericLiteralExpr {
     public void swapSign() throws NotImplementedException {
         // swapping sign does not change the type
         value = -value;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = in.readLong();
-    }
-
-    public static IntLiteral read(DataInput in) throws IOException {
-        IntLiteral literal = new IntLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

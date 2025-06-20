@@ -29,8 +29,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -175,22 +173,6 @@ public class ArrayLiteral extends LiteralExpr {
         }
         ArrayLiteral that = (ArrayLiteral) o;
         return Objects.equals(children, that.children);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int size = in.readInt();
-        children = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            children.add(Expr.readIn(in));
-        }
-    }
-
-    public static ArrayLiteral read(DataInput in) throws IOException {
-        ArrayLiteral literal = new ArrayLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

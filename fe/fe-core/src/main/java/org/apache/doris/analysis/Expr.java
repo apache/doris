@@ -38,7 +38,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Text;
@@ -64,7 +63,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -2028,10 +2026,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        throw new IOException("Not implemented serializable ");
-    }
-
     enum ExprSerCode {
         SLOT_REF(1),
         NULL_LITERAL(2),
@@ -2080,64 +2074,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             Text.writeString(output, GsonUtils.GSON.toJson(expr));
         } else {
             throw new IOException("Unsupported writable expr " + expr.toSql());
-        }
-    }
-
-    /**
-     * The expr result may be null
-     * @param in
-     * @return
-     * @throws IOException
-     */
-    public static Expr readIn(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Expr.class);
-        } else {
-            int code = in.readInt();
-            ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
-            if (exprSerCode == null) {
-                throw new IOException("Unknown code: " + code);
-            }
-            switch (exprSerCode) {
-                case SLOT_REF:
-                    return SlotRef.read(in);
-                case NULL_LITERAL:
-                    return NullLiteral.read(in);
-                case BOOL_LITERAL:
-                    return BoolLiteral.read(in);
-                case INT_LITERAL:
-                    return IntLiteral.read(in);
-                case DATE_LITERAL:
-                    return DateLiteral.read(in);
-                case LARGE_INT_LITERAL:
-                    return LargeIntLiteral.read(in);
-                case FLOAT_LITERAL:
-                    return FloatLiteral.read(in);
-                case DECIMAL_LITERAL:
-                    return DecimalLiteral.read(in);
-                case STRING_LITERAL:
-                    return StringLiteral.read(in);
-                case JSON_LITERAL:
-                    return JsonLiteral.read(in);
-                case MAX_LITERAL:
-                    return MaxLiteral.read(in);
-                case BINARY_PREDICATE:
-                    return BinaryPredicate.read(in);
-                case FUNCTION_CALL:
-                    return FunctionCallExpr.read(in);
-                case ARRAY_LITERAL:
-                    return ArrayLiteral.read(in);
-                case MAP_LITERAL:
-                    return MapLiteral.read(in);
-                case STRUCT_LITERAL:
-                    return StructLiteral.read(in);
-                case CAST_EXPR:
-                    return CastExpr.read(in);
-                case ARITHMETIC_EXPR:
-                    return ArithmeticExpr.read(in);
-                default:
-                    throw new IOException("Unknown writable expr code: " + code);
-            }
         }
     }
 

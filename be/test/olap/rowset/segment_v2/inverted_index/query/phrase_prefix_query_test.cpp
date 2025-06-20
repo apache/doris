@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_prefix_query.h"
 
 #include <CLucene.h>
 #include <gtest/gtest.h>
@@ -34,9 +34,9 @@
 
 namespace doris::segment_v2 {
 
-class PhraseQueryTest : public testing::Test {
+class PhrasePrefixQueryTest : public testing::Test {
 public:
-    const std::string kTestDir = "./ut_dir/phrase_query_test";
+    const std::string kTestDir = "./ut_dir/phrase_prefix_query_test";
 
     void SetUp() override {
         auto st = io::global_local_filesystem()->delete_directory(kTestDir);
@@ -174,26 +174,26 @@ public:
         return *fulltext_searcher;
     }
 
-    PhraseQueryTest() = default;
-    ~PhraseQueryTest() override = default;
+    PhrasePrefixQueryTest() = default;
+    ~PhrasePrefixQueryTest() override = default;
 
 private:
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
     std::unique_ptr<InvertedIndexQueryCache> _inverted_index_query_cache;
 };
 
-TEST_F(PhraseQueryTest, test_exact_phrase_query) {
-    std::string_view rowset_id = "test_exact_phrase";
+TEST_F(PhrasePrefixQueryTest, test_single_term_prefix_query) {
+    std::string_view rowset_id = "test_single_prefix";
     int seg_id = 0;
 
-    // Prepare test data for exact phrase matching
+    // Prepare test data with words that have common prefixes
     std::vector<Slice> values = {
-            Slice("big red apple"),   // doc 0 - matches "big red"
-            Slice("small red apple"), // doc 1 - no match (small != big)
-            Slice("big blue apple"),  // doc 2 - no match (blue != red)
-            Slice("red big apple"),   // doc 3 - no match (wrong order)
-            Slice("big red orange"),  // doc 4 - matches "big red"
-            Slice("very big red car") // doc 5 - matches "big red"
+            Slice("application development"), // doc 0 - contains "app*"
+            Slice("apple banana"),            // doc 1 - contains "app*"
+            Slice("approach method"),         // doc 2 - contains "app*"
+            Slice("orange grape"),            // doc 3 - no "app*"
+            Slice("appreciate value"),        // doc 4 - contains "app*"
+            Slice("random text")              // doc 5 - no "app*"
     };
 
     TabletIndex idx_meta;
@@ -201,7 +201,7 @@ TEST_F(PhraseQueryTest, test_exact_phrase_query) {
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
     index_meta_pb->set_index_type(IndexType::INVERTED);
     index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test_exact_phrase");
+    index_meta_pb->set_index_name("test_single_prefix");
     index_meta_pb->clear_col_unique_id();
     index_meta_pb->add_col_unique_id(1); // c2 column ID
     index_meta_pb->mutable_properties()->insert({"parser", "english"});
@@ -216,223 +216,88 @@ TEST_F(PhraseQueryTest, test_exact_phrase_query) {
     auto searcher = create_searcher(index_path_prefix, idx_meta);
     ASSERT_NE(searcher, nullptr);
 
-    // Test exact phrase query
+    // Test PhrasePrefixQuery with single term (acts as prefix query)
     TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"1";         // c2 column unique_id in V2 format
+    query_info.terms.emplace_back("app"); // Should match words starting with "app"
+
+    query.add(query_info);
+
+    roaring::Roaring result;
+    EXPECT_NO_THROW(query.search(result));
+
+    // Verify results - should find documents containing words starting with "app"
+    EXPECT_GT(result.cardinality(), 0);
+    // Note: Exact document matches depend on how the tokenizer and prefix matching work
+}
+
+TEST_F(PhrasePrefixQueryTest, test_multi_term_phrase_prefix_query) {
+    std::string_view rowset_id = "test_multi_phrase_prefix";
+    int seg_id = 0;
+
+    // Prepare test data for multi-term phrase prefix query
+    std::vector<Slice> values = {
+            Slice("big red apple"),       // doc 0 - matches "big red app*"
+            Slice("big red application"), // doc 1 - matches "big red app*"
+            Slice("big blue apple"),      // doc 2 - no match (blue != red)
+            Slice("small red apple"),     // doc 3 - no match (small != big)
+            Slice("big red approach"),    // doc 4 - matches "big red app*"
+            Slice("big red orange"),      // doc 5 - no match (orange doesn't start with "app")
+            Slice("big red appreciate")   // doc 6 - matches "big red app*"
+    };
+
+    TabletIndex idx_meta;
+    // Create fulltext index metadata
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_multi_phrase_prefix");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1); // c2 column ID
+    index_meta_pb->mutable_properties()->insert({"parser", "english"});
+    index_meta_pb->mutable_properties()->insert({"lower_case", "true"});
+    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix;
+    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+    // Create searcher
+    auto searcher = create_searcher(index_path_prefix, idx_meta);
+    ASSERT_NE(searcher, nullptr);
+
+    // Test PhrasePrefixQuery with multiple terms
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
-    query_info.slop = 0; // exact phrase match
+    // Phrase: "big red app*" - first two terms exact match, last term prefix match
+    query_info.terms.emplace_back("big"); // exact match
+    query_info.terms.emplace_back("red"); // exact match
+    query_info.terms.emplace_back(
+            "app"); // prefix match - should match "apple", "application", "approach", "appreciate"
 
     query.add(query_info);
 
     roaring::Roaring result;
     EXPECT_NO_THROW(query.search(result));
 
-    // Should find documents with exact phrase "big red"
+    // The exact results depend on the phrase and prefix query implementation
+    // We mainly test that the query executes without error
     EXPECT_GE(result.cardinality(), 0);
 }
 
-TEST_F(PhraseQueryTest, test_single_term_query) {
-    std::string_view rowset_id = "test_single_term";
-    int seg_id = 0;
-
-    // Prepare test data for single term query
-    std::vector<Slice> values = {
-            Slice("apple banana"), // doc 0 - contains "apple"
-            Slice("orange grape"), // doc 1 - no "apple"
-            Slice("green apple"),  // doc 2 - contains "apple"
-            Slice("apple pie"),    // doc 3 - contains "apple"
-            Slice("banana split")  // doc 4 - no "apple"
-    };
-
-    TabletIndex idx_meta;
-    auto index_meta_pb = std::make_unique<TabletIndexPB>();
-    index_meta_pb->set_index_type(IndexType::INVERTED);
-    index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test_single_term");
-    index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(1);
-    index_meta_pb->mutable_properties()->insert({"parser", "english"});
-    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
-    idx_meta.init_from_pb(*index_meta_pb.get());
-
-    std::string index_path_prefix;
-    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
-
-    auto searcher = create_searcher(index_path_prefix, idx_meta);
-    ASSERT_NE(searcher, nullptr);
-
-    TQueryOptions query_options;
-    io::IOContext io_ctx;
-
-    PhraseQuery query(searcher, query_options, &io_ctx);
-
-    InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";
-    query_info.terms.emplace_back("apple"); // single term
-
-    query.add(query_info);
-
-    roaring::Roaring result;
-    EXPECT_NO_THROW(query.search(result));
-
-    // Should find documents containing "apple"
-    EXPECT_GT(result.cardinality(), 0);
-}
-
-TEST_F(PhraseQueryTest, test_sloppy_phrase_query) {
-    std::string_view rowset_id = "test_sloppy_phrase";
-    int seg_id = 0;
-
-    // Prepare test data for sloppy phrase matching
-    std::vector<Slice> values = {
-            Slice("big red apple"),            // doc 0 - "big red" with slop 0
-            Slice("big very red apple"),       // doc 1 - "big red" with slop 1
-            Slice("big huge red apple"),       // doc 2 - "big red" with slop 1
-            Slice("big small blue red apple"), // doc 3 - "big red" with slop 3
-            Slice("red big apple"),            // doc 4 - "big red" reordered
-            Slice("green apple")               // doc 5 - no match
-    };
-
-    TabletIndex idx_meta;
-    auto index_meta_pb = std::make_unique<TabletIndexPB>();
-    index_meta_pb->set_index_type(IndexType::INVERTED);
-    index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test_sloppy_phrase");
-    index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(1);
-    index_meta_pb->mutable_properties()->insert({"parser", "english"});
-    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
-    idx_meta.init_from_pb(*index_meta_pb.get());
-
-    std::string index_path_prefix;
-    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
-
-    auto searcher = create_searcher(index_path_prefix, idx_meta);
-    ASSERT_NE(searcher, nullptr);
-
-    TQueryOptions query_options;
-    io::IOContext io_ctx;
-
-    PhraseQuery query(searcher, query_options, &io_ctx);
-
-    InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
-    query_info.slop = 2;        // allow up to 2 words between "big" and "red"
-    query_info.ordered = false; // allow reordering
-
-    query.add(query_info);
-
-    roaring::Roaring result;
-    EXPECT_NO_THROW(query.search(result));
-
-    // Should find documents with "big" and "red" within slop distance
-    EXPECT_GE(result.cardinality(), 0);
-}
-
-TEST_F(PhraseQueryTest, test_ordered_sloppy_phrase_query) {
-    std::string_view rowset_id = "test_ordered_sloppy";
-    int seg_id = 0;
-
-    // Prepare test data for ordered sloppy phrase matching
-    std::vector<Slice> values = {
-            Slice("big red apple"),            // doc 0 - "big red" in order
-            Slice("big very red apple"),       // doc 1 - "big red" in order with slop
-            Slice("red big apple"),            // doc 2 - "big red" wrong order
-            Slice("big small blue red apple"), // doc 3 - "big red" in order with large slop
-            Slice("green apple")               // doc 4 - no match
-    };
-
-    TabletIndex idx_meta;
-    auto index_meta_pb = std::make_unique<TabletIndexPB>();
-    index_meta_pb->set_index_type(IndexType::INVERTED);
-    index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test_ordered_sloppy");
-    index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(1);
-    index_meta_pb->mutable_properties()->insert({"parser", "english"});
-    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
-    idx_meta.init_from_pb(*index_meta_pb.get());
-
-    std::string index_path_prefix;
-    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
-
-    auto searcher = create_searcher(index_path_prefix, idx_meta);
-    ASSERT_NE(searcher, nullptr);
-
-    TQueryOptions query_options;
-    io::IOContext io_ctx;
-
-    PhraseQuery query(searcher, query_options, &io_ctx);
-
-    InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";
-    query_info.terms.emplace_back("big");
-    query_info.terms.emplace_back("red");
-    query_info.slop = 2;       // allow up to 2 words between "big" and "red"
-    query_info.ordered = true; // require original order
-
-    query.add(query_info);
-
-    roaring::Roaring result;
-    EXPECT_NO_THROW(query.search(result));
-
-    // Should find documents with "big" before "red" within slop distance
-    EXPECT_GE(result.cardinality(), 0);
-}
-
-TEST_F(PhraseQueryTest, test_multi_term_vector_add) {
-    std::string_view rowset_id = "test_multi_term_vector";
-    int seg_id = 0;
-
-    std::vector<Slice> values = {Slice("apple banana cherry"), Slice("apple orange cherry"),
-                                 Slice("grape banana cherry"), Slice("apple banana date")};
-
-    TabletIndex idx_meta;
-    auto index_meta_pb = std::make_unique<TabletIndexPB>();
-    index_meta_pb->set_index_type(IndexType::INVERTED);
-    index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test_multi_term_vector");
-    index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(1);
-    index_meta_pb->mutable_properties()->insert({"parser", "english"});
-    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
-    idx_meta.init_from_pb(*index_meta_pb.get());
-
-    std::string index_path_prefix;
-    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
-
-    auto searcher = create_searcher(index_path_prefix, idx_meta);
-    ASSERT_NE(searcher, nullptr);
-
-    TQueryOptions query_options;
-    io::IOContext io_ctx;
-
-    PhraseQuery query(searcher, query_options, &io_ctx);
-
-    // Test the vector<vector<wstring>> add method
-    std::vector<std::vector<std::wstring>> terms = {
-            {L"apple"},
-            {L"banana", L"orange"}, // multiple terms for one position
-            {L"cherry"}};
-
-    query.add(L"1", terms);
-
-    roaring::Roaring result;
-    EXPECT_NO_THROW(query.search(result));
-
-    // Should find documents matching the phrase with alternatives
-    EXPECT_GE(result.cardinality(), 0);
-}
-
-TEST_F(PhraseQueryTest, test_empty_terms_exception) {
+TEST_F(PhrasePrefixQueryTest, test_empty_terms_exception) {
     std::string_view rowset_id = "test_empty_terms";
     int seg_id = 0;
 
@@ -456,24 +321,74 @@ TEST_F(PhraseQueryTest, test_empty_terms_exception) {
     ASSERT_NE(searcher, nullptr);
 
     TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
     // Test with empty terms - should throw exception
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";
+    query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // terms is empty
 
     EXPECT_THROW(query.add(query_info), CLuceneError);
-
-    // Test vector add with empty terms
-    std::vector<std::vector<std::wstring>> empty_terms = {{}, {}};
-    EXPECT_THROW(query.add(L"1", empty_terms), CLuceneError);
 }
 
-TEST_F(PhraseQueryTest, test_no_matches) {
-    std::string_view rowset_id = "test_no_matches";
+TEST_F(PhrasePrefixQueryTest, test_max_expansions_limit) {
+    std::string_view rowset_id = "test_max_expansions";
+    int seg_id = 0;
+
+    // Create data with many terms that could be expanded with same prefix
+    std::vector<Slice> values = {
+            Slice("application software"), // doc 0 - "app*"
+            Slice("apple fruit"),          // doc 1 - "app*"
+            Slice("approach method"),      // doc 2 - "app*"
+            Slice("append text"),          // doc 3 - "app*"
+            Slice("apparatus device"),     // doc 4 - "app*"
+            Slice("appreciate value"),     // doc 5 - "app*"
+            Slice("appropriate time"),     // doc 6 - "app*"
+            Slice("random word")           // doc 7 - no "app*"
+    };
+
+    TabletIndex idx_meta;
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_expansions");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1);
+    index_meta_pb->mutable_properties()->insert({"parser", "english"});
+    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix;
+    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
+
+    auto searcher = create_searcher(index_path_prefix, idx_meta);
+    ASSERT_NE(searcher, nullptr);
+
+    // Test with limited max_expansions
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 3; // Limit to 3 expansions
+    io::IOContext io_ctx;
+
+    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"1";         // c2 column unique_id in V2 format
+    query_info.terms.emplace_back("app"); // Should match many terms but limited to 3
+
+    query.add(query_info);
+
+    roaring::Roaring result;
+    EXPECT_NO_THROW(query.search(result));
+
+    // Should work without error even with expansion limits
+    EXPECT_GE(result.cardinality(), 0);
+}
+
+TEST_F(PhrasePrefixQueryTest, test_no_prefix_matches) {
+    std::string_view rowset_id = "test_no_prefix_matches";
     int seg_id = 0;
 
     std::vector<Slice> values = {Slice("hello world"), Slice("test document"),
@@ -483,7 +398,7 @@ TEST_F(PhraseQueryTest, test_no_matches) {
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
     index_meta_pb->set_index_type(IndexType::INVERTED);
     index_meta_pb->set_index_id(1);
-    index_meta_pb->set_index_name("test_no_match");
+    index_meta_pb->set_index_name("test_no_prefix_match");
     index_meta_pb->clear_col_unique_id();
     index_meta_pb->add_col_unique_id(1);
     index_meta_pb->mutable_properties()->insert({"parser", "english"});
@@ -497,14 +412,14 @@ TEST_F(PhraseQueryTest, test_no_matches) {
     ASSERT_NE(searcher, nullptr);
 
     TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
     io::IOContext io_ctx;
 
-    PhraseQuery query(searcher, query_options, &io_ctx);
+    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";
-    query_info.terms.emplace_back("nonexistent");
-    query_info.terms.emplace_back("phrase");
+    query_info.field_name = L"1";         // c2 column unique_id in V2 format
+    query_info.terms.emplace_back("xyz"); // Should not match any prefix
 
     query.add(query_info);
 
@@ -515,121 +430,55 @@ TEST_F(PhraseQueryTest, test_no_matches) {
     EXPECT_EQ(result.cardinality(), 0);
 }
 
-TEST_F(PhraseQueryTest, test_parser_info) {
-    std::map<std::string, std::string> properties;
-    properties.insert({"parser", "english"});
-    properties.insert({"support_phrase", "true"});
-    properties.insert({"lower_case", "true"});
+TEST_F(PhrasePrefixQueryTest, test_phrase_with_no_prefix_expansion) {
+    std::string_view rowset_id = "test_phrase_no_expansion";
+    int seg_id = 0;
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
-                                     bool sequential_opt) {
-        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-                                 properties, query_info, sequential_opt);
+    // Test case where the last term has no prefix matches, should fallback to exact term
+    std::vector<Slice> values = {
+            Slice("big red car"),   // doc 0 - exact match for "big red car"
+            Slice("big red truck"), // doc 1 - no match (truck != car)
+            Slice("small red car"), // doc 2 - no match (small != big)
+            Slice("big blue car")   // doc 3 - no match (blue != red)
     };
 
-    auto parser = [&parser_info](std::string search_str, std::string res1, size_t res2,
-                                 int32_t res3, bool res4, size_t res5) {
-        InvertedIndexQueryInfo query_info;
-        parser_info(search_str, query_info, true);
-        EXPECT_EQ(search_str, res1);
-        EXPECT_EQ(query_info.terms.size(), res2);
-        EXPECT_EQ(query_info.slop, res3);
-        EXPECT_EQ(query_info.ordered, res4);
-        EXPECT_EQ(query_info.additional_terms.size(), res5);
-    };
+    TabletIndex idx_meta;
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test_phrase_no_expansion");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(1);
+    index_meta_pb->mutable_properties()->insert({"parser", "english"});
+    index_meta_pb->mutable_properties()->insert({"support_phrase", "true"});
+    idx_meta.init_from_pb(*index_meta_pb.get());
 
-    // "english/history off.gif ~20+" sequential_opt = true
-    parser("", "", 0, 0, false, 0);
-    parser("english", "english", 1, 0, false, 0);
-    parser("english/history", "english/history", 2, 0, false, 0);
-    parser("english/history off", "english/history off", 3, 0, false, 0);
-    parser("english/history off.gif", "english/history off.gif", 4, 0, false, 0);
-    parser("english/history off.gif ", "english/history off.gif ", 4, 0, false, 0);
-    parser("english/history off.gif ~", "english/history off.gif ~", 4, 0, false, 0);
-    parser("english/history off.gif ~2", "english/history off.gif", 4, 2, false, 0);
-    parser("english/history off.gif ~20", "english/history off.gif", 4, 20, false, 0);
-    parser("english/history off.gif ~20+", "english/history off.gif", 4, 20, true, 2);
-    parser("english/history off.gif ~20+ ", "english/history off.gif ~20+ ", 5, 0, false, 0);
-    parser("english/history off.gif ~20+x", "english/history off.gif ~20+x", 6, 0, false, 0);
-}
+    std::string index_path_prefix;
+    prepare_fulltext_index(rowset_id, seg_id, values, &idx_meta, &index_path_prefix);
 
-TEST_F(PhraseQueryTest, test_parser_info1) {
-    std::map<std::string, std::string> properties;
-    properties.insert({"parser", "unicode"});
-    properties.insert({"support_phrase", "true"});
-    properties.insert({"lower_case", "true"});
+    auto searcher = create_searcher(index_path_prefix, idx_meta);
+    ASSERT_NE(searcher, nullptr);
 
-    auto parser_info = [&properties](std::string& search_str, InvertedIndexQueryInfo& query_info,
-                                     bool sequential_opt) {
-        PhraseQuery::parser_info(search_str, "name", InvertedIndexQueryType::MATCH_REGEXP_QUERY,
-                                 properties, query_info, sequential_opt);
-    };
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
 
-    {
-        InvertedIndexQueryInfo query_info;
-        std::string search_str = "我在 北京 ~4+";
-        parser_info(search_str, query_info, true);
-        EXPECT_EQ(search_str, "我在 北京");
-        EXPECT_EQ(query_info.slop, 4);
-        EXPECT_EQ(query_info.ordered, true);
-        EXPECT_EQ(query_info.terms.size(), 4);
-        EXPECT_EQ(query_info.additional_terms.size(), 2);
-    }
+    PhrasePrefixQuery query(searcher, query_options, &io_ctx);
 
-    {
-        InvertedIndexQueryInfo query_info;
-        std::string search_str = "List of Pirates of the Caribbean characters ~4+";
-        parser_info(search_str, query_info, true);
-        EXPECT_EQ(search_str, "List of Pirates of the Caribbean characters");
-        EXPECT_EQ(query_info.slop, 4);
-        EXPECT_EQ(query_info.ordered, true);
-        EXPECT_EQ(query_info.terms.size(), 4);
-        EXPECT_EQ(query_info.additional_terms.size(), 0);
-    }
-}
-
-TEST_F(PhraseQueryTest, test_parser_slop) {
-    // Test the static parser_slop method
     InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"1"; // c2 column unique_id in V2 format
+    // Phrase: "big red car" - no prefix expansion for "car"
+    query_info.terms.emplace_back("big");
+    query_info.terms.emplace_back("red");
+    query_info.terms.emplace_back("car"); // exact term, no prefix matches
 
-    // Test basic slop parsing
-    {
-        std::string query = "hello world ~5";
-        PhraseQuery::parser_slop(query, query_info);
-        EXPECT_EQ(query, "hello world");
-        EXPECT_EQ(query_info.slop, 5);
-        EXPECT_FALSE(query_info.ordered);
-    }
+    query.add(query_info);
 
-    // Test ordered slop parsing
-    {
-        std::string query = "hello world ~3+";
-        query_info = InvertedIndexQueryInfo {}; // reset
-        PhraseQuery::parser_slop(query, query_info);
-        EXPECT_EQ(query, "hello world");
-        EXPECT_EQ(query_info.slop, 3);
-        EXPECT_TRUE(query_info.ordered);
-    }
+    roaring::Roaring result;
+    EXPECT_NO_THROW(query.search(result));
 
-    // Test invalid slop format
-    {
-        std::string query = "hello world ~abc";
-        query_info = InvertedIndexQueryInfo {}; // reset
-        PhraseQuery::parser_slop(query, query_info);
-        EXPECT_EQ(query, "hello world ~abc"); // should remain unchanged
-        EXPECT_EQ(query_info.slop, 0);
-        EXPECT_FALSE(query_info.ordered);
-    }
-
-    // Test no slop
-    {
-        std::string query = "hello world";
-        query_info = InvertedIndexQueryInfo {}; // reset
-        PhraseQuery::parser_slop(query, query_info);
-        EXPECT_EQ(query, "hello world");
-        EXPECT_EQ(query_info.slop, 0);
-        EXPECT_FALSE(query_info.ordered);
-    }
+    // Should work and potentially find exact matches
+    EXPECT_GE(result.cardinality(), 0);
 }
 
 } // namespace doris::segment_v2

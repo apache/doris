@@ -2943,10 +2943,6 @@ drop_stmt ::=
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
     :}
-    | KW_DROP KW_RESOURCE opt_if_exists:ifExists ident_or_text:resourceName
-    {:
-        RESULT = new DropResourceStmt(ifExists, resourceName);
-    :}
     | KW_DROP KW_WORKLOAD KW_GROUP opt_if_exists:ifExists ident_or_text:workloadGroupName
     {:
         RESULT = new DropWorkloadGroupStmt(ifExists, workloadGroupName);
@@ -2962,22 +2958,6 @@ drop_stmt ::=
     | KW_DROP KW_SQL_BLOCK_RULE opt_if_exists:ifExists ident_list:ruleNames
     {:
         RESULT = new DropSqlBlockRuleStmt(ifExists, ruleNames);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null, null);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, user, null);
-    :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR KW_ROLE ident:role
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.ROW, ifExists, policyName, tbl, null, role);
-    :}
-    | KW_DROP KW_STORAGE KW_POLICY opt_if_exists:ifExists ident:policyName
-    {:
-        RESULT = new DropPolicyStmt(PolicyTypeEnum.STORAGE, ifExists, policyName, null, null, null);
     :}
     /* statistics */
     | KW_DROP KW_STAGE opt_if_exists:ifExists ident:stageName
@@ -4649,26 +4629,6 @@ restore_stmt ::=
     opt_properties:properties
     {:
         RESULT = new RestoreStmt(label, repoName, tblRefClause, properties);
-    :}
-    ;
-
-// Kill statement
-kill_stmt ::=
-    KW_KILL INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(true, value.intValue());
-    :}
-    | KW_KILL KW_CONNECTION INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(true, value.intValue());
-    :}
-    | KW_KILL KW_QUERY INTEGER_LITERAL:value
-    {:
-        RESULT = new KillStmt(false, value.intValue());
-    :}
-    | KW_KILL KW_QUERY STRING_LITERAL:value
-    {:
-        RESULT = new KillStmt(value);
     :}
     ;
 
