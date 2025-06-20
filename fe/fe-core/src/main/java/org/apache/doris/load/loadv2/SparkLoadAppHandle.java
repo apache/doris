@@ -17,18 +17,10 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 @Deprecated
-public class SparkLoadAppHandle implements Writable {
+public class SparkLoadAppHandle {
     @SerializedName("appId")
     private String appId;
     @SerializedName("state")
@@ -61,16 +53,5 @@ public class SparkLoadAppHandle implements Writable {
         State(boolean isFinal) {
             this.isFinal = isFinal;
         }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static SparkLoadAppHandle read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, SparkLoadAppHandle.class);
     }
 }

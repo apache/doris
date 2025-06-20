@@ -17,18 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
 /**
@@ -40,13 +33,10 @@ import java.util.Map;
  *   "password" = "password0"
  * )
  */
-public class BulkStorageDesc implements Writable {
-    @SerializedName(value = "storageType")
+public class BulkStorageDesc {
     protected StorageType storageType;
-    @SerializedName(value = "properties")
     protected Map<String, String> properties;
-    @SerializedName(value = "name")
-    private String name;
+    private final String name;
 
     /**
      * Bulk Storage Type
@@ -90,17 +80,6 @@ public class BulkStorageDesc implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static BulkStorageDesc read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, BulkStorageDesc.class);
     }
 
     /**

@@ -32,8 +32,6 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class NullLiteral extends LiteralExpr {
@@ -164,15 +162,5 @@ public class NullLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.NULL_LITERAL;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-    }
-
-    public static NullLiteral read(DataInput in) throws IOException {
-        NullLiteral literal = new NullLiteral();
-        literal.readFields(in);
-        return literal;
     }
 }
