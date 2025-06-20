@@ -104,6 +104,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -224,7 +225,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long min = dateMinLiteral.getValue();
                     builder.setMinValue(min);
                     builder.setMinExpr(dateMinLiteral.toLegacyLiteral());
-                } catch (AnalysisException e) {
+                } catch (AnalysisException | DateTimeException e) {
                     convertSuccess = false;
                 }
             }
@@ -235,7 +236,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                     long max = dateMaxLiteral.getValue();
                     builder.setMaxValue(max);
                     builder.setMaxExpr(dateMaxLiteral.toLegacyLiteral());
-                } catch (AnalysisException e) {
+                } catch (AnalysisException | DateTimeException e) {
                     convertSuccess = false;
                 }
             }

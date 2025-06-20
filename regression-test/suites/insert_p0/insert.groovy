@@ -112,4 +112,25 @@ suite("insert") {
           b as (select * from a)
         select id from a;
         """
+
+    sql """
+    DROP TABLE IF EXISTS dest;
+    CREATE TABLE dest (
+                l_shipdate    DATE NOT NULL,
+                        l_orderkey    bigint NOT NULL,
+                l_linenumber  int not null
+        )ENGINE=OLAP
+        DUPLICATE KEY(`l_shipdate`, `l_orderkey`)
+        COMMENT "OLAP"
+        auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
+        DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+        PROPERTIES (
+                "replication_num" = "1"
+        );
+   """
+
+    test {
+        sql("insert into dest values(now(), 0xff, 0xaa)")
+        exception "Unknown column '0xff' in 'table list' in UNBOUND_OLAP_TABLE_SINK clause"
+    }
 }

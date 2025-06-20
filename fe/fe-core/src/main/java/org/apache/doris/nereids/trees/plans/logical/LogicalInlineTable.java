@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -36,7 +40,7 @@ import java.util.Optional;
 /**
  * represent value list such as values(1), (2), (3) will generate LogicalInlineTable((1), (2), (3)).
  */
-public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsPropagation {
+public class LogicalInlineTable extends LogicalLeaf implements InlineTable, BlockFuncDepsPropagation {
 
     private final List<List<NamedExpression>> constantExprsList;
 
@@ -44,11 +48,16 @@ public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsProp
         this(constantExprsList, Optional.empty(), Optional.empty());
     }
 
+    /** LogicalInlineTable */
     public LogicalInlineTable(List<List<NamedExpression>> constantExprsList,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
         super(PlanType.LOGICAL_INLINE_TABLE, groupExpression, logicalProperties);
-        this.constantExprsList = ImmutableList.copyOf(
+
+        if (constantExprsList.isEmpty()) {
+            throw new AnalysisException("constantExprsList should now be empty");
+        }
+        this.constantExprsList = Utils.fastToImmutableList(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
@@ -63,23 +72,49 @@ public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsProp
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return constantExprsList.stream().flatMap(List::stream).collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Expression> expressions = ImmutableList.builderWithExpectedSize(
+                constantExprsList.size() * constantExprsList.get(0).size());
+
+        for (List<NamedExpression> namedExpressions : constantExprsList) {
+            expressions.addAll(namedExpressions);
+        }
+
+        return expressions.build();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        return new LogicalInlineTable(
+                constantExprsList, groupExpression, Optional.of(getLogicalProperties())
+        );
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return null;
+        if (!children.isEmpty()) {
+            throw new AnalysisException("children should not be empty");
+        }
+        return new LogicalInlineTable(constantExprsList, groupExpression, logicalProperties);
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return ImmutableList.of();
+        int columnNum = constantExprsList.get(0).size();
+        List<NamedExpression> firstRow = constantExprsList.get(0);
+        ImmutableList.Builder<Slot> output = ImmutableList.builderWithExpectedSize(constantExprsList.size());
+        for (int i = 0; i < columnNum; i++) {
+            NamedExpression firstRowColumn = firstRow.get(i);
+            boolean nullable = false;
+            for (List<NamedExpression> row : constantExprsList) {
+                if (row.get(i).nullable()) {
+                    nullable = true;
+                    break;
+                }
+            }
+            output.add(new SlotReference(firstRowColumn.getName(), firstRowColumn.getDataType(), nullable));
+        }
+        return output.build();
     }
 
     @Override
@@ -97,5 +132,12 @@ public class LogicalInlineTable extends LogicalLeaf implements BlockFuncDepsProp
     @Override
     public int hashCode() {
         return Objects.hash(constantExprsList);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("LogicalInlineTable[" + id.asInt() + "]",
+                "rowNum", constantExprsList.size(),
+                "constantExprsList", constantExprsList);
     }
 }
