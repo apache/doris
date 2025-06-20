@@ -18,8 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
