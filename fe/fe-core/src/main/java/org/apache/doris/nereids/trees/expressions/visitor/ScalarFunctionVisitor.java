@@ -205,6 +205,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromDays;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromIso8601Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.G;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Gamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonDouble;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetJsonInt;
@@ -287,6 +288,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lgamma;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -1271,6 +1273,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(fromUnixtime, context);
     }
 
+    default R visitGamma(Gamma gamma, C context) {
+        return visitScalarFunction(gamma, context);
+    }
+
     default R visitGetJsonDouble(GetJsonDouble getJsonDouble, C context) {
         return visitScalarFunction(getJsonDouble, context);
     }
@@ -1585,6 +1591,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLength(Length length, C context) {
         return visitScalarFunction(length, context);
+    }
+
+    default R visitLgamma(Lgamma lgamma, C context) {
+        return visitScalarFunction(lgamma, context);
     }
 
     default R visitCrc32(Crc32 crc32, C context) {
