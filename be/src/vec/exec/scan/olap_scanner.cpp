@@ -484,7 +484,7 @@ Status OlapScanner::_init_variant_columns() {
 }
 
 Status OlapScanner::_init_return_columns() {
-    size_t virtual_column_index = 0;
+#ifndef NDEBUG
     std::vector<std::string> debug_strings;
     for (const auto* slot : _output_tuple_desc->slots()) {
         debug_strings.push_back(slot->debug_string());
@@ -492,6 +492,7 @@ Status OlapScanner::_init_return_columns() {
 
     LOG_INFO("OlapScanner init return columns, output tuple slots:\n{}",
              fmt::join(debug_strings, ",\n"));
+#endif
 
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -501,25 +502,7 @@ Status OlapScanner::_init_return_columns() {
         // variant column using path to index a column
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
-        if (slot->get_virtual_column_expr()) {
-            // 如果这个列是一个虚拟列，那么给它一个特殊的 cid
-            // 这个 cid 是在 tablet_schema 中不存在的
-            size_t virtual_column_cid = tablet_schema->num_columns() + virtual_column_index;
-
-            // 这两个 map 都会向下传递到 segment iterator
-            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
-            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
-            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
-            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
-
-            virtual_column_index++;
-
-            LOG_INFO("Add virtual column, slot id: {}, cid {}, column index: {}, type: {}",
-                     slot->id(), virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
-                     _vir_col_idx_to_type[idx_in_block]->get_name());
-            // Virtual column is not included in columns in read-schema.
-            continue;
-        } else if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             index = tablet_schema->field_index(PathInData(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths()));
@@ -533,6 +516,19 @@ Status OlapScanner::_init_return_columns() {
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
+
+        if (slot->get_virtual_column_expr()) {
+            ColumnId virtual_column_cid = index;
+            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
+            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
+            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
+            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
+
+            LOG_INFO("Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
+                     virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
+                     _vir_col_idx_to_type[idx_in_block]->get_name());
+        }
+
         // _return_columns will contain:
         // 1. normal columns.
         // 2. __DORIS_GLOBAL_ROWID_COL__ column.

@@ -673,22 +673,21 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 pre_size, rows_of_semgnet);
         return Status::OK();
     }
-    const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     vectorized::IColumn::MutablePtr result_column;
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, _row_bitmap,
                                                                   result_column, result_row_ids));
-    // TODO: 处理 nullable
     LOG_INFO("Ann topn filtered {} - {} = {} rows", pre_size, _row_bitmap.cardinality(),
              pre_size - _row_bitmap.cardinality());
-    ColumnIterator* column_iter =
-            _column_iterators[_schema->num_columns() + dst_col_idx - _schema->num_column_ids()]
-                    .get();
+    _opts.stats->rows_ann_index_topn_filtered += (pre_size - _row_bitmap.cardinality());
+    const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
+    ColumnIterator* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     DCHECK(column_iter != nullptr);
     VirtualColumnIterator* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
     DCHECK(virtual_column_iter != nullptr);
     LOG_INFO("Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
              result_row_ids->size());
+    // reference count of result_column should be 1, so move will not issue any data copy.
     virtual_column_iter->prepare_materialization(std::move(result_column),
                                                  std::move(result_row_ids));
 
@@ -958,20 +957,11 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     // Apply ann range search
-    std::vector<ColumnId> idx_to_cids;
-    size_t normal_column_size = _schema->column_ids().size();
-    idx_to_cids.resize(normal_column_size + _virtual_column_exprs.size());
-    for (int i = 0; i < normal_column_size; ++i) {
-        idx_to_cids[i] = _schema->column_id(i);
-    }
-
-    for (const auto pair : _vir_cid_to_idx_in_block) {
-        idx_to_cids[pair.second] = pair.first;
-    }
-
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-        RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(_index_iterators, idx_to_cids,
+        size_t origin_rows = _row_bitmap.cardinality();
+        RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(_index_iterators, _schema->column_ids(),
                                                             _column_iterators, _row_bitmap));
+        _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
@@ -1215,6 +1205,13 @@ Status SegmentIterator::_init_return_column_iterators() {
             continue;
         }
 
+        if (_schema->column(cid)->name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX)) {
+            LOG_INFO("Virtual column iterator for column {}, cid: {}", _schema->column(cid)->name(),
+                     cid);
+            _column_iterators[cid] = std::make_unique<VirtualColumnIterator>();
+            continue;
+        }
+
         std::set<ColumnId> del_cond_id_set;
         _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
         std::vector<bool> tmp_is_pred_column;
@@ -1244,12 +1241,17 @@ Status SegmentIterator::_init_return_column_iterators() {
         }
     }
 
+#ifndef NDEBUG
     for (auto pair : _vir_cid_to_idx_in_block) {
         ColumnId vir_col_cid = pair.first;
-        LOG_INFO("create virtual column iterator for column id: {}", vir_col_cid);
-        _column_iterators[vir_col_cid] = std::make_unique<VirtualColumnIterator>();
+        DCHECK(_column_iterators[vir_col_cid] != nullptr)
+                << "Virtual column iterator for " << vir_col_cid << " should not be null";
+        ColumnIterator* column_iter = _column_iterators[vir_col_cid].get();
+        DCHECK(dynamic_cast<VirtualColumnIterator*>(column_iter) != nullptr)
+                << "Virtual column iterator for " << vir_col_cid
+                << " should be VirtualColumnIterator";
     }
-
+#endif
     return Status::OK();
 }
 
@@ -1908,19 +1910,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     LOG_INFO("nrows_read from range iterator: {}, is_continus {}", nrows_read, is_continuous);
 
-    std::vector<ColumnId> predicate_column_ids_and_virtual_columns;
-    predicate_column_ids_and_virtual_columns.reserve(_cols_read_by_column_predicate.size() +
-                                                     _virtual_column_exprs.size());
-    predicate_column_ids_and_virtual_columns.insert(predicate_column_ids_and_virtual_columns.end(),
-                                                    _cols_read_by_column_predicate.begin(),
-                                                    _cols_read_by_column_predicate.end());
-
-    for (const auto& entry : _virtual_column_exprs) {
-        // virtual column id is not in _predicate_column_ids
-        predicate_column_ids_and_virtual_columns.push_back(entry.first);
-    }
-
-    for (auto cid : predicate_column_ids_and_virtual_columns) {
+    for (auto cid : _cols_read_by_column_predicate) {
         auto& column = _current_return_columns[cid];
         if (!_virtual_column_exprs.contains(cid)) {
             if (_no_need_read_key_data(cid, column, nrows_read)) {
@@ -1931,7 +1921,6 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                 LOG_INFO("Column {} is pruned. No need to read data.", cid);
                 continue;
             }
-
             DBUG_EXECUTE_IF("segment_iterator._read_columns_by_index", {
                 auto col_name = _opts.tablet_schema->column(cid).name();
                 auto debug_col_name =
@@ -1947,7 +1936,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                 }
             })
         }
-
+        LOG_INFO("Read column {}, nrows_read: {}", cid, nrows_read);
         if (is_continuous) {
             size_t rows_read = nrows_read;
             _opts.stats->predicate_column_read_seek_num += 1;
@@ -2184,7 +2173,6 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 for (const auto& pair : _vir_cid_to_idx_in_block) {
                     size_t idx = pair.second;
                     auto type = idx_to_datatype.find(idx)->second;
-
                     block->replace_by_position(idx, type->create_column());
                 }
                 return res;
@@ -2286,7 +2274,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
             _block_rowids.resize(_opts.block_row_max);
         }
-        _current_return_columns.resize(_schema->columns().size() + _virtual_column_exprs.size());
+        _current_return_columns.resize(_schema->columns().size());
         _converted_column_ids.resize(_schema->columns().size(), 0);
         if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
             _is_char_type.resize(_schema->columns().size(), false);
@@ -2364,23 +2352,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     _current_batch_rows_read = 0;
     RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _current_batch_rows_read));
 
-    // 把从索引物化得到的虚拟列放到 block 中
-    for (const auto pair : _vir_cid_to_idx_in_block) {
-        ColumnId cid = pair.first;
-        size_t position = pair.second;
-        block->replace_by_position(position, std::move(_current_return_columns[cid]));
-        bool is_nothing = false;
-        if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
-                    block->get_by_position(position).column.get())) {
-            is_nothing = true;
-        }
-
-        LOG_INFO(
-                "SegmentIterator next block replace virtual column, cid {}, position {}, still "
-                "nothing {}",
-                cid, position, is_nothing);
-    }
-
     if (std::find(_cols_read_by_column_predicate.begin(), _cols_read_by_column_predicate.end(),
                   _schema->version_col_idx()) != _cols_read_by_column_predicate.end()) {
         _replace_version_col(_current_batch_rows_read);
@@ -2392,18 +2363,12 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (_current_batch_rows_read == 0) {
         // Convert all columns in _current_return_columns to schema column
         RETURN_IF_ERROR(_convert_to_expected_type(_schema->column_ids()));
-        for (int i = 0; i < block->columns() - _vir_cid_to_idx_in_block.size(); i++) {
+        for (int i = 0; i < block->columns(); i++) {
             auto cid = _schema->column_id(i);
             // todo(wb) abstract make column where
             if (!_is_pred_column[cid]) {
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
             }
-        }
-
-        for (auto& pair : _vir_cid_to_idx_in_block) {
-            auto cid = pair.first;
-            auto loc = pair.second;
-            block->replace_by_position(loc, std::move(_current_return_columns[cid]));
         }
 
         block->clear_column_data();
@@ -2908,28 +2873,30 @@ bool SegmentIterator::_can_opt_topn_reads() {
 }
 
 void SegmentIterator::_init_virtual_columns(vectorized::Block* block) {
-    const size_t num_virtual_columns = _virtual_column_exprs.size();
-    if (block->columns() < _schema->num_column_ids() + num_virtual_columns) {
-        std::vector<size_t> vir_col_idx;
-        for (const auto& pair : _vir_cid_to_idx_in_block) {
-            vir_col_idx.push_back(pair.second);
-        }
-        std::sort(vir_col_idx.begin(), vir_col_idx.end());
-        for (size_t i = 0; i < num_virtual_columns; ++i) {
-            auto iter = _opts.vir_col_idx_to_type.find(vir_col_idx[i]);
-            DCHECK(iter != _opts.vir_col_idx_to_type.end());
-            // Name of virtual currently is not used, so we just use a dummy name.
-            block->insert({vectorized::ColumnNothing::create(0), iter->second,
-                           fmt::format("VIRTUAL_COLUMN_{}", i)});
-        }
-    } else {
-        // Before get next batch. make sure all virtual columns has type ColumnNothing.
-        std::vector<size_t> vir_col_pos;
-        for (const auto& pair : _vir_cid_to_idx_in_block) {
-            vir_col_pos.push_back(pair.second);
-            block->replace_by_position(pair.second, vectorized::ColumnNothing::create(0));
-        }
+    // const size_t num_virtual_columns = _virtual_column_exprs.size();
+    // if (block->columns() < _schema->num_column_ids() + num_virtual_columns) {
+    //     std::vector<size_t> vir_col_idx;
+    //     for (const auto& pair : _vir_cid_to_idx_in_block) {
+    //         vir_col_idx.push_back(pair.second);
+    //     }
+    //     std::sort(vir_col_idx.begin(), vir_col_idx.end());
+    //     for (size_t i = 0; i < num_virtual_columns; ++i) {
+    //         auto iter = _opts.vir_col_idx_to_type.find(vir_col_idx[i]);
+    //         DCHECK(iter != _opts.vir_col_idx_to_type.end());
+    //         // Name of virtual currently is not used, so we just use a dummy name.
+    //         block->insert({vectorized::ColumnNothing::create(0), iter->second,
+    //                        fmt::format("VIRTUAL_COLUMN_{}", i)});
+    //     }
+    // } else {
+    // Before get next batch. make sure all virtual columns has type ColumnNothing.
+    for (const auto& pair : _vir_cid_to_idx_in_block) {
+        auto& col_with_type_and_name = block->get_by_position(pair.second);
+        col_with_type_and_name.column = vectorized::ColumnNothing::create(0);
+        col_with_type_and_name.type = _opts.vir_col_idx_to_type[pair.second];
+        LOG_INFO("Virtual column is reset, cid {}, idx_in_block {}, type {}", pair.first,
+                 pair.second, col_with_type_and_name.type->get_name());
     }
+    // }
 }
 
 Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* block) {
@@ -2938,6 +2905,26 @@ Status SegmentIterator::_materialization_of_virtual_column(vectorized::Block* bl
         auto cid = cid_and_expr.first;
         auto column_expr = cid_and_expr.second;
         size_t idx_in_block = _vir_cid_to_idx_in_block[cid];
+        if (block->columns() <= idx_in_block) {
+            LOG_ERROR("Block columns: {}, virtual column idx {}", block->columns(), idx_in_block);
+            return Status::InternalError(
+                    "Virtual column index {} is out of range, block columns {}, "
+                    "virtual columns size {}, virtual column expr {}",
+                    idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
+                    column_expr->root()->debug_string());
+
+        } else if (block->get_by_position(idx_in_block).column.get() == nullptr) {
+            LOG_ERROR(
+                    "Virtual column idx {} is null, block columns {}, virtual columns size {}, "
+                    "virtual column expr {}",
+                    idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
+                    column_expr->root()->debug_string());
+            return Status::InternalError(
+                    "Virtual column index {} is null, block columns {}, virtual columns size {}, "
+                    "virtual column expr {}",
+                    idx_in_block, block->columns(), _vir_cid_to_idx_in_block.size(),
+                    column_expr->root()->debug_string());
+        }
 
         if (vectorized::check_and_get_column<const vectorized::ColumnNothing>(
                     block->get_by_position(idx_in_block).column.get())) {

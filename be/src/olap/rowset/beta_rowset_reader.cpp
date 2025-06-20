@@ -141,6 +141,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
+    LOG_INFO("Tablet columns {}, read columns size: {}",
+             _read_context->tablet_schema->num_columns(), read_columns.size());
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),

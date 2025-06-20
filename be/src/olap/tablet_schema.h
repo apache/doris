@@ -24,6 +24,7 @@
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -650,6 +651,8 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _enable_variant_flatten_nested = false;
+
+    std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

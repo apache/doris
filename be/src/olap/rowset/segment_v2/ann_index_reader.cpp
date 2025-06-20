@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "runtime/runtime_state.h"
 #include "util/once.h"
+#include "util/runtime_profile.h"
 #include "vector/faiss_vector_index.h"
 #include "vector/vector_index.h"
 
@@ -76,8 +77,11 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
                                    compound_dir.error().to_string());
         }
         _vector_index = std::make_unique<FaissVectorIndex>();
+        {
+            // SCOPED_TIMER()
+            RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+        }
 
-        RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
         return Status::OK();
     });
 }
