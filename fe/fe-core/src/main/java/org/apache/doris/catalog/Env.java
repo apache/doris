@@ -5463,6 +5463,7 @@ public class Env {
             AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
                     stmt.getViewDefStmt());
             alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
+            alterViewStmt.setFinalColumns(stmt.getColumns());
             try {
                 alterView(alterViewStmt);
             } catch (UserException e) {
