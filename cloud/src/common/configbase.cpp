@@ -322,7 +322,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval,
         valstr = it->second;
     }
     *is_retval_set = true;
-    return convert(std::string(key), valstr, retval);
+    return convert(key, valstr, retval);
 }
 
 void Properties::set(const std::string& key, const std::string& val) {
