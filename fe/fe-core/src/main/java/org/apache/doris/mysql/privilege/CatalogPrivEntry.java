@@ -17,18 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.PatternMatcherWrapper;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.datasource.InternalCatalog;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 public class CatalogPrivEntry extends PrivEntry {
     protected static final String ANY_CTL = "*";
@@ -138,22 +131,4 @@ public class CatalogPrivEntry extends PrivEntry {
         return String.format("catalog privilege. ctl: %s, priv: %s",
                 origCtl, privSet.toString());
     }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
-            origCtl = Text.readString(in);
-        } else {
-            origCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
-        }
-        try {
-            ctlPattern = createCtlPatternMatcher(origCtl);
-        } catch (AnalysisException e) {
-            throw new IOException(e);
-        }
-        isAnyCtl = origCtl.equals(ANY_CTL);
-    }
-
 }
