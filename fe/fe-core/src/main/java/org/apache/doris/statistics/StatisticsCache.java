@@ -292,14 +292,18 @@ public class StatisticsCache {
     public void sendStats(Frontend frontend, TUpdateFollowerStatsCacheRequest updateFollowerStatsCacheRequest) {
         TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
         FrontendService.Client client = null;
+        boolean isReturnToPool = false;
         try {
             client = ClientPool.frontendPool.borrowObject(address);
             client.updateStatsCache(updateFollowerStatsCacheRequest);
+            isReturnToPool = true;
         } catch (Throwable t) {
             LOG.warn("Failed to sync stats to follower: {}", address, t);
         } finally {
-            if (client != null) {
+            if (client != null && isReturnToPool) {
                 ClientPool.frontendPool.returnObject(address, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(address, client);
             }
         }
     }
@@ -308,15 +312,19 @@ public class StatisticsCache {
     public boolean invalidateStats(Frontend frontend, TInvalidateFollowerStatsCacheRequest request) {
         TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
         FrontendService.Client client = null;
+        boolean isReturnToPool = false;
         try {
             client = ClientPool.frontendPool.borrowObject(address);
             client.invalidateStatsCache(request);
+            isReturnToPool = true;
         } catch (Throwable t) {
             LOG.warn("Failed to sync invalidate to follower: {}", address, t);
             return false;
         } finally {
-            if (client != null) {
+            if (client != null && isReturnToPool) {
                 ClientPool.frontendPool.returnObject(address, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(address, client);
             }
         }
         return true;
@@ -332,15 +340,19 @@ public class StatisticsCache {
     public boolean updatePartitionStats(Frontend frontend, TUpdateFollowerPartitionStatsCacheRequest request) {
         TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
         FrontendService.Client client = null;
+        boolean isReturnToPool = false;
         try {
             client = ClientPool.frontendPool.borrowObject(address);
             client.updatePartitionStatsCache(request);
+            isReturnToPool = true;
         } catch (Throwable t) {
             LOG.warn("Failed to update partition stats cache of follower: {}", address, t);
             return false;
         } finally {
-            if (client != null) {
+            if (client != null && isReturnToPool) {
                 ClientPool.frontendPool.returnObject(address, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(address, client);
             }
         }
         return true;
