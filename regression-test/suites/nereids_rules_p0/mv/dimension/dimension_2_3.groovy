@@ -145,7 +145,7 @@ suite("partition_mv_rewrite_dimension_2_3") {
             count(*)
             from orders_2_3
             left join lineitem_2_3 on lineitem_2_3.l_orderkey = orders_2_3.o_orderkey"""
-    mv_rewrite_success(sql_stmt_1, mv_name_1)
+    mv_rewrite_fail(sql_stmt_1, mv_name_1)
     compare_res(sql_stmt_1 + " order by 1,2,3,4,5,6")
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name_1};"""
 
