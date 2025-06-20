@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
@@ -123,6 +124,9 @@ public class DecimalV3Literal extends FractionalLiteral {
      */
     private static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
+        if (value.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
         int realPrecision = value.precision();
         int realScale = value.scale();
         boolean valid = true;
@@ -135,7 +139,7 @@ public class DecimalV3Literal extends FractionalLiteral {
         }
 
         if (!valid) {
-            throw new AnalysisException(
+            throw new CastException(
                     String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
                             precision, scale, realPrecision, realScale));
         }

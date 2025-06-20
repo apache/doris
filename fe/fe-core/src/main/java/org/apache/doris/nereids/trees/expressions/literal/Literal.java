@@ -231,7 +231,7 @@ public abstract class Literal extends Expression implements LeafExpression {
                 ? ((DecimalV2Type) targetType).getPrecision() : ((DecimalV3Type) targetType).getPrecision();
         int sTarget = targetType.isDecimalV2Type()
                 ? ((DecimalV2Type) targetType).getScale() : ((DecimalV3Type) targetType).getScale();
-        if (pTarget - sTarget < pReal - sReal) {
+        if (bigDecimal.compareTo(BigDecimal.ZERO) != 0 && pTarget - sTarget < pReal - sReal) {
             throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
         }
         BigDecimal result = bigDecimal.setScale(sTarget, RoundingMode.HALF_UP)
