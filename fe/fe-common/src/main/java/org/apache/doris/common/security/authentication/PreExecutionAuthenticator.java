@@ -19,7 +19,6 @@ package org.apache.doris.common.security.authentication;
 
 import org.apache.hadoop.conf.Configuration;
 
-import java.security.PrivilegedExceptionAction;
 import java.util.concurrent.Callable;
 
 /**
@@ -69,11 +68,23 @@ public class PreExecutionAuthenticator {
     public <T> T execute(Callable<T> task) throws Exception {
         if (hadoopAuthenticator != null) {
             // Adapts Callable to PrivilegedExceptionAction for use with Hadoop authentication
-            PrivilegedExceptionAction<T> action = new CallableToPrivilegedExceptionActionAdapter<>(task);
-            return hadoopAuthenticator.doAs(action);
+            return hadoopAuthenticator.doAs(task::call);
         } else {
             // Executes the task directly if no authentication is needed
             return task.call();
+        }
+    }
+
+    public void execute(Runnable task) throws Exception {
+        if (hadoopAuthenticator != null) {
+            // Adapts Runnable to PrivilegedExceptionAction for use with Hadoop authentication
+            hadoopAuthenticator.doAs(() -> {
+                task.run();
+                return null;
+            });
+        } else {
+            // Executes the task directly if no authentication is needed
+            task.run();
         }
     }
 
@@ -96,36 +107,5 @@ public class PreExecutionAuthenticator {
      */
     public void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
         this.hadoopAuthenticator = hadoopAuthenticator;
-    }
-
-    /**
-     * Adapter class to convert a Callable into a PrivilegedExceptionAction.
-     * <p>This is necessary to run the task within a privileged context,
-     * particularly for Hadoop operations with Kerberos.
-     *
-     * @param <T> The type of result returned by the action
-     */
-    public class CallableToPrivilegedExceptionActionAdapter<T> implements PrivilegedExceptionAction<T> {
-        private final Callable<T> callable;
-
-        /**
-         * Constructs an adapter that wraps a Callable into a PrivilegedExceptionAction.
-         *
-         * @param callable The Callable to be adapted
-         */
-        public CallableToPrivilegedExceptionActionAdapter(Callable<T> callable) {
-            this.callable = callable;
-        }
-
-        /**
-         * Executes the wrapped Callable as a PrivilegedExceptionAction.
-         *
-         * @return The result of the callable's call method
-         * @throws Exception If an exception occurs during callable execution
-         */
-        @Override
-        public T run() throws Exception {
-            return callable.call();
-        }
     }
 }
