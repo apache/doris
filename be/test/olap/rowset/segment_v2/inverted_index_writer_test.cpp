@@ -889,7 +889,25 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
 
 // Test case for array values with mixed null and non-null elements
 TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
-    auto tablet_schema = create_schema();
+    // Create TabletSchema with array column (reference inverted_index_array_test.cpp)
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    TabletColumn array_column;
+    array_column.set_name("arr1");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_length(0);
+    array_column.set_index_length(0);
+    array_column.set_is_nullable(false);
+
+    TabletColumn child_column;
+    child_column.set_name("arr_sub_string");
+    child_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    child_column.set_length(INT_MAX);
+    array_column.add_sub_column(child_column);
+    tablet_schema->append_column(array_column);
 
     // Create index meta for array
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -897,7 +915,7 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     index_meta_pb->set_index_id(1);
     index_meta_pb->set_index_name("test");
     index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(1); // c2 column id
+    index_meta_pb->add_col_unique_id(0); // array column id
 
     TabletIndex idx_meta;
     idx_meta.init_from_pb(*index_meta_pb.get());
@@ -916,10 +934,8 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
             fs, index_path_prefix, "test_array_nulls", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
-    // Get field for column c2
-    const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
-    ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    // Get field for array column
+    std::unique_ptr<Field> field(FieldFactory::create(array_column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -928,18 +944,63 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
                                                     index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
-    // Test with array values containing nulls
-    std::vector<Slice> values = {Slice("apple"), Slice(""), Slice("cherry")};
-    std::vector<uint64_t> offsets = {0, 1, 3, 3};     // Empty array at the end
-    std::vector<uint8_t> nested_null_map = {0, 1, 0}; // Second element is null
+    // Construct arrays with mixed null and non-null elements (reference inverted_index_array_test.cpp)
+    // Array 1: ["apple", null, "cherry"]
+    // Array 2: ["banana"]
+    // Array 3: [null, "date"]
+    vectorized::Array a1, a2, a3;
+    a1.push_back(vectorized::Field::create_field<TYPE_STRING>("apple"));
+    a1.push_back(vectorized::Field()); // null element
+    a1.push_back(vectorized::Field::create_field<TYPE_STRING>("cherry"));
 
-    status = column_writer->add_array_values(sizeof(Slice), values.data(), nested_null_map.data(),
-                                             reinterpret_cast<const uint8_t*>(offsets.data()), 3);
+    a2.push_back(vectorized::Field::create_field<TYPE_STRING>("banana"));
+
+    a3.push_back(vectorized::Field()); // null element
+    a3.push_back(vectorized::Field::create_field<TYPE_STRING>("date"));
+
+    // Construct array type: DataTypeArray(DataTypeNullable(DataTypeString))
+    vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
+            std::make_shared<vectorized::DataTypeString>());
+    vectorized::DataTypePtr array_type =
+            std::make_shared<vectorized::DataTypeArray>(inner_string_type);
+    vectorized::MutableColumnPtr col = array_type->create_column();
+    col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
+    col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
+    col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
+    vectorized::ColumnPtr column_array = std::move(col);
+    vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+
+    // Put the array column into the Block
+    vectorized::Block block;
+    block.insert(type_and_name);
+
+    // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
+    vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+    convertor.set_source_content(&block, 0, block.rows());
+    auto [st, accessor] = convertor.convert_column_data(0);
+    EXPECT_EQ(st, Status::OK());
+
+    // The conversion result is an array of 4 pointers:
+    //   [0]: Total number of elements (elem_cnt)
+    //   [1]: Offsets array pointer
+    //   [2]: Nested item data pointer
+    //   [3]: Nested nullmap pointer
+    const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
+    const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
+    const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
+    const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
+
+    // Get the length of the subfield
+    auto field_size = field->get_sub_field(0)->size();
+
+    // Call the inverted index writing interface
+    status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
+                                             block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
-    // Test array nulls handling
-    std::vector<uint8_t> null_map = {1, 0, 1}; // First and third arrays are null
-    status = column_writer->add_array_nulls(null_map.data(), 3);
+    // Add array nulls
+    const auto* null_map = accessor->get_nullmap();
+    status = column_writer->add_array_nulls(null_map, block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -952,7 +1013,25 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
 
 // Test case for numeric array values with error conditions
 TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
-    auto tablet_schema = create_schema();
+    // Create TabletSchema with numeric array column (reference inverted_index_array_test.cpp)
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    tablet_schema_pb.set_keys_type(DUP_KEYS);
+    tablet_schema->init_from_pb(tablet_schema_pb);
+
+    TabletColumn array_column;
+    array_column.set_name("arr_num");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_length(0);
+    array_column.set_index_length(0);
+    array_column.set_is_nullable(false);
+
+    TabletColumn child_column;
+    child_column.set_name("arr_sub_int");
+    child_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    child_column.set_length(4);
+    array_column.add_sub_column(child_column);
+    tablet_schema->append_column(array_column);
 
     // Create index meta for numeric BKD
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -960,7 +1039,7 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     index_meta_pb->set_index_id(1);
     index_meta_pb->set_index_name("test");
     index_meta_pb->clear_col_unique_id();
-    index_meta_pb->add_col_unique_id(0); // c1 column id
+    index_meta_pb->add_col_unique_id(0); // array column id
 
     // Set index properties for BKD index
     auto* properties = index_meta_pb->mutable_properties();
@@ -983,10 +1062,8 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
             fs, index_path_prefix, "test_numeric_array_error", 0, InvertedIndexStorageFormatPB::V2,
             std::move(file_writer));
 
-    // Get field for column c1
-    const TabletColumn& column = tablet_schema->column(0);
-    ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    // Get field for array column
+    std::unique_ptr<Field> field(FieldFactory::create(array_column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -995,18 +1072,69 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
                                                     index_file_writer.get(), &idx_meta);
     EXPECT_TRUE(status.ok()) << status;
 
-    // Test with numeric array values
-    std::vector<int32_t> values = {42, 100, 200, 300, 400};
-    std::vector<uint64_t> offsets = {0, 2, 5}; // Two arrays: [42, 100] and [200, 300, 400]
-    std::vector<uint8_t> nested_null_map = {0, 1, 0, 0, 0}; // Second element is null
+    // Construct numeric arrays (reference inverted_index_array_test.cpp)
+    // Array 1: [42, 100]
+    // Array 2: [200, 300, 400]
+    vectorized::DataTypePtr inner_int_type = std::make_shared<vectorized::DataTypeInt32>();
+    vectorized::DataTypePtr array_type =
+            std::make_shared<vectorized::DataTypeArray>(inner_int_type);
+    vectorized::MutableColumnPtr col = array_type->create_column();
 
-    status = column_writer->add_array_values(sizeof(int32_t), values.data(), nested_null_map.data(),
-                                             reinterpret_cast<const uint8_t*>(offsets.data()), 2);
+    // Array 1: [42, 100]
+    {
+        vectorized::Array arr;
+        arr.push_back(vectorized::Field::create_field<TYPE_INT>(42));
+        arr.push_back(vectorized::Field::create_field<TYPE_INT>(100));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+    }
+
+    // Array 2: [200, 300, 400]
+    {
+        vectorized::Array arr;
+        arr.push_back(vectorized::Field::create_field<TYPE_INT>(200));
+        arr.push_back(vectorized::Field::create_field<TYPE_INT>(300));
+        arr.push_back(vectorized::Field::create_field<TYPE_INT>(400));
+        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+    }
+
+    vectorized::ColumnPtr column_array = std::move(col);
+    vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr_num");
+
+    // Put the array column into the Block
+    vectorized::Block block;
+    block.insert(type_and_name);
+
+    // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
+    vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+    convertor.set_source_content(&block, 0, block.rows());
+    auto [st, accessor] = convertor.convert_column_data(0);
+    EXPECT_EQ(st, Status::OK());
+
+    // The conversion result is an array of 4 pointers:
+    //   [0]: Total number of elements (elem_cnt)
+    //   [1]: Offsets array pointer
+    //   [2]: Nested item data pointer
+    //   [3]: Nested nullmap pointer
+    const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
+    const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
+    const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
+    const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
+
+    // Get the length of the subfield
+    auto field_size = field->get_sub_field(0)->size();
+
+    // Call the inverted index writing interface
+    status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
+                                             block.rows());
+    EXPECT_TRUE(status.ok()) << status;
+
+    // Add array nulls
+    const auto* null_map = accessor->get_nullmap();
+    status = column_writer->add_array_nulls(null_map, block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with zero count to trigger specific branch
-    status = column_writer->add_array_values(sizeof(int32_t), values.data(), nullptr,
-                                             reinterpret_cast<const uint8_t*>(offsets.data()), 0);
+    status = column_writer->add_array_values(field_size, item_data, nullptr, offsets_ptr, 0);
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
