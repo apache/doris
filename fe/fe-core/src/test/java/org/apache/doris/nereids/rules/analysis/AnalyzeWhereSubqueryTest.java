@@ -379,6 +379,7 @@ public class AnalyzeWhereSubqueryTest extends TestWithFeService implements MemoP
         // select * from t6 where t6.k1 < (select max(aa) from (select v1 as aa from t7 where t6.k2=t7.v2) t2 )
         PlanChecker.from(connectContext)
                 .analyze(sql10)
+                .applyTopDown(new MergeProjects())
                 .matchesFromRoot(
                     logicalResultSink(
                         logicalProject(
