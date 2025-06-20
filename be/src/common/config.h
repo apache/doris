@@ -887,6 +887,13 @@ DECLARE_mInt32(zone_map_row_num_threshold);
 //    Trace = 6
 DECLARE_Int32(aws_log_level);
 
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DECLARE_Int32(azure_log_level);
+
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
 
