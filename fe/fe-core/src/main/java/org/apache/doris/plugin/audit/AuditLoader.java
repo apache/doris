@@ -46,8 +46,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
-    public static final String AUDIT_TABLE_COL_SEPARATOR = "\\x1F";
-    public static final String AUDIT_TABLE_LINE_DELIMITER = "\\x1E";
+    public static final String AUDIT_TABLE_COL_SEPARATOR = "\\u001F";
+    public static final String AUDIT_TABLE_LINE_DELIMITER = "\\u001E";
+    public static final String AUDIT_TABLE_COL_SEPARATOR_STR = "\\x1F";
+    public static final String AUDIT_TABLE_LINE_DELIMITER_STR = "\\x1E";
 
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
