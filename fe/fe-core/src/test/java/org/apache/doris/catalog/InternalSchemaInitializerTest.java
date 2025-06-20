@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ModifyColumnClause;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.plugin.audit.AuditLoader;
@@ -39,7 +40,7 @@ import java.util.List;
 
 class InternalSchemaInitializerTest {
     @Test
-    public void testGetModifyColumn() {
+    public void testGetModifyColumn() throws AnalysisException {
         new MockUp<HMSExternalTable>() {
             @Mock
             public HMSExternalTable.DLAType getDlaType() {
