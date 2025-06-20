@@ -113,10 +113,6 @@ protected:
             _file_format_reader->collect_profile_before_close();
         }
     }
-
-protected:
-    std::string _table_format;                          // hudi, iceberg
-    std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc
 };
 
 } // namespace doris::vectorized
