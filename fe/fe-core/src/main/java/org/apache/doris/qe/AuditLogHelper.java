@@ -101,9 +101,7 @@ public class AuditLogHelper {
         int maxLen = GlobalVariable.auditPluginMaxSqlLength;
         origStmt = truncateByBytes(origStmt, maxLen, " ... /* truncated. audit_plugin_max_sql_length=" + maxLen
                 + " */");
-        return origStmt.replace("\n", "\\n")
-                .replace("\t", "\\t")
-                .replace("\r", "\\r");
+        return origStmt;
     }
 
     private static Optional<String> handleInsertStmt(String origStmt, StatementBase parsedStmt) {
@@ -134,9 +132,6 @@ public class AuditLogHelper {
                     Math.min(GlobalVariable.auditPluginMaxInsertStmtLength, GlobalVariable.auditPluginMaxSqlLength));
             origStmt = truncateByBytes(origStmt, maxLen, " ... /* total " + rowCnt
                     + " rows, truncated. audit_plugin_max_insert_stmt_length=" + maxLen + " */");
-            origStmt = origStmt.replace("\n", "\\n")
-                    .replace("\t", "\\t")
-                    .replace("\r", "\\r");
             return Optional.of(origStmt);
         } else {
             return Optional.empty();
