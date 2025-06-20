@@ -73,8 +73,7 @@ TEST_F(InvertedIndexParserTest, TestGetParserTypeFromString) {
               InvertedIndexParserType::PARSER_ICU);
     EXPECT_EQ(get_inverted_index_parser_type_from_string("basic"),
               InvertedIndexParserType::PARSER_BASIC);
-    EXPECT_EQ(get_inverted_index_parser_type_from_string("ik"),
-              InvertedIndexParserType::PARSER_IK);
+    EXPECT_EQ(get_inverted_index_parser_type_from_string("ik"), InvertedIndexParserType::PARSER_IK);
 
     // Test unknown parser type
     EXPECT_EQ(get_inverted_index_parser_type_from_string("invalid"),
@@ -250,7 +249,7 @@ TEST_F(InvertedIndexParserTest, TestGetParserDictCompressionFromProperties) {
 // Test InvertedIndexCtx structure
 TEST_F(InvertedIndexParserTest, TestInvertedIndexCtxStructure) {
     InvertedIndexCtx ctx;
-    
+
     // Test default initialization
     ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
     ctx.parser_mode = INVERTED_INDEX_PARSER_FINE_GRANULARITY;
@@ -268,7 +267,7 @@ TEST_F(InvertedIndexParserTest, TestInvertedIndexCtxStructure) {
     ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE] = "char_replace";
     ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN] = "._";
     ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT] = " ";
-    
+
     EXPECT_EQ(ctx.char_filter_map.size(), 3);
     EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE], "char_replace");
     EXPECT_EQ(ctx.char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN], "._");
@@ -319,4 +318,3 @@ TEST_F(InvertedIndexParserTest, TestConstants) {
 }
 
 } // namespace doris
- 
