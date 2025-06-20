@@ -479,7 +479,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
 
     if (_have_other_join_conjunct) {
         vectorized::IColumn::Filter other_conjunct_filter(row_count, 1);
-        {
+        // if build side has no data, we can skip other join conjuncts calculate
+        if (_parent->build_block()->rows() > 1) {
             bool can_be_filter_all = false;
             RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
                     _parent->_other_join_conjuncts, nullptr, output_block, &other_conjunct_filter,
@@ -576,7 +577,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
     SCOPED_TIMER(_parent->_non_equal_join_conjuncts_timer);
     size_t orig_columns = output_block->columns();
     vectorized::IColumn::Filter other_conjunct_filter(row_count, 1);
-    {
+    // if build side has no data, we can skip other join conjuncts calculate
+    if (_parent->build_block()->rows() > 1) {
         bool can_be_filter_all = false;
         RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
                 _parent->_other_join_conjuncts, nullptr, output_block, &other_conjunct_filter,
