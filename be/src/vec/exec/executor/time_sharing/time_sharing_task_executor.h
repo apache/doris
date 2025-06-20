@@ -84,6 +84,9 @@ public:
             std::shared_ptr<TaskHandle> task_handle, bool intermediate,
             const std::vector<std::shared_ptr<SplitRunner>>& splits) override;
 
+    void re_enqueue_split(std::shared_ptr<TaskHandle> task_handle, bool intermediate,
+                          const std::shared_ptr<SplitRunner>& split) override;
+
     size_t waiting_splits_size() const { return _waiting_splits->size(); }
 
     size_t intermediate_splits_size() const {
@@ -139,6 +142,7 @@ public:
 
 private:
     Status _add_runner_thread();
+    //void _worker_thread_function();
     void _schedule_task_if_necessary(std::shared_ptr<TimeSharingTaskHandle> task_handle,
                                      std::lock_guard<std::mutex>& guard);
     void _add_new_entrants(std::lock_guard<std::mutex>& guard);
@@ -166,6 +170,8 @@ private:
     mutable std::mutex _mutex;
     std::condition_variable _condition;
     std::atomic<bool> _stopped {false};
+
+    //std::vector<std::thread> _worker_threads;
 
     std::unordered_map<TaskId, std::shared_ptr<TimeSharingTaskHandle>> _tasks;
 

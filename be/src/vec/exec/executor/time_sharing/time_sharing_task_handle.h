@@ -62,6 +62,8 @@ public:
     std::shared_ptr<PrioritizedSplitRunner> poll_next_split();
     void split_finished(std::shared_ptr<PrioritizedSplitRunner> split);
     int next_split_id();
+    std::shared_ptr<PrioritizedSplitRunner> get_split(std::shared_ptr<SplitRunner> split,
+                                                      bool intermediate) const;
 
 private:
     mutable std::mutex _mutex;
@@ -73,8 +75,12 @@ private:
     SplitConcurrencyController _concurrency_controller;
 
     std::queue<std::shared_ptr<PrioritizedSplitRunner>> _queued_leaf_splits;
-    std::vector<std::shared_ptr<PrioritizedSplitRunner>> _running_leaf_splits;
-    std::vector<std::shared_ptr<PrioritizedSplitRunner>> _running_intermediate_splits;
+    //std::vector<std::shared_ptr<PrioritizedSplitRunner>> _running_leaf_splits;
+    //std::vector<std::shared_ptr<PrioritizedSplitRunner>> _running_intermediate_splits;
+    std::unordered_map<std::shared_ptr<SplitRunner>, std::shared_ptr<PrioritizedSplitRunner>>
+            _running_leaf_splits;
+    std::unordered_map<std::shared_ptr<SplitRunner>, std::shared_ptr<PrioritizedSplitRunner>>
+            _running_intermediate_splits;
     int64_t _scheduled_nanos {0};
     std::atomic<int> _next_split_id {0};
     //    std::atomic<Priority> _priority {Priority(0, 0)};

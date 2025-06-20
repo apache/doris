@@ -303,7 +303,7 @@ DEFINE_Validator(task_executor_initial_split_concurrency, [](const int config) -
     return true;
 });
 
-DEFINE_Int32(task_executor_min_concurrency_per_task, "3");
+DEFINE_Int32(task_executor_min_concurrency_per_task, "1");
 DEFINE_Int32(task_executor_max_concurrency_per_task, "-1");
 DEFINE_Validator(task_executor_max_concurrency_per_task, [](const int config) -> bool {
     if (config == -1) {

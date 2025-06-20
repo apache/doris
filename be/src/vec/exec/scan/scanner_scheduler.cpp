@@ -70,8 +70,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
 }
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                                std::weak_ptr<ScannerDelegate> scanner) {
-    auto scan_task = std::make_shared<ScanTask>(scanner);
+                                std::shared_ptr<ScanTask> scan_task) {
     if (ctx->done()) {
         return Status::OK();
     }
@@ -96,12 +95,68 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                 return Status::OK();
             }();
 
+<<<<<<< HEAD
             if (!status.ok()) {
                 scanner_ref-- > set_status(status);
                 ctx->push_back_scan_task(scanner_ref);
                 return true;
             }
             return scanner_ref->is_eos();
+=======
+        scanner_delegate->_scanner->start_wait_worker_timer();
+
+        std::shared_ptr<SplitRunner> split_runner;
+        if (scan_task->is_first_schedule) {
+            split_runner = std::make_shared<ScannerSplitRunner>(
+                    "split_runner", [scanner_ref = scan_task, ctx]() {
+                        auto status = [&] {
+                            RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                            return Status::OK();
+                        }();
+                        if (!status.ok()) {
+                            scanner_ref->set_status(status);
+                            ctx->push_back_scan_task(scanner_ref);
+                            return true;
+                        }
+                        return scanner_ref->is_eos();
+                    });
+            RETURN_IF_ERROR(split_runner->init());
+            _limited_scan_task_executor->enqueue_splits(ctx->task_handle(), false, {split_runner});
+            scan_task->is_first_schedule = false;
+        } else {
+            split_runner = scan_task->split_runner.lock();
+            if (split_runner == nullptr) {
+                return Status::OK();
+            }
+            _limited_scan_task_executor->re_enqueue_split(ctx->task_handle(), false, split_runner);
+        }
+        scan_task->split_runner = split_runner;
+    } else {
+        std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
+        if (scanner_delegate == nullptr) {
+            return Status::OK();
+        }
+
+        scanner_delegate->_scanner->start_wait_worker_timer();
+        TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
+        auto sumbit_task = [&]() {
+            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
+            auto work_func = [scanner_ref = scan_task, ctx]() {
+                auto status = [&] {
+                    RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
+                    return Status::OK();
+                }();
+
+                if (!status.ok()) {
+                    scanner_ref->set_status(status);
+                    ctx->push_back_scan_task(scanner_ref);
+                    return true;
+                }
+                return scanner_ref->is_eos();
+            };
+            SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
+            return scan_sched->submit_scan_task(simple_scan_task);
+>>>>>>> 65229bafd2 (reschedule manually.)
         };
         SimplifiedScanTask simple_scan_task = {work_func, ctx};
         return scan_sched->submit_scan_task(simple_scan_task);
@@ -383,6 +438,10 @@ Status ScannerSplitRunner::finished_status() {
 
 bool ScannerSplitRunner::is_started() const {
     return _started.load();
+}
+
+bool ScannerSplitRunner::is_auto_reschedule() const {
+    return false;
 }
 
 } // namespace doris::vectorized
