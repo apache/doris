@@ -159,23 +159,22 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts,
-                groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null, indexInSqlString, tableSnapshot,
-                hintContext);
+                groupExpression, Optional.of(getLogicalProperties()), partNames, isTempPart, tabletIds, hints,
+                tableSample, indexName, scanParams, indexInSqlString, tableSnapshot, hintContext);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts, groupExpression,
-                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, null,
+                logicalProperties, partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
                 indexInSqlString, tableSnapshot, hintContext);
     }
 
     public UnboundRelation withIndexInSql(Pair<Integer, Integer> index) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts, groupExpression,
                 Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null,
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
                 Optional.of(index), tableSnapshot, hintContext);
     }
 
@@ -183,7 +182,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound, BlockFu
     public UnboundRelation withHintContext(Optional<HintContext> hintContext) {
         return new UnboundRelation(location.orElse(null), relationId, nameParts, groupExpression,
                 Optional.of(getLogicalProperties()),
-                partNames, isTempPart, tabletIds, hints, tableSample, indexName, null,
+                partNames, isTempPart, tabletIds, hints, tableSample, indexName, scanParams,
                 indexInSqlString, tableSnapshot, hintContext);
     }
 
