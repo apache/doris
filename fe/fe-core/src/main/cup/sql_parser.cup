@@ -3868,32 +3868,11 @@ show_stmt ::=
     {:
         RESULT = stmt;
     :}
-    | KW_SHOW KW_ROW KW_POLICY KW_FOR user_identity:user
-    {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, user, null);
-    :}
-    | KW_SHOW KW_ROW KW_POLICY KW_FOR KW_ROLE ident:role
-    {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null, role);
-    :}
-    | KW_SHOW KW_ROW KW_POLICY
-    {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.ROW, null, null);
-    :}
-    | KW_SHOW KW_STORAGE KW_POLICY
-    {:
-        RESULT = new ShowPolicyStmt(PolicyTypeEnum.STORAGE, null, null);
-    :}
     ;
 
 show_param ::=
-    /* show variables */
-    opt_var_type:type KW_VARIABLES opt_wild_where
-    {:
-        RESULT = new ShowVariablesStmt(type, parser.wild, parser.where);
-    :}
     /* routine */
-    | procedure_or_function KW_STATUS opt_wild_where
+    procedure_or_function KW_STATUS opt_wild_where
     {:
         RESULT = new ShowProcedureStmt();
     :}
@@ -3902,20 +3881,9 @@ show_param ::=
     {:
         RESULT = new ShowEnginesStmt();
     :}
-    /* Authors */
-    | KW_AUTHORS
-    {:
-        RESULT = new ShowAuthorStmt();
-    :}
     | KW_CREATE KW_MATERIALIZED KW_VIEW table_name:table
     {:
         RESULT = new ShowCreateMTMVStmt(table);
-    :}
-    /* Database */
-    /* show database id */
-    | KW_DATABASE INTEGER_LITERAL:dbId
-    {:
-        RESULT = new ShowDbIdStmt(dbId);
     :}
     /* Show Warnings */
     | KW_COUNT LPAREN STAR RPAREN KW_WARNINGS
@@ -3938,40 +3906,10 @@ show_param ::=
     {:
         RESULT = new ShowWarningStmt();
     :}
-    // show load warnings
-    | KW_LOAD KW_WARNINGS opt_db:db opt_wild_where limit_clause:limitClause
-    {:
-        RESULT = new ShowLoadWarningsStmt(db, null, parser.where, limitClause);
-    :}
-    | KW_LOAD KW_WARNINGS KW_ON STRING_LITERAL:url
-    {:
-        RESULT = new ShowLoadWarningsStmt(null, url, null, null);
-    :}
-    /* Show stream load statement */
-    | KW_STREAM KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
-    {:
-        RESULT = new ShowStreamLoadStmt(db, parser.where, orderByClause, limitClause);
-    :}
     /* Show alter table statement: used to show process of alter table statement */
     | KW_ALTER KW_TABLE opt_alter_type:type opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
-    :}
-    | KW_PROPERTY opt_user:user opt_wild_where
-    {:
-        RESULT = new ShowUserPropertyStmt(user, parser.wild, false);
-    :}
-    | KW_ALL KW_PROPERTIES opt_wild_where
-    {:
-        RESULT = new ShowUserPropertyStmt(null, parser.wild, true);
-    :}
-    | KW_TRASH KW_ON STRING_LITERAL:backend
-    {:
-        RESULT = new ShowTrashDiskStmt(backend);
-    :}
-    | keys_or_index from_or_in table_name:dbTblName opt_db:dbName
-    {:
-        RESULT = new ShowIndexStmt(dbName, dbTblName);
     :}
     | KW_CACHE KW_HOTSPOT STRING_LITERAL:tablePath
     {:
@@ -3995,29 +3933,9 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, true);
     :}
-    | KW_AUTO KW_JOBS opt_table_name:tbl opt_wild_where
-    {:
-        RESULT = new ShowQueuedAnalyzeJobsStmt(tbl, parser.where);
-    :}
     | KW_ANALYZE KW_TASK KW_STATUS INTEGER_LITERAL:jobId
     {:
         RESULT = new ShowAnalyzeTaskStatus(jobId);
-    :}
-    | KW_REPLICA KW_STATUS KW_FROM base_table_ref:table_ref opt_wild_where
-    {:
-        RESULT = new ShowReplicaStatusStmt(table_ref, parser.where);
-    :}
-    | KW_FRONTEND KW_CONFIG opt_wild_where
-    {:
-        RESULT = new ShowConfigStmt(NodeType.FRONTEND, parser.wild);
-    :}
-    | KW_BACKEND KW_CONFIG opt_wild_where
-    {:
-        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild);
-    :}
-    | KW_BACKEND KW_CONFIG opt_wild_where KW_FROM INTEGER_LITERAL:backendId
-    {:
-        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild, backendId);
     :}
     | KW_TABLET KW_DIAGNOSIS INTEGER_LITERAL:tabletId
     {:
@@ -7073,12 +6991,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    // deprecated
-    KW_ADMIN KW_SHOW KW_REPLICA KW_STATUS KW_FROM base_table_ref:table_ref opt_wild_where
-    {:
-        RESULT = new ShowReplicaStatusStmt(table_ref, parser.where);
-    :}
-    | KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
+    KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
     {:
         RESULT = new AdminSetReplicaStatusStmt(prop);
     :}
@@ -7109,19 +7022,6 @@ admin_stmt ::=
     | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs KW_ALL
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
-    :}
-    // deprecated
-    | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG opt_wild_where
-    {:
-        RESULT = new ShowConfigStmt(NodeType.FRONTEND, parser.wild);
-    :}
-    | KW_ADMIN KW_SHOW KW_BACKEND KW_CONFIG opt_wild_where
-    {:
-        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild);
-    :}
-    | KW_ADMIN KW_SHOW KW_BACKEND KW_CONFIG opt_wild_where KW_FROM INTEGER_LITERAL:backendId
-    {:
-        RESULT = new ShowConfigStmt(NodeType.BACKEND, parser.wild, backendId);
     :}
     | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
     {:
