@@ -82,6 +82,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.EvictingQueue;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
@@ -100,6 +101,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -285,6 +287,8 @@ public abstract class RoutineLoadJob
     // use for cloud cluster mode
     protected String qualifiedUser;
     protected String cloudCluster;
+
+    public Set<Long> committingTxnIds = Sets.newHashSet();
 
     public void setTypeRead(boolean isTypeRead) {
         this.isTypeRead = isTypeRead;
@@ -1101,9 +1105,6 @@ public abstract class RoutineLoadJob
     private void executeBeforeCheck(TransactionState txnState, TransactionStatus transactionStatus)
             throws TransactionException {
         writeLock();
-
-        // task already pass the checker
-        boolean passCheck = false;
         try {
             // check if task has been aborted
             Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional =
@@ -1116,13 +1117,14 @@ public abstract class RoutineLoadJob
                             + " while task " + txnState.getLabel() + " has been aborted.");
                 }
             }
-            passCheck = true;
+            committingTxnIds.add(txnState.getTransactionId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add txn {} to committingTxnIds of routine load job {}", txnState.getTransactionId(), id);
+            }
         } finally {
-            if (!passCheck) {
-                writeUnlock();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("unlock write lock of routine load job before check: {}", id);
-                }
+            writeUnlock();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("unlock write lock of routine load job before check: {}", id);
             }
         }
     }
@@ -1135,7 +1137,13 @@ public abstract class RoutineLoadJob
     @Override
     public void afterCommitted(TransactionState txnState, boolean txnOperated) throws UserException {
         long taskBeId = -1L;
+        writeLock();
         try {
+            committingTxnIds.remove(txnState.getTransactionId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove txn {} from committingTxnIds of routine load job {}",
+                        txnState.getTransactionId(), id);
+            }
             if (txnOperated) {
                 // find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
@@ -1258,7 +1266,13 @@ public abstract class RoutineLoadJob
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReasonString)
             throws UserException {
         long taskBeId = -1L;
+        writeLock();
         try {
+            committingTxnIds.remove(txnState.getTransactionId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("remove txn {} from committingTxnIds of routine load job {}",
+                        txnState.getTransactionId(), id);
+            }
             this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
             setOtherMsg(txnStatusChangeReasonString);
             if (txnOperated) {
@@ -1499,6 +1513,13 @@ public abstract class RoutineLoadJob
         state = JobState.PAUSED;
         pauseTimestamp = System.currentTimeMillis();
         routineLoadTaskInfoList.clear();
+        while (!committingTxnIds.isEmpty()) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                LOG.warn("pause routine load job interrupted", e);
+            }
+        }
     }
 
     private void executeNeedSchedule() {

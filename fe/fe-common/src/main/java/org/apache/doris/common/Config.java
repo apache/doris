@@ -1315,6 +1315,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int routine_load_blacklist_expire_time_second = 300;
 
+
+    /**
+     * the max number of active routine load task scheduler thread.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_active_routine_load_task_scheduler_thread = 64;
+
     /**
      * The max number of files store in SmallFileMgr
      */
