@@ -166,9 +166,10 @@ public abstract class AbstractSelectMaterializedIndexRule {
         // Here we use toSqlWithoutTbl because the output of toSql() is slot#[0] in Nereids
         Set<String> indexConjuncts = PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream()
                 .map(e -> {
-                    e.setDisableTableName(true);
+                    e.disableTableName();
                     return e;
-                }).map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
+                }).map(e -> new NereidsParser().parseExpression(e.toSqlWithoutTbl()).toSql())
+                .collect(Collectors.toSet());
 
         for (String indexConjunct : indexConjuncts) {
             if (predicateExprSql.contains(indexConjunct)) {
@@ -540,10 +541,10 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot,
                 PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream()
                         .map(e -> {
-                            e.setDisableTableName(true);
+                            e.disableTableName();
                             return e;
                         })
-                        .map(e -> new NereidsParser().parseExpression(e.toSql()))
+                        .map(e -> new NereidsParser().parseExpression(e.toSqlWithoutTbl()))
                         .collect(Collectors.toSet()));
     }
 

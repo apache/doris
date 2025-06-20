@@ -980,14 +980,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilter().toSql()).get(0)
                 : null;
         Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
                 : null;
         NereidsLoadTaskInfo.NereidsImportColumnDescs importColumnDescs = null;
         if (columnDescs != null) {
             importColumnDescs = new NereidsLoadTaskInfo.NereidsImportColumnDescs();
             for (ImportColumnDesc desc : columnDescs.descs) {
                 Expression expression = desc.getExpr() != null
-                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSql()).get(0)
+                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
                         : null;
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }

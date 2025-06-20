@@ -55,8 +55,13 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -1752,7 +1757,7 @@ public abstract class RoutineLoadJob
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
-            sb.append("WHERE ").append(whereExpr.toSql()).append(",\n");
+            sb.append("WHERE ").append(whereExpr.toSqlWithoutTbl()).append(",\n");
         }
         // 4.4.partitions
         if (partitions != null) {
@@ -1760,7 +1765,7 @@ public abstract class RoutineLoadJob
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
-            sb.append("DELETE ON ").append(deleteCondition.toSql()).append(",\n");
+            sb.append("DELETE ON ").append(deleteCondition.toSqlWithoutTbl()).append(",\n");
         }
         // 4.6.source_sequence
         if (sequenceCol != null) {
@@ -1768,7 +1773,7 @@ public abstract class RoutineLoadJob
         }
         // 4.7.preceding_predicates
         if (precedingFilter != null) {
-            sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
+            sb.append("PRECEDING FILTER ").append(precedingFilter.toSqlWithoutTbl()).append(",\n");
         }
         // remove the last ,
         if (sb.charAt(sb.length() - 2) == ',') {
@@ -1861,8 +1866,8 @@ public abstract class RoutineLoadJob
                 ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null
                 ? STAR_STRING : Joiner.on(",").join(columnDescs.descs));
-        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
-        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
+        jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSqlWithoutTbl());
+        jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSqlWithoutTbl());
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
@@ -1883,7 +1888,7 @@ public abstract class RoutineLoadJob
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
         jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
-                deleteCondition == null ? STAR_STRING : deleteCondition.toSql());
+                deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);
@@ -1942,13 +1947,27 @@ public abstract class RoutineLoadJob
                 isPartialUpdate = Boolean.parseBoolean(v);
             }
         });
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
-        CreateRoutineLoadStmt stmt = null;
         try {
-            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
-            stmt.checkLoadProperties();
-            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
+            ConnectContext ctx = new ConnectContext();
+            ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get().getName());
+            StatementContext statementContext = new StatementContext();
+            statementContext.setConnectContext(ctx);
+            ctx.setStatementContext(statementContext);
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setQualifiedUser(Auth.ADMIN_USER);
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            try {
+                ctx.setThreadLocalInfo();
+                NereidsParser nereidsParser = new NereidsParser();
+                CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
+                        origStmt.originStmt);
+                CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                createRoutineLoadInfo.validate(ctx);
+                setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+            } finally {
+                ctx.cleanup();
+            }
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }

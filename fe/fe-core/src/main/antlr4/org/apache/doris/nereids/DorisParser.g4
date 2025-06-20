@@ -77,7 +77,6 @@ unsupportedStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
-    | unsupportedShowStatement
     | unsupportedOtherStatement
     ;
 
@@ -382,6 +381,8 @@ supportedShowStatement
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW STREAM? LOAD ((FROM | IN) database=identifier)? wildWhere?
         sortClause? limitClause?                                                    #showLoad
+    | SHOW LOAD WARNINGS ((((FROM | IN) database=identifier)?
+        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW TABLET DIAGNOSIS tabletId=INTEGER_VALUE                                  #showDiagnoseTablet
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
@@ -449,35 +450,28 @@ supportedOtherStatement
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
     | UNINSTALL PLUGIN name=identifierOrText                                        #uninstallPlugin
     | LOCK TABLES (lockTable (COMMA lockTable)*)?                                   #lockTables
+    | WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
+        ((CLUSTER | COMPUTE GROUP) source=identifier |
+            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
     | BACKUP SNAPSHOT label=multipartIdentifier TO repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #backup
     ;
 
 unsupportedOtherStatement
-    : WARM UP (CLUSTER | COMPUTE GROUP) destination=identifier WITH
-        ((CLUSTER | COMPUTE GROUP) source=identifier |
-            (warmUpItem (AND warmUpItem)*)) FORCE?                                  #warmUpCluster
-    | RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
+    : RESTORE SNAPSHOT label=multipartIdentifier FROM repo=identifier
         ((ON | EXCLUDE) LEFT_PAREN baseTableRef (COMMA baseTableRef)* RIGHT_PAREN)?
         properties=propertyClause?                                                  #restore
     | START TRANSACTION (WITH CONSISTENT SNAPSHOT)?                                 #unsupportedStartTransaction
     ;
 
-warmUpItem
+ warmUpItem
     : TABLE tableName=multipartIdentifier (PARTITION partitionName=identifier)?
     ;
 
 lockTable
     : name=multipartIdentifier (AS alias=identifierOrText)?
         (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
-    ;
-
-unsupportedShowStatement
-    : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
-    | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
-        wildWhere? limitClause?) | (ON url=STRING_LITERAL))                         #showLoadWarings
-    | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
 createRoutineLoad
@@ -1207,7 +1201,7 @@ groupingElement
     : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
-    | expression (COMMA expression)*
+    | expression (COMMA expression)* (WITH ROLLUP)?
     ;
 
 groupingSet

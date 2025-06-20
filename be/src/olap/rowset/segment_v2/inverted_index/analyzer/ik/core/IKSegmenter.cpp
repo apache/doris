@@ -33,6 +33,7 @@ std::vector<std::unique_ptr<ISegmenter>> IKSegmenter::loadSegmenters() {
     segmenters.push_back(std::make_unique<LetterSegmenter>());
     segmenters.push_back(std::make_unique<CN_QuantifierSegmenter>());
     segmenters.push_back(std::make_unique<CJKSegmenter>());
+    segmenters.push_back(std::make_unique<SurrogatePairSegmenter>());
     return segmenters;
 }
 

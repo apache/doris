@@ -19,8 +19,6 @@ package org.apache.doris.policy;
 
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
-import org.apache.doris.analysis.ShowPolicyStmt;
-import org.apache.doris.analysis.ShowStoragePolicyUsingStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -451,30 +449,6 @@ public class PolicyMgr implements Writable {
     }
 
     /**
-     * Show policy through stmt.
-     **/
-    public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
-        Policy checkedPolicy = null;
-        switch (showStmt.getType()) {
-            case STORAGE:
-                checkedPolicy = new StoragePolicy();
-                break;
-            case ROW:
-            default:
-                RowPolicy rowPolicy = new RowPolicy();
-                if (showStmt.getUser() != null) {
-                    rowPolicy.setUser(showStmt.getUser());
-                }
-                if (!StringUtils.isEmpty(showStmt.getRoleName())) {
-                    rowPolicy.setRoleName(showStmt.getRoleName());
-                }
-                checkedPolicy = rowPolicy;
-        }
-        final Policy finalCheckedPolicy = checkedPolicy;
-        return getShowPolicy(finalCheckedPolicy, showStmt.getType());
-    }
-
-    /**
      * Return objects which is using the storage policy
      **/
     public List<List<String>> showStoragePolicyUsing(String targetPolicyName) throws AnalysisException {
@@ -574,16 +548,6 @@ public class PolicyMgr implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    /**
-     * Show objects which is using the storage policy
-     **/
-    public ShowResultSet showStoragePolicyUsing(ShowStoragePolicyUsingStmt showStmt) throws AnalysisException {
-        String targetPolicyName = showStmt.getPolicyName();
-        List<List<String>> rows = showStoragePolicyUsing(targetPolicyName);
-
-        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void addTablePolicies(RowPolicy policy) {
