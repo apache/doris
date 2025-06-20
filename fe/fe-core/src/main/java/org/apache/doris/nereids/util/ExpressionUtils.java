@@ -325,8 +325,8 @@ public class ExpressionUtils {
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
-        if (expressions.size() != replacedExpressions.size()) {
+        List<? extends Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (replacedExpressions == null || expressions.size() != replacedExpressions.size()) {
             throw new NereidsException("shuttle expression fail",
                     new MaterializedViewException("shuttle expression fail"));
         }

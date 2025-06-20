@@ -23,6 +23,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -68,7 +69,8 @@ public class OptimizeGroupExpressionJob extends Job {
 
     private List<Rule> getExplorationRules(CascadesContext cascadesContext) {
         Builder<Rule> ruleBuilder = ImmutableList.<Rule>builder().addAll(getJoinRules());
-        if (!cascadesContext.getStatementContext().isPreRewritten()) {
+        if (!cascadesContext.getStatementContext().isPreRewritten()
+                && MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
             ruleBuilder.addAll(getMvRules());
         }
         return ruleBuilder.build();

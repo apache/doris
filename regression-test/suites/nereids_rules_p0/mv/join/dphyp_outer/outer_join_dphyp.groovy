@@ -304,7 +304,10 @@ suite("outer_join_dphyp") {
             where o_orderstatus = 'o' AND o_orderkey = 1;
     """
     order_qt_query4_0_before "${query4_0}"
+    // DP Hyper can not use pre materialized view rewrite
+    sql """SET enable_dphyp_optimizer = false"""
     async_mv_rewrite_success(db, mv4_0, query4_0, "mv4_0", [TRY_IN_RBO, FORCE_IN_RBO])
+    sql """SET enable_dphyp_optimizer = true"""
     async_mv_rewrite_fail(db, mv4_0, query4_0, "mv4_0", [NOT_IN_RBO])
     order_qt_query4_0_after "${query4_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_0"""

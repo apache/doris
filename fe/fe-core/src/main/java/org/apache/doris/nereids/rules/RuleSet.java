@@ -43,6 +43,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyScanRul
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterScanRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectScanRule;
@@ -248,6 +249,7 @@ public class RuleSet {
             .add(MaterializedViewFilterJoinRule.INSTANCE)
             .add(MaterializedViewFilterProjectJoinRule.INSTANCE)
             .add(MaterializedViewProjectFilterJoinRule.INSTANCE)
+            .add(MaterializedViewProjectFilterProjectJoinRule.INSTANCE)
             .add(MaterializedViewAggregateRule.INSTANCE)
             .add(MaterializedViewProjectAggregateRule.INSTANCE)
             .add(MaterializedViewFilterAggregateRule.INSTANCE)

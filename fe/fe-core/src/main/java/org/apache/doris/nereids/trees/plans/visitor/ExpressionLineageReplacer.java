@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -120,6 +121,12 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         @Override
         public Void visitNamedExpression(NamedExpression namedExpression, ExpressionReplaceContext context) {
             context.getUsedExprIdSet().add(namedExpression.getExprId());
+            if (namedExpression instanceof Slot
+                    && context.getExprIdExpressionMap().containsKey(namedExpression.getExprId())) {
+                // if slot id is the same with exist alias, this happens loop, maybe because
+                // preAggForRandomDistribution alias id is the same as it's input
+                context.setReplaceSuccess(false);
+            }
             return super.visitNamedExpression(namedExpression, context);
         }
 
@@ -141,6 +148,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         private final Set<ExprId> usedExprIdSet = new HashSet<>();
         private final Map<ExprId, Expression> exprIdExpressionMap = new HashMap<>();
         private List<Expression> replacedExpressions;
+        private boolean replaceSuccess = true;
 
         /**
          * ExpressionReplaceContext
@@ -163,10 +171,21 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
             return usedExprIdSet;
         }
 
+        public void setReplaceSuccess(boolean replaceSuccess) {
+            this.replaceSuccess = replaceSuccess;
+        }
+
+        public boolean isReplaceSuccess() {
+            return replaceSuccess;
+        }
+
         /**
          * getReplacedExpressions
          */
-        public List<Expression> getReplacedExpressions() {
+        public List<? extends Expression> getReplacedExpressions() {
+            if (!this.replaceSuccess) {
+                return null;
+            }
             if (this.replacedExpressions == null) {
                 this.replacedExpressions = targetExpressions.stream()
                         .map(original -> original.accept(ExpressionReplacer.INSTANCE, getExprIdExpressionMap()))

@@ -397,6 +397,11 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
         }
+        if (MaterializedViewUtils.containMaterializedViewHook(statementContext)
+                && MaterializedViewUtils.containTableQueryOperator(cascadesContext.getRewritePlan())) {
+            // if query used table operator, not rewrite by mv
+            MaterializedViewUtils.removeMaterializedViewHooks(statementContext);
+        }
     }
 
     /**
@@ -415,12 +420,6 @@ public class NereidsPlanner extends Planner {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
         }
         statementContext.setNeedPreRewrite(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
-        collectTableInfoAndInitHook(cascadesContext);
-    }
-
-    // before query rewrite by materialized view, should collect query used partition and
-    // relation id to table id, these info are used by rewrite later, should only be called once
-    private static void collectTableInfoAndInitHook(CascadesContext cascadesContext) {
         // init materialization context for mv rewrite
         cascadesContext.getStatementContext().getPlannerHooks().forEach(hook -> hook.afterRewrite(cascadesContext));
     }

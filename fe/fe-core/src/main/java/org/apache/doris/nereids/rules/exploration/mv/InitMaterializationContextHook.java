@@ -65,7 +65,8 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     @Override
     public void afterRewrite(CascadesContext cascadesContext) {
-        // collect partitions table used, this is for query rewrite by materialized view
+        // collect partitions table used, this is for query rewrite by materialized view,
+        // these info are used by rewrite later
         // this is needed before init hook, because compare partition version in init hook would use this
         if (cascadesContext.getStatementContext().isNeedPreRewrite()) {
             for (Plan plan : cascadesContext.getStatementContext().getTmpPlanForMvRewrite()) {

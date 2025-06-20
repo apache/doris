@@ -145,15 +145,12 @@ public class MTMVCache {
             @Override
             public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink,
                     Object context) {
-                // todo how to handle when cte,if make sure this is needed, we should remove original plan
                 return new LogicalProject(logicalResultSink.getOutput(),
                         false, logicalResultSink.children());
             }
         }, null);
         // Optimize by rules to remove top sort
-        CascadesContext parentCascadesContext = CascadesContext.initContext(cascadesContext.getStatementContext(),
-                mvPlan, PhysicalProperties.ANY);
-        mvPlan = MaterializedViewUtils.rewriteByRules(parentCascadesContext, childContext -> {
+        mvPlan = MaterializedViewUtils.rewriteByRules(cascadesContext, childContext -> {
             Rewriter.getCteChildrenRewriter(childContext, ImmutableList.of(
                     Rewriter.custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                     Rewriter.bottomUp(new MergeProjects()))).execute();

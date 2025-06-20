@@ -215,7 +215,7 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
                         + "    PROPERTIES (\n"
                         + "        \"replication_num\" = \"1\"\n"
                         + "    );",
-                "CREATE VIEW IF NOT EXISTS revenue1 AS\n"
+                "CREATE VIEW IF NOT EXISTS test.revenue1 AS\n"
                         + "  SELECT\n"
                         + "    l_suppkey AS supplier_no,\n"
                         + "    sum(l_extendedprice * (1 - l_discount)) AS total_revenue\n"

@@ -108,8 +108,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         // if available materialization list is empty, bail out
         StatementContext statementContext = cascadesContext.getStatementContext();
-        if (cascadesContext.getMaterializationContexts().isEmpty()
-                || !MaterializedViewUtils.containMaterializedViewHook(cascadesContext.getStatementContext())) {
+        if (cascadesContext.getMaterializationContexts().isEmpty()) {
             return rewrittenPlans;
         }
         if (statementContext.getMaterializedViewRewriteDuration()
@@ -427,8 +426,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             // need to collect table partition again, because the rewritten plan would contain new relation
-            // and the rewritten plan would part in rewritten later , the table used partition info is needed
+            // and the rewritten plan would part in rewritten later, the table used partition info is needed
             // for later rewrite
+            // record new mv relation id to table in statement context for nest rewrite, because in nest rewrite,
+            // would get query struct info by mv struct info, if not record,
+            // MaterializedViewUtils.transformToCommonTableId would fail
             long startTimeMs = TimeUtils.getStartTimeMs();
             try {
                 MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
@@ -441,10 +443,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
-            // record new mv relation id to table in statement context for nest rewrite, because in nest rewrite,
-            // would get query struct info by mv struct info, if not record,
-            // MaterializedViewUtils.transformToCommonTableId would fail
-            MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
             // If rewrite successfully, try to clear mv scan currently because it maybe used again
             materializationContext.clearScanPlan(cascadesContext);
         }

@@ -151,6 +151,7 @@ public class SummaryProfile {
             NEREIDS_REWRITE_TIME,
             NEREIDS_BE_FOLD_CONST_TIME,
             NEREIDS_COLLECT_TABLE_PARTITION_TIME,
+            NEREIDS_PRE_REWRITE_BY_MV_TIME,
             NEREIDS_OPTIMIZE_TIME,
             NEREIDS_TRANSLATE_TIME,
             INIT_SCAN_NODE_TIME,

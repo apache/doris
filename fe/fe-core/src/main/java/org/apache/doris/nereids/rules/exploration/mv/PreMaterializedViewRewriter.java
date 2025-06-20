@@ -80,7 +80,6 @@ public class PreMaterializedViewRewriter {
         Group root = cascadesContext.getMemo().getRoot();
         PhysicalPlan physicalPlan = NereidsPlanner.chooseBestPlan(root,
                 cascadesContext.getCurrentJobContext().getRequiredProperties(), cascadesContext);
-        // TODO: 2025/5/21 If cte, how handle?
         Pair<Map<List<String>, MaterializationContext>, BitSet> chosenMaterializationAndUsedTable
                 = MaterializedViewUtils.getChosenMaterializationAndUsedTable(physicalPlan,
                 cascadesContext.getAllMaterializationContexts());
