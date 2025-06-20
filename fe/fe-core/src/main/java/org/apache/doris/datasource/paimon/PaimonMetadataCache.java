@@ -26,19 +26,19 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.paimon.CoreOptions;
-import org.apache.paimon.Snapshot;
-import org.apache.paimon.partition.Partition;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.PartitionsTable;
+import org.apache.paimon.table.system.SnapshotsTable;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 
@@ -75,27 +75,39 @@ public class PaimonMetadataCache {
     private PaimonPartitionInfo loadPartitionInfo(PaimonSnapshotCacheKey key, List<Column> partitionColumns)
             throws IOException, AnalysisException {
         if (CollectionUtils.isEmpty(partitionColumns)) {
-            return PaimonPartitionInfo.EMPTY;
+            return new PaimonPartitionInfo();
         }
-        List<Partition> paimonPartitions = ((PaimonExternalCatalog) key.getCatalog())
-                .getPaimonPartitions(key.getDbName(), key.getTableName());
+        List<PaimonPartition> paimonPartitions = loadPartitions(key);
         return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
     }
 
-    private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
-        Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(), key.getTableName());
-        Table snapshotTable = table;
-        // snapshotId and schemaId
-        Long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
-        long latestSchemaId = 0L;
-        Optional<Snapshot> optionalSnapshot = table.latestSnapshot();
-        if (optionalSnapshot.isPresent()) {
-            latestSnapshotId = optionalSnapshot.get().id();
-            latestSchemaId = table.snapshot(latestSnapshotId).schemaId();
-            snapshotTable =
-                    table.copy(Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), latestSnapshotId.toString()));
+    private List<PaimonPartition> loadPartitions(PaimonSnapshotCacheKey key)
+            throws IOException {
+        Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(),
+                key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + PartitionsTable.PARTITIONS);
+        List<InternalRow> rows = PaimonUtil.read(table, null, null);
+        List<PaimonPartition> res = Lists.newArrayListWithCapacity(rows.size());
+        for (InternalRow row : rows) {
+            res.add(PaimonUtil.rowToPartition(row));
         }
-        return new PaimonSnapshot(latestSnapshotId, latestSchemaId, snapshotTable);
+        return res;
+    }
+
+    private PaimonSnapshot loadLatestSnapshot(PaimonSnapshotCacheKey key) throws IOException {
+        Table table = ((PaimonExternalCatalog) key.getCatalog()).getPaimonTable(key.getDbName(),
+                key.getTableName() + Catalog.SYSTEM_TABLE_SPLITTER + SnapshotsTable.SNAPSHOTS);
+        // snapshotId and schemaId
+        List<InternalRow> rows = PaimonUtil.read(table, new int[] {0, 1}, null);
+        long latestSnapshotId = 0L;
+        long latestSchemaId = 0L;
+        for (InternalRow row : rows) {
+            long snapshotId = row.getLong(0);
+            if (snapshotId > latestSnapshotId) {
+                latestSnapshotId = snapshotId;
+                latestSchemaId = row.getLong(1);
+            }
+        }
+        return new PaimonSnapshot(latestSnapshotId, latestSchemaId);
     }
 
     public void invalidateCatalogCache(long catalogId) {
