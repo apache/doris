@@ -68,6 +68,8 @@ struct AggregateFunctionBitmapUnionOp {
 
     static void add_batch(BitmapValue& res, std::vector<const BitmapValue*>& data, bool& is_first) {
         res.fastunion(data);
+        // after fastunion, res myabe have many datas, so is_first should be false
+        // then call add function will not reset res
         is_first = false;
     }
 
