@@ -47,14 +47,17 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -77,6 +80,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -106,6 +110,8 @@ public class IcebergUtils {
 
     // nickname in spark
     public static final String SPARK_SQL_COMPRESSION_CODEC = "spark.sql.iceberg.compression-codec";
+
+    public static final long UNKNOWN_SNAPSHOT_ID = -1;
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -570,14 +576,25 @@ public class IcebergUtils {
                 : metadataCache.getIcebergTable(catalog, dbName, tblName);
     }
 
+    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
+        return getSchema(catalog, dbName, name, UNKNOWN_SNAPSHOT_ID);
+    }
+
     /**
      * Get iceberg schema from catalog and convert them to doris schema
      */
-    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name) {
+    public static List<Column> getSchema(ExternalCatalog catalog, String dbName, String name, long schemaId) {
         try {
             return catalog.getPreExecutionAuthenticator().execute(() -> {
                 org.apache.iceberg.Table icebergTable = getIcebergTable(catalog, dbName, name);
-                Schema schema = icebergTable.schema();
+                Schema schema;
+                if (schemaId == UNKNOWN_SNAPSHOT_ID || icebergTable.currentSnapshot() == null) {
+                    schema = icebergTable.schema();
+                } else {
+                    schema = icebergTable.schemas().get((int) schemaId);
+                }
+                Preconditions.checkNotNull(schema,
+                        "Schema for table " + catalog.getName() + "." + dbName + "." + name + " is null");
                 List<Types.NestedField> columns = schema.columns();
                 List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
                 for (Types.NestedField field : columns) {
@@ -694,5 +711,24 @@ public class IcebergUtils {
 
         hiveCatalog.initialize(name, catalogProperties);
         return hiveCatalog;
+    }
+
+    // load table schema from iceberg API to external schema cache.
+    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
+            ExternalCatalog catalog, String dbName, String tbName, long schemaId) {
+        Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
+        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId);
+        List<Column> tmpColumns = Lists.newArrayList();
+        PartitionSpec spec = table.spec();
+        for (PartitionField field : spec.fields()) {
+            Types.NestedField col = table.schema().findField(field.sourceId());
+            for (Column c : schema) {
+                if (c.getName().equalsIgnoreCase(col.name())) {
+                    tmpColumns.add(c);
+                    break;
+                }
+            }
+        }
+        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
     }
 }
