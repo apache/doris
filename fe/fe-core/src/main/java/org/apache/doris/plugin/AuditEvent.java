@@ -18,9 +18,6 @@
 package org.apache.doris.plugin;
 
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
@@ -35,7 +32,6 @@ import java.lang.annotation.RetentionPolicy;
  *          .build();
  */
 public class AuditEvent {
-    private static final Logger LOG = LogManager.getLogger(AuditEvent.class);
     public enum EventType {
         CONNECTION,
         DISCONNECTION,
