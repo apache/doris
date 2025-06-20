@@ -47,4 +47,8 @@ suite("fold_constant_cast") {
     testFoldConst("SELECT CAST(CAST(0.001 AS FLOAT) AS STRING)")
     testFoldConst("SELECT CAST(CAST(-0.001 AS FLOAT) AS STRING)")
 //    testFoldConst("SELECT CAST(CAST(1e+10 AS FLOAT) AS STRING)")
+    testFoldConst("select cast(date('2024-01-01') as char(2))")
+    testFoldConst("select cast(date('2024-01-01') as char(11))")
+    testFoldConst("select cast(date('2024-01-01') as char)")
+    testFoldConst("select cast('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'as char)")
 }
