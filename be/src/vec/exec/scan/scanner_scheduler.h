@@ -63,7 +63,7 @@ public:
     [[nodiscard]] Status init(ExecEnv* env);
 
     MOCK_FUNCTION Status submit(std::shared_ptr<ScannerContext> ctx,
-                                std::weak_ptr<ScannerDelegate> scanner);
+                                std::shared_ptr<ScanTask> scan_task);
 
     void stop();
 
@@ -96,13 +96,16 @@ private:
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
     SimplifiedScanTask(std::function<bool()> scan_func,
-                       std::shared_ptr<vectorized::ScannerContext> scanner_context) {
+                       std::shared_ptr<vectorized::ScannerContext> scanner_context,
+                       std::shared_ptr<ScanTask> scan_task) {
         this->scan_func = scan_func;
         this->scanner_context = scanner_context;
+        this->scan_task = scan_task;
     }
 
     std::function<bool()> scan_func;
     std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
+    std::shared_ptr<ScanTask> scan_task = nullptr;
 };
 
 class ScannerSplitRunner : public SplitRunner {
@@ -123,6 +126,8 @@ public:
     Status finished_status() override;
 
     bool is_started() const;
+
+    bool is_auto_reschedule() const override;
 
 private:
     std::string _name;
@@ -171,11 +176,23 @@ public:
 
     Status submit_scan_task(SimplifiedScanTask scan_task) {
         if (!_is_stop) {
-            auto split_runner = std::make_shared<ScannerSplitRunner>("scanner_split_runner",
-                                                                     scan_task.scan_func);
-            RETURN_IF_ERROR(split_runner->init());
-            _task_executor->enqueue_splits(scan_task.scanner_context->task_handle(), false,
-                                           {split_runner});
+            std::shared_ptr<SplitRunner> split_runner;
+            if (scan_task.scan_task->is_first_schedule) {
+                split_runner = std::make_shared<ScannerSplitRunner>("scanner_split_runner",
+                                                                    scan_task.scan_func);
+                RETURN_IF_ERROR(split_runner->init());
+                _task_executor->enqueue_splits(scan_task.scanner_context->task_handle(), false,
+                                               {split_runner});
+                scan_task.scan_task->is_first_schedule = false;
+            } else {
+                split_runner = scan_task.scan_task->split_runner.lock();
+                if (split_runner == nullptr) {
+                    return Status::OK();
+                }
+                _task_executor->re_enqueue_split(scan_task.scanner_context->task_handle(), false,
+                                                 split_runner);
+            }
+            scan_task.scan_task->split_runner = split_runner;
             return Status::OK();
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);

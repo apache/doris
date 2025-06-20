@@ -2128,7 +2128,7 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                                   << watch.elapsed_time() / 1000;
                         return true;
                     },
-                    nullptr),
+                    nullptr, nullptr),
             fmt::format("{}-multiget_data_v2", print_id(request->query_id())));
 
     if (!st.ok()) {
