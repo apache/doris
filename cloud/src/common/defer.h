@@ -25,16 +25,16 @@ namespace doris::cloud {
 // A simple RAII class to defer the execution of a function until the end of the
 // scope.
 template <typename Fn>
-  requires std::is_invocable_v<Fn>
+requires std::is_invocable_v<Fn>
 class DeferFn {
 public:
-  DeferFn(Fn &&fn) : fn_(std::move(fn)) {}
-  DeferFn(const DeferFn &) = delete;
-  DeferFn &operator=(const DeferFn &) = delete;
-  ~DeferFn() { fn_(); }
+    DeferFn(Fn &&fn) : fn_(std::move(fn)) {}
+    DeferFn(const DeferFn &) = delete;
+    DeferFn &operator=(const DeferFn &) = delete;
+    ~DeferFn() { fn_(); }
 
 private:
-  Fn fn_;
+    Fn fn_;
 };
 
 } // namespace doris::cloud
@@ -50,9 +50,9 @@ private:
 //   };
 //
 #define DORIS_CLOUD_DEFER_IMPL(line, counter)                                  \
-  ::doris::cloud::DeferFn defer_fn_##line##_##counter = [&]()
+    ::doris::cloud::DeferFn defer_fn_##line##_##counter = [&]()
 #define DORIS_CLOUD_DEFER_EXPAND(line, counter)                                \
-  DORIS_CLOUD_DEFER_IMPL(line, counter)
+    DORIS_CLOUD_DEFER_IMPL(line, counter)
 #define DORIS_CLOUD_DEFER DORIS_CLOUD_DEFER_EXPAND(__LINE__, __COUNTER__)
 
 // A macro to create a DeferFn object that will execute the given function
@@ -83,8 +83,8 @@ private:
 // the modifications after the definition of the defer function will not affect
 // the captured values.
 #define DORIS_CLOUD_DEFER_COPY_IMPL(line, counter, ...)                        \
-  ::doris::cloud::DeferFn defer_fn_##line##_##counter = [&, __VA_ARGS__ ]()
+    ::doris::cloud::DeferFn defer_fn_##line##_##counter = [&, __VA_ARGS__ ]()
 #define DORIS_CLOUD_DEFER_COPY_EXPAND(line, counter, ...)                      \
-  DORIS_CLOUD_DEFER_COPY_IMPL(line, counter, __VA_ARGS__)
+    DORIS_CLOUD_DEFER_COPY_IMPL(line, counter, __VA_ARGS__)
 #define DORIS_CLOUD_DEFER_COPY(...)                                            \
-  DORIS_CLOUD_DEFER_COPY_EXPAND(__LINE__, __COUNTER__, __VA_ARGS__)
+    DORIS_CLOUD_DEFER_COPY_EXPAND(__LINE__, __COUNTER__, __VA_ARGS__)
