@@ -225,7 +225,7 @@ public class ConfigBase {
                 } else {
                     throw new Exception("no such env variable: " + m.group(1));
                 }
-                LOG.info("replace conf ");
+                LOG.info("replace conf {}={}", key, value);
             }
             props.setProperty(key, value);
         }
