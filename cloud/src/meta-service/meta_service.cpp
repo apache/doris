@@ -2944,10 +2944,13 @@ static void update_mow_lock_last_release_time(const std::string& instance_id, in
 }
 
 static void record_mow_lock_idle_time(const std::string& instance_id, int64_t table_id,
-                                      std::unique_ptr<Transaction>& txn) {
+                                      std::shared_ptr<TxnKv>& txn_kv) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) return;
     std::string lock_last_release_key = stats_mow_lock_last_release_key({instance_id, table_id});
     std::string val;
-    TxnErrorCode err = txn->get(lock_last_release_key, &val);
+    err = txn->get(lock_last_release_key, &val);
     if (err != TxnErrorCode::TXN_OK) return; // just ignore the error
     DCHECK(val.size() == sizeof(uint64_t));
     uint64_t last_release_time;
@@ -2956,8 +2959,8 @@ static void record_mow_lock_idle_time(const std::string& instance_id, int64_t ta
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count() -
             last_release_time;
     using namespace std::chrono_literals;
-    constexpr uint64_t threshold = milliseconds {5min}.count();
-    if (idle_time < threshold) {
+    auto threshold = seconds {config::mow_lock_idle_time_record_threshold};
+    if (idle_time < duration_cast<milliseconds>(threshold).count()) {
         g_bvar_ms_mow_delete_bitmap_update_lock_idle_time << idle_time;
     }
 }
@@ -3175,12 +3178,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock:commit:conflict", &first_retry,
                                  &err);
         if (err == TxnErrorCode::TXN_OK) {
-            if (is_first_get_lock) {
-                std::unique_ptr<Transaction> txn;
-                TxnErrorCode err = txn_kv_->create_txn(&txn);
-                if (err == TxnErrorCode::TXN_OK) { // just ignore the error
-                    record_mow_lock_idle_time(instance_id, request->table_id(), txn);
-                }
+            if (config::enable_record_mow_lock_idle_time && is_first_get_lock) {
+                record_mow_lock_idle_time(instance_id, request->table_id(), txn_kv_);
             }
             break;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
@@ -3294,12 +3293,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         return;
     }
 
-    if (is_first_get_lock) {
-        std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv_->create_txn(&txn);
-        if (err == TxnErrorCode::TXN_OK) { // just ignore the error
-            record_mow_lock_idle_time(instance_id, request->table_id(), txn);
-        }
+    if (config::enable_record_mow_lock_idle_time && is_first_get_lock) {
+        record_mow_lock_idle_time(instance_id, request->table_id(), txn_kv_);
     }
 
     if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1")) {
@@ -3374,7 +3369,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
             txn->put(lock_key, lock_val);
         }
     }
-    update_mow_lock_last_release_time(instance_id, request->table_id(), txn);
+    if (config::enable_record_mow_lock_idle_time) {
+        update_mow_lock_last_release_time(instance_id, request->table_id(), txn);
+    }
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_CONFLICT) {
