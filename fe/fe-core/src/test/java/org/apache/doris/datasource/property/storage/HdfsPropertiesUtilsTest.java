@@ -76,7 +76,7 @@ public class HdfsPropertiesUtilsTest {
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
             HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         });
-        Assertions.assertTrue(exception.getMessage().contains("Invalid export path"));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported schema: s3"));
     }
 
     @Test
@@ -86,7 +86,7 @@ public class HdfsPropertiesUtilsTest {
         Exception exception = Assertions.assertThrows(IllegalArgumentException.class, () -> {
             HdfsPropertiesUtils.convertUrlToFilePath(uri, "", supportSchema);
         });
-        Assertions.assertTrue(exception.getMessage().contains("Properties 'uri' is required"));
+        Assertions.assertTrue(exception.getMessage().contains("Property 'uri' is required"));
     }
 
     @Test

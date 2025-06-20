@@ -53,7 +53,6 @@ public abstract class AuthenticationConfig {
 
     /**
      * get kerberos config from hadoop conf
-     *
      * @param conf config
      * @return ugi
      */
@@ -73,10 +72,9 @@ public abstract class AuthenticationConfig {
 
     /**
      * get kerberos config from hadoop conf
-     *
-     * @param conf            config
+     * @param conf config
      * @param krbPrincipalKey principal key
-     * @param krbKeytabKey    keytab key
+     * @param krbKeytabKey keytab key
      * @return ugi
      */
     public static AuthenticationConfig getKerberosConfig(Configuration conf,

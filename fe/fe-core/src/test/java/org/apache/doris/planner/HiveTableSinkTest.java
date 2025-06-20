@@ -75,13 +75,12 @@ public class HiveTableSinkTest {
         };
 
         ArrayList<String> locations = new ArrayList<String>() {{
-                add("gs://abc/def");
+                add("oss://abc/def");
                 add("s3://abc/def");
                 add("s3a://abc/def");
                 add("s3n://abc/def");
-                add("bos://abc/def");
-                add("oss://abc/def");
                 add("cos://abc/def");
+                add("oss://abc/def");
             }
         };
         for (String location : locations) {

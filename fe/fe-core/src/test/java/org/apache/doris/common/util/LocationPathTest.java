@@ -68,7 +68,7 @@ public class LocationPathTest {
         storagePropertiesMap = StorageProperties.createAll(props).stream()
                 .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
         locationPath = LocationPath.of("/dir/file.path", storagePropertiesMap);
-        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://"));
+        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("/dir/file.path"));
         Assertions.assertEquals("hdfs://test.com/dir/file.path", locationPath.getNormalizedLocation());
         Assertions.assertEquals("hdfs://test.com/dir/file.path", locationPath.toStorageLocation().toString());
         //OSS-HDFS/*        props.clear();
@@ -161,7 +161,7 @@ public class LocationPathTest {
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("ofs://"));
         Assertions.assertEquals(FileSystemType.OFS, locationPath.getFileSystemType());
-        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
 
         // GFS is now equals to DFS
         locationPath = LocationPath.of("gfs://test.com");

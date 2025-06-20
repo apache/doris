@@ -422,8 +422,7 @@ public class AcidUtil {
                     continue;
                 }
                 remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
-                    LocationPath path = null;
-                    path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
+                    LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
                     fileCacheValue.addFile(file, path);
                 });
             } else {
