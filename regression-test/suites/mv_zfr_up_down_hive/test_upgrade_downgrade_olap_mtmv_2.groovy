@@ -17,6 +17,10 @@
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+// sudo iptables -A OUTPUT -d 172.20.48.119 -p tcp --dport 9383 -j DROP
+//
+//sudo iptables -D OUTPUT -d 172.20.48.119 -p tcp --dport 9383 -j DROP
+
 suite("test_upgrade_downgrade_olap_mtmv_zfr_hive_2","p0,mtmv,restart_fe") {
 
     def DateAddOneDayStr = { def dateStr ->
