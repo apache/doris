@@ -108,8 +108,9 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
 
     @Override
     public Plan withHintContext(Optional<HintContext> hintContext) {
-        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), filterPushed,
-                schemaCatalog, schemaDatabase, schemaTable, hintContext);
+        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(),
+                Optional.of(getLogicalProperties()), filterPushed, schemaCatalog, schemaDatabase,
+                schemaTable, hintContext);
     }
 
     public LogicalSchemaScan withSchemaIdentifier(Optional<String> schemaCatalog, Optional<String> schemaDatabase,

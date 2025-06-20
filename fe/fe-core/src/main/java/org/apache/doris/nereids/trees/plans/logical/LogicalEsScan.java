@@ -75,7 +75,8 @@ public class LogicalEsScan extends LogicalCatalogRelation {
 
     @Override
     public Plan withHintContext(Optional<HintContext> hintContext) {
-        return new LogicalEsScan(relationId, table, qualifier, Optional.empty(), Optional.empty(), hintContext);
+        return new LogicalEsScan(relationId, table, qualifier, Optional.empty(),
+                Optional.of(getLogicalProperties()), hintContext);
     }
 
     @Override
