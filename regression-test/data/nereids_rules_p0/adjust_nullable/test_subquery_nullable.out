@@ -3,23 +3,100 @@
 1	\N
 2	\N
 
+-- !uncorrelate_scalar_subquery_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject[AND[x IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalProject[test_subquery_nullable_t1.a]
+----------PhysicalOlapScan[test_subquery_nullable_t1]
+--------PhysicalAssertNumRows
+----------PhysicalLimit[GLOBAL]
+------------PhysicalDistribute[DistributionSpecGather]
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalProject[test_subquery_nullable_t2.x]
+------------------filter((test_subquery_nullable_t2.x > 1000))
+--------------------PhysicalOlapScan[test_subquery_nullable_t2]
+
 -- !correlate_scalar_subquery --
 1	\N
 2	\N
+
+-- !correlate_scalar_subquery_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject[AND[any_value(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_subquery_nullable_t1.b = test_subquery_nullable_t2.y)) otherCondition=()
+--------PhysicalProject[test_subquery_nullable_t1.a, test_subquery_nullable_t1.b]
+----------PhysicalOlapScan[test_subquery_nullable_t1]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject[test_subquery_nullable_t2.x, test_subquery_nullable_t2.y]
+----------------filter((test_subquery_nullable_t2.x > 1000))
+------------------PhysicalOlapScan[test_subquery_nullable_t2]
 
 -- !uncorrelate_top_nullable_agg_scalar_subquery --
 1	\N
 2	\N
 
+-- !uncorrelate_top_nullable_agg_scalar_subquery_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject[AND[sum(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalProject[test_subquery_nullable_t1.a]
+----------PhysicalOlapScan[test_subquery_nullable_t1]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecGather]
+------------hashAgg[LOCAL]
+--------------PhysicalProject[test_subquery_nullable_t2.x]
+----------------filter((test_subquery_nullable_t2.x > 1000))
+------------------PhysicalOlapScan[test_subquery_nullable_t2]
+
 -- !correlate_top_nullable_agg_scalar_subquery --
 1	\N
 2	\N
+
+-- !correlate_top_nullable_agg_scalar_subquery_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject[AND[sum(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+------hashJoin[LEFT_OUTER_JOIN broadcast] hashCondition=((test_subquery_nullable_t1.b = test_subquery_nullable_t2.y)) otherCondition=()
+--------PhysicalProject[test_subquery_nullable_t1.a, test_subquery_nullable_t1.b]
+----------PhysicalOlapScan[test_subquery_nullable_t1]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject[test_subquery_nullable_t2.x, test_subquery_nullable_t2.y]
+----------------filter((test_subquery_nullable_t2.x > 1000))
+------------------PhysicalOlapScan[test_subquery_nullable_t2]
 
 -- !uncorrelate_top_notnullable_agg_scalar_subquery --
 1	false
 2	false
 
+-- !uncorrelate_top_notnullable_agg_scalar_subquery_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject[AND[count(x) IS NULL,NULL] AS `x > 10 and x < 1`, a AS `a`]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalProject[test_subquery_nullable_t1.a]
+----------PhysicalOlapScan[test_subquery_nullable_t1]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecGather]
+------------hashAgg[LOCAL]
+--------------PhysicalProject[test_subquery_nullable_t2.x]
+----------------filter((test_subquery_nullable_t2.x > 1000))
+------------------PhysicalOlapScan[test_subquery_nullable_t2]
+
 -- !correlate_top_notnullable_agg_scalar_subquery --
 1	false
 2	false
+
+-- !correlate_top_notnullable_agg_scalar_subquery_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject[FALSE AS `x > 10 and x < 1`, a AS `a`]
+------PhysicalOlapScan[test_subquery_nullable_t1]
 

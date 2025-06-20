@@ -22,7 +22,12 @@ suite('test_subquery_nullable') {
     sql "CREATE TABLE test_subquery_nullable_t2(x int not null, y int not null, z int not null) distributed by hash(x) properties('replication_num' = '1')"
     sql 'INSERT INTO test_subquery_nullable_t1 values(1, 1, 1), (2, 2, 2)'
     sql 'INSERT INTO test_subquery_nullable_t2 values(1, 1, 1), (2, 2, 2)'
+    sql "SET detail_shape_nodes='PhysicalProject'"
     order_qt_uncorrelate_scalar_subquery '''
+        with cte1 as (select a, (select x from test_subquery_nullable_t2 where x > 1000 limit 1) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1
+    '''
+    qt_uncorrelate_scalar_subquery_shape '''explain shape plan
         with cte1 as (select a, (select x from test_subquery_nullable_t2 where x > 1000 limit 1) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1
     '''
@@ -30,7 +35,15 @@ suite('test_subquery_nullable') {
         with cte1 as (select a, (select x from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y limit 1) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1
     '''
+    qt_correlate_scalar_subquery_shape '''explain shape plan
+        with cte1 as (select a, (select x from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y limit 1) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1
+    '''
     order_qt_uncorrelate_top_nullable_agg_scalar_subquery '''
+        with cte1 as (select a, (select sum(x) from test_subquery_nullable_t2 where x > 1000) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1
+    '''
+    qt_uncorrelate_top_nullable_agg_scalar_subquery_shape '''explain shape plan
         with cte1 as (select a, (select sum(x) from test_subquery_nullable_t2 where x > 1000) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1
     '''
@@ -38,11 +51,23 @@ suite('test_subquery_nullable') {
         with cte1 as (select a, (select sum(x) from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1;
     '''
+    qt_correlate_top_nullable_agg_scalar_subquery_shape '''explain shape plan
+        with cte1 as (select a, (select sum(x) from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
     order_qt_uncorrelate_top_notnullable_agg_scalar_subquery '''
         with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1;
     '''
+    qt_uncorrelate_top_notnullable_agg_scalar_subquery_shape '''explain shape plan
+        with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
     order_qt_correlate_top_notnullable_agg_scalar_subquery '''
+        with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y) as x from test_subquery_nullable_t1)
+        select a, x > 10 and x < 1 from cte1;
+    '''
+    qt_correlate_top_notnullable_agg_scalar_subquery_shape '''explain shape plan
         with cte1 as (select a, (select count(x) from test_subquery_nullable_t2 where x > 1000 and test_subquery_nullable_t1.b = test_subquery_nullable_t2.y) as x from test_subquery_nullable_t1)
         select a, x > 10 and x < 1 from cte1;
     '''

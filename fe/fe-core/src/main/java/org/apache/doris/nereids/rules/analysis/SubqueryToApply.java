@@ -404,6 +404,12 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         // we use needRuntimeAnyValue to indicate if any_value() is needed
         // if needRuntimeAnyValue is true, we will add it to the project list
         boolean needRuntimeAnyValue = false;
+        // For the unCorrelate case:
+        // 1. `t1.a = (select t2.x from t2 limit 1)`, subquery output t2.x maybe null if subquery output 0 rows;
+        // 2. `t1.a = (select count(t2.x) from t2)`, subquery output count（t2.x) is always not nullable;
+        // When given a slot reference S, we don't know S is t2.x or count(t2.x),
+        // For safety reason, we treat S as nullable. even S is count(t2.x),
+        // we may have performance downgrade, but the execute result still be right.
         NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0).withNullable(true);
         Slot countSlot = null;
         Slot anyValueSlot = null;
