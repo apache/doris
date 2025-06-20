@@ -1878,6 +1878,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_workload_group = true;
 
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_wg_memory_sum_limit = true;
+
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
 
