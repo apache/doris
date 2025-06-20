@@ -25,6 +25,8 @@ import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Reference;
@@ -279,6 +281,21 @@ public class InPredicate extends Predicate {
         strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");
         for (int i = 1; i < children.size(); ++i) {
             strBuilder.append(getChild(i).toSql());
+            strBuilder.append((i + 1 != children.size()) ? ", " : "");
+        }
+        strBuilder.append(")");
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        StringBuilder strBuilder = new StringBuilder();
+        String notStr = (isNotIn) ? "NOT " : "";
+        strBuilder.append(
+                getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " " + notStr + "IN (");
+        for (int i = 1; i < children.size(); ++i) {
+            strBuilder.append(getChild(i).toSql(disableTableName, needExternalSql, tableType, table));
             strBuilder.append((i + 1 != children.size()) ? ", " : "");
         }
         strBuilder.append(")");
