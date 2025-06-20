@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud;
 
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -40,6 +39,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Triple;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.WarmUpClusterCommand;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -638,10 +638,10 @@ public class CacheHotspotManager extends MasterDaemon {
         return jobId;
     }
 
-    public void cancel(CancelCloudWarmUpStmt stmt) throws DdlException {
-        CloudWarmUpJob job = cloudWarmUpJobs.get(stmt.getJobId());
+    public void cancel(CancelWarmUpJobCommand command) throws DdlException {
+        CloudWarmUpJob job = cloudWarmUpJobs.get(command.getJobId());
         if (job == null) {
-            throw new DdlException("job id: " + stmt.getJobId() + " does not exist.");
+            throw new DdlException("job id: " + command.getJobId() + " does not exist.");
         }
         if (!job.cancel("user cancel")) {
             throw new DdlException("job can not be cancelled. State: " + job.getJobState());

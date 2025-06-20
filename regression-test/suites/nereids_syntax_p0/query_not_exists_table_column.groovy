@@ -15,42 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.thrift.TExprNode;
-
-//
-public class DefaultValueExpr extends Expr {
-    @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
+suite("query_not_exists_table_column") {
+    test {
+        sql("select * from fasdfasdf.kfafds")
+        exception("Database [fasdfasdf] does not exist.(line 1, pos 14)")
     }
 
-    @Override
-    protected String toSqlImpl() {
-        return null;
+    def currentDb = (sql "select database()")[0][0]
+    test {
+        sql("select * from ${currentDb}.asdfasfdsaf")
+        exception("Table [asdfasfdsaf] does not exist in database [${currentDb}].(line 1, pos 14)")
     }
 
-    @Override
-    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return null;
-    }
+    multi_sql """
+        drop table if exists query_not_exists_table_column;
+        create table if not exists query_not_exists_table_column(
+            id int
+        ) 
+        distributed by hash(id)
+        properties('replication_num'='1')"""
 
-    @Override
-    protected void toThrift(TExprNode msg) {
-
-    }
-
-    @Override
-    public Expr clone() {
-        return null;
-    }
-
-    @Override
-    public boolean supportSerializable() {
-        return false;
+    test {
+        sql("select kkk from ${currentDb}.query_not_exists_table_column")
+        exception("Unknown column 'kkk' in 'table list' in PROJECT clause(line 1, pos 7)")
     }
 }

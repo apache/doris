@@ -24,65 +24,38 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
-import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowCloudWarmUpStmt;
 import org.apache.doris.analysis.ShowColumnStatsStmt;
-import org.apache.doris.analysis.ShowConfigStmt;
 import org.apache.doris.analysis.ShowCreateLoadStmt;
 import org.apache.doris.analysis.ShowCreateMTMVStmt;
-import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
-import org.apache.doris.analysis.ShowIndexStmt;
-import org.apache.doris.analysis.ShowLoadWarningsStmt;
-import org.apache.doris.analysis.ShowPolicyStmt;
-import org.apache.doris.analysis.ShowQueuedAnalyzeJobsStmt;
-import org.apache.doris.analysis.ShowReplicaStatusStmt;
-import org.apache.doris.analysis.ShowRollupStmt;
 import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.ShowStreamLoadStmt;
-import org.apache.doris.analysis.ShowTrashDiskStmt;
-import org.apache.doris.analysis.ShowUserPropertyStmt;
-import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
-import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
-import org.apache.doris.common.proc.TrashProcNode;
-import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.load.loadv2.LoadManager;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.help.HelpModule;
 import org.apache.doris.qe.help.HelpTopic;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AutoAnalysisPendingJob;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatistic;
 import org.apache.doris.statistics.PartitionColumnStatisticCacheKey;
@@ -91,8 +64,6 @@ import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
-import org.apache.doris.system.NodeType;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -101,25 +72,15 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLConnection;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -146,51 +107,22 @@ public class ShowExecutor {
 
     public ShowResultSet execute() throws AnalysisException {
         checkStmtSupported();
-        if (stmt instanceof ShowRollupStmt) {
-            handleShowRollup();
-        } else if (stmt instanceof ShowAuthorStmt) {
-            handleShowAuthor();
-        } else if (stmt instanceof HelpStmt) {
+        if (stmt instanceof HelpStmt) {
             handleHelp();
-        } else if (stmt instanceof ShowDbIdStmt) {
-            handleShowDbId();
         } else if (stmt instanceof ShowCreateMTMVStmt) {
             handleShowCreateMTMV();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
-        } else if (stmt instanceof ShowVariablesStmt) {
-            handleShowVariables();
-        } else if (stmt instanceof ShowStreamLoadStmt) {
-            handleShowStreamLoad();
-        } else if (stmt instanceof ShowLoadWarningsStmt) {
-            handleShowLoadWarnings();
+        } else if (stmt instanceof ShowCreateLoadStmt) {
+            handleShowCreateLoad();
         } else if (stmt instanceof ShowAlterStmt) {
             handleShowAlter();
-        } else if (stmt instanceof ShowUserPropertyStmt) {
-            handleShowUserProperty();
-        } else if (stmt instanceof ShowTrashDiskStmt) {
-            handleShowTrashDisk();
-        } else if (stmt instanceof ShowReplicaStatusStmt) {
-            handleAdminShowTabletStatus();
-        } else if (stmt instanceof ShowConfigStmt) {
-            if (Config.isCloudMode() && !ctx.getCurrentUserIdentity()
-                    .getUser().equals(Auth.ROOT_USER)) {
-                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
-                throw new AnalysisException("Unsupported operation");
-            }
-            handleAdminShowConfig();
-        } else if (stmt instanceof ShowIndexStmt) {
-            handleShowIndex();
         } else if (stmt instanceof ShowColumnStatsStmt) {
             handleShowColumnStats();
         } else if (stmt instanceof DiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
-        } else if (stmt instanceof ShowPolicyStmt) {
-            handleShowPolicy();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
-        } else if (stmt instanceof ShowQueuedAnalyzeJobsStmt) {
-            handleShowQueuedAnalyzeJobs();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
@@ -204,25 +136,10 @@ public class ShowExecutor {
         return resultSet;
     }
 
-    private void handleShowRollup() {
-        // TODO: not implemented yet
-        ShowRollupStmt showRollupStmt = (ShowRollupStmt) stmt;
-        List<List<String>> rowSets = Lists.newArrayList();
-        resultSet = new ShowResultSet(showRollupStmt.getMetaData(), rowSets);
-    }
-
     // Handle show authors
     private void handleEmtpy() {
         // Only success
         resultSet = new ShowResultSet(stmt.getMetaData(), EMPTY_SET);
-    }
-
-    // Handle show authors
-    private void handleShowAuthor() {
-        ShowAuthorStmt showAuthorStmt = (ShowAuthorStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
-        // Only success
-        resultSet = new ShowResultSet(showAuthorStmt.getMetaData(), rowSet);
     }
 
     // Handle show engines
@@ -259,36 +176,11 @@ public class ShowExecutor {
         return resultRowSet;
     }
 
-    private void handleShowDbId() {
-        ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
-        long dbId = showStmt.getDbId();
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf database = ctx.getCurrentCatalog().getDbNullable(dbId);
-        if (database != null) {
-            List<String> row = new ArrayList<>();
-            row.add(database.getFullName());
-            rows.add(row);
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
     public boolean isShowTablesCaseSensitive() {
         if (GlobalVariable.lowerCaseTableNames == 0) {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
-    }
-
-    // Show variables like
-    private void handleShowVariables() throws AnalysisException {
-        ShowVariablesStmt showStmt = (ShowVariablesStmt) stmt;
-        PatternMatcher matcher = null;
-        if (showStmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                    CaseSensibility.VARIABLES.getCaseSensibility());
-        }
-        List<List<String>> rows = VariableMgr.dump(showStmt.getType(), ctx.getSessionVariable(), matcher);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowCreateMTMV() throws AnalysisException {
@@ -299,33 +191,6 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         String mtmvDdl = Env.getMTMVDdl(mtmv);
         rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    // Show index statement.
-    private void handleShowIndex() throws AnalysisException {
-        ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrAnalysisException(showStmt.getTableName().getCtl())
-                .getDbOrAnalysisException(showStmt.getDbName());
-        if (db instanceof Database) {
-            TableIf table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
-            if (table instanceof OlapTable) {
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    List<Index> indexes = olapTable.getIndexes();
-                    for (Index index : indexes) {
-                        rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                                "", String.join(",", index.getColumns()), "", "", "", "",
-                                "", index.getIndexType().name(), index.getComment(), index.getPropertiesString()));
-                    }
-                } finally {
-                    olapTable.readUnlock();
-                }
-            }
-        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -387,179 +252,6 @@ public class ShowExecutor {
         }
     }
 
-    // Show stream load statement.
-    private void handleShowStreamLoad() throws AnalysisException {
-        ShowStreamLoadStmt showStmt = (ShowStreamLoadStmt) stmt;
-
-        Env env = Env.getCurrentEnv();
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(showStmt.getDbName());
-        long dbId = db.getId();
-
-        List<List<Comparable>> streamLoadRecords = env.getStreamLoadRecordMgr()
-                .getStreamLoadRecordByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(),
-                        showStmt.getState());
-
-        // order the result of List<StreamLoadRecord> by orderByPairs in show stmt
-        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
-        if (orderByPairs == null) {
-            orderByPairs = showStmt.getOrderByFinishTime();
-        }
-        ListComparator<List<Comparable>> comparator = null;
-        if (orderByPairs != null) {
-            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
-            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
-        } else {
-            // sort by id asc
-            comparator = new ListComparator<List<Comparable>>(0);
-        }
-        Collections.sort(streamLoadRecords, comparator);
-
-        List<List<String>> rows = Lists.newArrayList();
-        for (List<Comparable> streamLoadRecord : streamLoadRecords) {
-            List<String> oneInfo = new ArrayList<String>(streamLoadRecord.size());
-
-            for (Comparable element : streamLoadRecord) {
-                oneInfo.add(element.toString());
-            }
-            rows.add(oneInfo);
-        }
-
-        // filter by limit
-        long limit = showStmt.getLimit();
-        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
-        if (offset >= rows.size()) {
-            rows = Lists.newArrayList();
-        } else if (limit != -1L) {
-            if ((limit + offset) < rows.size()) {
-                rows = rows.subList((int) offset, (int) (limit + offset));
-            } else {
-                rows = rows.subList((int) offset, rows.size());
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowLoadWarnings() throws AnalysisException {
-        ShowLoadWarningsStmt showWarningsStmt = (ShowLoadWarningsStmt) stmt;
-
-        if (showWarningsStmt.getURL() != null) {
-            handleShowLoadWarningsFromURL(showWarningsStmt, showWarningsStmt.getURL());
-            return;
-        }
-
-        Env env = Env.getCurrentEnv();
-        // try to fetch load id from mysql load first and mysql load only support find by label.
-        if (showWarningsStmt.isFindByLabel()) {
-            String label = showWarningsStmt.getLabel();
-            String urlString = env.getLoadManager().getMysqlLoadManager().getErrorUrlByLoadId(label);
-            if (urlString != null && !urlString.isEmpty()) {
-                URL url;
-                try {
-                    url = new URL(urlString);
-                } catch (MalformedURLException e) {
-                    throw new AnalysisException("Invalid url: " + e.getMessage());
-                }
-                handleShowLoadWarningsFromURL(showWarningsStmt, url);
-                return;
-            }
-        }
-
-        Database db = env.getInternalCatalog().getDbOrAnalysisException(showWarningsStmt.getDbName());
-        resultSet = handleShowLoadWarningV2(showWarningsStmt, db);
-    }
-
-    private ShowResultSet handleShowLoadWarningV2(ShowLoadWarningsStmt showWarningsStmt, Database db)
-            throws AnalysisException {
-        LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
-        if (showWarningsStmt.isFindByLabel()) {
-            List<List<Comparable>> loadJobInfosByDb;
-            if (!Config.isCloudMode()) {
-                loadJobInfosByDb = loadManager.getLoadJobInfosByDb(db.getId(),
-                        showWarningsStmt.getLabel(),
-                        true, null);
-            } else {
-                loadJobInfosByDb = ((CloudLoadManager) loadManager)
-                        .getLoadJobInfosByDb(db.getId(),
-                        showWarningsStmt.getLabel(),
-                        true, null, null, null, false, null, false, null, false);
-            }
-            if (CollectionUtils.isEmpty(loadJobInfosByDb)) {
-                throw new AnalysisException("Job does not exist");
-            }
-            List<List<String>> infoList = Lists.newArrayListWithCapacity(loadJobInfosByDb.size());
-            for (List<Comparable> comparables : loadJobInfosByDb) {
-                List<String> singleInfo = comparables.stream().map(Object::toString).collect(Collectors.toList());
-                infoList.add(singleInfo);
-            }
-            return new ShowResultSet(showWarningsStmt.getMetaData(), infoList);
-        }
-        org.apache.doris.load.loadv2.LoadJob loadJob = loadManager.getLoadJob(showWarningsStmt.getJobId());
-        if (loadJob == null) {
-            throw new AnalysisException("Job does not exist");
-        }
-        List<String> singleInfo;
-        try {
-            singleInfo = loadJob
-                    .getShowInfo()
-                    .stream()
-                    .map(Objects::toString)
-                    .collect(Collectors.toList());
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return new ShowResultSet(showWarningsStmt.getMetaData(), Lists.newArrayList(Collections.singleton(singleInfo)));
-    }
-
-    private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
-            throws AnalysisException {
-        String host = url.getHost();
-        if (host.startsWith("[") && host.endsWith("]")) {
-            host = host.substring(1, host.length() - 1);
-        }
-        int port = url.getPort();
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-        Backend be = infoService.getBackendWithHttpPort(host, port);
-        if (be == null) {
-            throw new AnalysisException(NetUtils.getHostPortInAccessibleFormat(host, port) + " is not a valid backend");
-        }
-        if (!be.isAlive()) {
-            throw new AnalysisException(
-                    "Backend " + NetUtils.getHostPortInAccessibleFormat(host, port) + " is not alive");
-        }
-
-        if (!url.getPath().equals("/api/_load_error_log")) {
-            throw new AnalysisException(
-                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
-        }
-
-        List<List<String>> rows = Lists.newArrayList();
-        try {
-            URLConnection urlConnection = url.openConnection();
-            urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
-            InputStream inputStream = urlConnection.getInputStream();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
-                int limit = 100;
-                while (reader.ready() && limit > 0) {
-                    String line = reader.readLine();
-                    rows.add(Lists.newArrayList("-1", FeConstants.null_string, line));
-                    limit--;
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to get error log from url: " + url, e);
-            throw new AnalysisException(
-                    "failed to get error log from url: " + url + ". reason: " + e.getMessage());
-        }
-
-        resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
-    }
-
-    // Show user property statement
-    private void handleShowUserProperty() throws AnalysisException {
-        ShowUserPropertyStmt showStmt = (ShowUserPropertyStmt) stmt;
-        resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getRows());
-    }
-
     // Show alter statement.
     private void handleShowAlter() throws AnalysisException {
         ShowAlterStmt showStmt = (ShowAlterStmt) stmt;
@@ -577,103 +269,6 @@ public class ShowExecutor {
             rows = procNodeI.fetchResult().getRows();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
-    }
-
-    private void handleShowTrashDisk() {
-        ShowTrashDiskStmt showStmt = (ShowTrashDiskStmt) stmt;
-        List<List<String>> infos = Lists.newArrayList();
-        TrashProcNode.getTrashDiskInfo(showStmt.getBackend(), infos);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
-    }
-
-    private void handleAdminShowTabletStatus() throws AnalysisException {
-        ShowReplicaStatusStmt showStmt = (ShowReplicaStatusStmt) stmt;
-        List<List<String>> results;
-        try {
-            results = MetadataViewer.getTabletStatus(showStmt);
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
-    }
-
-    private void handleAdminShowConfig() throws AnalysisException {
-        ShowConfigStmt showStmt = (ShowConfigStmt) stmt;
-        if (showStmt.getType() == NodeType.FRONTEND) {
-            List<List<String>> results;
-            PatternMatcher matcher = null;
-            if (showStmt.getPattern() != null) {
-                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.CONFIG.getCaseSensibility());
-            }
-            results = ConfigBase.getConfigInfo(matcher);
-            // Sort all configs by config key.
-            results.sort(Comparator.comparing(o -> o.get(0)));
-            resultSet = new ShowResultSet(showStmt.getMetaData(), results);
-        } else {
-            handShowBackendConfig(showStmt);
-        }
-    }
-
-    private void handShowBackendConfig(ShowConfigStmt stmt) throws AnalysisException {
-        List<List<String>> results = new ArrayList<>();
-        List<Long> backendIds;
-        final SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        if (stmt.isShowSingleBackend()) {
-            long backendId = stmt.getBackendId();
-            if (systemInfoService.getBackend(backendId) == null) {
-                throw new AnalysisException("Backend " + backendId + " not exists");
-            }
-            Backend backend = systemInfoService.getBackend(backendId);
-            if (!backend.isAlive()) {
-                throw new AnalysisException("Backend " + backendId + " is not alive");
-            }
-            backendIds = Lists.newArrayList(backendId);
-        } else {
-            backendIds = systemInfoService.getAllBackendIds(true);
-        }
-
-        PatternMatcher matcher = null;
-        if (stmt.getPattern() != null) {
-            matcher = PatternMatcherWrapper.createMysqlPattern(stmt.getPattern(),
-                    CaseSensibility.CONFIG.getCaseSensibility());
-        }
-        for (long beId : backendIds) {
-            Backend backend = systemInfoService.getBackend(beId);
-            String host = backend.getHost();
-            int httpPort = backend.getHttpPort();
-            String urlString = String.format("http://%s:%d/api/show_config", host, httpPort);
-            try {
-                URL url = new URL(urlString);
-                URLConnection urlConnection = url.openConnection();
-                urlConnection.setRequestProperty("Auth-Token", Env.getCurrentEnv().getTokenManager().acquireToken());
-                InputStream inputStream = urlConnection.getInputStream();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-                while (reader.ready()) {
-                    // line's format like [["k1","v1"], ["k2","v2"]]
-                    String line = reader.readLine();
-                    JSONArray outer = new JSONArray(line);
-                    for (int i = 0; i < outer.length(); ++i) {
-                        // [key, type, value, isMutable]
-                        JSONArray inner = outer.getJSONArray(i);
-                        if (matcher == null || matcher.match(inner.getString(0))) {
-                            List<String> rows = Lists.newArrayList();
-                            rows.add(String.valueOf(beId));
-                            rows.add(host);
-                            rows.add(inner.getString(0));  // key
-                            rows.add(inner.getString(2));  // value
-                            rows.add(inner.getString(1));  // Type
-                            rows.add(inner.getString(3));  // isMutable
-                            results.add(rows);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                throw new AnalysisException(
-                        String.format("Can’t get backend config, backendId: %d, host: %s", beId, host));
-            }
-        }
-        resultSet = new ShowResultSet(stmt.getMetaData(), results);
     }
 
     private void handleShowCloudWarmUpJob() throws AnalysisException {
@@ -843,11 +438,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
-    public void handleShowPolicy() throws AnalysisException {
-        ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
-        resultSet = Env.getCurrentEnv().getPolicyMgr().showPolicy(showStmt);
-    }
-
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
         List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().findAnalysisJobs(showStmt);
@@ -905,36 +495,6 @@ public class ShowExecutor {
             } catch (Exception e) {
                 LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
                         analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
-                continue;
-            }
-        }
-        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
-    }
-
-    private void handleShowQueuedAnalyzeJobs() {
-        ShowQueuedAnalyzeJobsStmt showStmt = (ShowQueuedAnalyzeJobsStmt) stmt;
-        List<AutoAnalysisPendingJob> jobs = Env.getCurrentEnv().getAnalysisManager().showAutoPendingJobs(
-                showStmt.getTableName(), showStmt.getPriority());
-        List<List<String>> resultRows = Lists.newArrayList();
-        for (AutoAnalysisPendingJob job : jobs) {
-            try {
-                List<String> row = new ArrayList<>();
-                CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(job.catalogName);
-                row.add(c.getName());
-                Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(job.dbName);
-                row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
-                if (databaseIf.isPresent()) {
-                    Optional<? extends TableIf> table = databaseIf.get().getTable(job.tableName);
-                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
-                } else {
-                    row.add("DB may get deleted");
-                }
-                row.add(job.getColumnNames());
-                row.add(String.valueOf(job.priority));
-                resultRows.add(row);
-            } catch (Exception e) {
-                LOG.warn("Failed to get pending jobs for table {}.{}.{}, reason: {}",
-                        job.catalogName, job.dbName, job.tableName, e.getMessage());
                 continue;
             }
         }
@@ -1070,14 +630,6 @@ public class ShowExecutor {
         // check stmt has been supported in cloud mode
         if (Config.isNotCloudMode()) {
             return;
-        }
-
-        if (stmt instanceof ShowReplicaStatusStmt
-                || stmt instanceof ShowConfigStmt) {
-            if (!ctx.getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
-                LOG.info("stmt={}, not supported in cloud mode", stmt.toString());
-                throw new AnalysisException("Unsupported operation");
-            }
         }
 
         if (stmt instanceof DiagnoseTabletStmt

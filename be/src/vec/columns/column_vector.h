@@ -365,7 +365,7 @@ public:
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 

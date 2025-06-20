@@ -249,7 +249,7 @@ void ColumnDecimal<T>::get_permutation(bool reverse, size_t limit, int,
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
