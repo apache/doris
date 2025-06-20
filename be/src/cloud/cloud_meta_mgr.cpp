@@ -579,6 +579,76 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 return st;
             }
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+            if (config::enable_mow_verbose_log && !resp.rowset_meta().empty() &&
+                delete_bitmap.cardinality() > 0) {
+                std::vector<std::string> new_rowset_msgs;
+                std::vector<std::string> old_rowset_msgs;
+                std::unordered_set<RowsetId> new_rowset_ids;
+                int64_t new_max_version = resp.rowset_meta().rbegin()->end_version();
+                for (const auto& rs : resp.rowset_meta()) {
+                    RowsetId rowset_id;
+                    rowset_id.init(rs.rowset_id_v2());
+                    new_rowset_ids.insert(rowset_id);
+                    DeleteBitmap rowset_dbm(tablet_id);
+                    delete_bitmap.subset(
+                            {rowset_id, 0, 0},
+                            {rowset_id, std::numeric_limits<DeleteBitmap::SegmentId>::max(),
+                             std::numeric_limits<DeleteBitmap::Version>::max()},
+                            &rowset_dbm);
+                    size_t cardinality = rowset_dbm.cardinality();
+                    size_t count = rowset_dbm.get_delete_bitmap_count();
+                    if (cardinality > 0) {
+                        new_rowset_msgs.push_back(fmt::format(
+                                "({}[{}-{}],{},{})", rs.rowset_id_v2(), rs.start_version(),
+                                rs.end_version(), count, cardinality));
+                    }
+                }
+
+                if (old_max_version > 0) {
+                    std::vector<RowsetSharedPtr> old_rowsets;
+                    RowsetIdUnorderedSet old_rowset_ids;
+                    {
+                        std::lock_guard<std::shared_mutex> rlock(tablet->get_header_lock());
+                        RETURN_IF_ERROR(
+                                tablet->get_all_rs_id_unlocked(old_max_version, &old_rowset_ids));
+                        old_rowsets = tablet->get_rowset_by_ids(&old_rowset_ids);
+                    }
+                    for (const auto& rs : old_rowsets) {
+                        if (!new_rowset_ids.contains(rs->rowset_id())) {
+                            DeleteBitmap rowset_dbm(tablet_id);
+                            delete_bitmap.subset(
+                                    {rs->rowset_id(), 0, 0},
+                                    {rs->rowset_id(),
+                                     std::numeric_limits<DeleteBitmap::SegmentId>::max(),
+                                     std::numeric_limits<DeleteBitmap::Version>::max()},
+                                    &rowset_dbm);
+                            size_t cardinality = rowset_dbm.cardinality();
+                            size_t count = rowset_dbm.get_delete_bitmap_count();
+                            if (cardinality > 0) {
+                                old_rowset_msgs.push_back(
+                                        fmt::format("({}{},{},{})", rs->rowset_id().to_string(),
+                                                    rs->version().to_string(), count, cardinality));
+                            }
+                        }
+                    }
+                }
+
+                LOG_INFO("[verbose] sync tablet delete bitmap")
+                        .tag("tablet_id", tablet->tablet_id())
+                        .tag("table_id", tablet->table_id())
+                        .tag("full_sync", options.full_sync)
+                        .tag("old_max_version", old_max_version)
+                        .tag("new_max_version", new_max_version)
+                        .tag("cumu_compaction_cnt", resp.stats().cumulative_compaction_cnt())
+                        .tag("base_compaction_cnt", resp.stats().base_compaction_cnt())
+                        .tag("cumu_point", resp.stats().cumulative_point())
+                        .tag("rowset_num", resp.rowset_meta().size())
+                        .tag("delete_bitmap_cardinality", delete_bitmap.cardinality())
+                        .tag("old_rowsets(rowset,count,cardinality)",
+                             fmt::format("[{}]", fmt::join(old_rowset_msgs, ", ")))
+                        .tag("new_rowsets(rowset,count,cardinality)",
+                             fmt::format("[{}]", fmt::join(new_rowset_msgs, ", ")));
+            }
         }
         DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
