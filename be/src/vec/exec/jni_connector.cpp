@@ -71,7 +71,15 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     ADD_TIMER(_profile, _connector_name.c_str());
     _open_scanner_time = ADD_CHILD_TIMER(_profile, "OpenScannerTime", _connector_name.c_str());
     _java_scan_time = ADD_CHILD_TIMER(_profile, "JavaScanTime", _connector_name.c_str());
+    _java_append_data_time =
+            ADD_CHILD_TIMER(_profile, "JavaAppendDataTime", _connector_name.c_str());
+    _java_create_vector_table_time =
+            ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
     _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
+    _max_time_split_weight_counter = _profile->add_conditition_counter(
+            "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
+            _connector_name.c_str());
+    _java_scan_watcher = 0;
     // cannot put the env into fields, because frames in an env object is limited
     // to avoid limited frames in a thread, we should get local env in a method instead of in whole object.
     JNIEnv* env = nullptr;
@@ -80,7 +88,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
         batch_size = _state->batch_size();
     }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    SCOPED_TIMER(_open_scanner_time);
+    SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     _scanner_params.emplace("time_zone", _state->timezone());
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
@@ -112,7 +120,7 @@ Status JniConnector::get_next_block(Block* block, size_t* read_rows, bool* eof) 
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     long meta_address = 0;
     {
-        SCOPED_TIMER(_java_scan_time);
+        SCOPED_RAW_TIMER(&_java_scan_watcher);
         meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
     }
     RETURN_ERROR_IF_EXC(env);
@@ -169,6 +177,23 @@ Status JniConnector::close() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         if (_scanner_opened && _jni_scanner_obj != nullptr) {
+            COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+            COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+
+            int64_t _append = (int64_t)env->CallLongMethod(_jni_scanner_obj,
+                                                           _jni_scanner_get_append_data_time);
+            COUNTER_UPDATE(_java_append_data_time, _append);
+
+            int64_t _create = (int64_t)env->CallLongMethod(
+                    _jni_scanner_obj, _jni_scanner_get_create_vector_table_time);
+            COUNTER_UPDATE(_java_create_vector_table_time, _create);
+
+            COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
+
+            _max_time_split_weight_counter->conditional_update(
+                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
+                    _self_split_weight);
+
             // _fill_block may be failed and returned, we should release table in close.
             // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
             env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
@@ -217,7 +242,15 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_ERROR_IF_EXC(env);
 
     _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
+    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_get_next_batch = env->GetMethodID(_jni_scanner_cls, "getNextBatchMeta", "()J");
+    RETURN_ERROR_IF_EXC(env);
+    _jni_scanner_get_append_data_time =
+            env->GetMethodID(_jni_scanner_cls, "getAppendDataTime", "()J");
+    RETURN_ERROR_IF_EXC(env);
+    _jni_scanner_get_create_vector_table_time =
+            env->GetMethodID(_jni_scanner_cls, "getCreateVectorTableTime", "()J");
+    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_get_table_schema =
             env->GetMethodID(_jni_scanner_cls, "getTableSchema", "()Ljava/lang/String;");
     RETURN_ERROR_IF_EXC(env);
@@ -268,7 +301,7 @@ Status JniConnector::fill_block(Block* block, const ColumnNumbers& arguments, lo
 }
 
 Status JniConnector::_fill_block(Block* block, size_t num_rows) {
-    SCOPED_TIMER(_fill_block_time);
+    SCOPED_RAW_TIMER(&_fill_block_watcher);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     for (int i = 0; i < _column_names.size(); ++i) {

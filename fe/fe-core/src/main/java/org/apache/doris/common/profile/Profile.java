@@ -293,6 +293,7 @@ public class Profile {
                     }
                     return;
                 }
+                summaryProfile.queryFinished();
             }
 
             // Nereids native insert not set planner, so it is null
