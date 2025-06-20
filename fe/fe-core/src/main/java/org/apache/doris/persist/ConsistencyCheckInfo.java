@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -112,26 +110,6 @@ public class ConsistencyCheckInfo implements Writable {
     }
 
     public static ConsistencyCheckInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
-            ConsistencyCheckInfo info = new ConsistencyCheckInfo();
-            info.readFields(in);
-            return info;
-        }
         return GsonUtils.GSON.fromJson(Text.readString(in), ConsistencyCheckInfo.class);
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        partitionId = in.readLong();
-        indexId = in.readLong();
-        tabletId = in.readLong();
-
-        lastCheckTime = in.readLong();
-        checkedVersion = in.readLong();
-        checkedVersionHash = in.readLong();
-
-        isConsistent = in.readBoolean();
     }
 }

@@ -23,12 +23,9 @@ import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
@@ -41,15 +38,13 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
+public class MaterializedIndexMeta implements GsonPostProcessable {
     @SerializedName(value = "id", alternate = {"indexId"})
     private long indexId;
     @SerializedName(value = "sc", alternate = {"schema"})
@@ -321,16 +316,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 && storageType == other.storageType
                 && keysType == other.keysType
                 && maxColUniqueId == other.maxColUniqueId;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static MaterializedIndexMeta read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, MaterializedIndexMeta.class);
     }
 
     @Override

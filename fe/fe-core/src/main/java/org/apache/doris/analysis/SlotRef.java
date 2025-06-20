@@ -28,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -43,8 +42,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -623,20 +620,6 @@ public class SlotRef extends Expr {
 
     public void setCol(String col) {
         this.col = col;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            tblName = new TableName();
-            tblName.readFields(in);
-        }
-        col = Text.readString(in);
-    }
-
-    public static SlotRef read(DataInput in) throws IOException {
-        SlotRef slotRef = new SlotRef();
-        slotRef.readFields(in);
-        return slotRef;
     }
 
     @Override

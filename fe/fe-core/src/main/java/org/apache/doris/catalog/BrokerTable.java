@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TBrokerTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -31,8 +30,6 @@ import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.List;
@@ -212,26 +209,5 @@ public class BrokerTable extends Table {
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setBrokerTable(tBrokerTable);
         return tTableDescriptor;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        brokerName = Text.readString(in);
-        int size = in.readInt();
-        paths = Lists.newArrayList();
-        for (int i = 0; i < size; i++) {
-            paths.add(Text.readString(in));
-        }
-        columnSeparator = Text.readString(in);
-        lineDelimiter = Text.readString(in);
-        brokerProperties = Maps.newHashMap();
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            brokerProperties.put(key, val);
-        }
     }
 }

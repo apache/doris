@@ -33,7 +33,6 @@ import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -44,8 +43,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Objects;
 
@@ -726,30 +723,6 @@ public class BinaryPredicate extends Predicate {
             default:
                 return null;
         }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int isWritable = in.readInt();
-        if (isWritable == 0) {
-            return;
-        }
-
-        // read op
-        Operator op = Operator.valueOf(Text.readString(in));
-        // read left
-        SlotRef left = new SlotRef(null, Text.readString(in));
-        // read right
-        StringLiteral right = new StringLiteral(Text.readString(in));
-
-        this.op = op;
-        this.addChild(left);
-        this.addChild(right);
-    }
-
-    public static BinaryPredicate read(DataInput in) throws IOException {
-        BinaryPredicate binaryPredicate = new BinaryPredicate();
-        binaryPredicate.readFields(in);
-        return binaryPredicate;
     }
 
     @Override
