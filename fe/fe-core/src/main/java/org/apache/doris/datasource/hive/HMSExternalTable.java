@@ -637,7 +637,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private Optional<SchemaCacheValue> getIcebergSchema(SchemaCacheKey key) {
-        return IcebergUtils.loadSchemaCacheValue(catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId());
+        return IcebergUtils.loadSchemaCacheValue(
+            catalog, dbName, name, ((IcebergSchemaCacheKey) key).getSchemaId(), isView());
     }
 
     private Optional<SchemaCacheValue> getHudiSchema(SchemaCacheKey key) {
@@ -1143,4 +1144,5 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         makeSureInitialized();
         return dlaTable.isValidRelatedTable();
     }
+
 }
