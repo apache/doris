@@ -2452,7 +2452,9 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         // the func run with a thread, so if use macro proved stats, maybe cause stack-use-after-return error
         KVStats stats;
         notify_refresh_instance(txn_kv, instance_id, &stats);
-        g_bvar_rpc_kv_alter_cluster_get_counter << stats.get_counter;
+        if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
+        }
     });
     bthread_t bid;
     if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
@@ -3288,8 +3290,10 @@ void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
         msg = "invalid argument";
         return;
     }
-
     RPC_RATE_LIMIT(alter_iam)
+
+    // for metric, give it a common instance id
+    instance_id = "alter_iam_instance";
 
     std::string key = system_meta_service_arn_info_key();
     std::string val;
@@ -3872,8 +3876,8 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 
     RPC_RATE_LIMIT(get_cluster_status)
 
-    auto get_clusters_info = [this, &request, &response, &has_filter,
-                              &stats](const std::string& instance_id) {
+    auto get_clusters_info = [this, &request, &response,
+                              &has_filter](const std::string& instance_id) {
         InstanceKeyInfo key_info {instance_id};
         std::string key;
         std::string val;
@@ -3885,6 +3889,12 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to create txn err=" << err;
             return;
         }
+        std::unique_ptr<int, std::function<void(int*)>> defer_count((int*)0x01, [&](int*) {
+            if (config::use_detailed_metrics && txn != nullptr) {
+                g_bvar_rpc_kv_get_cluster_status_get_counter.put({instance_id},
+                                                                 txn->num_get_keys());
+            }
+        });
         err = txn->get(key, &val);
         LOG(INFO) << "get instance_key=" << hex(key);
 
@@ -3892,7 +3902,6 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to get instance, instance_id=" << instance_id << " err=" << err;
             return;
         }
-        stats.get_counter++;
         InstanceInfoPB instance;
         if (!instance.ParseFromString(val)) {
             LOG(WARNING) << "failed to parse InstanceInfoPB";

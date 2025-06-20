@@ -524,8 +524,8 @@ TEST(RpcKvBvarTest, CreateTablets) {
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
     LOG(INFO) << "CreateTablets: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_tablets_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_tablets_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_tablets_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_tablets_put_counter.get({mock_instance}));
 }
 
 // get_tablet
@@ -549,7 +549,7 @@ TEST(RpcKvBvarTest, GetTablet) {
     meta_service->get_tablet(&cntl, &req, &resp, nullptr);
     LOG(INFO) << "GetTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_get_counter.get({mock_instance}));
 }
 
 // get_tablet_stats
@@ -569,7 +569,7 @@ TEST(RpcKvBvarTest, GetTabletStats) {
 
     LOG(INFO) << "GetTabletStats: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_stats_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_tablet_stats_get_counter.get({mock_instance}));
 }
 
 // update_tablet
@@ -595,8 +595,8 @@ TEST(RpcKvBvarTest, UpdateTablet) {
 
     LOG(INFO) << "UpdateTablet: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tablet_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tablet_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tablet_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tablet_put_counter.get({mock_instance}));
 }
 
 // update_tablet_schema
@@ -622,11 +622,11 @@ TEST(RpcKvBvarTest, UpdateTablet) {
 //     LOG(INFO) << "UpdateTabletSchema: " << mem_kv->get_count_ << ", "
 //               << mem_kv->put_count_ << ", " << mem_kv->del_count_;
 //     ASSERT_EQ(mem_kv->get_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_get_counter.get_value());
+//               g_bvar_rpc_kv_update_tablet_schema_get_counter.get({mock_instance}));
 //     ASSERT_EQ(mem_kv->put_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_put_counter.get_value());
+//               g_bvar_rpc_kv_update_tablet_schema_put_counter.get({mock_instance}));
 //     ASSERT_EQ(mem_kv->del_count_,
-//               g_bvar_rpc_kv_update_tablet_schema_del_counter.get_value());
+//               g_bvar_rpc_kv_update_tablet_schema_del_counter.get({mock_instance}));
 // }
 
 // begin_txn
@@ -648,8 +648,8 @@ TEST(RpcKvBvarTest, BeginTxn) {
 
     LOG(INFO) << "BeginTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_txn_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_txn_put_counter.get({mock_instance}));
 }
 
 // commit_txn
@@ -671,9 +671,9 @@ TEST(RpcKvBvarTest, CommitTxn) {
 
     LOG(INFO) << "CommitTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_txn_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_txn_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_txn_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_txn_del_counter.get({mock_instance}));
 }
 
 // precommit_txn
@@ -730,8 +730,8 @@ TEST(RpcKvBvarTest, PrecommitTxn) {
 
     LOG(INFO) << "PrecommitTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_precommit_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_precommit_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_precommit_txn_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_precommit_txn_put_counter.get({mock_instance}));
 }
 
 // abort_txn
@@ -761,9 +761,9 @@ TEST(RpcKvBvarTest, AbortTxn) {
 
     LOG(INFO) << "AbortTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_txn_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_txn_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_abort_txn_del_counter.get({mock_instance}));
 }
 
 // get_txn
@@ -793,7 +793,7 @@ TEST(RpcKvBvarTest, GetTxn) {
 
     LOG(INFO) << "GetTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_get_counter.get({mock_instance}));
 }
 
 // get_txn_id
@@ -824,7 +824,7 @@ TEST(RpcKvBvarTest, GetTxnId) {
 
     LOG(INFO) << "GetTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_id_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_txn_id_get_counter.get({mock_instance}));
 }
 
 // prepare_rowset
@@ -851,8 +851,8 @@ TEST(RpcKvBvarTest, PrepareRowset) {
 
     LOG(INFO) << "PrepareRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_rowset_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_rowset_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_rowset_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_rowset_put_counter.get({mock_instance}));
 }
 
 // get_rowset
@@ -877,7 +877,7 @@ TEST(RpcKvBvarTest, GetRowset) {
 
     LOG(INFO) << "GetRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rowset_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_rowset_get_counter.get({mock_instance}));
 }
 
 // update_tmp_rowset
@@ -920,8 +920,8 @@ TEST(RpcKvBvarTest, UpdateTmpRowset) {
 
     LOG(INFO) << "UpdateTmpRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tmp_rowset_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tmp_rowset_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_tmp_rowset_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_tmp_rowset_put_counter.get({mock_instance}));
 }
 
 // commit_rowset
@@ -943,9 +943,9 @@ TEST(RpcKvBvarTest, CommitRowset) {
 
     LOG(INFO) << "CommitRowset: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_rowset_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_rowset_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_rowset_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_rowset_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_rowset_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_rowset_del_counter.get({mock_instance}));
 }
 
 // get_version
@@ -973,7 +973,7 @@ TEST(RpcKvBvarTest, GetVersion) {
 
     LOG(INFO) << "GetVersion: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_version_get_counter.get({mock_instance}));
 }
 
 // get_schema_dict
@@ -1004,7 +1004,7 @@ TEST(RpcKvBvarTest, GetSchemaDict) {
 
     LOG(INFO) << "GetSchemaDict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_schema_dict_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_schema_dict_get_counter.get({mock_instance}));
 }
 
 // get_delete_bitmap_update_lock
@@ -1034,11 +1034,11 @@ TEST(RpcKvBvarTest, GetDeleteBitmapUpdateLock) {
     LOG(INFO) << "GetDeleteBitmapUpdateLock: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
               << ", " << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_,
-              g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_counter.get_value());
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
-              g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_counter.get_value());
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_,
-              g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_counter.get_value());
+              g_bvar_rpc_kv_get_delete_bitmap_update_lock_del_counter.get({mock_instance}));
 }
 
 // update_delete_bitmap
@@ -1075,9 +1075,12 @@ TEST(RpcKvBvarTest, UpdateDeleteBitmap) {
 
     LOG(INFO) << "UpdateDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_delete_bitmap_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_delete_bitmap_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_update_delete_bitmap_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_update_delete_bitmap_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_,
+              g_bvar_rpc_kv_update_delete_bitmap_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_,
+              g_bvar_rpc_kv_update_delete_bitmap_del_counter.get({mock_instance}));
 }
 
 // get_delete_bitmap
@@ -1124,7 +1127,7 @@ TEST(RpcKvBvarTest, GetDeleteBitmap) {
 
     LOG(INFO) << "GetDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_delete_bitmap_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_delete_bitmap_get_counter.get({mock_instance}));
 }
 
 // remove_delete_bitmap_update_lock
@@ -1166,11 +1169,11 @@ TEST(RpcKvBvarTest, RemoveDeleteBitmapUpdateLock) {
     LOG(INFO) << "RemoveDeleteBitmapUpdateLock: " << mem_kv->get_count_ << ", "
               << mem_kv->put_count_ << ", " << mem_kv->del_count_;
     ASSERT_EQ(mem_kv->get_count_,
-              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_counter.get_value());
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_get_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->put_count_,
-              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_counter.get_value());
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_put_counter.get({mock_instance}));
     ASSERT_EQ(mem_kv->del_count_,
-              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_counter.get_value());
+              g_bvar_rpc_kv_remove_delete_bitmap_update_lock_del_counter.get({mock_instance}));
 }
 
 // remove_delete_bitmap
@@ -1215,7 +1218,8 @@ TEST(RpcKvBvarTest, RemoveDeleteBitmap) {
 
     LOG(INFO) << "RemoveDeleteBitmap: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_remove_delete_bitmap_del_counter.get_value());
+    ASSERT_EQ(mem_kv->del_count_,
+              g_bvar_rpc_kv_remove_delete_bitmap_del_counter.get({mock_instance}));
 }
 
 // start_tablet_job
@@ -1238,8 +1242,8 @@ TEST(RpcKvBvarTest, StartTabletJob) {
 
     LOG(INFO) << "StartTabletJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_start_tablet_job_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_start_tablet_job_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_start_tablet_job_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_start_tablet_job_put_counter.get({mock_instance}));
 }
 
 // finish_tablet_job
@@ -1288,9 +1292,9 @@ TEST(RpcKvBvarTest, FinishTabletJob) {
 
     LOG(INFO) << "FinishTabletJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_tablet_job_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_tablet_job_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_tablet_job_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_tablet_job_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_tablet_job_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_tablet_job_del_counter.get({mock_instance}));
 }
 
 // prepare_index
@@ -1333,8 +1337,8 @@ TEST(RpcKvBvarTest, PrepareIndex) {
 
     LOG(INFO) << "PrepareIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_index_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_index_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_index_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_index_put_counter.get({mock_instance}));
 }
 
 // commit_index
@@ -1379,9 +1383,9 @@ TEST(RpcKvBvarTest, CommitIndex) {
 
     LOG(INFO) << "CommitIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_index_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_index_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_index_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_index_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_index_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_index_del_counter.get({mock_instance}));
 }
 
 // drop_index
@@ -1446,8 +1450,8 @@ TEST(RpcKvBvarTest, DropIndex) {
 
     LOG(INFO) << "DropIndex: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_index_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_index_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_index_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_index_put_counter.get({mock_instance}));
 }
 
 // prepare_partition
@@ -1492,8 +1496,8 @@ TEST(RpcKvBvarTest, PreparePartition) {
 
     LOG(INFO) << "PreparePartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_partition_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_partition_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_prepare_partition_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_prepare_partition_put_counter.get({mock_instance}));
 }
 
 // commit_partition
@@ -1538,9 +1542,9 @@ TEST(RpcKvBvarTest, CommitPartition) {
 
     LOG(INFO) << "CommitPartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_partition_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_partition_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_partition_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_commit_partition_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_commit_partition_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_commit_partition_del_counter.get({mock_instance}));
 }
 
 // check_kv
@@ -1578,7 +1582,7 @@ TEST(RpcKvBvarTest, CheckKv) {
 
     LOG(INFO) << "CheckKv: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_kv_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_kv_get_counter.get({mock_instance}));
 }
 
 // drop_partition
@@ -1612,8 +1616,8 @@ TEST(RpcKvBvarTest, DropPartition) {
 
     LOG(INFO) << "DropPartition: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_partition_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_partition_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_drop_partition_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_drop_partition_put_counter.get({mock_instance}));
 }
 
 // get_obj_store_info
@@ -1644,7 +1648,8 @@ TEST(RpcKvBvarTest, GetObjStoreInfo) {
 
     LOG(INFO) << "GetObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_obj_store_info_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_get_obj_store_info_get_counter.get({mock_instance}));
 }
 
 // alter_storage_vault
@@ -1682,9 +1687,12 @@ TEST(RpcKvBvarTest, AlterStorageVault) {
 
     LOG(INFO) << "AlterStorageVault: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_storage_vault_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_storage_vault_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_alter_storage_vault_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_alter_storage_vault_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_,
+              g_bvar_rpc_kv_alter_storage_vault_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_,
+              g_bvar_rpc_kv_alter_storage_vault_del_counter.get({mock_instance}));
 }
 
 // alter_obj_store_info
@@ -1742,8 +1750,10 @@ TEST(RpcKvBvarTest, AlterObjStoreInfo) {
 
     LOG(INFO) << "AlterObjStoreInfo: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_obj_store_info_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_obj_store_info_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_alter_obj_store_info_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_,
+              g_bvar_rpc_kv_alter_obj_store_info_put_counter.get({mock_instance}));
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
@@ -1807,8 +1817,8 @@ TEST(RpcKvBvarTest, UpdateAkSk) {
 
     LOG(INFO) << "UpdateAkSk: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_ak_sk_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_ak_sk_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_update_ak_sk_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_update_ak_sk_put_counter.get({mock_instance}));
 
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
@@ -1857,7 +1867,7 @@ TEST(RpcKvBvarTest, CreateInstance) {
 
     LOG(INFO) << "CreateInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_instance_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_instance_get_counter.get({mock_instance}));
 
     sp->clear_all_call_backs();
     sp->clear_trace();
@@ -1914,7 +1924,7 @@ TEST(RpcKvBvarTest, GetInstance) {
 
     LOG(INFO) << "GetInstance: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_instance_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_instance_get_counter.get({mock_instance}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -1942,7 +1952,7 @@ TEST(RpcKvBvarTest, GetInstance) {
 
 //     LOG(INFO) << "AlterCluster: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
 //               << mem_kv->del_count_;
-//     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_cluster_get_counter.get_value());
+//     ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_cluster_get_counter.get({mock_instance}));
 // }
 
 // get_cluster
@@ -1986,8 +1996,8 @@ TEST(RpcKvBvarTest, GetCluster) {
 
     LOG(INFO) << "GetCluster: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_get_cluster_put_counter.get({mock_instance}));
 }
 
 // create_stage
@@ -2076,8 +2086,8 @@ TEST(RpcKvBvarTest, CreateStage) {
 
     LOG(INFO) << "CreateStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_stage_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_stage_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_create_stage_get_counter.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_create_stage_put_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2183,7 +2193,7 @@ TEST(RpcKvBvarTest, GetStage) {
 
     LOG(INFO) << "GetStage: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_stage_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_stage_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2269,7 +2279,7 @@ TEST(RpcKvBvarTest, GetIam) {
 
     LOG(INFO) << "GetIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_iam_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_iam_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2312,8 +2322,8 @@ TEST(RpcKvBvarTest, AlterIam) {
 
     LOG(INFO) << "AlterIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_iam_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_iam_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_iam_get_counter.get({"alter_iam_instance"}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_iam_put_counter.get({"alter_iam_instance"}));
 }
 
 // alter_ram_user
@@ -2388,8 +2398,8 @@ TEST(RpcKvBvarTest, AlterRamUser) {
 
     LOG(INFO) << "AlterRamUser: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_ram_user_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_ram_user_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_ram_user_get_counter.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_ram_user_put_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2443,8 +2453,8 @@ TEST(RpcKvBvarTest, BeginCopy) {
 
     LOG(INFO) << "BeginCopy: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_copy_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_copy_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_copy_get_counter.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_copy_put_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2510,7 +2520,7 @@ TEST(RpcKvBvarTest, GetCopyJob) {
 
     LOG(INFO) << "GetCopyJob: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_job_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_job_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2577,9 +2587,9 @@ TEST(RpcKvBvarTest, FinishCopy) {
 
     LOG(INFO) << "FinishCopy: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_copy_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_copy_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_copy_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_finish_copy_get_counter.get({instance_id}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_finish_copy_put_counter.get({instance_id}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_finish_copy_del_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2642,7 +2652,7 @@ TEST(RpcKvBvarTest, GetCopyFiles) {
 
     LOG(INFO) << "GetCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_files_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_copy_files_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2711,7 +2721,7 @@ TEST(RpcKvBvarTest, FilterCopyFiles) {
 
     LOG(INFO) << "FilterCopyFiles: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_filter_copy_files_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_filter_copy_files_get_counter.get({instance_id}));
     sp->clear_all_call_backs();
     sp->clear_trace();
     sp->disable_processing();
@@ -2775,7 +2785,8 @@ TEST(RpcKvBvarTest, GetClusterStatus) {
 
     LOG(INFO) << "GetClusterStatus: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_cluster_status_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_get_cluster_status_get_counter.get({mock_instance}));
 }
 
 // get_current_max_txn_id
@@ -2823,7 +2834,8 @@ TEST(RpcKvBvarTest, GetCurrentMaxTxnId) {
 
     LOG(INFO) << "GetCurrentMaxTxnId: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_get_current_max_txn_id_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_get_current_max_txn_id_get_counter.get({mock_instance}));
 }
 
 // begin_sub_txn
@@ -2886,9 +2898,9 @@ TEST(RpcKvBvarTest, BeginSubTxn) {
 
     LOG(INFO) << "BeginSubTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_sub_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_sub_txn_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_sub_txn_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_begin_sub_txn_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_begin_sub_txn_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_begin_sub_txn_del_counter.get({mock_instance}));
 }
 
 // abort_sub_txn
@@ -2965,8 +2977,8 @@ TEST(RpcKvBvarTest, AbortSubTxn) {
 
     LOG(INFO) << "AbortSubTxn: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_sub_txn_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_sub_txn_put_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_sub_txn_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_abort_sub_txn_put_counter.get({mock_instance}));
 }
 
 // abort_txn_with_coordinator
@@ -3026,7 +3038,8 @@ TEST(RpcKvBvarTest, AbortTxnWithCoordinator) {
 
     LOG(INFO) << "AbortTxnWithCoordinator: " << mem_kv->get_count_ << ", " << mem_kv->put_count_
               << ", " << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_abort_txn_with_coordinator_get_counter.get({mock_instance}));
 }
 
 // check_txn_conflict
@@ -3038,35 +3051,27 @@ TEST(RpcKvBvarTest, CheckTxnConflict) {
     const int64_t table_id = 777;
     const std::string label = "test_label";
     const std::string cloud_unique_id = "test_cloud_unique_id";
-    const int64_t coordinator_id = 15623;
-    int64_t cur_time = std::chrono::duration_cast<std::chrono::seconds>(
-                               std::chrono::steady_clock::now().time_since_epoch())
-                               .count();
-    std::string host = "127.0.0.1:15586";
     int64_t txn_id = -1;
 
     brpc::Controller begin_txn_cntl;
     BeginTxnRequest begin_txn_req;
     BeginTxnResponse begin_txn_res;
     TxnInfoPB txn_info_pb;
-    TxnCoordinatorPB coordinator;
 
     begin_txn_req.set_cloud_unique_id(cloud_unique_id);
     txn_info_pb.set_db_id(db_id);
     txn_info_pb.set_label(label);
     txn_info_pb.add_table_ids(table_id);
     txn_info_pb.set_timeout_ms(36000);
-    coordinator.set_id(coordinator_id);
-    coordinator.set_ip(host);
-    coordinator.set_sourcetype(::doris::cloud::TxnSourceTypePB::TXN_SOURCE_TYPE_BE);
-    coordinator.set_start_time(cur_time);
-    txn_info_pb.mutable_coordinator()->CopyFrom(coordinator);
     begin_txn_req.mutable_txn_info()->CopyFrom(txn_info_pb);
 
     meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&begin_txn_cntl),
                             &begin_txn_req, &begin_txn_res, nullptr);
+    ASSERT_EQ(begin_txn_res.status().code(), MetaServiceCode::OK);
+    txn_id = begin_txn_res.txn_id();
+    ASSERT_GT(txn_id, -1);
 
-    brpc::Controller abort_txn_conflict_cntl;
+    brpc::Controller check_txn_conflict_cntl;
     CheckTxnConflictRequest check_txn_conflict_req;
     CheckTxnConflictResponse check_txn_conflict_res;
 
@@ -3085,7 +3090,8 @@ TEST(RpcKvBvarTest, CheckTxnConflict) {
 
     LOG(INFO) << "CheckTxnConflict: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_check_txn_conflict_get_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_,
+              g_bvar_rpc_kv_check_txn_conflict_get_counter.get({mock_instance}));
 }
 
 // clean_txn_label
@@ -3123,8 +3129,8 @@ TEST(RpcKvBvarTest, CleanTxnLabel) {
 
     LOG(INFO) << "CleanTxnLabel: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
               << mem_kv->del_count_;
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_clean_txn_label_get_counter.get_value());
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_clean_txn_label_put_counter.get_value());
-    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_clean_txn_label_del_counter.get_value());
+    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_clean_txn_label_get_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_clean_txn_label_put_counter.get({mock_instance}));
+    ASSERT_EQ(mem_kv->del_count_, g_bvar_rpc_kv_clean_txn_label_del_counter.get({mock_instance}));
 }
 } // namespace doris::cloud

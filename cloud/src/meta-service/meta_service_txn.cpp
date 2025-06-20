@@ -782,7 +782,7 @@ void scan_tmp_rowset(
         return;
     }
     std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
-        if (stats) {
+        if (stats && txn) {
             stats->get_counter += txn->num_get_keys();
         }
     });

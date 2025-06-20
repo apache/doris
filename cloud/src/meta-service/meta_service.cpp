@@ -1912,6 +1912,7 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
             }
+            // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
         });
         if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&

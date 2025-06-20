@@ -230,7 +230,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 // If we have to write separate code for each RPC, it would be quite troublesome
 // After all, adding put, get, and del after the RPC_PREPROCESS macro is simpler than writing a long string of code
 #define RPCKVCOUNTHELPER(func_name, op) \
-    g_bvar_rpc_kv_##func_name##_##op##_counter << stats.op##_counter;
+    g_bvar_rpc_kv_##func_name##_##op##_counter.put({instance_id}, stats.op##_counter);
 #define RPCKVCOUNT_0(func_name)
 #define RPCKVCOUNT_1(func_name, op1) RPCKVCOUNTHELPER(func_name, op1)
 #define RPCKVCOUNT_2(func_name, op1, op2) \
@@ -260,8 +260,8 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
-    std::unique_ptr<int, std::function<void(int*)>> defer_count((int*)0x01, [&stats](int*) {  \
-        if (config::use_detailed_metrics) {                                                   \
+    std::unique_ptr<int, std::function<void(int*)>> defer_count((int*)0x01, [&](int*) {       \
+        if (config::use_detailed_metrics && !instance_id.empty()) {                           \
             GET_RPCKVCOUNT_MACRO(_0, ##__VA_ARGS__, RPCKVCOUNT_3, RPCKVCOUNT_2, RPCKVCOUNT_1, \
                                  RPCKVCOUNT_0)                                                \
             (func_name, ##__VA_ARGS__)                                                        \
