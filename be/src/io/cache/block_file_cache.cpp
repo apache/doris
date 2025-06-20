@@ -1789,6 +1789,7 @@ void BlockFileCache::run_background_monitor() {
             check_need_evict_cache_in_advance();
         } else {
             _need_evict_cache_in_advance = false;
+            _need_evict_cache_in_advance_metrics->set_value(0);
         }
 
         {
@@ -2173,6 +2174,12 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
+
+    stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
+    stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
+    stats["total_read_counts"] = (double)_num_read_blocks->get_value();
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
 
     return stats;
 }
