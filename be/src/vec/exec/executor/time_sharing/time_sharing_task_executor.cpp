@@ -19,10 +19,13 @@
 
 #include <functional>
 #include <iostream>
+#include <thread>
+#include <vector>
 
 #include "util/defer_op.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "vec/exec/executor/simulator/simulation_fifo_split_queue.h"
 #include "vec/exec/executor/time_sharing/multilevel_split_queue.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_handle.h"
 
@@ -42,6 +45,7 @@ TimeSharingTaskExecutor::TimeSharingTaskExecutor(
           _stuck_split_warning_threshold(stuck_split_warning_threshold),
           _waiting_splits(split_queue != nullptr ? std::move(split_queue)
                                                  : std::make_shared<MultilevelSplitQueue>(2)) {}
+//: std::make_shared<SimulationFIFOSplitQueue>()) {}
 
 Status TimeSharingTaskExecutor::init() {
     static_cast<void>(_stuck_split_warning_threshold);
@@ -52,6 +56,7 @@ Status TimeSharingTaskExecutor::init() {
             .set_max_queue_size(_thread_config.max_queue_size)
             .set_cgroup_cpu_ctl(_thread_config.cgroup_cpu_ctl);
     RETURN_IF_ERROR(builder.build(&_thread_pool));
+
     return Status::OK();
 }
 
@@ -92,7 +97,8 @@ TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
 
 Status TimeSharingTaskExecutor::start() {
     std::lock_guard<std::mutex> guard(_mutex);
-    for (int i = 0; i < _thread_config.min_thread_num; ++i) {
+    // TODO a custom thread pool
+    for (int i = 0; i < _thread_config.max_thread_num; ++i) {
         RETURN_IF_ERROR(_add_runner_thread());
     }
     return Status::OK();
@@ -104,10 +110,18 @@ void TimeSharingTaskExecutor::stop() {
         std::lock_guard<std::mutex> guard(_mutex);
         _stopped = true;
     }
+
     if (_thread_pool) {
         _thread_pool->shutdown();
         _thread_pool->wait();
     }
+
+    /*for (auto& thread : _worker_threads) {
+        if (thread.joinable()) {
+            thread.join();
+        }
+    }
+    _worker_threads.clear();*/
 }
 
 Status TimeSharingTaskExecutor::_add_runner_thread() {
@@ -138,6 +152,9 @@ Status TimeSharingTaskExecutor::_add_runner_thread() {
             if (split->is_finished()) {
                 _split_finished(split, split->finished_status());
             } else {
+                if (!split->is_auto_reschedule()) {
+                    continue;
+                }
                 std::lock_guard<std::mutex> guard(_mutex);
                 if (blocked_future.is_done()) {
                     _waiting_splits->offer(split);
@@ -161,7 +178,70 @@ Status TimeSharingTaskExecutor::_add_runner_thread() {
             }
         }
     });
+
+    /*try {
+        _worker_threads.emplace_back([this]() {
+            _worker_thread_function();
+        });
+        return Status::OK();
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to create worker thread: {}", e.what());
+    }*/
 }
+
+/*void TimeSharingTaskExecutor::_worker_thread_function() {
+    Thread::set_self_name("SplitRunner");
+
+    while (!_stopped) {
+        std::shared_ptr<PrioritizedSplitRunner> split;
+        split = _waiting_splits->take();
+        if (!split) {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _running_splits.insert(split);
+        }
+        Defer defer {[&]() {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _running_splits.erase(split);
+        }};
+        Result<SharedListenableFuture<Void>> blocked_future_result = split->process();
+        if (!blocked_future_result.has_value()) {
+            return;
+        }
+        auto blocked_future = blocked_future_result.value();
+
+        if (split->is_finished()) {
+            _split_finished(split, split->finished_status());
+        } else {
+            if (!split->is_auto_reschedule()) {
+                continue;
+            }
+            std::lock_guard<std::mutex> guard(_mutex);
+            if (blocked_future.is_done()) {
+                _waiting_splits->offer(split);
+            } else {
+                _blocked_splits[split] = blocked_future;
+
+                _blocked_splits[split].add_callback([this, split](const Void& value,
+                                                                  const Status& status) {
+                    if (status.ok()) {
+                        std::lock_guard<std::mutex> guard(_mutex);
+                        _blocked_splits.erase(split);
+                        split->reset_level_priority();
+                        _waiting_splits->offer(split);
+                    } else {
+                        LOG(WARNING) << "blocked split is failed, split_id: " << split->split_id()
+                                     << ", status: " << status;
+                        _split_finished(split, status);
+                    }
+                });
+            }
+        }
+    }
+}*/
 
 Result<std::shared_ptr<TaskHandle>> TimeSharingTaskExecutor::create_task(
         const TaskId& task_id, std::function<double()> utilization_supplier,
@@ -277,6 +357,17 @@ Result<std::vector<SharedListenableFuture<Void>>> TimeSharingTaskExecutor::enque
         _record_leaf_splits_size(guard);
     }
     return finished_futures;
+}
+
+void TimeSharingTaskExecutor::re_enqueue_split(std::shared_ptr<TaskHandle> task_handle,
+                                               bool intermediate,
+                                               const std::shared_ptr<SplitRunner>& split) {
+    auto handle = std::dynamic_pointer_cast<TimeSharingTaskHandle>(task_handle);
+    std::lock_guard<std::mutex> guard(_mutex);
+    std::shared_ptr<PrioritizedSplitRunner> prioritized_split =
+            handle->get_split(split, intermediate);
+    prioritized_split->reset_level_priority();
+    _waiting_splits->offer(prioritized_split);
 }
 
 void TimeSharingTaskExecutor::_split_finished(std::shared_ptr<PrioritizedSplitRunner> split,
