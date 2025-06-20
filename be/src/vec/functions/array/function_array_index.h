@@ -458,6 +458,16 @@ private:
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }
+        } else if (is_ip(right_type) && is_ip(left_element_type)) {
+            if (left_which_type.is_ipv4()) {
+                return_column = _execute_number_expanded<ColumnIPv4>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (left_which_type.is_ipv6()) {
+                return_column = _execute_number_expanded<ColumnIPv6>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            }
         }
 
         if (return_column) {
