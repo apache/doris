@@ -123,7 +123,7 @@ Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, 
 
 Status HdfsFileSystem::create(const THdfsParams& hdfs_params, std::string id,
                               const std::string& fs_name, RuntimeProfile* profile,
-                              std::shared_ptr<HdfsFileSystem>* fs) {
+                              std::shared_ptr<HdfsFileSystem>* fs, std::string root_path) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
         return Status::InternalError(
@@ -131,13 +131,16 @@ Status HdfsFileSystem::create(const THdfsParams& hdfs_params, std::string id,
                 "true.");
     }
 #endif
-    (*fs).reset(new HdfsFileSystem(hdfs_params, std::move(id), fs_name, profile));
+    (*fs).reset(
+            new HdfsFileSystem(hdfs_params, std::move(id), fs_name, profile, std::move(root_path)));
     return (*fs)->connect();
 }
 
 HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, std::string id,
-                               const std::string& fs_name, RuntimeProfile* profile)
-        : RemoteFileSystem("", std::move(id), FileSystemType::HDFS),
+                               const std::string& fs_name, RuntimeProfile* profile,
+                               std::string root_path)
+        : RemoteFileSystem(config::enable_root_path_of_hdfs_resource ? std::move(root_path) : "",
+                           std::move(id), FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
           _fs_handle(nullptr),
           _profile(profile) {
