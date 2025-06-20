@@ -902,7 +902,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             for (Column column : rollupSchema) {
                 if (column.getName().equals(mvColumnItem.getName())) {
                     Expr defineExpr = mvColumnItem.getDefineExpr();
-                    defineExpr.setDisableTableName(true);
+                    defineExpr.disableTableName();
                     column.setDefineExpr(defineExpr);
                     break;
                 }
