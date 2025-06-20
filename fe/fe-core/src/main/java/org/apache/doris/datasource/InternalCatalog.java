@@ -1237,10 +1237,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void unprotectDeleteReplica(OlapTable olapTable, ReplicaPersistInfo info) {
-        Partition partition = olapTable.getPartition(info.getPartitionId());
-        MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
-        Tablet tablet = materializedIndex.getTablet(info.getTabletId());
+    public void unprotectDeleteReplica(OlapTable olapTable, ReplicaPersistInfo info) throws MetaNotFoundException {
+        Partition partition = olapTable.getPartitionOrMetaException(info.getPartitionId());
+        MaterializedIndex materializedIndex = partition.getIndexOrMetaException(info.getIndexId());
+        Tablet tablet = materializedIndex.getTabletOrMetaException(info.getTabletId());
         tablet.deleteReplicaByBackendId(info.getBackendId());
     }
 
