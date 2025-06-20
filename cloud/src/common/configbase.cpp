@@ -69,7 +69,7 @@ void splitkv(const std::string& s, std::string& k, std::string& v) {
 }
 
 // replace env variables
-bool replaceenv(std::string key, std::string& s) {
+bool replaceenv(std::string_view key, std::string& s) {
     size_t pos = 0;
     bool modified = false;
 
