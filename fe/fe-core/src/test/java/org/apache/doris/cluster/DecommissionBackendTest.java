@@ -17,7 +17,6 @@
 
 package org.apache.doris.cluster;
 
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -30,10 +29,15 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -101,9 +105,11 @@ public class DecommissionBackendTest extends TestWithFeService {
         }
 
         Assertions.assertNotNull(srcBackend);
-        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
+        // "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+        String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
@@ -154,9 +160,11 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertNotNull(srcBackend);
 
         // decommission backend by id
-        String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
-        AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionByIdStmt);
+        // "alter system decommission backend \"" + srcBackend.getId() + "\"";
+        String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
@@ -241,9 +249,11 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
 
-        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
+        // "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+        String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
@@ -318,9 +328,11 @@ public class DecommissionBackendTest extends TestWithFeService {
             invertIndex.addTablet(fakeTabletId, fakeTabletMeta);
             invertIndex.addReplica(fakeTabletId, fakeReplica);
 
-            String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
-            AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-            Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
+            // "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+            String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+            DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+            AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+            command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
             Assertions.assertTrue(srcBackend.isDecommissioned());
 

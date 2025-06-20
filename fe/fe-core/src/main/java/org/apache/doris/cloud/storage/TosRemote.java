@@ -15,41 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.cloud.storage;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.DdlException;
 
-/*
-  Stop routine load job by name
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-  syntax:
-      STOP ROUTINE LOAD [database.]name
- */
-public class StopRoutineLoadStmt extends DdlStmt implements NotFallbackInParser {
 
-    private final LabelName labelName;
+public class TosRemote extends DefaultRemote {
+    private static final Logger LOG = LogManager.getLogger(TosRemote.class);
 
-    public StopRoutineLoadStmt(LabelName labelName) {
-        this.labelName = labelName;
+    public TosRemote(ObjectInfo obj) {
+        super(obj);
     }
 
-    public String getName() {
-        return labelName.getLabelName();
-    }
-
-    public String getDbFullName() {
-        return labelName.getDbName();
+    public String getPresignedUrl(String fileName) {
+        throw new UnsupportedOperationException("not unsupported for tos yet");
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-        labelName.analyze(analyzer);
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.STOP;
+    public Triple<String, String, String> getStsToken() throws DdlException {
+        throw new DdlException("Get sts token for tos is unsupported");
     }
 }

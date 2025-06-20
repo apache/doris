@@ -22,38 +22,23 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.GrantStmt;
-import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.test.TestExternalCatalog.TestCatalogProvider;
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
-import org.apache.doris.mysql.privilege.DataMaskPolicy;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableStatusCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 
 // when `select` suppport `col auth`,will open ColumnPrivTest
 @Disabled
@@ -149,9 +134,13 @@ public class ColumnPrivTest extends TestWithFeService {
         CreateUserStmt createUserStmt = (CreateUserStmt) parseAndAnalyzeStmt("create user show_table_status"
                 + " identified by '123456'", root);
         auth.createUser(createUserStmt);
-        GrantStmt grant = (GrantStmt) parseAndAnalyzeStmt(
-                "grant select_priv on test2.*.* to show_table_status;", root);
-        auth.grant(grant);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle("grant select_priv on test2.*.* to show_table_status;");
+        Assertions.assertTrue(logicalPlan1 instanceof GrantTablePrivilegeCommand);
+        GrantTablePrivilegeCommand command1 = (GrantTablePrivilegeCommand) logicalPlan1;
+        command1.validate();
+        auth.grantTablePrivilegeCommand(command1);
 
         // show table status from test2.db1 LIKE "%tbl%
         UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("show_table_status", "%");
@@ -159,146 +148,5 @@ public class ColumnPrivTest extends TestWithFeService {
         ShowTableStatusCommand command = new ShowTableStatusCommand("db1", "test2", "%tbl%", null);
         ShowResultSet resultSet = command.doRun(userCtx, new StmtExecutor(userCtx, ""));
         Assert.assertEquals(2, resultSet.getResultRows().size());
-    }
-
-    private void testSql(ConnectContext ctx, String sql, String expectedMsg) throws Exception {
-        String res = getSQLPlanOrErrorMsg(ctx, "explain " + sql, false);
-        System.out.println(res);
-        Assert.assertTrue(res.contains(expectedMsg));
-    }
-
-    private void testShow(ConnectContext ctx, String sql, String expectedMsg) throws Exception {
-        String res = getSQLPlanOrErrorMsg(ctx, "explain " + sql, false);
-        System.out.println(res);
-        Assert.assertTrue(res.contains(expectedMsg));
-    }
-
-    public static class TestAccessControllerFactory implements AccessControllerFactory {
-        @Override
-        public CatalogAccessController createAccessController(Map<String, String> prop) {
-            return new TestAccessController(prop);
-        }
-
-        public static class TestAccessController implements CatalogAccessController {
-            private Map<String, String> prop;
-
-            public TestAccessController(Map<String, String> prop) {
-                this.prop = prop;
-            }
-
-            @Override
-            public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
-                return false;
-            }
-
-            @Override
-            public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-                return false;
-            }
-
-            @Override
-            public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-                return false;
-            }
-
-            @Override
-            public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-                return false;
-            }
-
-            @Override
-            public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName,
-                    PrivPredicate wanted) {
-                return false;
-            }
-
-            @Override
-            public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl,
-                    PrivPredicate wanted) {
-                if (ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()).equals("user1")) {
-                    if (ctl.equals("test1")) {
-                        if (ClusterNamespace.getNameFromFullName(db).equals("db1")) {
-                            if (tbl.equals("tbl11")) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-                return false;
-            }
-
-            @Override
-            public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
-                    PrivPredicate wanted) throws AuthorizationException {
-                if (currentUser.getQualifiedUser().contains("user1")) {
-                    if (ctl.equals("test1")) {
-                        if (db.equals("db1")) {
-                            if (tbl.equals("tbl11")) {
-                                if (cols.contains("a11")) {
-                                    throw new AuthorizationException("Access deny to column a11");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public boolean checkCloudPriv(UserIdentity currentUser, String cloudName, PrivPredicate wanted, ResourceTypeEnum type) {
-                return false;
-            }
-
-            @Override
-            public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName,
-                    PrivPredicate wanted) {
-                return false;
-            }
-
-            @Override
-            public Optional<DataMaskPolicy> evalDataMaskPolicy(UserIdentity currentUser, String ctl, String db,
-                    String tbl, String col) {
-                return Optional.empty();
-            }
-
-            @Override
-            public List<? extends RowFilterPolicy> evalRowFilterPolicies(UserIdentity currentUser, String ctl,
-                    String db, String tbl) {
-                return null;
-            }
-        }
-    }
-
-    public static class MockedCatalogProvider implements TestCatalogProvider {
-        public static final Map<String, Map<String, List<Column>>> MOCKED_META;
-
-        static {
-            MOCKED_META = Maps.newHashMap();
-            Map<String, List<Column>> tblSchemaMap1 = Maps.newHashMap();
-            // db1
-            tblSchemaMap1.put("tbl11", Lists.newArrayList(
-                    new Column("a11", PrimitiveType.BIGINT),
-                    new Column("a12", PrimitiveType.STRING),
-                    new Column("a13", PrimitiveType.FLOAT)
-            ));
-            tblSchemaMap1.put("tbl12", Lists.newArrayList(
-                    new Column("b21", PrimitiveType.BIGINT),
-                    new Column("b22", PrimitiveType.STRING),
-                    new Column("b23", PrimitiveType.FLOAT)
-            ));
-            MOCKED_META.put("db1", tblSchemaMap1);
-            // db2
-            Map<String, List<Column>> tblSchemaMap2 = Maps.newHashMap();
-            tblSchemaMap2.put("tbl21", Lists.newArrayList(
-                    new Column("c11", PrimitiveType.BIGINT),
-                    new Column("c12", PrimitiveType.STRING),
-                    new Column("c13", PrimitiveType.FLOAT)
-            ));
-            MOCKED_META.put("db2", tblSchemaMap2);
-        }
-
-        @Override
-        public Map<String, Map<String, List<Column>>> getMetadata() {
-            return MOCKED_META;
-        }
     }
 }

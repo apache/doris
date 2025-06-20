@@ -17,9 +17,9 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.analysis.CleanQueryStatsStmt.Scope;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.trees.plans.commands.CleanQueryStatsCommand.Scope;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;

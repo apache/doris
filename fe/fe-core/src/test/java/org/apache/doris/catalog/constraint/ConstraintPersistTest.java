@@ -54,6 +54,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatchSupported {
@@ -91,7 +92,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         tableIf.getConstraintsMapUnsafe().clear();
         Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
@@ -126,7 +127,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
@@ -176,7 +177,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Assertions.assertEquals(3, tableIf.getConstraintsMap().size());
         dropConstraint("alter table t1 drop constraint uk");
         dropConstraint("alter table t1 drop constraint pk");
@@ -200,7 +201,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table t1 add constraint fk foreign key (k1) references t2(k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);
         tableIf.write(output);
@@ -271,7 +272,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table es.es_db1.es_tbl1 add constraint uk unique (k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         tableIf.getConstraintsMapUnsafe().clear();
         Assertions.assertTrue(tableIf.getConstraintsMap().isEmpty());
@@ -333,7 +334,7 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
         addConstraint("alter table es.es_db1.es_tbl1 add constraint uk unique (k1)");
         TableIf tableIf = RelationUtil.getTable(
                 RelationUtil.getQualifierName(connectContext, Lists.newArrayList("test", "t1")),
-                connectContext.getEnv());
+                connectContext.getEnv(), Optional.empty());
         Map<String, Constraint> constraintMap = tableIf.getConstraintsMap();
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outputStream);

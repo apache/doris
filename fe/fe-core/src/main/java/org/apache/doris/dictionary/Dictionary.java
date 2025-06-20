@@ -48,6 +48,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -268,7 +269,7 @@ public class Dictionary extends Table {
      * @return true if source table's version is newer than this dictionary's version(need update dictionary).
      */
     public boolean hasNewerSourceVersion() {
-        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
+        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv(), Optional.empty());
         if (tableIf == null) {
             throw new RuntimeException(getName() + "'s source table not found");
         }
@@ -315,7 +316,7 @@ public class Dictionary extends Table {
      * if has latestInvalidVersion and the base table's data not changed, we can skip update.
      */
     public boolean checkBaseDataValid() {
-        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv());
+        TableIf tableIf = RelationUtil.getTable(getSourceQualifiedName(), Env.getCurrentEnv(), Optional.empty());
         if (tableIf == null) {
             throw new RuntimeException(getName() + "'s source table not found");
         }

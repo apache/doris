@@ -149,4 +149,9 @@ suite("insert") {
     def rows1 = sql """select count() from source;"""
     def rows2 = sql """select count() from dest;"""
     assertTrue(rows1 == rows2);
+
+    test {
+        sql("insert into dest values(now(), 0xff, 0xaa)")
+        exception "Unknown column '0xff' in 'table list' in UNBOUND_OLAP_TABLE_SINK clause"
+    }
 }

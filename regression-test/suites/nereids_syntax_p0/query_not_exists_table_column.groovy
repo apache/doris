@@ -15,25 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
 
-/**
- * DROP ANALYZE JOB [JOB_ID]
- */
-public class DropAnalyzeJobStmt extends DdlStmt implements NotFallbackInParser {
-
-    private final long jobId;
-
-    public DropAnalyzeJobStmt(long jobId) {
-        this.jobId = jobId;
+suite("query_not_exists_table_column") {
+    test {
+        sql("select * from fasdfasdf.kfafds")
+        exception("Database [fasdfasdf] does not exist.(line 1, pos 14)")
     }
 
-    public long getJobId() {
-        return jobId;
+    def currentDb = (sql "select database()")[0][0]
+    test {
+        sql("select * from ${currentDb}.asdfasfdsaf")
+        exception("Table [asdfasfdsaf] does not exist in database [${currentDb}].(line 1, pos 14)")
     }
 
-    @Override
-    public StmtType stmtType() {
-        return StmtType.DROP;
+    multi_sql """
+        drop table if exists query_not_exists_table_column;
+        create table if not exists query_not_exists_table_column(
+            id int
+        ) 
+        distributed by hash(id)
+        properties('replication_num'='1')"""
+
+    test {
+        sql("select kkk from ${currentDb}.query_not_exists_table_column")
+        exception("Unknown column 'kkk' in 'table list' in PROJECT clause(line 1, pos 7)")
     }
 }

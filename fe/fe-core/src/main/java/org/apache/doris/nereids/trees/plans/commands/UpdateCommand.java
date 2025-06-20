@@ -228,7 +228,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("target table in update command should be an olapTable");
         }

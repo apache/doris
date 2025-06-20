@@ -305,6 +305,9 @@ public class StmtExecutor {
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         Preconditions.checkState(context.getConnectType().equals(ConnectType.MYSQL));
         this.context = context;
+        if (context != null) {
+            context.setExecutor(this);
+        }
         this.originStmt = originStmt;
         this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
@@ -414,7 +417,7 @@ public class StmtExecutor {
                         .collect(Collectors.joining(",")));
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
-        builder.isNereids(context.getState().isNereids ? "Yes" : "No");
+        builder.isNereids(context.getState().isNereids() ? "Yes" : "No");
         return builder.build();
     }
 
@@ -544,6 +547,10 @@ public class StmtExecutor {
 
     public boolean isHandleQueryInFe() {
         return isHandleQueryInFe;
+    }
+
+    public boolean isCached() {
+        return isCached;
     }
 
     // query with a random sql
@@ -3451,6 +3458,7 @@ public class StmtExecutor {
                                 + " but parsedStmt is " + parsedStmt.getClass().getName());
                 context.getState().setNereids(true);
                 context.getState().setIsQuery(true);
+                context.getState().setInternal(true);
                 planner = new NereidsPlanner(statementContext);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {

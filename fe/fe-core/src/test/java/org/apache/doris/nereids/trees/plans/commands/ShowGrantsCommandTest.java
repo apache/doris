@@ -19,13 +19,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 public class ShowGrantsCommandTest extends TestWithFeService {
     private Auth auth;
@@ -71,17 +72,14 @@ public class ShowGrantsCommandTest extends TestWithFeService {
             e.printStackTrace();
         }
 
-        GrantStmt grantStmt = new GrantStmt(user1, null, tablePattern1, privileges1);
+        GrantTablePrivilegeCommand grantTablePrivilegeCommand = new GrantTablePrivilegeCommand(privileges1, tablePattern1, Optional.of(user1), Optional.empty());
         try {
-            grantStmt.analyze(analyzer);
-        } catch (UserException e) {
+            grantTablePrivilegeCommand.validate();
+            auth.grantTablePrivilegeCommand(grantTablePrivilegeCommand);
+        } catch (AnalysisException e) {
             e.printStackTrace();
-        }
-
-        try {
-            auth.grant(grantStmt);
-        } catch (DdlException e) {
-            e.printStackTrace();
+        } catch (DdlException e1) {
+            e1.printStackTrace();
         }
     }
 

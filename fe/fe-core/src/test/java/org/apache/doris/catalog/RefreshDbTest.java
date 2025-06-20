@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
@@ -32,6 +31,9 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -132,9 +134,13 @@ public class RefreshDbTest extends TestWithFeService {
 
         // add drop priv to user1
         rootCtx.setThreadLocalInfo();
-        GrantStmt grantStmt = (GrantStmt) parseAndAnalyzeStmt(
-                "grant drop_priv on test1.db1.* to 'user1'@'%';", rootCtx);
-        auth.grant(grantStmt);
+
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan1 = nereidsParser.parseSingle("grant drop_priv on test1.db1.* to 'user1'@'%';");
+        Assertions.assertTrue(logicalPlan1 instanceof GrantTablePrivilegeCommand);
+        GrantTablePrivilegeCommand command1 = (GrantTablePrivilegeCommand) logicalPlan1;
+        command1.validate();
+        auth.grantTablePrivilegeCommand(command1);
         ConnectContext.remove();
 
         // user1 can do refresh table

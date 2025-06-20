@@ -18,6 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.MinioProperties;
@@ -27,6 +28,7 @@ import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.AzureFileSystem;
+import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -42,6 +44,7 @@ public enum StorageTypeMapper {
     AZURE(AzureProperties.class, AzureFileSystem::new),
     S3(S3Properties.class, S3FileSystem::new),
     HDFS(HdfsProperties.class, DFSFileSystem::new),
+    BROKER(BrokerProperties.class, BrokerFileSystem::new),
     OSS_HDFS(OSSHdfsProperties.class, DFSFileSystem::new);
 
     private final Class<? extends StorageProperties> propClass;

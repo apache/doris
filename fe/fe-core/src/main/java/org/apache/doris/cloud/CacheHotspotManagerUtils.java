@@ -189,7 +189,6 @@ public class CacheHotspotManagerUtils {
     public static void execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
     }
@@ -210,7 +209,6 @@ public class CacheHotspotManagerUtils {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             execCreateDatabase();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, CREATE_CACHE_TABLE);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
         Database db = Env.getCurrentInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
@@ -227,8 +225,8 @@ public class CacheHotspotManagerUtils {
 
     public static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
+        connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
         // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1);

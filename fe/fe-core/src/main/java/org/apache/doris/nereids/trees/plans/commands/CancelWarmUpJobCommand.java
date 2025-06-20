@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
@@ -55,8 +54,7 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
         if (Config.isCloudMode()) {
-            CancelCloudWarmUpStmt stmt = new CancelCloudWarmUpStmt(legacyWhereClause);
-            ((CloudEnv) ctx.getEnv()).cancelCloudWarmUp(stmt);
+            ((CloudEnv) ctx.getEnv()).cancelCloudWarmUp(this);
         }
     }
 

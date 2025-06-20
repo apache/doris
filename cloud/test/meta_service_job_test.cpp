@@ -3458,6 +3458,29 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         ASSERT_EQ(res_code, MetaServiceCode::OK);
         res.Clear();
     }
+
+    // alter version < 2
+    {
+        int64_t new_tablet_id = 16;
+        ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, index_id, partition_id,
+                                              new_tablet_id, true, true));
+        StartTabletJobResponse sc_res;
+        ASSERT_NO_FATAL_FAILURE(start_schema_change_job(meta_service.get(), table_id, index_id,
+                                                        partition_id, tablet_id, new_tablet_id,
+                                                        "job2", "be1", sc_res));
+        std::vector<doris::RowsetMetaCloudPB> output_rowsets;
+        auto res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -2, 12345);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        FinishTabletJobResponse res;
+        finish_schema_change_job(meta_service.get(), tablet_id, new_tablet_id, "job2", "be1",
+                                 output_rowsets, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        res.Clear();
+    }
 }
 
 TEST(MetaServiceJobTest, ConcurrentCompactionTest) {

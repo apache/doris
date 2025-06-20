@@ -19,7 +19,6 @@ package org.apache.doris.policy;
 
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
-import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -447,30 +446,6 @@ public class PolicyMgr implements Writable {
     public ShowResultSet showStoragePolicy() throws AnalysisException {
         Policy finalCheckedPolicy = new StoragePolicy();
         return getShowPolicy(finalCheckedPolicy, PolicyTypeEnum.STORAGE);
-    }
-
-    /**
-     * Show policy through stmt.
-     **/
-    public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
-        Policy checkedPolicy = null;
-        switch (showStmt.getType()) {
-            case STORAGE:
-                checkedPolicy = new StoragePolicy();
-                break;
-            case ROW:
-            default:
-                RowPolicy rowPolicy = new RowPolicy();
-                if (showStmt.getUser() != null) {
-                    rowPolicy.setUser(showStmt.getUser());
-                }
-                if (!StringUtils.isEmpty(showStmt.getRoleName())) {
-                    rowPolicy.setRoleName(showStmt.getRoleName());
-                }
-                checkedPolicy = rowPolicy;
-        }
-        final Policy finalCheckedPolicy = checkedPolicy;
-        return getShowPolicy(finalCheckedPolicy, showStmt.getType());
     }
 
     /**

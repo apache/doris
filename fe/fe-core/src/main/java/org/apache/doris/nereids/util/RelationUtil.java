@@ -27,6 +27,7 @@ import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -109,14 +110,15 @@ public class RelationUtil {
     /**
      * get table
      */
-    public static TableIf getTable(List<String> qualifierName, Env env) {
-        return getDbAndTable(qualifierName, env).second;
+    public static TableIf getTable(List<String> qualifierName, Env env, Optional<Location> location) {
+        return getDbAndTable(qualifierName, env, location).second;
     }
 
     /**
      * get database and table
      */
-    public static Pair<DatabaseIf<?>, TableIf> getDbAndTable(List<String> qualifierName, Env env) {
+    public static Pair<DatabaseIf<?>, TableIf> getDbAndTable(
+            List<String> qualifierName, Env env, Optional<Location> location) {
         String catalogName = qualifierName.get(0);
         String dbName = qualifierName.get(1);
         String tableName = qualifierName.get(2);
@@ -126,12 +128,16 @@ public class RelationUtil {
         }
         try {
             DatabaseIf<TableIf> db = catalog.getDbOrException(dbName, s -> new AnalysisException(
-                    "Database [" + dbName + "] does not exist."));
+                    "Database [" + dbName + "] does not exist."
+                            + (location.map(loc -> "(" + loc + ")").orElse("")))
+            );
             Pair<String, String> tableNameWithSysTableName
                     = SysTable.getTableNameWithSysTableName(tableName);
             TableIf tbl = db.getTableOrException(tableNameWithSysTableName.first,
                     s -> new AnalysisException(
-                            "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+                            "Table [" + tableName + "] does not exist in database [" + dbName + "]."
+                                    + (location.map(loc -> "(" + loc + ")").orElse("")))
+            );
             Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
                 throw new AnalysisException("Unknown sys table '" + tableName + "'");

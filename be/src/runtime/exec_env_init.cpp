@@ -369,7 +369,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr->start(this);
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
-    _runtime_query_statistics_mgr->start_report_thread();
+    RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
@@ -752,6 +752,7 @@ void ExecEnv::destroy() {
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
     SAFE_DELETE(_tablet_schema_cache);
+    SAFE_DELETE(_tablet_column_object_pool);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);

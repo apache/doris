@@ -242,7 +242,8 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
 
         @Override
         public Plan visit(Plan plan, ValidateContext context) {
-            throw new AnalysisException(String.format("%s is not supported", plan.getClass().getSimpleName()));
+            throw new AnalysisException(String.format("%s is not supported in sync materialized view",
+                    plan.getClass().getSimpleName()));
         }
 
         @Override

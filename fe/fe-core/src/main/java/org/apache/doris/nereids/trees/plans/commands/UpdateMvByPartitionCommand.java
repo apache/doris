@@ -242,7 +242,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             }
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
                     unboundRelation.getNameParts());
-            TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
+            TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv(), Optional.empty());
             if (predicates.getPredicates().containsKey(table)) {
                 return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
                         unboundRelation);
