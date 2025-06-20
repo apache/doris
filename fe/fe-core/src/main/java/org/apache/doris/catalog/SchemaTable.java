@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -324,7 +323,8 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_COMMENT", ScalarType.createStringType())
                                     .column("NODEGROUP", ScalarType.createVarchar(256))
                                     .column("TABLESPACE_NAME", ScalarType.createVarchar(268))
-                                    .column("DATA_SIZE", ScalarType.createStringType())
+                                    .column("LOCAL_DATA_SIZE", ScalarType.createStringType())
+                                    .column("REMOTE_DATA_SIZE", ScalarType.createStringType())
                                     .column("STATE", ScalarType.createStringType())
                                     .column("REPLICA_ALLOCATION", ScalarType.createStringType())
                                     .column("REPLICA_NUM", ScalarType.createType(PrimitiveType.INT))
@@ -477,7 +477,7 @@ public class SchemaTable extends Table {
                                     .column("CURRENT_USED_MEMORY_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SHUFFLE_SEND_ROWS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("QUERY_TYPE",  ScalarType.createVarchar(256))
+                                    .column("QUERY_TYPE", ScalarType.createVarchar(256))
                                     .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
@@ -645,6 +645,27 @@ public class SchemaTable extends Table {
                                     .column("IS_ABNORMAL_PAUSE", ScalarType.createType(PrimitiveType.BOOLEAN))
                                     .build())
             )
+            .put("backend_tablets", new SchemaTable(SystemIdGenerator.getNextId(), "backend_tablets", TableType.SCHEMA,
+                    builder().column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("REPLICA_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("PARTITION_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_PATH", ScalarType.createStringType())
+                            .column("TABLET_LOCAL_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("TABLET_REMOTE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("VERSION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("SEGMENT_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("NUM_COLUMNS", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("ROW_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("COMPACTION_SCORE", ScalarType.createType(PrimitiveType.INT))
+                            .column("COMPRESS_KIND", ScalarType.createStringType())
+                            .column("IS_USED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("IS_ALTER_FAILED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("UPDATE_TIME", ScalarType.createType(PrimitiveType.DATETIME))
+                            .column("IS_OVERLAP", ScalarType.createType(PrimitiveType.BOOLEAN))
+                            .build())
+            )
             .build();
 
     private boolean fetchAllFe = false;
@@ -661,10 +682,6 @@ public class SchemaTable extends Table {
     @Override
     public void write(DataOutput out) throws IOException {
         throw new UnsupportedOperationException("Do not allow to write SchemaTable to image.");
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        throw new UnsupportedOperationException("Do not allow read SchemaTable from image.");
     }
 
     public static Builder builder() {

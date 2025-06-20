@@ -444,7 +444,7 @@ void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = data.size();
 
     if (limit == 0)

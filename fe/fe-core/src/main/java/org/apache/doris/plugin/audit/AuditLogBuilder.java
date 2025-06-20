@@ -131,7 +131,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
         String auditLog = getAuditLogString(event);
         AuditLog.getQueryAudit().log(auditLog);
         // slow query
-        if (event != null && event.queryTime > Config.qe_slow_log_ms) {
+        if (event != null && !event.isInternal && event.queryTime > Config.qe_slow_log_ms) {
             AuditLog.getSlowAudit().log(auditLog);
         }
     }

@@ -28,7 +28,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -43,8 +42,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -242,8 +239,49 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        StringBuilder sb = new StringBuilder();
+        String subColumnPaths = "";
+        if (subColPath != null && !subColPath.isEmpty()) {
+            subColumnPaths = "." + String.join(".", subColPath);
+        }
+        if (tblName != null) {
+            return tblName.toSql() + "." + label + subColumnPaths;
+        } else if (label != null) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getState().isNereids()
+                    && !ConnectContext.get().getState().isQuery()
+                    && ConnectContext.get().getSessionVariable() != null
+                    && desc != null) {
+                return label + "[#" + desc.getId().asInt() + "]";
+            } else {
+                return label;
+            }
+        } else if (desc == null) {
+            // virtual slot of an alias function
+            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
+            // is null, and we just need the name of col.
+            return "`" + col + "`";
+        } else if (desc.getSourceExprs() != null) {
+            if ((ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
+                if (desc.getId().asInt() != 1) {
+                    sb.append("<slot " + desc.getId().asInt() + ">");
+                }
+            }
+            for (Expr expr : desc.getSourceExprs()) {
+                sb.append(" ");
+                sb.append(expr.toSql());
+            }
+            return sb.toString();
+        } else {
+            return "<slot " + desc.getId().asInt() + ">" + sb.toString();
+        }
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf inputTable) {
         if (needExternalSql) {
-            return toExternalSqlImpl();
+            return toExternalSqlImpl(tableType, inputTable);
         }
 
         if (disableTableName && label != null) {
@@ -290,7 +328,7 @@ public class SlotRef extends Expr {
         }
     }
 
-    private String toExternalSqlImpl() {
+    private String toExternalSqlImpl(TableType tableType, TableIf inputTable) {
         if (col != null) {
             if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
                     .equals(TableType.ODBC)) {
@@ -582,20 +620,6 @@ public class SlotRef extends Expr {
 
     public void setCol(String col) {
         this.col = col;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            tblName = new TableName();
-            tblName.readFields(in);
-        }
-        col = Text.readString(in);
-    }
-
-    public static SlotRef read(DataInput in) throws IOException {
-        SlotRef slotRef = new SlotRef();
-        slotRef.readFields(in);
-        return slotRef;
     }
 
     @Override

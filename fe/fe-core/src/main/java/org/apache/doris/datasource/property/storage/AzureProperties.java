@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
@@ -107,6 +108,7 @@ public class AzureProperties extends StorageProperties {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
+        this.endpoint = formatAzureEndpoint(endpoint);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -121,7 +123,7 @@ public class AzureProperties extends StorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return value.endsWith("blob.core.windows.net");
+            return value.endsWith(AZURE_ENDPOINT_SUFFIX);
         }
         return false;
     }
@@ -137,6 +139,18 @@ public class AzureProperties extends StorageProperties {
         s3Props.put("provider", "azure");
         s3Props.put("use_path_style", usePathStyle);
         return s3Props;
+    }
+
+    public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
+
+    private String formatAzureEndpoint(String endpoint) {
+        if (Config.force_azure_blob_global_endpoint) {
+            return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
+        }
+        if (endpoint.contains("://")) {
+            return endpoint;
+        }
+        return "https://" + endpoint;
     }
 
     @Override

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -334,7 +335,7 @@ public class StatementContext implements Closeable {
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom) {
+    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom, Optional<Location> location) {
         Map<List<String>, TableIf> tables;
         switch (tableFrom) {
             case QUERY:
@@ -349,7 +350,7 @@ public class StatementContext implements Closeable {
             default:
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
-        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv()));
+        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), location));
     }
 
     public void setConnectContext(ConnectContext connectContext) {

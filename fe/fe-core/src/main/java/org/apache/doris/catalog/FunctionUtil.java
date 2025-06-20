@@ -24,7 +24,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -37,12 +36,9 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
@@ -172,25 +168,6 @@ public class FunctionUtil {
             return null;
         }
         return Function.getFunction(fns, desc, mode);
-    }
-
-    public static void readFields(DataInput in, String dbName,
-            ConcurrentMap<String, ImmutableList<Function>> name2Function)
-            throws IOException {
-        int numEntries = in.readInt();
-        for (int i = 0; i < numEntries; ++i) {
-            String name = Text.readString(in);
-            ImmutableList.Builder<Function> builder = ImmutableList.builder();
-            int numFunctions = in.readInt();
-            for (int j = 0; j < numFunctions; ++j) {
-                builder.add(Function.read(in));
-            }
-            ImmutableList<Function> functions = builder.build();
-            name2Function.put(name, functions);
-            for (Function f : functions) {
-                translateToNereids(dbName, f);
-            }
-        }
     }
 
     /***

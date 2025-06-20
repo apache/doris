@@ -764,7 +764,7 @@ private:
                         std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
                         res_offsets);
             } else if (value->isNull()) {
-                StringOP::push_value_string("null", i, res_data, res_offsets);
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else if (value->isTrue()) {
                 StringOP::push_value_string("true", i, res_data, res_offsets);
             } else if (value->isFalse()) {
@@ -1381,7 +1381,7 @@ struct JsonbLengthUtil {
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            auto length = value->length();
+            auto length = value->numElements();
             res->insert_data(const_cast<const char*>((char*)&length), 0);
         }
         block.replace_by_position(result,
