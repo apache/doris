@@ -383,7 +383,14 @@ public class HudiScanNode extends HiveScanNode {
             partitionInit = true;
         }
         List<Split> splits = Collections.synchronizedList(new ArrayList<>());
-        getPartitionsSplits(prunedPartitions, splits);
+        try {
+            hmsTable.getCatalog().getPreExecutionAuthenticator().execute(() -> {
+                getPartitionsSplits(prunedPartitions, splits);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new UserException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
         return splits;
     }
 
