@@ -1025,6 +1025,13 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
     // analyze property like : "type" = "xxx";
     public static String analyzeType(Map<String, String> properties) throws AnalysisException {
         String type = null;
