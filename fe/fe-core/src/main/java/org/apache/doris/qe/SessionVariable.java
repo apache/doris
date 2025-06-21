@@ -464,6 +464,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
+    public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+
     public static final String FETCH_SPLITS_MAX_WAIT_TIME = "fetch_splits_max_wait_time_ms";
 
     /**
@@ -1780,11 +1782,18 @@ public class SessionVariable implements Serializable, Writable {
     public int numPartitionsInBatchMode = 1024;
 
     @VariableMgr.VarAttr(
+            name = NUM_FILES_IN_BATCH_MODE,
+            description = {"如果文件数量超过阈值，BE将通过batch方式获取scan ranges",
+                    "If the number of files exceeds the threshold, scan ranges will be got through batch mode."},
+            needForward = true)
+    public int numFilesInBatchMode = 1024;
+
+    @VariableMgr.VarAttr(
             name = FETCH_SPLITS_MAX_WAIT_TIME,
             description = {"batch方式中BE获取splits的最大等待时间",
                     "The max wait time of getting splits in batch mode."},
             needForward = true)
-    public long fetchSplitsMaxWaitTime = 4000;
+    public long fetchSplitsMaxWaitTime = 1000;
 
     @VariableMgr.VarAttr(
             name = ENABLE_PARQUET_LAZY_MAT,
@@ -2164,6 +2173,13 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableCountPushDownForExternalTable = true;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
+
+    public static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    @VariableMgr.VarAttr(
+            name = ENABLE_EXTERNAL_TABLE_BATCH_MODE,
+            description = {"使能外表的batch mode功能", "Enable the batch mode function of the external table."},
+            needForward = true)
+    public boolean enableExternalTableBatchMode = true;
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
         Set<Integer> ids = Sets.newLinkedHashSet();
@@ -3435,6 +3451,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setNumSplitsInBatchMode(int numPartitionsInBatchMode) {
         this.numPartitionsInBatchMode = numPartitionsInBatchMode;
+    }
+
+    public int getNumFilesInBatchMode() {
+        return numFilesInBatchMode;
     }
 
     public long getFetchSplitsMaxWaitTime() {
@@ -4788,6 +4808,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean showSplitProfileInfo() {
         return enableProfile() && getProfileLevel() > 1;
+    }
+
+    public boolean getEnableExternalTableBatchMode() {
+        return enableExternalTableBatchMode;
     }
 }
 
