@@ -300,6 +300,7 @@ public class CreateMTMVInfo {
                         || keyLength > FeConstants.shortkey_maxsize_bytes) {
                     if (keys.isEmpty() && type.isStringLikeType()) {
                         keys.add(column.getName());
+                        column.setIsKey(true);
                     }
                     break;
                 }
@@ -310,6 +311,7 @@ public class CreateMTMVInfo {
                     break;
                 }
                 keys.add(column.getName());
+                column.setIsKey(true);
                 if (type.isVarcharType()) {
                     break;
                 }
