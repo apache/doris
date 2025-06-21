@@ -30,7 +30,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Map;
 import java.util.UUID;
 
@@ -137,9 +136,13 @@ public class LocationPath {
             StorageProperties.Type type = SchemaTypeMapper.fromSchema(schema);
             storageProperties = storagePropertiesMap.get(type);
             if (storageProperties == null) {
-                throw new UserException("No StorageProperties found for schema: " + schema);
+                if (type == StorageProperties.Type.S3
+                        && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
+                    storageProperties = storagePropertiesMap.get(StorageProperties.Type.MINIO);
+                } else {
+                    throw new UserException("No StorageProperties found for schema: " + schema);
+                }
             }
-
             normalizedLocation = storageProperties.validateAndNormalizeUri(location);
             if (StringUtils.isBlank(normalizedLocation)) {
                 throw new UserException("Invalid location: " + location + ", normalized location is null");
@@ -187,12 +190,8 @@ public class LocationPath {
         if (Strings.isNullOrEmpty(location)) {
             return null;
         }
-        try {
-            URI uri = new URI(location);
-            return uri.getScheme();
-        } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("Invalid location: " + location, e);
-        }
+        Path path = new Path(location);
+        return path.toUri().getScheme();
     }
 
     // Getters (optional, if needed externally)

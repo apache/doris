@@ -93,7 +93,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private static final List<String> HDFS_PROPERTIES_KEYS = Arrays.asList("hdfs.authentication.type",
             "hadoop.security.authentication", "hadoop.username", "fs.defaultFS",
-            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", "dfs.nameservices",
+            "hdfs.authentication.kerberos.principal", "hadoop.kerberos.principal", DFS_NAME_SERVICES_KEY,
             "hdfs.config.resources");
 
     public HdfsProperties(Map<String, String> origProps) {

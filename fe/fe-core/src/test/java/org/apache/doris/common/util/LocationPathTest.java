@@ -32,6 +32,38 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class LocationPathTest {
+
+    private static Map<StorageProperties.Type, StorageProperties> STORAGE_PROPERTIES_MAP = new HashMap<>();
+
+    static {
+        Map<String, String> props = new HashMap<>();
+        props.put("dfs.nameservices", "namenode:8020");
+        props.put("s3.endpoint", "s3.us-east-2.amazonaws.com");
+        props.put("s3.access_key", "access_key");
+        props.put("s3.secret_key", "secret_key");
+        props.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        props.put("oss.access_key", "access_key");
+        props.put("oss.secret_key", "secret_key");
+        props.put("cos.endpoint", "cos.ap-guangzhou.myqcloud.com");
+        props.put("cos.access_key", "access_key");
+        props.put("cos.secret_key", "secret_key");
+        props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        props.put("obs.access_key", "access_key");
+        props.put("obs.secret_key", "secret_key");
+        props.put("fs.DefaultFS", "hdfs://namenode:8020");
+        props.put("azure.endpoint", "https://mystorageaccount.blob.core.windows.net");
+        props.put("azure.access_key", "access_key");
+        props.put("azure.secret_key", "secret_key");
+        props.put("broker.name", "mybroker");
+
+        try {
+            STORAGE_PROPERTIES_MAP = StorageProperties.createAll(props).stream()
+                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     public void testHdfsLocationConvert() throws UserException {
         // non HA
@@ -209,33 +241,8 @@ public class LocationPathTest {
         Assertions.assertTrue(beLocation.equalsIgnoreCase("/path/to/local"));
     }
 
-    private static Map<StorageProperties.Type, StorageProperties> STORAGE_PROPERTIES_MAP = new HashMap<>();
-
     @Test
-    public void testLocationProperties() throws UserException {
-        Map<String, String> props = new HashMap<>();
-        props.put("dfs.nameservices", "namenode:8020");
-        props.put("s3.endpoint", "s3.us-east-2.amazonaws.com");
-        props.put("s3.access_key", "access_key");
-        props.put("s3.secret_key", "secret_key");
-        props.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
-        props.put("oss.access_key", "access_key");
-        props.put("oss.secret_key", "secret_key");
-        props.put("cos.endpoint", "cos.ap-guangzhou.myqcloud.com");
-        props.put("cos.access_key", "access_key");
-        props.put("cos.secret_key", "secret_key");
-        props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        props.put("obs.access_key", "access_key");
-        props.put("obs.secret_key", "secret_key");
-        props.put("fs.DefaultFS", "hdfs://namenode:8020");
-        props.put("azure.endpoint", "https://mystorageaccount.blob.core.windows.net");
-        props.put("azure.access_key", "access_key");
-        props.put("azure.secret_key", "secret_key");
-        props.put("broker.name", "mybroker");
-
-        STORAGE_PROPERTIES_MAP = StorageProperties.createAll(props).stream()
-                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-
+    public void testLocationProperties() {
         assertNormalize("hdfs://namenode:8020/path/to/file", "hdfs://namenode:8020/path/to/file");
         assertNormalize("hdfs:///path/to/file", "hdfs://namenode:8020/path/to/file");
         assertNormalize("hdfs://namenode/path/to/file", "hdfs://namenode/path/to/file");
@@ -257,5 +264,24 @@ public class LocationPathTest {
         LocationPath locationPath = LocationPath.of(input, STORAGE_PROPERTIES_MAP);
         String actual = locationPath.getNormalizedLocation();
         Assertions.assertEquals(expected, actual);
+    }
+
+    @Test
+    public void testMinIoProperties() throws UserException {
+        Map<String, String> props = new HashMap<>();
+        props.put("minio.endpoint", "https://minio.example.com");
+        props.put("minio.access_key", "access_key");
+        props.put("minio.secret_key", "secret_key");
+
+        StorageProperties minioProperties = StorageProperties.createAll(props).stream()
+                .filter(p -> p.getType() == StorageProperties.Type.MINIO)
+                .findFirst()
+                .orElseThrow(() -> new UserException("MinIO properties not found"));
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(StorageProperties.Type.MINIO, minioProperties);
+        LocationPath locationPath = LocationPath.of("s3a://minio.example.com/bucket/path", storagePropertiesMap);
+        Assertions.assertEquals("s3://minio.example.com/bucket/path", locationPath.getNormalizedLocation());
+        Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
+        Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
     }
 }
