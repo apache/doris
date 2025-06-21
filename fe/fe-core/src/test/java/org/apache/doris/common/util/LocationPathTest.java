@@ -287,9 +287,11 @@ public class LocationPathTest {
 
     @Test
     public void testHdfsStorageLocationConvert() {
-        String location = "hdfs://172.16.0.212:8020/tmp/.doris_staging/root/eebdbe9f7e11479f93eb3e151494bc66/pt1=1/pt2=1/pt3=123/pt4=456789/pt5=922232355/pt6=2024-04-09/pt7=2024-04-09 12%3A34%3A56.000000/pt8=A/pt9=example/pt10=string_value/1e468fad05ad4a52-8e9fb8b29f90f5bf_fc42f9bf-cf17-4bc1-8eec-3b1f747cd0f1-0.snappy.parquet";
+        String location = "hdfs://172.16.0.35:8020/user/hive/warehouse/partition_special_characters_1/pt=1,1%3D1, 3%3D2+1, 1%3D3-2, 3%2F3%3D1, 2%2F2%3D1, 2%2F1%3D2, 2%2F1%3D2 +1 -1,2%2F1%3D2 %2A3 %2F3";
         LocationPath locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
         Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
+        Assertions.assertEquals(location, locationPath.getNormalizedLocation());
+        locationPath = LocationPath.of(location);
         Assertions.assertEquals(location, locationPath.getNormalizedLocation());
     }
 

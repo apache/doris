@@ -201,7 +201,8 @@ public class LocationPath {
 
     public static LocationPath of(String location) {
         String schema = extractScheme(location);
-        URI uri = URI.create(location);
+        String encodedLocation = encodedLocation(location);
+        URI uri = URI.create(encodedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
         return new LocationPath(schema, location, fsIdentifier, null);
     }

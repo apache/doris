@@ -78,7 +78,7 @@ public class FileSplit implements Split {
 
     @Override
     public String getPathString() {
-        return path.toString();
+        return path.getNormalizedLocation();
     }
 
     public static class FileSplitCreator implements SplitCreator {
