@@ -131,9 +131,12 @@ public class LocationPath {
 
         String normalizedLocation = location;
         StorageProperties storageProperties = null;
-
+        StorageProperties.Type type = SchemaTypeMapper.fromSchema(schema);
+        if (StorageProperties.Type.LOCAL.equals(type)) {
+            normalize = false;
+        }
         if (normalize) {
-            StorageProperties.Type type = SchemaTypeMapper.fromSchema(schema);
+
             storageProperties = storagePropertiesMap.get(type);
             if (storageProperties == null) {
                 if (type == StorageProperties.Type.S3
