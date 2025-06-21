@@ -918,6 +918,25 @@ public class NumericArithmetic {
     }
 
     /**
+     * cot
+     */
+    @ExecFunction(name = "cot")
+    public static Expression cot(DoubleLiteral first) {
+        if (inputOutOfBound(first, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false)) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        } else {
+            final double epsilon = 1e-10;
+            double value = first.getValue();
+            double remainder = Math.abs(value) % Math.PI;
+
+            if (Math.abs(value) < epsilon || Math.abs(remainder) < epsilon || Math.abs(remainder - Math.PI) < epsilon) {
+                return new NullLiteral(DoubleType.INSTANCE);
+            }
+            return checkOutputBoundary(new DoubleLiteral(1.0 / Math.tan(first.getValue())));
+        }
+    }
+
+    /**
      * tan
      */
     @ExecFunction(name = "tan")
