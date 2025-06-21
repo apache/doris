@@ -110,6 +110,10 @@ public class Counter {
         return ttype == TUnit.TIME_MS || ttype == TUnit.TIME_NS || ttype == TUnit.TIME_S;
     }
 
+    public boolean isNoneType() {
+        return type == TUnit.NONE.getValue();
+    }
+
     public long getLevel() {
         return this.level;
     }
