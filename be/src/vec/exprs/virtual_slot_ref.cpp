@@ -86,7 +86,8 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     _column_id = desc.get_column_id(_slot_id, context->force_materialize_slot());
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "VirtualSlotRef {} has invalid slot id: {}.\nslot_desc:\n{},\ndesc:\n{},\ndesc_tbl:\n{}",
+                "VirtualSlotRef {} has invalid slot id: "
+                "{}.\nslot_desc:\n{},\ndesc:\n{},\ndesc_tbl:\n{}",
                 *_column_name, _slot_id, slot_desc->debug_string(), desc.debug_string(),
                 state->desc_tbl().debug_string());
     }

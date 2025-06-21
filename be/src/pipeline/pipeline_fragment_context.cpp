@@ -110,6 +110,7 @@
 #include "runtime/thread_context.h"
 #include "runtime_filter/runtime_filter_mgr.h"
 #include "service/backend_options.h"
+#include "thrift/protocol/TDebugProtocol.h"
 #include "util/container_util.hpp"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
@@ -117,7 +118,6 @@
 #include "vec/common/sort/topn_sorter.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/spill/spill_stream.h"
-#include "thrift/protocol/TDebugProtocol.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"

@@ -1567,6 +1567,16 @@ public class OlapScanNode extends ScanNode {
                 columnsDesc.add(tColumn);
             }
         }
+        
+        // Add virtual column to ColumnsDesc so that backend could
+        // get correct table_schema.
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                TColumn tColumn = slot.getColumn().toThrift();
+                columnsDesc.add(tColumn);
+            }
+        }
+
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(olapTable.getBaseSchema()));
             indexDesc.add(tIndex);
@@ -1901,6 +1911,21 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // Update SlotDescriptor before construction of thrift message.
+        int virtual_column_idx = 0;
+        for (SlotDescriptor slot : desc.getSlots()) {
+            if (slot.getVirtualColumn() != null) {
+                virtual_column_idx++;
+                Column column = new Column();
+                // Set the name of virtual column to be unique.
+                column.setName("__DORIS_VIRTUAL_COL__" + virtual_column_idx);
+                // Just make sure the unique id is not conflict with other columns.
+                column.setUniqueId(Integer.MAX_VALUE - virtual_column_idx);
+                column.setType(slot.getType());
+                column.setIsAllowNull(slot.getIsNullable());
+                slot.setColumn(column);
+            }
+        }
     }
 
     private void computeStatsForNereids() {

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
@@ -161,14 +162,16 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
     DCHECK(ann_query_params.distance != nullptr);
     DCHECK(ann_query_params.row_ids != nullptr);
 
-    result_column = ColumnFloat64::create();
-    ColumnFloat64* result_column_double = assert_cast<ColumnFloat64*>(result_column.get());
-
     size_t num_results = ann_query_params.distance->size();
-    result_column_double->resize(num_results);
+    auto result_column_double = ColumnFloat64::create(num_results);
+    auto result_null_map = ColumnUInt8::create(num_results, 0);
+
     for (size_t i = 0; i < num_results; ++i) {
         result_column_double->get_data()[i] = (*ann_query_params.distance)[i];
     }
+
+    result_column =
+            ColumnNullable::create(std::move(result_column_double), std::move(result_null_map));
     row_ids = std::move(ann_query_params.row_ids);
     return Status::OK();
 }

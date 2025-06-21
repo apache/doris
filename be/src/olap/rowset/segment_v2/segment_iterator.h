@@ -378,6 +378,9 @@ private:
     // storage type schema related to _schema, since column in segment may be different with type in _schema
     std::vector<vectorized::IndexFieldNameAndTypePair> _storage_name_and_type;
     // vector idx -> column iterarator
+    // should not use vector.
+    // if a column as 10000 columns, the size of _column_iterators will be 10000, even though involved
+    // columns of query is only 10.
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;

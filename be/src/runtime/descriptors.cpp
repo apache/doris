@@ -163,8 +163,9 @@ PrimitiveType SlotDescriptor::col_type() const {
 std::string SlotDescriptor::debug_string() const {
     const bool is_virtual = this->get_virtual_column_expr() != nullptr;
     return fmt::format(
-            "SlotDescriptor(id={}, type={}, col_pos={}, col_name={}, nullable={}, is_virtual={})",
-            _id, _type->get_name(), _col_pos, _col_name, is_nullable(), is_virtual);
+            "SlotDescriptor(id={}, type={}, col_name={}, col_unique_id={}, "
+            "is_virtual={})",
+            _id, _type->get_name(), _col_name, _col_unique_id, is_virtual);
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
