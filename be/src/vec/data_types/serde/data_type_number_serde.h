@@ -75,6 +75,9 @@ public:
                                               uint64_t* num_deserialized,
                                               const FormatOptions& options) const override;
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override;
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
