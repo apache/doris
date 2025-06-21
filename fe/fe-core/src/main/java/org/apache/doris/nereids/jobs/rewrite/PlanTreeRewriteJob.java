@@ -26,6 +26,7 @@ import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
@@ -43,12 +44,12 @@ public abstract class PlanTreeRewriteJob extends Job {
         this.isTraverseChildren = Objects.requireNonNull(isTraverseChildren, "isTraverseChildren can not be null");
     }
 
-    protected final RewriteResult rewrite(Plan plan, List<Rule> rules, RewriteJobContext rewriteJobContext) {
+    protected final RewriteResult rewrite(Plan plan, Rules rules, RewriteJobContext rewriteJobContext) {
         CascadesContext cascadesContext = context.getCascadesContext();
         cascadesContext.setIsRewriteRoot(rewriteJobContext.isRewriteRoot());
 
         boolean showPlanProcess = cascadesContext.showPlanProcess();
-        for (Rule rule : rules) {
+        for (Rule rule : rules.getCurrentRules(plan)) {
             if (disableRules.get(rule.getRuleType().type())) {
                 continue;
             }
@@ -131,7 +132,7 @@ public abstract class PlanTreeRewriteJob extends Job {
         return context.getCascadesContext()
                 .getCurrentRootRewriteJobContext().get()
                 .getNewestPlan()
-                .treeString();
+                .treeString(true);
     }
 
     static class RewriteResult {

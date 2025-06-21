@@ -403,4 +403,29 @@ suite("test_nereids_set_operation") {
     qt_intersect_case """
         SELECT subq1.`pk` AS pk1 FROM ( (  SELECT t1.`pk`  FROM table_22_undef_partitions2_keys3_properties4_distributed_by54 AS t1 INNER JOIN table_3_undef_partitions2_keys3_properties4_distributed_by54 AS alias1 ON t1 . `pk` = alias1 . `pk`   ) INTERSECT (  SELECT t1.`pk`  FROM table_22_undef_partitions2_keys3_properties4_distributed_by54 AS t1 INNER JOIN table_2_undef_partitions2_keys3_properties4_distributed_by55 AS alias2 ON t1 . `pk` = alias2 . `pk`   ) ) subq1 GROUP BY subq1.`pk` order by 1 LIMIT 66666666 ; 
     """
+
+
+
+
+    multi_sql """
+        drop table if exists test_filter_intersect;
+        create table test_filter_intersect (
+        pk int,
+        col_int_undef_signed int   ,
+        col_int_undef_signed2 int   
+        ) engine=olap
+        DUPLICATE KEY(pk)
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+        insert into test_filter_intersect(pk,col_int_undef_signed,col_int_undef_signed2) values (0,6313013,100),(1,-95,-99),(2,96,-27064),(3,4596839,null),(4,94,-728681),(5,6935154,46),(6,-11,62),(7,46,null),(8,-24,15),(9,-511830,-20),(10,-3908,122),(11,7957,22),(12,23816,null),(13,17,104),(14,null,-12237),(15,74,-9),(16,22413,13441),(17,17346,null),(18,7936187,29085),(19,null,5585961);
+        set enable_fold_constant_by_be=true;
+        """
+
+    sql """SELECT  C1
+        FROM
+        (
+            SELECT CAST(pi() AS INT) AS C1
+            INTERSECT
+            SELECT col_int_undef_signed AS C1 FROM test_filter_intersect AS T1
+        )  T2 WHERE C1  >  4"""
 }

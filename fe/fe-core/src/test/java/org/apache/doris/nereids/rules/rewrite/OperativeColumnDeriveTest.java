@@ -58,7 +58,7 @@ public class OperativeColumnDeriveTest extends TestWithFeService implements Memo
     public void testUnionAll() {
         PlanChecker.from(connectContext)
                 .analyze("select a, b from (select sid as a, cid as b from score union all select id as a, age as b from student) T")
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .customRewrite(new OperativeColumnDerive())
                 .matches(logicalUnion(
                         logicalProject(
@@ -74,7 +74,7 @@ public class OperativeColumnDeriveTest extends TestWithFeService implements Memo
     public void testUnionAllBackPropagate() {
         PlanChecker.from(connectContext)
                 .analyze("select a, b from (select sid as a, cid as b from score where cid > 0 union all select id as a, age as b from student) T")
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .customRewrite(new OperativeColumnDerive())
                 .matches(logicalUnion(
                         logicalProject(
