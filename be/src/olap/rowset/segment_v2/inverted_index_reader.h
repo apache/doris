@@ -353,8 +353,8 @@ public:
     Status invoke_bkd_try_query(const io::IOContext* io_ctx, const void* query_value,
                                 InvertedIndexQueryType query_type,
                                 std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
-    Status invoke_bkd_query(const io::IOContext* io_ctx, const void* query_value,
-                            InvertedIndexQueryType query_type,
+    Status invoke_bkd_query(const io::IOContext* io_ctx, OlapReaderStatistics* stats,
+                            const void* query_value, InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                             std::shared_ptr<roaring::Roaring>& bit_map);
     template <InvertedIndexQueryType QT>
