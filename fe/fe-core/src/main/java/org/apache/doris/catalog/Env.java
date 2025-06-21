@@ -26,15 +26,8 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
-import org.apache.doris.analysis.AdminCheckTabletsStmt;
-import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
-import org.apache.doris.analysis.AdminCleanTrashStmt;
-import org.apache.doris.analysis.AdminCompactTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
-import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -289,7 +282,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.CleanTrashTask;
 import org.apache.doris.task.CleanUDFCacheTask;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -6512,24 +6504,6 @@ public class Env {
         }
     }
 
-    // entry of checking tablets operation
-    public void checkTablets(AdminCheckTabletsStmt stmt) {
-        CheckType type = stmt.getType();
-        switch (type) {
-            case CONSISTENCY:
-                consistencyChecker.addTabletsToCheck(stmt.getTabletIds());
-                break;
-            default:
-                break;
-        }
-    }
-
-    public void setTableStatus(AdminSetTableStatusStmt stmt) throws MetaNotFoundException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        setTableStatusInternal(dbName, tableName, stmt.getTableState(), false);
-    }
-
     public void replaySetTableStatus(SetTableStatusOperationLog log) throws MetaNotFoundException {
         setTableStatusInternal(log.getDbName(), log.getTblName(), log.getState(), true);
     }
@@ -6563,14 +6537,6 @@ public class Env {
         long tabletId = command.getTabletId();
         long backendId = command.getBackendId();
         ReplicaStatus status = command.getStatus();
-        long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
-        setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
-    }
-
-    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
-        long tabletId = stmt.getTabletId();
-        long backendId = stmt.getBackendId();
-        ReplicaStatus status = stmt.getStatus();
         long userDropTime = status == ReplicaStatus.DROP ? System.currentTimeMillis() : -1L;
         setReplicaStatusInternal(tabletId, backendId, status, userDropTime, false);
     }
@@ -6621,18 +6587,6 @@ public class Env {
         } catch (MetaNotFoundException e) {
             throw new MetaNotFoundException("set replica status failed, tabletId=" + tabletId, e);
         }
-    }
-
-    // Set specified replica's version. If replica does not exist, just ignore it.
-    public void setReplicaVersion(AdminSetReplicaVersionStmt stmt) throws MetaNotFoundException {
-        long tabletId = stmt.getTabletId();
-        long backendId = stmt.getBackendId();
-        Long version = stmt.getVersion();
-        Long lastSuccessVersion = stmt.getLastSuccessVersion();
-        Long lastFailedVersion = stmt.getLastFailedVersion();
-        long updateTime = System.currentTimeMillis();
-        setReplicaVersionInternal(tabletId, backendId, version, lastSuccessVersion, lastFailedVersion,
-                updateTime, false);
     }
 
     // Set specified replica's version. If replica does not exist, just ignore it.
@@ -6726,17 +6680,6 @@ public class Env {
         }
 
         getInternalCatalog().erasePartitionDropBackendReplicas(Lists.newArrayList(partition));
-    }
-
-    public void cleanTrash(AdminCleanTrashStmt stmt) {
-        List<Backend> backends = stmt.getBackends();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (Backend backend : backends) {
-            CleanTrashTask cleanTrashTask = new CleanTrashTask(backend.getId());
-            batchTask.addTask(cleanTrashTask);
-            LOG.info("clean trash in be {}, beId {}", backend.getHost(), backend.getId());
-        }
-        AgentTaskExecutor.submit(batchTask);
     }
 
     public void cleanUDFCacheTask(DropFunctionStmt stmt) throws UserException {
@@ -6916,14 +6859,6 @@ public class Env {
 
         result.setDbMeta(dbMeta);
         return result;
-    }
-
-    public void compactTable(AdminCompactTableStmt stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        String type = stmt.getCompactionType();
-        List<String> partitionNames = stmt.getPartitions();
-        compactTable(dbName, tableName, type, partitionNames);
     }
 
     public void compactTable(String dbName, String tableName, String type, List<String> partitionNames)
