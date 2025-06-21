@@ -429,7 +429,8 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     std::stringstream final_json;
     final_json << "original_value_hex=" << hex(value.value()) << "\n"
                << "key_hex=" << hex(key) << "\n"
-               << "original_value_json=" << original_value_json << "\n";
+               << "original_value_json=" << original_value_json << "\n"
+               << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
 
     return http_text_reply(MetaServiceCode::OK, "", final_json.str());
 }
