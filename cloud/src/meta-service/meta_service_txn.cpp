@@ -817,12 +817,10 @@ void scan_tmp_rowset(
     meta_rowset_tmp_key(rs_tmp_key_info1, &rs_tmp_key1);
 
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [rs_tmp_key0, rs_tmp_key1, &num_rowsets, &txn_id](int*) {
-                LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id
-                          << " num_rowsets=" << num_rowsets << " range=[" << hex(rs_tmp_key0) << ","
-                          << hex(rs_tmp_key1) << ")";
-            });
+    DORIS_CLOUD_DEFER_COPY(rs_tmp_key0, rs_tmp_key1) {
+        LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id << " num_rowsets=" << num_rowsets
+                  << " range=[" << hex(rs_tmp_key0) << "," << hex(rs_tmp_key1) << ")";
+    };
 
     std::unique_ptr<RangeGetIterator> it;
     do {
@@ -1573,11 +1571,11 @@ void commit_txn_eventually(
         MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
     StopWatch sw;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (config::use_detailed_metrics && !instance_id.empty()) {
             g_bvar_ms_commit_txn_eventually.put(instance_id, sw.elapsed_us());
         }
-    });
+    };
 
     std::stringstream ss;
     TxnErrorCode err = TxnErrorCode::TXN_OK;
@@ -2000,12 +1998,11 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> tmp_rowsets_meta;
 
         int num_rowsets = 0;
-        std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-                (int*)0x01, [rs_tmp_key0, rs_tmp_key1, &num_rowsets, &txn_id, &sub_txn_id](int*) {
-                    LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id
-                              << ", sub_txn_id=" << sub_txn_id << " num_rowsets=" << num_rowsets
-                              << " range=[" << hex(rs_tmp_key0) << "," << hex(rs_tmp_key1) << ")";
-                });
+        DORIS_CLOUD_DEFER_COPY(rs_tmp_key_info0, rs_tmp_key_info1) {
+            LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id << ", sub_txn_id=" << sub_txn_id
+                      << " num_rowsets=" << num_rowsets << " range=[" << hex(rs_tmp_key0) << ","
+                      << hex(rs_tmp_key1) << ")";
+        };
 
         std::unique_ptr<RangeGetIterator> it;
         do {
