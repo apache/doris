@@ -24,8 +24,6 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_document.h"
-#include "util/jsonb_writer.h"
 #include "util/quantile_state.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -94,25 +92,9 @@ public:
     }
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int64_t row_num) const override {
-        auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
-        auto& val = const_cast<QuantileState&>(col.get_element(row_num));
-        size_t actual_size = val.get_serialized_size();
-        auto* ptr = mem_pool->alloc(actual_size);
-        val.serialize((uint8_t*)ptr);
-        result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-        result.writeStartBinary();
-        result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
-        result.writeEndBinary();
-    }
+                                 int32_t col_id, int64_t row_num) const override;
 
-    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override {
-        auto& col = reinterpret_cast<ColumnQuantileState&>(column);
-        auto blob = static_cast<const JsonbBlobVal*>(arg);
-        QuantileState val;
-        val.deserialize(Slice(blob->getBlob(), blob->getBlobLen()));
-        col.insert_value(val);
-    }
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,

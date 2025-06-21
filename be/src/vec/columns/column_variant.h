@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "olap/tablet_schema.h"
-#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"

@@ -168,7 +168,7 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
                                 rapidjson::Document::AllocatorType& allocator) {
     // convert type of jsonb to rapidjson::Value
-    switch (val.type()) {
+    switch (val.type) {
     case JsonbType::T_True:
         target.SetBool(true);
         break;
@@ -179,30 +179,30 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         target.SetNull();
         break;
     case JsonbType::T_Float:
-        target.SetFloat(static_cast<const JsonbFloatVal&>(val).val());
+        target.SetFloat(val.unpack<JsonbFloatVal>()->val());
         break;
     case JsonbType::T_Double:
-        target.SetDouble(static_cast<const JsonbDoubleVal&>(val).val());
+        target.SetDouble(val.unpack<JsonbDoubleVal>()->val());
         break;
     case JsonbType::T_Int64:
-        target.SetInt64(static_cast<const JsonbInt64Val&>(val).val());
+        target.SetInt64(val.unpack<JsonbInt64Val>()->val());
         break;
     case JsonbType::T_Int32:
-        target.SetInt(static_cast<const JsonbInt32Val&>(val).val());
+        target.SetInt(val.unpack<JsonbInt32Val>()->val());
         break;
     case JsonbType::T_Int16:
-        target.SetInt(static_cast<const JsonbInt16Val&>(val).val());
+        target.SetInt(val.unpack<JsonbInt16Val>()->val());
         break;
     case JsonbType::T_Int8:
-        target.SetInt(static_cast<const JsonbInt8Val&>(val).val());
+        target.SetInt(val.unpack<JsonbInt8Val>()->val());
         break;
     case JsonbType::T_String:
-        target.SetString(static_cast<const JsonbStringVal&>(val).getBlob(),
-                         static_cast<const JsonbStringVal&>(val).getBlobLen());
+        target.SetString(val.unpack<JsonbStringVal>()->getBlob(),
+                         val.unpack<JsonbStringVal>()->getBlobLen());
         break;
     case JsonbType::T_Array: {
         target.SetArray();
-        const ArrayVal& array = static_cast<const ArrayVal&>(val);
+        const ArrayVal& array = *val.unpack<ArrayVal>();
         if (array.numElem() == 0) {
             target.SetNull();
             break;
@@ -217,7 +217,7 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
     }
     case JsonbType::T_Object: {
         target.SetObject();
-        const ObjectVal& obj = static_cast<const ObjectVal&>(val);
+        const ObjectVal& obj = *val.unpack<ObjectVal>();
         for (auto it = obj.begin(); it != obj.end(); ++it) {
             rapidjson::Value obj_val;
             convert_jsonb_to_rapidjson(*it->value(), obj_val, allocator);
@@ -227,7 +227,7 @@ void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
         break;
     }
     default:
-        CHECK(false) << "unkown type " << static_cast<int>(val.type());
+        CHECK(false) << "unkown type " << static_cast<int>(val.type);
         break;
     }
 }

@@ -27,6 +27,7 @@
 #include "arrow/array/builder_binary.h"
 #include "olap/hll.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "util/slice.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
@@ -120,7 +121,7 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
 }
 void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnHLL&>(column);
-    auto blob = static_cast<const JsonbBlobVal*>(arg);
+    auto blob = arg->unpack<JsonbBinaryVal>();
     HyperLogLog hyper_log_log(Slice(blob->getBlob(), blob->getBlobLen()));
     col.insert_value(hyper_log_log);
 }

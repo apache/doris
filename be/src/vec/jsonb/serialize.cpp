@@ -92,7 +92,8 @@ Status JsonbSerializeUtil::jsonb_to_block(
         const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx, Block& dst,
         const std::vector<std::string>& default_values,
         const std::unordered_set<int>& include_cids) {
-    auto pdoc = JsonbDocument::checkAndCreateDocument(data, size);
+    JsonbDocument* pdoc = nullptr;
+    RETURN_IF_ERROR(JsonbDocument::checkAndCreateDocument(data, size, &pdoc));
     JsonbDocument& doc = *pdoc;
     size_t num_rows = dst.rows();
     size_t filled_columns = 0;

@@ -20,6 +20,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
+#include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"

@@ -40,10 +40,9 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "util/jsonb_parser_simd.h"
+#include "runtime/jsonb_value.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"

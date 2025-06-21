@@ -21,11 +21,9 @@
 
 #include "common/status.h"
 #include "data_type_serde.h"
-#include "util/jsonb_writer.h"
 
 namespace doris {
 class PValues;
-class JsonbValue;
 
 namespace vectorized {
 class IColumn;
