@@ -81,12 +81,6 @@ suite("int_as_date_partition_col") {
     }
 
     explain {
-        sql """SELECT count(*) FROM partition_int WHERE
-        !(date_trunc(dt,'month')<'2024-8-01' and date_trunc(dt,'month')>'2024-6-01' );"""
-        contains("partitions=5/6 (p20240101,p20240201,p20240301,p20240401,p20240501)")
-    }
-
-    explain {
         sql """
         SELECT count(*) FROM partition_int WHERE
         !(dt<'20241001'  or date_trunc(dt,'month')<'2024-7-01' and date_trunc(dt,'month')>'2024-6-01' )

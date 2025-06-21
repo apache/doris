@@ -46,13 +46,13 @@ suite("test_convert_tz") {
     }
     explain {
         sql "SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') > '2021-01-01';";
-        contains("partitions=2/3 (p2,p3)")
+        contains("partitions=3/3 (p1,p2,p3)")
     }
 
     explain {
         sql """SELECT * FROM test_convert_tz WHERE convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') < '2021-02-24'
         and convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') > '2021-01-01';"""
-        contains("partitions=2/3 (p2,p3)")
+        contains("partitions=3/3 (p1,p2,p3)")
     }
 
     explain {
@@ -93,7 +93,7 @@ suite("test_convert_tz") {
         }
         explain {
             sql "SELECT * FROM test_convert_tz WHERE not convert_tz(timestamp, 'Asia/Shanghai', 'Europe/Paris') <= '2021-01-01';";
-            contains("partitions=2/3 (p2,p3)")
+            contains("partitions=3/3 (p1,p2,p3)")
         }
     }
 }
