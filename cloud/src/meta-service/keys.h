@@ -54,6 +54,7 @@
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_segs"    -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "index_size"  -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "segment_size"-> int64
+// 0x01 "stats" ${instance_id} "delete_bitmap_lock" ${table_id} "last_release"                             -> uint64
 //
 // 0x01 "recycle" ${instance_id} "index" ${index_id}                                       -> RecycleIndexPB
 // 0x01 "recycle" ${instance_id} "partition" ${partition_id}                               -> RecyclePartitionPB
@@ -88,6 +89,8 @@ static constexpr std::string_view STATS_KEY_SUFFIX_NUM_ROWSETS = "num_rowsets";
 static constexpr std::string_view STATS_KEY_SUFFIX_NUM_SEGS = "num_segs";
 static constexpr std::string_view STATS_KEY_SUFFIX_INDEX_SIZE = "index_size";
 static constexpr std::string_view STATS_KEY_SUFFIX_SEGMENT_SIZE = "segment_size";
+
+static constexpr std::string_view STATS_KEY_SUFFIX_LAST_RELEASE = "last_release";
 
 // clang-format off
 /**
@@ -193,6 +196,8 @@ using TableVersionKeyInfo = BasicKeyInfo<27, std::tuple<std::string, int64_t, in
 using MetaSchemaPBDictionaryInfo = BasicKeyInfo<28 , std::tuple<std::string,  int64_t>>;
 //                                                        0:instance_id 1:table_id 2:initiator
 using MowTabletCompactionInfo = BasicKeyInfo<29 , std::tuple<std::string, int64_t, int64_t>>;
+//                                                  0:instance_id 1:table_id
+using StatsMowLockInfo = BasicKeyInfo<30 , std::tuple<std::string, int64_t>>;
 
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
@@ -257,6 +262,7 @@ void stats_tablet_num_rowsets_key(const StatsTabletKeyInfo& in, std::string* out
 void stats_tablet_num_segs_key(const StatsTabletKeyInfo& in, std::string* out);
 void stats_tablet_index_size_key(const StatsTabletKeyInfo& in, std::string* out);
 void stats_tablet_segment_size_key(const StatsTabletKeyInfo& in, std::string* out);
+void stats_mow_lock_last_release_key(const StatsMowLockInfo& in, std::string* out);
 static inline std::string stats_tablet_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_key(in, &s); return s; }
 static inline std::string stats_tablet_data_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_data_size_key(in, &s); return s; }
 static inline std::string stats_tablet_num_rows_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_rows_key(in, &s); return s; }
@@ -264,6 +270,7 @@ static inline std::string stats_tablet_num_rowsets_key(const StatsTabletKeyInfo&
 static inline std::string stats_tablet_num_segs_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_num_segs_key(in, &s); return s; }
 static inline std::string stats_tablet_index_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_index_size_key(in, &s); return s; }
 static inline std::string stats_tablet_segment_size_key(const StatsTabletKeyInfo& in) { std::string s; stats_tablet_segment_size_key(in, &s); return s; }
+static inline std::string stats_mow_lock_last_release_key(const StatsMowLockInfo& in) { std::string s; stats_mow_lock_last_release_key(in, &s); return s; }
 
 void job_recycle_key(const JobRecycleKeyInfo& in, std::string* out);
 void job_check_key(const JobRecycleKeyInfo& in, std::string* out);

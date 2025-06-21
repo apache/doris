@@ -157,6 +157,13 @@ public:
     // TODO: min max or and xor cmp_and_clear set_ver_value
 
     /**
+     * Sets the value in the database to the larger of the existing value and `param`.
+     * The default value is zero if no such key exists before.
+     * Note: Both the existing value and param are treated as unsigned integer.
+     */
+    virtual void atomic_max(std::string_view key, uint64_t param) = 0;
+
+    /**
      * Decode the atomic value written by `atomic_add`.
      *
      * @param data the data to decode
@@ -538,6 +545,13 @@ public:
      */
     void atomic_add(std::string_view key, int64_t to_add) override;
     // TODO: min max or and xor cmp_and_clear set_ver_value
+
+    /**
+     * Sets the value in the database to the larger of the existing value and `param`.
+     * The default value is zero if no such key exists before.
+     * Note: Both the existing value and param are treated as unsigned integer.
+     */
+    void atomic_max(std::string_view key, uint64_t param) override;
 
     bool decode_atomic_int(std::string_view data, int64_t* val) override;
 
