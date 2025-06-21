@@ -79,6 +79,12 @@ public:
         callback(offsets_column);
     }
 
+    void sanity_check() const override {
+        keys_column->sanity_check();
+        values_column->sanity_check();
+        offsets_column->sanity_check();
+    }
+
     void clear() override {
         keys_column->clear();
         values_column->clear();

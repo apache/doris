@@ -63,10 +63,7 @@ Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
         _last_result_column_id = *result_column_id;
         // We should first check the status, as some expressions might incorrectly set result_column_id, even if the st is not ok.
         if (st.ok() && _last_result_column_id != -1) {
-            if (const auto* column_str = check_and_get_column<ColumnString>(
-                        block->get_by_position(*result_column_id).column.get())) {
-                column_str->sanity_check();
-            }
+            block->get_by_position(*result_column_id).column->sanity_check();
         }
     });
     return st;

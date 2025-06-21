@@ -143,6 +143,15 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void sanity_check() const override {
+        if (nested_column->size() != get_null_map_data().size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of nested column {} is not equal to size of null map {}",
+                                   nested_column->size(), get_null_map_data().size());
+        }
+        nested_column->sanity_check();
+    }
+
     void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return nested_column->is_variable_length(); }

@@ -85,6 +85,18 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
+    void sanity_check() const override {
+        for (size_t i = 0; i < columns.size(); ++i) {
+            columns[i]->sanity_check();
+            if (i != 0 && columns[i]->size() != columns[0]->size()) {
+                throw doris::Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Size of sub column({}) is not equal to size of first column({})",
+                        columns[i]->size(), columns[0]->size());
+            }
+        }
+    }
+
     bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
