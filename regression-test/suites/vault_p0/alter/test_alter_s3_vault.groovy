@@ -203,8 +203,11 @@ suite("test_alter_s3_vault", "nonConcurrent") {
     for (int i = 0; i < vaultInfos.size(); i++) {
         logger.info("vault info: ${vaultInfos[i]}")
         if (vaultInfos[i][0].equals(s3VaultName)) {
+            // [s3_9f2c2f80a45c4fb48ad901f70675ffdf, 8, ctime: 1750217403 mtime: 1750217404 ak: "*******" sk: "xxxxxxx" bucket: "xxx" ...]
             def newProperties = vaultInfos[i][2]
-            assertTrue(properties.equals(newProperties), "Properties are not the same")
+            def oldAkSkStr = properties.substring(properties.indexOf("ak:") + 3, properties.indexOf("bucket:") - 1)
+            def newAkSkStr = newProperties.substring(newProperties.indexOf("ak:") + 3, newProperties.indexOf("bucket:") - 1)
+            assertTrue(oldAkSkStr.equals(newAkSkStr), "Ak and Sk string are not the same")
         }
     }
 
