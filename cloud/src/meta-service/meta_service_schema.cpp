@@ -26,10 +26,12 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <type_traits>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/stats.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
