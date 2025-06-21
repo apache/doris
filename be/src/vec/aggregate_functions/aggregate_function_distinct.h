@@ -65,6 +65,8 @@ struct AggregateFunctionDistinctSingleNumericData {
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
 
+    void clear() { data.clear(); }
+
     void add(const IColumn** columns, size_t /* columns_num */, size_t row_num, Arena*) {
         const auto& vec =
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*columns[0])
@@ -134,6 +136,8 @@ struct AggregateFunctionDistinctGenericData {
                                          phmap::flat_hash_set<StringRef, StringRefHash>>;
     using Self = AggregateFunctionDistinctGenericData;
     Container data;
+
+    void clear() { data.clear(); }
 
     void merge(const Self& rhs, Arena* arena) {
         DCHECK(!stable);
@@ -322,6 +326,12 @@ public:
         nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
                                             arguments_raw.data(), &arena);
         nested_func->insert_result_into(get_nested_place(place), to);
+        this->data(place).clear();
+    }
+
+    void reset(AggregateDataPtr place) const override {
+        this->data(place).clear();
+        nested_func->reset(get_nested_place(place));
     }
 
     size_t size_of_data() const override { return prefix_size + nested_func->size_of_data(); }
