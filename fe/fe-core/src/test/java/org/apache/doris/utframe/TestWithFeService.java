@@ -29,6 +29,7 @@ import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -245,7 +246,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
@@ -257,7 +257,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql, ctx);
         cascadesContext.newAnalyzer().analyze();
         ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
@@ -275,7 +274,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql, ctx);
         cascadesContext.newAnalyzer().analyze();
         ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         LogicalPlan plan = (LogicalPlan) cascadesContext.getRewritePlan();
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, cascadesContext.getStatementContext());
         adapter.setViewDdlSqls(cascadesContext.getStatementContext().getViewDdlSqls());
@@ -722,8 +720,15 @@ public abstract class TestWithFeService {
             }
         } else {
             for (String sql : sqls) {
-                CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
-                Env.getCurrentEnv().createTable(stmt);
+                StatementBase statementBase = parseAndAnalyzeStmt(sql);
+                if (statementBase instanceof CreateTableStmt) {
+                    CreateTableStmt stmt = (CreateTableStmt) statementBase;
+                    Env.getCurrentEnv().createTable(stmt);
+                }
+                if (statementBase instanceof CreateViewStmt) {
+                    CreateViewStmt stmt = (CreateViewStmt) statementBase;
+                    Env.getCurrentEnv().createView(stmt);
+                }
             }
         }
         updateReplicaPathHash();
