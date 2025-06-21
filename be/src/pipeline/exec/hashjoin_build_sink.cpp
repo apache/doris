@@ -592,6 +592,19 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
             }
 
             SCOPED_TIMER(local_state._build_side_merge_block_timer);
+            if (local_state._build_side_mutable_block.rows() == 1) {
+                for (int i = 0; i < in_block->columns(); ++i) {
+                    auto& col = in_block->get_by_position(i).column;
+                    // If the column is not nullable, we clone it to avoid
+                    // mocked invalid data make other conjuncts's expr evaluation failed.
+                    // eg: MONTHS_ADD(x, 2), if x is a mocked invalid date, it will produce an exception
+                    // and query failed
+                    if (!col->is_nullable()) {
+                        local_state._build_side_mutable_block.get_column_by_position(i) =
+                                col->clone_resized(1);
+                    }
+                }
+            }
             RETURN_IF_ERROR(local_state._build_side_mutable_block.merge_ignore_overflow(
                     std::move(*in_block)));
             int64_t blocks_mem_usage = local_state._build_side_mutable_block.allocated_bytes();
