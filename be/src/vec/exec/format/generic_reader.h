@@ -47,7 +47,8 @@ public:
         return Status::NotSupported("get_columns is not implemented");
     }
 
-    // this should be called before get_parsed_schema
+    // This method is responsible for initializing the resource for parsing schema.
+    // It will be called before `get_parsed_schema`.
     virtual Status init_schema_reader() {
         return Status::NotSupported("init_schema_reader is not implemented for this reader.");
     }

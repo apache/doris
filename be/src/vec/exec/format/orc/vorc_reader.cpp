@@ -359,6 +359,7 @@ Status OrcReader::init_reader(
     return Status::OK();
 }
 
+// init file reader for parsing schema
 Status OrcReader::init_schema_reader() {
     return _create_file_reader();
 }

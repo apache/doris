@@ -257,6 +257,7 @@ Status NewJsonReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
     return Status::OK();
 }
 
+// init decompressor, file reader and line reader for parsing schema
 Status NewJsonReader::init_schema_reader() {
     RETURN_IF_ERROR(_get_range_params());
     // create decompressor.

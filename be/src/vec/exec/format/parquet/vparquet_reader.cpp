@@ -488,6 +488,7 @@ Status ParquetReader::set_fill_columns(
     return Status::OK();
 }
 
+// init file reader and file metadata for parsing schema
 Status ParquetReader::init_schema_reader() {
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &(_file_metadata->to_thrift());

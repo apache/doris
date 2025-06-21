@@ -392,6 +392,7 @@ Status CsvReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name
     return Status::OK();
 }
 
+// init decompressor, file reader and line reader for parsing schema
 Status CsvReader::init_schema_reader() {
     _start_offset = _range.start_offset;
     if (_start_offset != 0) {

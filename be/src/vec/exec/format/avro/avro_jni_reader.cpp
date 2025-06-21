@@ -112,6 +112,7 @@ TFileType::type AvroJNIReader::get_file_type() const {
     return type;
 }
 
+// open the jni connector for parsing schema
 Status AvroJNIReader::init_schema_reader() {
     std::map<String, String> required_param = {{"uri", _range.path},
                                                {"file_type", std::to_string(get_file_type())},
