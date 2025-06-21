@@ -43,7 +43,7 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[nation]
 
 Hint log:
-Used: leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 ) 
-UnUsed: 
+Used: leading(supplier { orders { lineitem broadcast part } { customer broadcast { n1 broadcast region } } } broadcast n2 )
+UnUsed:
 SyntaxError:
 
