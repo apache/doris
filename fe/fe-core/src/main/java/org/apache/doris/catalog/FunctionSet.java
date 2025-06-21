@@ -626,6 +626,7 @@ public class FunctionSet<T> {
         vecFns.add(fn);
     }
 
+    public static final String CONTEXT_NGRAMS = "context_ngrams";
 
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
@@ -656,6 +657,48 @@ public class FunctionSet<T> {
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
     private void initAggregateBuiltins() {
+
+        // context_ngrams(array<array<string>>, int, int)
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), Type.INT, Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, false, true));
+        // context_ngrams(array<array<string>>, int, int, int)
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), Type.INT, Type.INT, Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, false, true));
+        // context_ngrams(array<array<string>>, array<string>, int)
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)), new ArrayType(Type.STRING), Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, false, true));
+        // context_ngrams(array<array<string>>, array<string>, int, int)
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.CONTEXT_NGRAMS,
+                Lists.newArrayList(new ArrayType(new ArrayType(Type.STRING)),
+                new ArrayType(Type.STRING), Type.INT, Type.INT),
+                new ArrayType(new ArrayType(Type.STRING)), Type.VARCHAR,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, true, false, true));
 
         // Type stringType[] = {Type.CHAR, Type.VARCHAR};
         // count(*)
