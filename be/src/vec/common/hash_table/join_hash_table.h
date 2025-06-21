@@ -209,7 +209,7 @@ public:
 
     bool keep_null_key() { return _keep_null_key; }
 
-    void pre_build_idxs(DorisVector<uint32>& buckets) const {
+    void pre_build_idxs(DorisVector<uint32_t>& buckets) const {
         for (unsigned int& bucket : buckets) {
             bucket = first[bucket];
         }

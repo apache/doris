@@ -398,7 +398,7 @@ Status JniConnector::_fill_array_column(TableMetaAddress& address, MutableColumn
                     ->get_nested_type());
     ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*doris_column).get_offsets();
 
-    int64* offsets = reinterpret_cast<int64*>(address.next_meta_as_ptr());
+    int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
     size_t origin_size = offsets_data.size();
     offsets_data.resize(origin_size + num_rows);
     size_t start_offset = offsets_data[origin_size - 1];
@@ -424,7 +424,7 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
     ColumnPtr& value_column = map.get_values_ptr();
     ColumnArray::Offsets64& map_offsets = map.get_offsets();
 
-    int64* offsets = reinterpret_cast<int64*>(address.next_meta_as_ptr());
+    int64_t* offsets = reinterpret_cast<int64_t*>(address.next_meta_as_ptr());
     size_t origin_size = map_offsets.size();
     map_offsets.resize(origin_size + num_rows);
     size_t start_offset = map_offsets[origin_size - 1];

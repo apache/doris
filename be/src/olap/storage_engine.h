@@ -247,7 +247,7 @@ public:
 
     // get root path for creating tablet. The returned vector of root path should be round robin,
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<DataDir*> get_stores_for_create_tablet(int64 partition_id,
+    std::vector<DataDir*> get_stores_for_create_tablet(int64_t partition_id,
                                                        TStorageMedium::type storage_medium);
 
     DataDir* get_store(const std::string& path);
@@ -444,7 +444,7 @@ private:
     void _get_candidate_stores(TStorageMedium::type storage_medium,
                                std::vector<DirInfo>& dir_infos);
 
-    int _get_and_set_next_disk_index(int64 partition_id, TStorageMedium::type storage_medium);
+    int _get_and_set_next_disk_index(int64_t partition_id, TStorageMedium::type storage_medium);
 
     int32_t _auto_get_interval_by_disk_capacity(DataDir* data_dir);
 

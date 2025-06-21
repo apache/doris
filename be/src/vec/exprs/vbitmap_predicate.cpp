@@ -101,7 +101,7 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
         auto column_nullmap = assert_cast<const ColumnNullable*>(argument_column.get())
                                       ->get_null_map_column_ptr();
         _filter->find_batch(column_nested->get_raw_data().data,
-                            (uint8*)column_nullmap->get_raw_data().data, sz, ptr);
+                            (uint8_t*)column_nullmap->get_raw_data().data, sz, ptr);
     } else {
         _filter->find_batch(argument_column->get_raw_data().data, nullptr, sz, ptr);
     }

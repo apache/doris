@@ -47,11 +47,11 @@ public:
 
         auto start = std::chrono::high_resolution_clock::now();
         io::FileReaderOptions reader_opts;
-        FileSystemProperties params {
-                .system_type = TFileType::FILE_HDFS,
-                .hdfs_params = parse_properties(_conf_map),
-        };
-        FileDescription fd {.path = file_path};
+        FileSystemProperties params {.system_type = TFileType::FILE_HDFS,
+                                     .properties = {},
+                                     .hdfs_params = parse_properties(_conf_map),
+                                     .broker_addresses = {}};
+        FileDescription fd {.path = file_path, .file_size = -1, .mtime = 0, .fs_name = ""};
         auto reader = DORIS_TRY(FileFactory::create_file_reader(params, fd, reader_opts, nullptr));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
