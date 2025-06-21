@@ -139,6 +139,7 @@ Status Scanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 #ifndef BE_TEST
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(_num_rows_read -
                                                                             old_scan_rows);
+    // if enable filecache, scan_bytes will reset as bytes_read_from_local + bytes_read_from_remote
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(_num_byte_read -
                                                                              old_scan_bytes);
 #endif

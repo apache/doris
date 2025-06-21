@@ -649,7 +649,9 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    if (config::enable_file_cache) {
+    // only cloud deploy mode should use file cache
+    if (config::is_cloud_mode() && config::enable_file_cache &&
+        _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
     }
@@ -707,10 +709,19 @@ void OlapScanner::_collect_profile_before_close() {
     tablet->query_scan_bytes->increment(local_state->_read_compressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
     tablet->query_scan_count->increment(1);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-            stats.file_cache_stats.bytes_read_from_local);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
-            stats.file_cache_stats.bytes_read_from_remote);
+
+    IOContext* io_ctx = _state->get_query_ctx()->resource_ctx()->io_context();
+    int64_t local = stats.file_cache_stats.bytes_read_from_local;
+    int64_t remote = stats.file_cache_stats.bytes_read_from_remote;
+    // if local + remote = 0, use the value updated in Scanner::get_block
+    if (local + remote > 0) {
+        io_ctx->update_scan_bytes_from_local_storage(local);
+        io_ctx->update_scan_bytes_from_remote_storage(remote);
+        io_ctx->set_scan_bytes(local + remote);
+    } else if (!config::is_cloud_mode()) {
+        // in local deploy mode, all bytes scaned from local storage
+        io_ctx->set_scan_bytes_from_local_storage(io_ctx->scan_bytes());
+    }
 }
 
 } // namespace doris::vectorized
