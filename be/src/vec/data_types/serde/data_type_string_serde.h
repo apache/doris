@@ -268,6 +268,30 @@ public:
         return Status::OK();
     }
 
+    Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
+                                     JsonbWriter& writer) const override {
+        const auto& data = assert_cast<const ColumnString&>(from_column).get_data_at(row_num);
+
+        // start writing string
+        if (!writer.writeStartString()) {
+            return Status::InternalError("writeStartString failed");
+        }
+
+        // write string
+        if (data.size > 0) {
+            if (writer.writeString(data.data, data.size) == 0) {
+                return Status::InternalError("writeString failed");
+            }
+        }
+
+        // end writing string
+        if (!writer.writeEndString()) {
+            return Status::InternalError("writeEndString failed");
+        }
+
+        return Status::OK();
+    }
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override {
         if (times < 1) [[unlikely]] {
             return;

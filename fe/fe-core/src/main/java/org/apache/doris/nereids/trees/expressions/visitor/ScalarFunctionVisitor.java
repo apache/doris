@@ -452,6 +452,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIpv6OrNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
@@ -1501,6 +1502,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitJsonbExtractString(JsonbExtractString jsonbExtractString, C context) {
         return visitScalarFunction(jsonbExtractString, context);
+    }
+
+    default R visitToJson(ToJson toJson, C context) {
+        return visitScalarFunction(toJson, context);
     }
 
     default R visitJsonbParse(JsonbParse jsonbParse, C context) {

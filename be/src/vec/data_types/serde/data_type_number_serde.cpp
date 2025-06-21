@@ -265,6 +265,33 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 }
 
 template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                         int64_t row_num,
+                                                         JsonbWriter& writer) const {
+    const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
+    if constexpr (T == TYPE_TINYINT) {
+        writer.writeInt8(data);
+    } else if constexpr (T == TYPE_BOOLEAN) {
+        writer.writeBool(data);
+    } else if constexpr (T == TYPE_SMALLINT) {
+        writer.writeInt16(data);
+    } else if constexpr (T == TYPE_INT) {
+        writer.writeInt32(data);
+    } else if constexpr (T == TYPE_BIGINT) {
+        writer.writeInt64(data);
+    } else if constexpr (T == TYPE_LARGEINT) {
+        writer.writeInt128(data);
+    } else if constexpr (T == TYPE_FLOAT) {
+        writer.writeFloat(data);
+    } else if constexpr (T == TYPE_DOUBLE) {
+        writer.writeDouble(data);
+    } else {
+        return Status::NotSupported("Unsupported data type for JSONB serialization");
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                      uint64_t times) const {
     if (times < 1) [[unlikely]] {
