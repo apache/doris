@@ -76,7 +76,6 @@ import org.apache.doris.analysis.UnsetVariableStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -1139,8 +1138,6 @@ public class StmtExecutor {
                 handleUnlockTablesStmt();
             } else if (parsedStmt instanceof LockTablesStmt) {
                 handleLockTablesStmt();
-            } else if (parsedStmt instanceof WarmUpClusterStmt) {
-                handleWarmUpStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
             } else if (parsedStmt instanceof AnalyzeStmt) {
@@ -2716,34 +2713,6 @@ public class StmtExecutor {
         }
 
         context.getState().setOk();
-    }
-
-    private void handleWarmUpStmt() throws IOException, AnalysisException {
-        WarmUpClusterStmt stmt = (WarmUpClusterStmt) parsedStmt;
-        long jobId = -1;
-        try {
-            jobId = ((CloudEnv) context.getEnv()).getCacheHotspotMgr().createJob(stmt);
-            ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-            builder.addColumn(new Column("JobId", ScalarType.createVarchar(30)));
-            List<List<String>> infos = Lists.newArrayList();
-            List<String> info = Lists.newArrayList();
-            info.add(String.valueOf(jobId));
-            infos.add(info);
-            ShowResultSet resultSet = new ShowResultSet(builder.build(), infos);
-            if (resultSet == null) {
-                // state changed in execute
-                return;
-            }
-            if (isProxy) {
-                proxyShowResultSet = resultSet;
-                return;
-            }
-
-            sendResultSet(resultSet);
-        } catch (AnalysisException e) {
-            LOG.info("failed to create a warm up job, error: {}", e.getMessage());
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-        }
     }
 
     private void sendMetaData(ResultSetMetaData metaData) throws IOException {
