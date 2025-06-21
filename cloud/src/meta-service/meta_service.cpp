@@ -38,6 +38,7 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -991,6 +992,60 @@ static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
     existed_rowset_meta->CopyFrom(metas.Get(0));
 }
 
+bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg,
+                       const std::string& instance_id, int64_t tablet_id,
+                       const std::string& rowset_id, const std::string& job_id) {
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return false;
+    }
+
+    std::string job_key = job_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                          tablet_idx.partition_id(), tablet_id});
+    std::string job_val;
+    auto err = txn->get(job_key, &job_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+           << " rowset_id=" << rowset_id << " err=" << err;
+        msg = ss.str();
+        code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::STALE_PREPARE_ROWSET
+                                                      : cast_as<ErrCategory::READ>(err);
+        return false;
+    }
+
+    TabletJobInfoPB job_pb;
+    job_pb.ParseFromString(job_val);
+    bool match = false;
+    if (!job_pb.compaction().empty()) {
+        for (auto c : job_pb.compaction()) {
+            if (c.id() == job_id) {
+                match = true;
+            }
+        }
+    }
+
+    if (job_pb.has_schema_change()) {
+        if (job_pb.schema_change().id() == job_id) {
+            match = true;
+        }
+    }
+
+    if (!match) {
+        std::stringstream ss;
+        ss << " stale perpare rowset request,"
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id << " job id=" << job_id
+           << " rowset_id=" << rowset_id;
+        msg = ss.str();
+        code = MetaServiceCode::STALE_PREPARE_ROWSET;
+        return false;
+    }
+
+    return true;
+}
+
 /**
 * Check if the transaction status is as expected.
 * If the transaction is not in the expected state, return false and set the error code and message.
@@ -1098,6 +1153,15 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
         return;
+    }
+
+    // Check if the compaction/sc tablet job has finished
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                               request->tablet_job_id())) {
+            return;
+        }
     }
 
     // Check if the prepare rowset request is invalid.
@@ -1235,6 +1299,15 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
         return;
+    }
+
+    // Check if the compaction/sc tablet job has finished
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                               request->tablet_job_id())) {
+            return;
+        }
     }
 
     // Check if the commit rowset request is invalid.
