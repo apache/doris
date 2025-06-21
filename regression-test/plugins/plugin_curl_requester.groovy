@@ -168,13 +168,19 @@ Suite.metaClass.curl = { String method, String url, String body = null, Integer 
 logger.info("Added 'curl' function to Suite")
 
 Suite.metaClass.show_be_config = { String ip, String port /*param */ ->
-    return curl("GET", String.format("http://%s:%s/api/show_config", ip, port))
+    def url = String.format("http://%s:%s/api/show_config", ip, port)
+    // Use Http.GET with authentication parameters to get raw response
+    def result = Http.GET(url, false, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 logger.info("Added 'show_be_config' function to Suite")
 
 Suite.metaClass.update_be_config = { String ip, String port, String key, String value /*param */ ->
-    return curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value))
+    def url = String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value)
+    // Use Http.POST with authentication parameters to get raw response
+    def result = Http.POST(url, null, false, context.config.feHttpUser, context.config.feHttpPassword)
+    return [0, result, ""] // Return format compatible with curl [exit_code, stdout, stderr]
 }
 
 logger.info("Added 'update_be_config' function to Suite")
@@ -186,7 +192,8 @@ Suite.metaClass.update_all_be_config = { String key, Object value ->
     backendId_to_backendIP.each { beId, beIp ->
         def port = backendId_to_backendHttpPort.get(beId)
         def url = "http://${beIp}:${port}/api/update_config?${key}=${value}"
-        def result = Http.POST(url, null, true)
+        // Use Http with authentication parameters
+        def result = Http.POST(url, null, true, context.config.feHttpUser, context.config.feHttpPassword)
         assert result.size() == 1, result.toString()
         assert result[0].status == "OK", result.toString()
     }
@@ -196,7 +203,8 @@ logger.info("Added 'update_all_be_config' function to Suite")
 
 Suite.metaClass._be_report = { String ip, int port, String reportName ->
     def url = "http://${ip}:${port}/api/report/${reportName}"
-    def result = Http.GET(url, true)
+    // Use Http with authentication parameters
+    def result = Http.GET(url, true, true, context.config.feHttpUser, context.config.feHttpPassword)
     Http.checkHttpResult(result, NodeType.BE)
 }
 
