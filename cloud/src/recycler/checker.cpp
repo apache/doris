@@ -559,7 +559,8 @@ int InstanceChecker::do_check() {
             }
             data_loss = true;
             TEST_SYNC_POINT_CALLBACK("InstanceChecker.do_check1", &path);
-            LOG(WARNING) << "object not exist, path=" << path << " key=" << hex(key);
+            LOG(WARNING) << "object not exist, path=" << path
+                         << ", rs_meta=" << rs_meta.ShortDebugString() << " key=" << hex(key);
         }
 
         if (data_loss) {
