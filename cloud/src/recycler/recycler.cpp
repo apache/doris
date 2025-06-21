@@ -442,7 +442,7 @@ public:
         }
         auto schema_key = meta_schema_key({instance_id_, index_id, schema_version});
         ValueBuf val_buf;
-        err = cloud::get(txn.get(), schema_key, &val_buf);
+        err = cloud::blob_get(txn.get(), schema_key, &val_buf);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get schema, err=" << err;
             return static_cast<int>(err);

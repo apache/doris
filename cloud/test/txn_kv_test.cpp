@@ -250,7 +250,7 @@ TEST(TxnKvTest, CompatibleGetTest) {
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
     ValueBuf val_buf;
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
     txn->put(key, val);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
@@ -259,7 +259,7 @@ TEST(TxnKvTest, CompatibleGetTest) {
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     err = doris::cloud::key_exists(txn.get(), key);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
-    err = doris::cloud::get(txn.get(), key, &val_buf);
+    err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     EXPECT_EQ(val_buf.ver, 0);
     doris::TabletSchemaCloudPB saved_schema;
@@ -277,7 +277,7 @@ TEST(TxnKvTest, CompatibleGetTest) {
     // Check remove
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(TxnKvTest, PutLargeValueTest) {
@@ -305,7 +305,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     auto key = meta_schema_key({instance_id, 10005, 1});
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-    doris::cloud::put(txn.get(), key, schema, 1, 100);
+    doris::cloud::blob_put(txn.get(), key, schema, 1, 100);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     // Check get
@@ -313,7 +313,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     ValueBuf val_buf;
     doris::TabletSchemaCloudPB saved_schema;
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_OK);
-    TxnErrorCode err = doris::cloud::get(txn.get(), key, &val_buf);
+    TxnErrorCode err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
     EXPECT_EQ(val_buf.ver, 1);
@@ -329,7 +329,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
         auto* limit = doris::try_any_cast<int*>(args[0]);
         *limit = 100;
     });
-    err = doris::cloud::get(txn.get(), key, &val_buf);
+    err = doris::cloud::blob_get(txn.get(), key, &val_buf);
     ASSERT_EQ(err, TxnErrorCode::TXN_OK);
     std::cout << "num iterators=" << val_buf.iters.size() << std::endl;
     EXPECT_EQ(val_buf.ver, 1);
@@ -364,7 +364,7 @@ TEST(TxnKvTest, PutLargeValueTest) {
     // Check remove
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     ASSERT_EQ(doris::cloud::key_exists(txn.get(), key), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    ASSERT_EQ(doris::cloud::get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(doris::cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_KEY_NOT_FOUND);
 }
 
 TEST(TxnKvTest, RangeGetIteratorContinue) {
