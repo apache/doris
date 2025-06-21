@@ -415,10 +415,6 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, vectorized::Block* inpu
         std::vector<int> res_col_ids(local_state._probe_expr_ctxs.size());
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
                                      *local_state._probe_expr_call_timer, res_col_ids));
-        if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-            local_state._probe_column_convert_to_null =
-                    local_state._convert_block_to_null(*input_block);
-        }
 
         RETURN_IF_ERROR(local_state._extract_join_column(*input_block, res_col_ids));
 
