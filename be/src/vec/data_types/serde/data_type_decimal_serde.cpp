@@ -32,6 +32,46 @@
 namespace doris::vectorized {
 // #include "common/compile_check_begin.h"
 
+template <PrimitiveType PT>
+void write_decimal(const typename PrimitiveTypeTraits<PT>::ColumnItemType& value,
+                   BufferWritable& bw, int scale) {
+    if constexpr (PT != TYPE_DECIMALV2) {
+        auto decimal_str = value.to_string(scale);
+        bw.write(decimal_str.data(), decimal_str.size());
+    } else {
+        using FieldType = typename PrimitiveTypeTraits<PT>::ColumnItemType;
+        const typename FieldType::NativeType scale_multiplier =
+                decimal_scale_multiplier<typename FieldType::NativeType>(scale);
+        char buf[FieldType::max_string_length()];
+        auto length = value.to_string(buf, scale, scale_multiplier);
+        bw.write(buf, length);
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                         BufferWritable& bw) const {
+    auto& col = assert_cast<const ColumnType&>(column);
+    auto value = col.get_element(row_num);
+    write_decimal<T>(value, bw, scale);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Result<ColumnString::Ptr> DataTypeDecimalSerDe<T>::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    column_to->reserve(size * FieldType::max_string_length());
+    BufferWritable write_buffer(*column_to);
+    auto& col = assert_cast<const ColumnType&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_decimal<T>(col.get_element(i), write_buffer, scale);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                          int64_t end_idx, BufferWritable& bw,

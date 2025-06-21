@@ -29,6 +29,37 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+void write_ipv6(const typename PrimitiveTypeTraits<TYPE_IPV6>::ColumnItemType& value,
+                BufferWritable& bw) {
+    IPv6Value ipv6_value(value);
+    std::string ipv6_str = ipv6_value.to_string();
+    bw.write(ipv6_str.c_str(), ipv6_str.length());
+}
+
+Status DataTypeIPv6SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                   BufferWritable& bw) const {
+    DataTypeSerDe::write_left_quotation(bw);
+    IPv6 value = assert_cast<const ColumnIPv6&>(column).get_element(row_num);
+    write_ipv6(value, bw);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+Result<ColumnString::Ptr> DataTypeIPv6SerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    const size_t output_length = sizeof("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff");
+    column_to->reserve(size * output_length);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnIPv6&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_ipv6(col.get_element(i), write_buffer);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 template <bool is_binary_format>
 Status DataTypeIPv6SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,

@@ -46,6 +46,12 @@ public:
     DataTypeDateV2SerDe(int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_DATEV2>(nesting_level) {};
 
+    Status serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                    BufferWritable& bw) const override;
+
+    Result<ColumnString::Ptr> serialize_column_to_column_string(
+            const IColumn& column) const override;
+
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,

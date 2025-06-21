@@ -16,9 +16,42 @@
 // under the License.
 
 #include "data_type_time_serde.h"
+
+#include "vec/runtime/time_value.h"
 namespace doris {
 namespace vectorized {
 #include "common/compile_check_begin.h"
+
+void write_time(const typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnItemType& value,
+                BufferWritable& bw, int scale) {
+    auto time_str = TimeValue::to_string(value, scale);
+    bw.write(time_str.data(), time_str.size());
+}
+
+Status DataTypeTimeV2SerDe::serialize_column_to_text(const IColumn& column, int64_t row_num,
+                                                     BufferWritable& bw) const {
+    const auto& time_column = assert_cast<const ColumnTimeV2&>(column);
+    DataTypeSerDe::write_left_quotation(bw);
+    write_time(time_column.get_element(row_num), bw, scale);
+    DataTypeSerDe::write_right_quotation(bw);
+    return Status::OK();
+}
+
+Result<ColumnString::Ptr> DataTypeTimeV2SerDe::serialize_column_to_column_string(
+        const IColumn& column) const {
+    const auto size = column.size();
+    auto column_to = ColumnString::create();
+    const size_t output_length = sizeof("HH:MM:SS") + scale;
+    column_to->reserve(size * output_length);
+    BufferWritable write_buffer(*column_to);
+    const auto& col = assert_cast<const ColumnTimeV2&>(column);
+    for (size_t i = 0; i < size; ++i) {
+        write_time(col.get_element(i), write_buffer, scale);
+        write_buffer.commit();
+    }
+    return column_to;
+}
+
 Status DataTypeTimeV2SerDe::write_column_to_mysql(const IColumn& column,
                                                   MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                   bool col_const,
