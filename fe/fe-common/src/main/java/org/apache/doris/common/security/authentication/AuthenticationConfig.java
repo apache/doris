@@ -60,6 +60,12 @@ public abstract class AuthenticationConfig {
         return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
     }
 
+    public static AuthenticationConfig getKerberosConfig(Map<String, String> params) {
+        Configuration conf = new Configuration();
+        params.forEach(conf::set);
+        return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
+    }
+
     public static AuthenticationConfig getSimpleAuthenticationConfig(Configuration conf) {
         return AuthenticationConfig.createSimpleAuthenticationConfig(conf);
     }
