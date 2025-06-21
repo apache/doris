@@ -123,4 +123,10 @@ suite("test_pull_up_agg") {
     inner join test_pull_up_agg_t2 t2 on t.col1=t2.a and t.col2=t2.c order by 1,2,3;"""
     qt_max_less_less_equal_without_group_by_shape """explain shape plan  select t.col1,t.col2,t2.a from (select max(a) col1, max(c) col2 from test_pull_up_agg_t1 where a<=20 and c<200 ) t
     inner join test_pull_up_agg_t2 t2 on t.col1=t2.a and t.col2=t2.c order by 1,2,3;"""
+
+    qt_pull_up_from_agg_to_filter_with_same_cond_shape """explain shape plan select max(a) as col1 from test_pull_up_agg_t1 where a >1 having col1 > 1 order by 1;"""
+    qt_pull_up_from_agg_to_filter_with_same_cond """select max(a) as col1 from test_pull_up_agg_t1 where a >1 having col1 > 1 order by 1;"""
+
+    qt_pull_up_from_agg_to_filter_with_same_cond_shape """explain shape plan select max(a) as col1 from test_pull_up_agg_t1 where a >1 having col1 is null or col1 > 1 order by 1;"""
+    qt_pull_up_from_agg_to_filter_with_same_cond """select max(a) as col1 from test_pull_up_agg_t1 where a >1 having col1 is null or col1 > 1 order by 1;"""
 }
