@@ -73,9 +73,12 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstring>
 #include <limits>
+#include <memory>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 
