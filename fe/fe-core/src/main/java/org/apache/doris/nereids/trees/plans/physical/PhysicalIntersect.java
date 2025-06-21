@@ -80,7 +80,9 @@ public class PhysicalIntersect extends PhysicalSetOperation {
                 "qualifier", qualifier,
                 "outputs", outputs,
                 "regularChildrenOutputs", regularChildrenOutputs,
-                "stats", statistics);
+                "stats", statistics,
+                "RFV2", runtimeFiltersV2
+        );
     }
 
     @Override
