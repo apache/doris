@@ -347,6 +347,42 @@ void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& c
     }
 }
 
+template <PrimitiveType T>
+Status DataTypeDecimalSerDe<T>::write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                                      const size_t num_rows,
+                                                      const uint32_t* indexes) const {
+    const auto& column_decimal = assert_cast<const ColumnDecimal<T>&>(column);
+    for (uint32_t i = 0; i != num_rows; ++i) {
+        auto row_idx = indexes ? indexes[i] : i;
+
+        if constexpr (T == TYPE_DECIMALV2) {
+            DecimalV2Value decimal_val(column_decimal.get_data()[row_idx]);
+            auto decimal_str = decimal_val.to_string(scale);
+
+            StringParser::ParseResult result;
+            auto double_value = StringParser::string_to_float<double>(decimal_str.data(),
+                                                                      decimal_str.size(), &result);
+            if (result != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                return Status::InvalidArgument("cannot convert to double: {}", decimal_str);
+            }
+
+            results[row_idx]->writeDouble(double_value);
+        } else {
+            char buf[FieldType::max_string_length()] = {0};
+            auto len = column_decimal.get_element(row_idx).to_string(buf, scale, scale_multiplier);
+
+            StringParser::ParseResult result;
+            auto double_value = StringParser::string_to_float<double>(buf, len, &result);
+            if (result != StringParser::PARSE_SUCCESS) [[unlikely]] {
+                return Status::InvalidArgument("cannot convert to double: {}",
+                                               std::string(buf, len));
+            }
+            results[row_idx]->writeDouble(double_value);
+        }
+    }
+    return Status::OK();
+}
+
 template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL64>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL128I>;

@@ -101,6 +101,10 @@ public:
 
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override { return {nested_serde}; }
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

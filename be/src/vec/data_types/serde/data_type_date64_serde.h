@@ -79,6 +79,10 @@ public:
                                int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override;
 
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override;
+
 protected:
     template <bool is_date>
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
