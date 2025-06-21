@@ -404,7 +404,13 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         // we use needRuntimeAnyValue to indicate if any_value() is needed
         // if needRuntimeAnyValue is true, we will add it to the project list
         boolean needRuntimeAnyValue = false;
-        NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0);
+        // For the unCorrelate case:
+        // 1. `t1.a = (select t2.x from t2 limit 1)`, subquery output t2.x maybe null if subquery output 0 rows;
+        // 2. `t1.a = (select count(t2.x) from t2)`, subquery output count（t2.x) is always not nullable;
+        // When given a slot reference S, we don't know S is t2.x or count(t2.x),
+        // For safety reason, we treat S as nullable. even S is count(t2.x),
+        // we may have performance downgrade, but the execute result still be right.
+        NamedExpression oldSubqueryOutput = subquery.getQueryPlan().getOutput().get(0).withNullable(true);
         Slot countSlot = null;
         Slot anyValueSlot = null;
         Optional<Expression> newConjunct = conjunct;
@@ -418,9 +424,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 // but COUNT function is always not nullable.
                 // so wrap COUNT with Nvl to ensure its result is 0 instead of null to get the correct result
                 if (conjunct.isPresent()) {
-                    Map<Expression, Expression> replaceMap = new HashMap<>();
                     NamedExpression agg = ((ScalarSubquery) subquery).getTopLevelScalarAggFunction().get();
                     if (agg instanceof Alias) {
+                        Map<Expression, Expression> replaceMap = new HashMap<>();
                         if (((Alias) agg).child() instanceof NotNullableAggregateFunction) {
                             NotNullableAggregateFunction notNullableAggFunc =
                                     (NotNullableAggregateFunction) ((Alias) agg).child();
@@ -442,9 +448,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                 replaceMap.put(oldSubqueryOutput, new Nvl(oldSubqueryOutput,
                                         notNullableAggFunc.resultForEmptyInput()));
                             }
-                        }
-                        if (!replaceMap.isEmpty()) {
-                            newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                            if (!replaceMap.isEmpty()) {
+                                newConjunct = Optional.of(ExpressionUtils.replace(conjunct.get(), replaceMap));
+                            }
                         }
                     }
                 }
