@@ -39,6 +39,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
@@ -425,8 +427,10 @@ public abstract class MaterializationContext {
     /**
      * ToSummaryString, this contains only summary info.
      */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts,
+    public static String toSummaryString(CascadesContext cascadesContext,
             Plan physicalPlan) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         if (materializationContexts.isEmpty()) {
             return "";
         }
@@ -440,7 +444,7 @@ public abstract class MaterializationContext {
         if (!chosenMaterializationQualifiers.isEmpty()) {
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
                     builder.append(statementContext.isPreRewritten() ? " RBO." : " CBO.")
-                            .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
+                            .append(generateIdentifierName(materializationQualifier)).append(" chose\n"));
         } else {
             builder.append("  chose: none, \n");
         }
@@ -454,7 +458,7 @@ public abstract class MaterializationContext {
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
             rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
                     builder.append(statementContext.isPreRewritten() ? " RBO." : " CBO.")
-                            .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
+                            .append(generateIdentifierName(materializationQualifier)).append(" not chose\n"));
         } else {
             builder.append("  not chose: none, \n");
         }
@@ -466,7 +470,7 @@ public abstract class MaterializationContext {
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
                 builder.append("\n")
                         .append(statementContext.isPreRewritten() ? " RBO." : " CBO.")
-                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail, \n")
+                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail\n")
                         .append("  FailSummary: ").append(String.join(", ", failReasonSet));
             }
         }
