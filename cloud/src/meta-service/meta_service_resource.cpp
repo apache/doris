@@ -51,13 +51,6 @@ bool is_valid_storage_vault_name(const std::string& str) {
 
 namespace doris::cloud {
 
-static void* run_bthread_work(void* arg) {
-    auto f = reinterpret_cast<std::function<void()>*>(arg);
-    (*f)();
-    delete f;
-    return nullptr;
-}
-
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
