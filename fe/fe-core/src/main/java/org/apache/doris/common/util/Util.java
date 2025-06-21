@@ -614,7 +614,11 @@ public class Util {
             return TFileCompressType.UNKNOWN;
         }
         final String upperCaseType = compressType.toUpperCase();
-        return TFileCompressType.valueOf(upperCaseType);
+        try {
+            return TFileCompressType.valueOf(upperCaseType);
+        } catch (IllegalArgumentException e) {
+            return TFileCompressType.UNKNOWN;
+        }
     }
 
     /**
