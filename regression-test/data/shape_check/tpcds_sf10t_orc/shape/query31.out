@@ -2,36 +2,38 @@
 -- !ds_shape_31 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----hashAgg[GLOBAL]
-------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[ss_addr_sk]
-------------------PhysicalProject
---------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
-------------------PhysicalProject
---------------------PhysicalOlapScan[customer_address]
---------------PhysicalProject
-----------------filter((ss.d_year = 1999) and d_qoy IN (1, 2, 3))
-------------------PhysicalOlapScan[date_dim]
---PhysicalCteAnchor ( cteId=CTEId#1 )
-----PhysicalCteProducer ( cteId=CTEId#1 )
+----PhysicalProject
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute[DistributionSpecHash]
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ws_sold_date_sk]
+--------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[ws_bill_addr_sk]
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[ss_addr_sk]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
+----------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer_address]
 ----------------PhysicalProject
-------------------filter((ws.d_year = 1999) and d_qoy IN (1, 2, 3))
+------------------filter((ss.d_year = 1999) and d_qoy IN (1, 2, 3))
 --------------------PhysicalOlapScan[date_dim]
+--PhysicalCteAnchor ( cteId=CTEId#1 )
+----PhysicalCteProducer ( cteId=CTEId#1 )
+------PhysicalProject
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ws_sold_date_sk]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[ws_bill_addr_sk]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer_address]
+------------------PhysicalProject
+--------------------filter((ws.d_year = 1999) and d_qoy IN (1, 2, 3))
+----------------------PhysicalOlapScan[date_dim]
 ----PhysicalResultSink
 ------PhysicalProject
 --------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((ws1.ca_county = ws3.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL))) build RFs:RF8 ca_county->[ca_county,ca_county,ca_county,ca_county]
