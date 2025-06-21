@@ -50,6 +50,7 @@ import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -244,7 +245,7 @@ public class PlanChecker {
 
     public PlanChecker rewrite() {
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-        cascadesContext.newTablePartitionCollector().execute();
+        MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
         InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         cascadesContext.toMemo();
         return this;
