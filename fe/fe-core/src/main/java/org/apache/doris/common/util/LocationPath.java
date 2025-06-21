@@ -29,13 +29,19 @@ import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.UUID;
 
 public class LocationPath {
     private static final Logger LOG = LogManager.getLogger(LocationPath.class);
-
+    private static final String SCHEME_DELIM = "://";
+    private static final String NONSTANDARD_SCHEME_DELIM = ":/";
 
     // Return true if this location is with oss-hdfs
     public static boolean isHdfsOnOssEndpoint(String location) {
@@ -116,6 +122,30 @@ public class LocationPath {
         this.storageProperties = storageProperties;
     }
 
+    private static String parseScheme(String finalLocation) {
+        String scheme = "";
+        String[] schemeSplit = finalLocation.split(SCHEME_DELIM);
+        if (schemeSplit.length > 1) {
+            scheme = schemeSplit[0];
+        } else {
+            schemeSplit = finalLocation.split(NONSTANDARD_SCHEME_DELIM);
+            if (schemeSplit.length > 1) {
+                scheme = schemeSplit[0];
+            }
+        }
+
+        // if not get scheme, need consider /path/to/local to no scheme
+        if (scheme.isEmpty()) {
+            try {
+                Paths.get(finalLocation);
+            } catch (InvalidPathException exception) {
+                throw new IllegalArgumentException("Fail to parse scheme, invalid location: " + finalLocation);
+            }
+        }
+
+        return scheme;
+    }
+
     /**
      * Static factory method to create a LocationPath2 instance.
      *
@@ -128,7 +158,6 @@ public class LocationPath {
                                   Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
                                   boolean normalize) throws UserException {
         String schema = extractScheme(location);
-
         String normalizedLocation = location;
         StorageProperties storageProperties = null;
         StorageProperties.Type type = SchemaTypeMapper.fromSchema(schema);
@@ -152,10 +181,22 @@ public class LocationPath {
             }
         }
 
-        URI uri = URI.create(normalizedLocation);
+        String encodedLocation = encodedLocation(normalizedLocation);
+        URI uri = URI.create(encodedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
 
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+    }
+
+
+    private static String encodedLocation(String location) {
+        try {
+            return URLEncoder.encode(location, StandardCharsets.UTF_8.name())
+                    .replace("%2F", "/")
+                    .replace("%3A", ":");
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public static LocationPath of(String location) {
@@ -193,8 +234,7 @@ public class LocationPath {
         if (Strings.isNullOrEmpty(location)) {
             return null;
         }
-        Path path = new Path(location);
-        return path.toUri().getScheme();
+        return parseScheme(location);
     }
 
     // Getters (optional, if needed externally)

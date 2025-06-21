@@ -284,4 +284,13 @@ public class LocationPathTest {
         Assertions.assertEquals(FileSystemType.S3, locationPath.getFileSystemType());
         Assertions.assertEquals(TFileType.FILE_S3, locationPath.getTFileTypeForBE());
     }
+
+    @Test
+    public void testHdfsStorageLocationConvert() {
+        String location = "hdfs://172.16.0.212:8020/tmp/.doris_staging/root/eebdbe9f7e11479f93eb3e151494bc66/pt1=1/pt2=1/pt3=123/pt4=456789/pt5=922232355/pt6=2024-04-09/pt7=2024-04-09 12%3A34%3A56.000000/pt8=A/pt9=example/pt10=string_value/1e468fad05ad4a52-8e9fb8b29f90f5bf_fc42f9bf-cf17-4bc1-8eec-3b1f747cd0f1-0.snappy.parquet";
+        LocationPath locationPath = LocationPath.of(location, STORAGE_PROPERTIES_MAP);
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
+        Assertions.assertEquals(location, locationPath.getNormalizedLocation());
+    }
+
 }

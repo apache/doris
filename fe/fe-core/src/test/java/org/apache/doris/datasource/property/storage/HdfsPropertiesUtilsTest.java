@@ -37,7 +37,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
         props.put("uri", "hdfs://localhost:9000/data/file.txt");
 
-        String result = HdfsPropertiesUtils.validateAndGetUri(props, null, supportSchema);
+        String result = HdfsPropertiesUtils.validateAndGetUri(props, null, null, supportSchema);
         Assertions.assertEquals("hdfs://localhost:9000/data/file.txt", result);
     }
 
@@ -46,7 +46,7 @@ public class HdfsPropertiesUtilsTest {
         Map<String, String> props = new HashMap<>();
 
         Exception exception = Assertions.assertThrows(UserException.class, () -> {
-            HdfsPropertiesUtils.validateAndGetUri(props, null, supportSchema);
+            HdfsPropertiesUtils.validateAndGetUri(props, null, null, supportSchema);
         });
         Assertions.assertEquals("errCode = 2, detailMessage = props is empty", exception.getMessage());
     }
@@ -57,7 +57,7 @@ public class HdfsPropertiesUtilsTest {
         props.put("path", "xxx");
 
         Exception exception = Assertions.assertThrows(StoragePropertiesException.class, () -> {
-            HdfsPropertiesUtils.validateAndGetUri(props, "", supportSchema);
+            HdfsPropertiesUtils.validateAndGetUri(props, "", "", supportSchema);
         });
         Assertions.assertEquals("props must contain uri", exception.getMessage());
     }

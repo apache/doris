@@ -170,6 +170,9 @@ public class HdfsProperties extends HdfsCompatibleProperties {
             conf.set("hadoop.username", hadoopUsername);
         }
         this.dfsNameServices = conf.get(DFS_NAME_SERVICES_KEY, "");
+        if (StringUtils.isBlank(fsDefaultFS)) {
+            this.fsDefaultFS = conf.get(HDFS_DEFAULT_FS_NAME, "");
+        }
         this.configuration = conf;
     }
 
@@ -194,12 +197,13 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     @Override
     public String validateAndNormalizeUri(String url) throws UserException {
-        return HdfsPropertiesUtils.convertUrlToFilePath(url, this.dfsNameServices, supportSchema);
+        return HdfsPropertiesUtils.convertUrlToFilePath(url, this.dfsNameServices, this.fsDefaultFS, supportSchema);
+
     }
 
     @Override
     public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
-        return HdfsPropertiesUtils.validateAndGetUri(loadProps, this.dfsNameServices, supportSchema);
+        return HdfsPropertiesUtils.validateAndGetUri(loadProps, this.dfsNameServices, this.fsDefaultFS, supportSchema);
     }
 
     @Override
