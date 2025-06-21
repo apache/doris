@@ -1497,7 +1497,7 @@ message DeleteBitmapUpdateLockPB {
     repeated int64 initiators = 3;
 }
 
-message MowTabletCompactionPB {
+message MowTabletJobPB {
     optional int64 expiration = 1;
 }
 
