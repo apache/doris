@@ -995,8 +995,6 @@ DEFINE_Bool(enable_time_lut, "true");
 DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
-// number of s3 scanner thread pool size
-DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
