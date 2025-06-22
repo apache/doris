@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.AlterRepositoryStmt;
-import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
@@ -302,8 +301,6 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshDbStmt) {
             env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterResourceStmt) {
-            env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterColocateGroupStmt) {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
@@ -461,7 +458,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof AdminCleanTrashStmt
                 || ddlStmt instanceof AdminRebalanceDiskStmt
                 || ddlStmt instanceof AdminCancelRebalanceDiskStmt
-                || ddlStmt instanceof AlterResourceStmt
                 || ddlStmt instanceof AlterPolicyStmt
                 || ddlStmt instanceof CancelAlterSystemStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
