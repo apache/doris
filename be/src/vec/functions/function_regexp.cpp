@@ -79,6 +79,7 @@ struct RegexpCountImpl {
             if (!st) {
                 context->add_warning(error_str.c_str());
                 null_map[index_now] = 1;
+                throw Exception(Status::InvalidArgument(error_str));
                 return 0;
             }
             re = scoped_re.get();
@@ -122,15 +123,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr int32_type = std::make_shared<DataTypeInt32>();
-        bool is_nullable = false;
-        for (const auto& arg : arguments) {
-            if (arg->is_nullable()) {
-                is_nullable = true;
-                break;
-            }
-        }
-        return is_nullable ? make_nullable(int32_type) : int32_type;
+        return std::make_shared<DataTypeInt32>();
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -170,20 +163,8 @@ public:
         argument_columns[1] = block.get_by_position(arguments[1]).column;
         RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
                                       result_null_map->get_data());
-        bool is_nullable = false;
-        for (const auto& arg_idx : arguments) {
-            if (block.get_by_position(arg_idx).type->is_nullable()) {
-                is_nullable = true;
-                break;
-            }
-        }
 
-        if (is_nullable) {
-            block.get_by_position(result).column = ColumnNullable::create(
-                    std::move(result_data_column), std::move(result_null_map));
-        } else {
-            block.get_by_position(result).column = std::move(result_data_column);
-        }
+        block.get_by_position(result).column = std::move(result_data_column);
         return Status::OK();
     }
 };
