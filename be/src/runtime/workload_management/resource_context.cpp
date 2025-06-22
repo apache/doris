@@ -34,7 +34,7 @@ void ResourceContext::to_pb_query_statistics(PQueryStatistics* statistics) const
     if (scan_bytes_local + scan_bytes_remote > 0) {
         statistics->set_scan_bytes(scan_bytes_local + scan_bytes_remote);
         statistics->set_scan_bytes_from_remote_storage(scan_bytes_remote);
-        statistics->set_scan_bytes_from_local_storage(scan_bytes_local);           
+        statistics->set_scan_bytes_from_local_storage(scan_bytes_local);
     } else {
         statistics->set_scan_bytes(io_context()->scan_bytes());
     }

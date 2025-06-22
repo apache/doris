@@ -649,14 +649,16 @@ void OlapScanner::_collect_profile_before_close() {
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
 
-    // only cloud deploy mode should use file cache 
-    if (config::is_cloud_mode() && config::enable_file_cache && _state->query_options().enable_file_cache) {
+    // only cloud deploy mode should use file cache
+    if (config::is_cloud_mode() && config::enable_file_cache &&
+        _state->query_options().enable_file_cache) {
         io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
         cache_profile.update(&stats.file_cache_stats);
 
         IOContext* io_ctx = _state->get_query_ctx()->resource_ctx()->io_context();
         io_ctx->update_scan_bytes_from_local_storage(stats.file_cache_stats.bytes_read_from_local);
-        io_ctx->update_scan_bytes_from_remote_storage(stats.file_cache_stats.bytes_read_from_remote);
+        io_ctx->update_scan_bytes_from_remote_storage(
+                stats.file_cache_stats.bytes_read_from_remote);
     }
     COUNTER_UPDATE(local_state->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);
