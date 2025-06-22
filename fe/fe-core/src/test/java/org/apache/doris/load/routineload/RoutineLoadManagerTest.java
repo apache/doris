@@ -1008,9 +1008,6 @@ public class RoutineLoadManagerTest {
                                                     @Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env, @Mocked InternalCatalog catalog,
                                                     @Mocked Database database, @Mocked Table tbl, @Mocked AccessControllerManager accessManager,
                                                     @Mocked ConnectContext connectContext) throws UserException {
-            @Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env, @Mocked InternalCatalog catalog,
-            @Mocked Database database, @Mocked Table tbl, @Mocked AccessControllerManager accessManager,
-            @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
