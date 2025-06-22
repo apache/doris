@@ -1532,10 +1532,15 @@ void FileScanner::try_stop() {
 
 void FileScanner::_collect_profile_before_close() {
     Scanner::_collect_profile_before_close();
-    if (config::enable_file_cache && _state->query_options().enable_file_cache &&
-        _profile != nullptr) {
-        io::FileCacheProfileReporter cache_profile(_profile);
-        cache_profile.update(_file_cache_statistics.get());
+    if (config::enable_file_cache && _state->query_options().enable_file_cache) {
+        if (_profile != nullptr) {
+            io::FileCacheProfileReporter cache_profile(_profile);
+            cache_profile.update(_file_cache_statistics.get());
+        }
+
+        IOContext* io_ctx = _state->get_query_ctx()->resource_ctx()->io_context();
+        io_ctx->update_scan_bytes_from_local_storage(_file_cache_statistics->bytes_read_from_local);
+        io_ctx->update_scan_bytes_from_remote_storage(_file_cache_statistics->bytes_read_from_remote);
     }
 
     if (_cur_reader != nullptr) {
