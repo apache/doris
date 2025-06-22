@@ -130,6 +130,8 @@ bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_finished_index_size(
         "file_cache_event_driven_warm_up_finished_index_size");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_failed_index_size(
         "file_cache_event_driven_warm_up_failed_index_size");
+bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_handle_unix_ts(
+        "file_cache_warm_up_rowset_last_handle_unix_ts", 0);
 
 void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* controller
                                               [[maybe_unused]],
@@ -154,6 +156,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
         auto tablet = res.value();
         auto tablet_meta = tablet->tablet_meta();
 
+        int64_t now_ts = std::chrono::duration_cast<std::chrono::seconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+        g_file_cache_warm_up_rowset_last_handle_unix_ts.set_value(now_ts);
         int64_t expiration_time =
                 tablet_meta->ttl_seconds() == 0 || rs_meta.newest_write_timestamp() <= 0
                         ? 0
