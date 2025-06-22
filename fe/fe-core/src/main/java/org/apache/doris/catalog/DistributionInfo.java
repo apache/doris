@@ -18,13 +18,10 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.common.io.Text;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Objects;
 
 public abstract class DistributionInfo {
@@ -90,11 +87,6 @@ public abstract class DistributionInfo {
 
     public String getColumnsName() {
         throw new NotImplementedException("getColumnsName not implemented");
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        type = DistributionInfoType.valueOf(Text.readString(in));
     }
 
     public String toSql(boolean forSync) {

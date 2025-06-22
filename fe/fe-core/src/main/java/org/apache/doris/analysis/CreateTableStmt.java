@@ -58,8 +58,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -681,10 +679,6 @@ public class CreateTableStmt extends DdlStmt implements NotFallbackInParser {
                             + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
                             + " For broker table, use table valued function instead.");
         }
-    }
-
-    public static CreateTableStmt read(DataInput in) throws IOException {
-        throw new RuntimeException("CreateTableStmt serialization is not supported anymore.");
     }
 
     @Override

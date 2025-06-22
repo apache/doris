@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -200,13 +199,7 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public static Repository read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            Repository repo = new Repository();
-            repo.readFields(in);
-            return repo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
     }
 
     //todo why only support alter S3 properties
@@ -851,15 +844,5 @@ public class Repository implements Writable, GsonPostProcessable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        name = Text.readString(in);
-        isReadOnly = in.readBoolean();
-        location = Text.readString(in);
-        fileSystem = PersistentFileSystem.read(in);
-        createTime = in.readLong();
     }
 }

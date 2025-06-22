@@ -173,8 +173,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     }
 
     // may be overridden
-    protected TableIf getTargetTableIf(ConnectContext ctx, List<String> qualifiedTargetTableName) {
-        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv());
+    protected TableIf getTargetTableIf(
+            ConnectContext ctx, List<String> qualifiedTargetTableName) {
+        return RelationUtil.getTable(qualifiedTargetTableName, ctx.getEnv(), Optional.empty());
     }
 
     public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {

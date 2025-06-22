@@ -285,6 +285,7 @@ suite("test_routine_load_error","p0") {
                 }
                 log.info("reason of state changed: ${res[0][17].toString()}".toString())
                 assertTrue(res[0][17].toString().contains("may be Kafka properties set in job is error or no partition in this topic that should check Kafka"))
+                assertTrue(res[0][17].toString().contains("Unknown topic or partition"))
                 break;
             }
         } finally {

@@ -70,9 +70,9 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnStruct>;
-    static Ptr create(const Columns& columns);
-    static Ptr create(const TupleColumns& columns);
-    static Ptr create(Columns&& arg) { return create(arg); }
+    static MutablePtr create(const Columns& columns);
+    static MutablePtr create(const TupleColumns& columns);
+    static MutablePtr create(Columns&& arg) { return create(arg); }
 
     template <typename Arg,
               typename = typename std::enable_if<std::is_rvalue_reference<Arg&&>::value>::type>
@@ -134,7 +134,7 @@ public:
                                            size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;

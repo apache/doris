@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
-import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
@@ -656,10 +655,10 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
-            @Mocked AccessControllerManager accessManager,
-            @Mocked ConnectContext connectContext) throws UserException {
+    public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env,
+                                         @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl,
+                                         @Mocked AccessControllerManager accessManager,
+                                         @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
@@ -672,10 +671,10 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                resumeRoutineLoadStmt.getDbFullName();
+                resumeRoutineLoadCommand.getDbFullName();
                 minTimes = 0;
                 result = "";
-                resumeRoutineLoadStmt.getName();
+                resumeRoutineLoadCommand.getLabel();
                 minTimes = 0;
                 result = "";
                 env.getInternalCatalog();
@@ -702,7 +701,7 @@ public class RoutineLoadManagerTest {
             }
         };
 
-        routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadStmt);
+        routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadCommand);
 
         Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
     }
@@ -1009,6 +1008,9 @@ public class RoutineLoadManagerTest {
                                                     @Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env, @Mocked InternalCatalog catalog,
                                                     @Mocked Database database, @Mocked Table tbl, @Mocked AccessControllerManager accessManager,
                                                     @Mocked ConnectContext connectContext) throws UserException {
+            @Injectable ResumeRoutineLoadCommand resumeRoutineLoadCommand, @Mocked Env env, @Mocked InternalCatalog catalog,
+            @Mocked Database database, @Mocked Table tbl, @Mocked AccessControllerManager accessManager,
+            @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
