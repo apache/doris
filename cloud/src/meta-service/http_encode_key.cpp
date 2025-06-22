@@ -23,6 +23,7 @@
 #include <google/protobuf/util/json_util.h>
 
 #include <bit>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -32,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -427,10 +429,26 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     LOG(WARNING) << "set_value saved, key=" << hex(key);
 
     std::stringstream final_json;
-    final_json << "original_value_hex=" << hex(value.value()) << "\n"
-               << "key_hex=" << hex(key) << "\n"
-               << "original_value_json=" << original_value_json << "\n"
-               << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+    if (value.value().size() > 0 && value.value().size() < 1024) {
+        final_json << "original_value_hex=" << hex(value.value()) << "\n"
+                   << "key_hex=" << hex(key) << "\n"
+                   << "original_value_json=" << original_value_json << "\n"
+                   << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+    } else {
+        // more than 1024 bytes
+        std::string file_path = fmt::format("{}/{}.txt", doris::cloud::config::log_dir, hex(key));
+        final_json << "kv msg write to ms log dir, path=" << file_path << "\n";
+        std::ofstream kv_file(file_path);
+        if (kv_file.is_open()) {
+            kv_file << "original_value_hex=" << hex(value.value()) << "\n";
+            kv_file << "key_hex=" << hex(key) << "\n";
+            kv_file << "original_value_json=" << original_value_json << "\n";
+            kv_file << "changed_value_hex=" << hex(serialized_value_to_save) << "\n";
+            kv_file.close();
+        } else {
+            LOG(WARNING) << "Failed to open file for writing: " << file_path;
+        }
+    }
 
     return http_text_reply(MetaServiceCode::OK, "", final_json.str());
 }
