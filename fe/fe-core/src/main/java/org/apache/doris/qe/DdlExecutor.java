@@ -32,7 +32,6 @@ import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
-import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -304,8 +303,6 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterResourceStmt) {
             env.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterColocateGroupStmt) {
-            env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {

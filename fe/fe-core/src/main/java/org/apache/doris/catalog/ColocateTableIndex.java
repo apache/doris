@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -831,67 +830,6 @@ public class ColocateTableIndex implements Writable {
             ColocateGroupSchema groupSchema = getGroupSchema(fullGroupName);
             if (groupSchema == null) {
                 throw new DdlException("Not found colocate group " + command.getColocateGroupName().toSql());
-            }
-
-            GroupId groupId = groupSchema.getGroupId();
-
-            if (properties.size() > 1) {
-                throw new DdlException("Can only set one colocate group property at a time");
-            }
-
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
-                    || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
-                if (Config.isCloudMode()) {
-                    throw new DdlException("Cann't modify colocate group replication in cloud mode");
-                }
-
-                ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-                Preconditions.checkState(!replicaAlloc.isNotSet());
-                Env.getCurrentSystemInfo().checkReplicaAllocation(replicaAlloc);
-                Map<Tag, List<List<Long>>> backendsPerBucketSeq = getBackendsPerBucketSeq(groupId);
-                Map<Tag, List<List<Long>>> newBackendsPerBucketSeq = Maps.newHashMap();
-                for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
-                    List<List<Long>> newList = Lists.newArrayList();
-                    for (List<Long> backends : entry.getValue()) {
-                        newList.add(Lists.newArrayList(backends));
-                    }
-                    newBackendsPerBucketSeq.put(entry.getKey(), newList);
-                }
-                try {
-                    ColocateTableCheckerAndBalancer.modifyGroupReplicaAllocation(replicaAlloc,
-                            newBackendsPerBucketSeq, groupSchema.getBucketsNum());
-                } catch (Exception e) {
-                    LOG.warn("modify group [{}, {}] to replication allocation {} failed, bucket seq {}",
-                            fullGroupName, groupId, replicaAlloc, backendsPerBucketSeq, e);
-                    throw new DdlException(e.getMessage());
-                }
-                backendsPerBucketSeq = newBackendsPerBucketSeq;
-                Preconditions.checkState(backendsPerBucketSeq.size() == replicaAlloc.getAllocMap().size());
-                modifyColocateGroupReplicaAllocation(groupSchema.getGroupId(), replicaAlloc,
-                        backendsPerBucketSeq, true);
-            } else {
-                throw new DdlException("Unknown colocate group property: " + properties.keySet());
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void alterColocateGroup(AlterColocateGroupStmt stmt) throws UserException {
-        writeLock();
-        try {
-            Map<String, String> properties = stmt.getProperties();
-            String dbName = stmt.getColocateGroupName().getDb();
-            String groupName = stmt.getColocateGroupName().getGroup();
-            long dbId = 0;
-            if (!GroupId.isGlobalGroupName(groupName)) {
-                Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
-                dbId = db.getId();
-            }
-            String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
-            ColocateGroupSchema groupSchema = getGroupSchema(fullGroupName);
-            if (groupSchema == null) {
-                throw new DdlException("Not found colocate group " + stmt.getColocateGroupName().toSql());
             }
 
             GroupId groupId = groupSchema.getGroupId();
