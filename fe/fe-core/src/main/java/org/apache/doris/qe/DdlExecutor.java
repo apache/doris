@@ -33,9 +33,6 @@ import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.AlterColocateGroupStmt;
-import org.apache.doris.analysis.AlterDatabasePropertyStmt;
-import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
-import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.AlterRepositoryStmt;
@@ -224,10 +221,6 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelAlterSystemStmt) {
             CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
             env.cancelAlterSystem(stmt);
-        } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
-            env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterDatabaseRename) {
-            env.renameDatabase((AlterDatabaseRename) ddlStmt);
         } else if (ddlStmt instanceof RecoverDbStmt) {
             env.recoverDatabase((RecoverDbStmt) ddlStmt);
         } else if (ddlStmt instanceof RecoverTableStmt) {
@@ -296,8 +289,6 @@ public class DdlExecutor {
             env.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
-            env.alterDatabaseProperty((AlterDatabasePropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshTableStmt) {
             env.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshDbStmt) {
