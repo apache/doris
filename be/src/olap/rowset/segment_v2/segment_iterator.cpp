@@ -637,8 +637,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     DCHECK(ann_index_reader != nullptr);
     if (ann_index_reader->get_metric_type() == Metric::IP) {
         if (_ann_topn_runtime->is_asc()) {
-            VLOG_DEBUG << fmt::format(
-                    "Asc topn for inner product can not be evaluated by ann index");
+            VLOG_DEBUG << fmt::format("Asc topn for inner product can not be evaluated by ann index");
             return Status::OK();
         }
     } else {
