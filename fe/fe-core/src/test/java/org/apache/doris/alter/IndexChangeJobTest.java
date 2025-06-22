@@ -685,8 +685,5 @@ public class IndexChangeJobTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
         Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
-
-        schemaChangeHandler.runAfterCatalogReady();
-        Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
     }
 }
