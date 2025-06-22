@@ -114,6 +114,7 @@ void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
+void register_function_score(SimpleFunctionFactory& factory);
 
 class SimpleFunctionFactory {
     using Creator = std::function<FunctionBuilderPtr()>;
@@ -318,6 +319,7 @@ public:
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
+            register_function_score(instance);
         });
         return instance;
     }
