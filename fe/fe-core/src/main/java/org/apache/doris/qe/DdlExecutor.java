@@ -29,9 +29,6 @@ import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
 import org.apache.doris.analysis.AdminSetTableStatusStmt;
-import org.apache.doris.analysis.AlterCatalogCommentStmt;
-import org.apache.doris.analysis.AlterCatalogNameStmt;
-import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -314,12 +311,6 @@ public class DdlExecutor {
             env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
             env.getCatalogMgr().dropCatalog((DropCatalogStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterCatalogNameStmt) {
-            env.getCatalogMgr().alterCatalogName((AlterCatalogNameStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterCatalogCommentStmt) {
-            env.getCatalogMgr().alterCatalogComment((AlterCatalogCommentStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterCatalogPropertyStmt) {
-            env.getCatalogMgr().alterCatalogProps((AlterCatalogPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof CleanLabelStmt) {
             env.getLoadManager().cleanLabel(((CleanLabelStmt) ddlStmt).getDb(), ((CleanLabelStmt) ddlStmt).getLabel());
         } else if (ddlStmt instanceof DropMaterializedViewStmt) {
