@@ -281,6 +281,8 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
+    | ALTER STORAGE POLICY name=identifierOrText
+        properties=propertyClause                                                           #alterStoragePlicy
     ;
 
 supportedDropStatement
@@ -636,8 +638,6 @@ privilegeList
 unsupportedAlterStatement
     : ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER STORAGE POLICY name=identifierOrText
-        properties=propertyClause                                                   #alterStoragePlicy
     ;
 
 alterSystemClause
