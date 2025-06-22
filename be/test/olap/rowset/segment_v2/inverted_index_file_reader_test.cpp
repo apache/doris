@@ -38,17 +38,18 @@
 
 namespace doris::segment_v2 {
 
-class MockTabletIndex {
+class MockTabletIndex : public TabletIndex {
 public:
-    MockTabletIndex(int64_t index_id, std::string index_suffix)
-            : _index_id(index_id), _index_suffix(std::move(index_suffix)) {}
+    MockTabletIndex(int64_t index_id, std::string index_suffix) {
+        _index_id = index_id;
+        _escaped_index_suffix_path = std::move(index_suffix);
+        _index_type = IndexType::INVERTED;
+        _index_name = "test_index";
+        _col_unique_ids.push_back(index_id); // Add some dummy column uid
+    }
 
     int64_t index_id() const { return _index_id; }
-    std::string get_index_suffix() const { return _index_suffix; }
-
-private:
-    int64_t _index_id;
-    std::string _index_suffix;
+    const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
 };
 
 class InvertedIndexFileReaderTest : public testing::Test {
@@ -170,7 +171,7 @@ public:
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
         // Open the writer and get directory
-        auto open_result = writer->open(reinterpret_cast<const TabletIndex*>(&tablet_index));
+        auto open_result = writer->open(&tablet_index);
         ASSERT_TRUE(open_result.has_value()) << open_result.error().msg();
         auto dir = open_result.value();
 
@@ -266,7 +267,7 @@ TEST_F(InvertedIndexFileReaderTest, TestV1FileNotFoundError) {
                                    InvertedIndexStorageFormatPB::V1, file_info);
 
     MockTabletIndex tablet_index(1, "test");
-    auto result = reader.open(reinterpret_cast<const TabletIndex*>(&tablet_index));
+    auto result = reader.open(&tablet_index);
     EXPECT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
 }
@@ -280,7 +281,7 @@ TEST_F(InvertedIndexFileReaderTest, TestV2StreamNullptrError) {
                                    InvertedIndexStorageFormatPB::V2, file_info);
 
     MockTabletIndex tablet_index(1, "test");
-    auto result = reader.open(reinterpret_cast<const TabletIndex*>(&tablet_index));
+    auto result = reader.open(&tablet_index);
     EXPECT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
     EXPECT_TRUE(result.error().msg().find("stream is nullptr") != std::string::npos);
@@ -299,7 +300,7 @@ TEST_F(InvertedIndexFileReaderTest, TestV2IndexNotFoundError) {
     EXPECT_TRUE(status.ok());
 
     MockTabletIndex tablet_index(1, "test");
-    auto result = reader.open(reinterpret_cast<const TabletIndex*>(&tablet_index));
+    auto result = reader.open(&tablet_index);
     EXPECT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
     EXPECT_TRUE(result.error().msg().find("No index with id") != std::string::npos);
@@ -315,8 +316,7 @@ TEST_F(InvertedIndexFileReaderTest, TestIndexFileExistV2StreamNullptr) {
 
     MockTabletIndex tablet_index(1, "test");
     bool res = true;
-    Status status =
-            reader.index_file_exist(reinterpret_cast<const TabletIndex*>(&tablet_index), &res);
+    Status status = reader.index_file_exist(&tablet_index, &res);
     EXPECT_FALSE(status.ok());
     EXPECT_FALSE(res);
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
@@ -332,7 +332,7 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV1Format) {
 
     MockTabletIndex tablet_index(1, "test");
     bool res = false;
-    Status status = reader.has_null(reinterpret_cast<const TabletIndex*>(&tablet_index), &res);
+    Status status = reader.has_null(&tablet_index, &res);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(res); // V1 always returns true
 }
@@ -351,7 +351,7 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithNullBitmap) {
 
     MockTabletIndex tablet_index(1, "test");
     bool res = false;
-    Status status = reader.has_null(reinterpret_cast<const TabletIndex*>(&tablet_index), &res);
+    Status status = reader.has_null(&tablet_index, &res);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(res); // Should have null bitmap
 }
@@ -370,7 +370,7 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithSmallNullBitmap) {
 
     MockTabletIndex tablet_index(1, "test");
     bool res = true;
-    Status status = reader.has_null(reinterpret_cast<const TabletIndex*>(&tablet_index), &res);
+    Status status = reader.has_null(&tablet_index, &res);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(res); // Small bitmap should return false
 }
@@ -385,7 +385,7 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2StreamNullptr) {
 
     MockTabletIndex tablet_index(1, "test");
     bool res = true;
-    Status status = reader.has_null(reinterpret_cast<const TabletIndex*>(&tablet_index), &res);
+    Status status = reader.has_null(&tablet_index, &res);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
 }
@@ -404,7 +404,7 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2IndexNotFound) {
 
     MockTabletIndex tablet_index(1, "test");
     bool res = true;
-    Status status = reader.has_null(reinterpret_cast<const TabletIndex*>(&tablet_index), &res);
+    Status status = reader.has_null(&tablet_index, &res);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(res); // Index not found should return false
 }
