@@ -86,7 +86,6 @@ struct RegexpCountImpl {
         }
 
         const auto& str = str_col->get_data_at(index_now);
-
         int count = 0;
         size_t pos = 0;
         while (pos < str.size) {
