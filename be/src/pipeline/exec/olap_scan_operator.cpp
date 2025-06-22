@@ -633,12 +633,6 @@ Status OlapScanLocalState::open(RuntimeState* state) {
             } else {
                 _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
             }
-
-            LOG_INFO(
-                    "OlapScanLocalState opening, virtual column expr slot id: {}, col_pos: {}, "
-                    "expr: "
-                    "{}",
-                    slot_desc->id(), col_pos, virtual_column_expr_ctx->root()->debug_string());
         }
     }
 

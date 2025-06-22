@@ -32,6 +32,7 @@
 #include "faiss/IndexHNSW.h"
 #include "faiss/impl/io.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "util/metrics.h"
 #include "vector/vector_index.h"
 
 namespace doris::segment_v2 {
@@ -231,19 +232,18 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     result.row_ids = std::make_unique<std::vector<uint64_t>>();
 
     if (_metric == Metric::L2) {
-        // For inner product, we need to convert the distance to the actual distance.
+        // For l2_distance, we need to convert the distance to the actual distance.
         // The distance returned by Faiss is actually the squared distance.
         // So we need to take the square root of the squared distance.
         for (size_t i = 0; i < roaring_cardinality; ++i) {
             result.row_ids->push_back(labels[i]);
-            result.distances[i] = distances[i]; // Convert squared distance to actual distance
+            result.distances[i] = std::sqrt(distances[i]);
         }
     } else if (_metric == Metric::IP) {
-        // For L2, we can use the distance directly.
+        // For inner product, we can use the distance directly.
         for (size_t i = 0; i < roaring_cardinality; ++i) {
             result.row_ids->push_back(labels[i]);
-            result.distances[i] =
-                    std::sqrt(distances[i]); // Convert squared distance to actual distance
+            result.distances[i] = distances[i]; // Convert squared distance to actual distance
         }
     } else {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT, "Unsupported metric type: {}",
@@ -256,29 +256,34 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     return doris::Status::OK();
 }
 
+// For l2 distance, range search radius is the squared distance.
+// For inner product, range search radius is the actual distance.
+// range search on inner product returns all vectors with inner product greater than or equal to the radius.
+// For l2 distance, range search returns all vectors with squared distance less than or equal to the radius.
 doris::Status FaissVectorIndex::range_search(const float* query_vec, const float& radius,
                                              const vectorized::IndexSearchParameters& params,
                                              vectorized::IndexSearchResult& result) {
     DCHECK(_index != nullptr);
     DCHECK(query_vec != nullptr);
-    std::unique_ptr<faiss::IDSelector> sel = nullptr;
-    if (params.roaring != nullptr) {
-        sel = roaring_to_faiss_selector(*params.roaring);
-    }
+    DCHECK(params.roaring != nullptr)
+            << "Roaring should not be null for range search, please set roaring in params";
+    std::unique_ptr<faiss::IDSelector> sel = roaring_to_faiss_selector(*params.roaring);
+
     faiss::RangeSearchResult native_search_result(1, true);
     const vectorized::HNSWSearchParameters* hnsw_params =
             dynamic_cast<const vectorized::HNSWSearchParameters*>(&params);
-    if (hnsw_params != nullptr) {
-        faiss::SearchParametersHNSW param;
-        param.efSearch = hnsw_params->ef_search;
-        param.check_relative_distance = hnsw_params->check_relative_distance;
-        param.bounded_queue = hnsw_params->bounded_queue;
-        param.sel = sel ? sel.get() : nullptr;
+    // Currently only support HNSW index for range search.
+    DCHECK(hnsw_params != nullptr) << "HNSW search parameters should not be null for HNSW index";
+
+    faiss::SearchParametersHNSW param;
+    param.efSearch = hnsw_params->ef_search;
+    param.check_relative_distance = hnsw_params->check_relative_distance;
+    param.bounded_queue = hnsw_params->bounded_queue;
+    param.sel = sel.get();
+    if (_metric == Metric::L2) {
         _index->range_search(1, query_vec, radius * radius, &native_search_result, &param);
-    } else {
-        faiss::SearchParameters param;
-        param.sel = sel ? sel.get() : nullptr;
-        _index->range_search(1, query_vec, radius * radius, &native_search_result, &param);
+    } else if (_metric == Metric::IP) {
+        _index->range_search(1, query_vec, radius, &native_search_result, &param);
     }
 
     size_t begin = native_search_result.lims[0];
@@ -287,11 +292,10 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
     row_ids->resize(end - begin);
     LOG_INFO("Range search result: begin {}, end {}", begin, end);
     if (params.is_le_or_lt) {
-        std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(end - begin);
-        float* distances = distances_ptr.get();
-        auto roaring = std::make_shared<roaring::Roaring>();
         if (_metric == Metric::L2) {
-            // For inner product, we need to convert the distance to the actual distance.
+            std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(end - begin);
+            float* distances = distances_ptr.get();
+            auto roaring = std::make_shared<roaring::Roaring>();
             // The distance returned by Faiss is actually the squared distance.
             // So we need to take the square root of the squared distance.
             for (size_t i = begin; i < end; ++i) {
@@ -299,32 +303,34 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                 roaring->add(native_search_result.labels[i]);
                 distances[i - begin] = sqrt(native_search_result.distances[i]);
             }
+            result.distances = std::move(distances_ptr);
+            result.row_ids = std::move(row_ids);
+            result.roaring = roaring;
+
+            DCHECK(result.row_ids->size() == result.roaring->cardinality())
+                    << "row_ids size: " << result.row_ids->size()
+                    << ", roaring size: " << result.roaring->cardinality();
         } else if (_metric == Metric::IP) {
-            // For L2, we can use the distance directly.
+            // For IP, we can use the distance directly.
+            // range search on ip gets all vectors with inner product greater than or equal to the radius.
+            // so we need to do a convertion.
+            const roaring::Roaring& origin_row_ids = *params.roaring;
+            std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
             for (size_t i = begin; i < end; ++i) {
-                (*row_ids)[i] = native_search_result.labels[i];
                 roaring->add(native_search_result.labels[i]);
-                distances[i - begin] = native_search_result.distances[i];
             }
+            result.roaring = std::make_shared<roaring::Roaring>();
+            // remove all rows that should not be included.
+            *(result.roaring) = origin_row_ids - *roaring;
+            // Just update the roaring. distance can not be used.
         } else {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Unsupported metric type: {}", static_cast<int>(_metric));
         }
-
-        result.distances = std::move(distances_ptr);
-        result.row_ids = std::move(row_ids);
-        result.roaring = roaring;
-
-        DCHECK(result.row_ids->size() == result.roaring->cardinality())
-                << "row_ids size: " << result.row_ids->size()
-                << ", roaring size: " << result.roaring->cardinality();
     } else {
-        // Faiss can only return labels in the range of radius.
-        // If the precidate is not less than, we need to to a convertion.
-        DCHECK(params.roaring != nullptr);
-        if (params.roaring == nullptr) {
-            return doris::Status::InvalidArgument("Row ids should not be null");
-        } else {
+        if (_metric == Metric::L2) {
+            // Faiss can only return labels in the range of radius.
+            // If the precidate is not less than, we need to to a convertion.
             const roaring::Roaring& origin_row_ids = *params.roaring;
             std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
             for (size_t i = begin; i < end; ++i) {
@@ -334,6 +340,31 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
             *(result.roaring) = origin_row_ids - *roaring;
             result.distances = nullptr;
             result.row_ids = nullptr;
+        } else if (_metric == Metric::IP) {
+            // For inner product, we can use the distance directly.
+            // range search on ip gets all vectors with inner product greater than or equal to the radius.
+            // when query condition is not le_or_lt, we can use the roaring and distance directly.
+            std::unique_ptr<float[]> distances_ptr = std::make_unique<float[]>(end - begin);
+            float* distances = distances_ptr.get();
+            auto roaring = std::make_shared<roaring::Roaring>();
+            // The distance returned by Faiss is actually the squared distance.
+            // So we need to take the square root of the squared distance.
+            for (size_t i = begin; i < end; ++i) {
+                (*row_ids)[i] = native_search_result.labels[i];
+                roaring->add(native_search_result.labels[i]);
+                distances[i - begin] = native_search_result.distances[i];
+            }
+            result.distances = std::move(distances_ptr);
+            result.row_ids = std::move(row_ids);
+            result.roaring = roaring;
+
+            DCHECK(result.row_ids->size() == result.roaring->cardinality())
+                    << "row_ids size: " << result.row_ids->size()
+                    << ", roaring size: " << result.roaring->cardinality();
+
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Unsupported metric type: {}", static_cast<int>(_metric));
         }
     }
 
