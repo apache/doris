@@ -435,7 +435,9 @@ void DorisFSDirectory::FSIndexOutputV2::close() {
 }
 
 int64_t DorisFSDirectory::FSIndexOutputV2::length() const {
-    CND_PRECONDITION(_index_v2_file_writer != nullptr, "file is not open");
+    if (_index_v2_file_writer == nullptr) {
+        _CLTHROWA(CL_ERR_IO, "file is not open, index_v2_file_writer is nullptr");
+    }
     return _index_v2_file_writer->bytes_appended();
 }
 
