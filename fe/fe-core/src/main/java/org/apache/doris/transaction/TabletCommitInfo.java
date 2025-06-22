@@ -22,8 +22,6 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 
 public class TabletCommitInfo {
@@ -51,12 +49,6 @@ public class TabletCommitInfo {
             commitInfos.add(new TabletCommitInfo(tTabletCommitInfo.getTabletId(), tTabletCommitInfo.getBackendId()));
         }
         return commitInfos;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        tabletId = in.readLong();
-        backendId = in.readLong();
     }
 
     @Override

@@ -46,7 +46,6 @@
 #include "olap/id_manager.h"
 #include "olap/iterators.h"
 #include "olap/like_column_predicate.h"
-#include "olap/match_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"

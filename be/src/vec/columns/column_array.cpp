@@ -1039,7 +1039,7 @@ ColumnPtr ColumnArray::replicate_nullable(const IColumn::Offsets& replicate_offs
                     .get_offsets_ptr());
 }
 
-ColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnArray::permute(const Permutation& perm, size_t limit) const {
     size_t size = offsets->size();
     if (limit == 0) {
         limit = size;

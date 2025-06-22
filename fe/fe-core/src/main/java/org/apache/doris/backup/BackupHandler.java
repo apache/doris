@@ -220,7 +220,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(command.getStorageType(), command.getBrokerName(), command.getProperties());
+        fileSystem = FileSystemFactory.get(command.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, command.getName(), command.isReadOnly(), command.getLocation(),
                 fileSystem);
@@ -245,7 +245,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         RemoteFileSystem fileSystem;
-        fileSystem = FileSystemFactory.get(stmt.getStorageType(), stmt.getBrokerName(), stmt.getProperties());
+        fileSystem = FileSystemFactory.get(stmt.getStorageProperties());
         long repoId = env.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(),
                 fileSystem);
@@ -1204,12 +1204,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
 
         return backupJob.getSnapshot();
-    }
-
-    public static BackupHandler read(DataInput in) throws IOException {
-        BackupHandler backupHandler = new BackupHandler();
-        backupHandler.readFields(in);
-        return backupHandler;
     }
 
     @Override

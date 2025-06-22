@@ -103,10 +103,10 @@ suite("test_copy_into", "p0") {
 
         def errorMsgs = [
                         "",
-                        "errCode = 2, detailMessage = In where clause '(p_type = not_exist)', unknown column 'not_exist' in 'table list",
+                        "errCode = 2, detailMessage = In where clause '(p_type = not_exist)', unknown column 'not_exist' in 'table list(line 3, pos 65)",
                         "",
                         "",
-                        "errCode = 2, detailMessage = In where clause '(p_type = not_exist)', unknown column 'not_exist' in 'table list",
+                        "errCode = 2, detailMessage = In where clause '(p_type = not_exist)', unknown column 'not_exist' in 'table list(line 3, pos 65)",
                         "",
                         "",
                         "",
