@@ -216,9 +216,6 @@ public class DdlExecutor {
             env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterSystemStmt) {
-            AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
-            env.alterSystem(stmt);
         } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
             env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabaseRename) {
