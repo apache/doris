@@ -35,6 +35,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -419,6 +420,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
         for (Map.Entry<Long, List<InfightTask>> entry : beToInfightTasks.entrySet()) {
             LOG.info("before pre cache check dest be {} inflight task num {}", entry.getKey(), entry.getValue().size());
             Backend destBackend = cloudSystemInfoService.getBackend(entry.getKey());
+            if (DebugPointUtil.isEnable("CloudTabletRebalancer.checkInflghtWarmUpCacheAsync.beNull")) {
+                LOG.info("debug point CloudTabletRebalancer.checkInflghtWarmUpCacheAsync.beNull, be {}", destBackend);
+                destBackend = null;
+            }
             if (destBackend == null || (!destBackend.isAlive() && destBackend.getLastUpdateMs() < needRehashDeadTime)) {
                 List<InfightTablet> toRemove = new LinkedList<>();
                 for (InfightTask task : entry.getValue()) {
@@ -427,6 +432,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     }
                 }
                 for (InfightTablet key : toRemove) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("remove tablet {}-{}", key.getClusterId(), key.getTabletId());
+                    }
                     tabletToInfightTask.remove(key);
                 }
                 continue;
@@ -452,6 +460,9 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         LOG.info("{} pre cache timeout, forced to change the mapping", result.getKey());
                     }
                     updateClusterToBeMap(task.pickedTablet, task.destBe, clusterId, infos);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("remove tablet {}-{}", clusterId, task.pickedTablet.getId());
+                    }
                     tabletToInfightTask.remove(new InfightTablet(task.pickedTablet.getId(), clusterId));
                 }
             }
