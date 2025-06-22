@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <tuple>
 
+#include "bvar/bvar.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/logging.h"
@@ -66,6 +67,8 @@ bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_segment_num(
         "file_cache_recycle_cache_requested_segment_num");
 bvar::Adder<uint64_t> g_file_cache_recycle_cache_requested_index_num(
         "file_cache_recycle_cache_requested_index_num");
+bvar::Status<int64_t> g_file_cache_warm_up_rowset_last_call_unix_ts(
+        "file_cache_warm_up_rowset_last_call_unix_ts", 0);
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
@@ -453,6 +456,10 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         return;
     }
+    int64_t now_ts = std::chrono::duration_cast<std::chrono::seconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+    g_file_cache_warm_up_rowset_last_call_unix_ts.set_value(now_ts);
 
     PWarmUpRowsetRequest request;
     request.add_rowset_metas()->CopyFrom(rs_meta.get_rowset_pb());
