@@ -1416,52 +1416,6 @@ alter_stmt ::=
     :}
     ;
 
-warm_up_stmt ::=
-    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
-    :}
-    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
-    :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
-    :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
-    :}
-    ;
-
-warm_up_item ::=
-    KW_TABLE table_name:tbl
-    {:
-        Map<TableName, String> map = new HashMap<TableName, String>();
-        map.put(tbl, "");
-        RESULT = map;
-    :}
-    | KW_TABLE table_name:tbl KW_PARTITION ident:partitonName
-    {:
-        Map<TableName, String> map = new HashMap<TableName, String>();
-        map.put(tbl, partitonName);
-        RESULT = map;
-    :}
-    ;
-
-warm_up_list ::=
-    warm_up_item:map
-    {:
-        RESULT = Lists.newArrayList(map);
-    :}
-    | warm_up_list:list KW_AND warm_up_item:map
-    {:
-        list.add(map);
-        RESULT = list;
-    :}
-    ;
-
 opt_datasource_properties ::=
     // empty
     {:
@@ -6923,27 +6877,7 @@ integer_list ::=
     ;
 
 admin_stmt ::=
-    KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
-    {:
-        RESULT = new AdminSetReplicaStatusStmt(prop);
-    :}
-    | KW_ADMIN KW_SET KW_REPLICA KW_VERSION KW_PROPERTIES LPAREN key_value_map:prop RPAREN
-    {:
-        RESULT = new AdminSetReplicaVersionStmt(prop);
-    :}
-    | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
-    {:
-        RESULT = new AdminRepairTableStmt(table_ref);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REPAIR KW_TABLE base_table_ref:table_ref
-    {:
-        RESULT = new AdminCancelRepairTableStmt(table_ref);
-    :}
-    | KW_ADMIN KW_COMPACT KW_TABLE base_table_ref:table_ref opt_wild_where
-    {:
-        RESULT = new AdminCompactTableStmt(table_ref, parser.where);
-    :}
-    | KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
+    KW_ADMIN KW_SET KW_FRONTEND KW_CONFIG opt_key_value_map:configs
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, false);
     :}
@@ -6955,34 +6889,6 @@ admin_stmt ::=
     {:
         RESULT = new AdminSetConfigStmt(NodeType.FRONTEND, configs, true);
     :}
-    | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
-    {:
-        RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
-    :}
-    | KW_ADMIN KW_REBALANCE KW_DISK KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminRebalanceDiskStmt(backends);
-    :}
-    | KW_ADMIN KW_REBALANCE KW_DISK
-    {:
-        RESULT = new AdminRebalanceDiskStmt(null);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminCancelRebalanceDiskStmt(backends);
-    :}
-    | KW_ADMIN KW_CANCEL KW_REBALANCE KW_DISK
-    {:
-        RESULT = new AdminCancelRebalanceDiskStmt(null);
-    :}
-    | KW_ADMIN KW_CLEAN KW_TRASH KW_ON LPAREN string_list:backends RPAREN
-    {:
-        RESULT = new AdminCleanTrashStmt(backends);
-    :}
-    | KW_ADMIN KW_CLEAN KW_TRASH
-    {:
-        RESULT = new AdminCleanTrashStmt(null);
-    :}
     | KW_ADMIN KW_SET KW_TABLE table_name:name KW_PARTITION KW_VERSION opt_properties:properties
     {:
         RESULT = new AdminSetPartitionVersionStmt(name, properties);
@@ -6991,14 +6897,6 @@ admin_stmt ::=
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new DiagnoseTabletStmt(tabletId);
-    :}
-    | KW_ADMIN KW_COPY KW_TABLET INTEGER_LITERAL:tabletId opt_properties:properties
-    {:
-        RESULT = new AdminCopyTabletStmt(tabletId, properties);
-    :}
-    | KW_ADMIN KW_SET KW_TABLE table_name:name KW_STATUS opt_properties:properties
-    {:
-        RESULT = new AdminSetTableStatusStmt(name, properties);
     :}
     ;
 
