@@ -382,10 +382,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                 } catch (NumberFormatException e) {
                     throw new RuntimeException("Invalid snapshot id: " + e.getMessage());
                 }
-            } else if (startTimestamp != null && endTimestamp != null) {
+            } else if (startTimestamp != null) {
                 try {
                     long startTS = Long.parseLong(startTimestamp);
-                    long endSTS = Long.parseLong(endTimestamp);
+                    long endSTS = Long.MAX_VALUE;
+                    if (endTimestamp != null) {
+                        endSTS = Long.parseLong(endTimestamp);
+                    }
                     if (startTS < 0) {
                         throw new RuntimeException("startTimestamp must be greater than zero");
                     }
