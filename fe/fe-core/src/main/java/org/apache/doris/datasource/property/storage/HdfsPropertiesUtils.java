@@ -126,8 +126,8 @@ public class HdfsPropertiesUtils {
         return validateAndNormalizeUri(location, null, null, supportedSchemas);
     }
 
-    public static String validateAndNormalizeUri(String location, String defaultFs,
-                                                 String host, Set<String> supportedSchemas) {
+    public static String validateAndNormalizeUri(String location, String host, String defaultFs,
+                                                  Set<String> supportedSchemas) {
         if (StringUtils.isBlank(location)) {
             throw new IllegalArgumentException("Property 'uri' is required.");
         }

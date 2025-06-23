@@ -20,6 +20,8 @@ package org.apache.doris.fs;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -101,7 +103,7 @@ public enum SchemaTypeMapper {
      * this default assumption is applied for smoother compatibility and migration.
      */
     public static StorageProperties.Type fromSchema(String schema) {
-        if (schema == null) {
+        if (StringUtils.isBlank(schema)) {
             return StorageProperties.Type.HDFS;
         }
         return SCHEMA_TO_TYPE_MAP.get(schema.toLowerCase());

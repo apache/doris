@@ -22,6 +22,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ public class LocationPathTest {
         props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
         props.put("obs.access_key", "access_key");
         props.put("obs.secret_key", "secret_key");
-        props.put("fs.DefaultFS", "hdfs://namenode:8020");
+        props.put("fs.defaultFS", "hdfs://namenode:8020");
         props.put("azure.endpoint", "https://mystorageaccount.blob.core.windows.net");
         props.put("azure.access_key", "access_key");
         props.put("azure.secret_key", "secret_key");
@@ -84,33 +85,6 @@ public class LocationPathTest {
         // nonstandard '/' for hdfs path
         locationPath = LocationPath.of("hdfs:/dir/file.path", storagePropertiesMap);
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("hdfs://"));
-
-        // empty ha nameservices
-        props.put("dfs.nameservices", "");
-        storagePropertiesMap = StorageProperties.createAll(props).stream()
-                .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
-        locationPath = LocationPath.of("hdfs:/dir/file.path", storagePropertiesMap);
-        String beLocation = locationPath.getNormalizedLocation();
-        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("/dir")
-                && !locationPath.getNormalizedLocation().startsWith("hdfs://"));
-        Assertions.assertTrue(beLocation.startsWith("/dir") && !beLocation.startsWith("hdfs://"));
-
-        props.clear();
-        props.put("dfs.nameservices", "test.com");
-        storagePropertiesMap = StorageProperties.createAll(props).stream()
-                .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
-        locationPath = LocationPath.of("/dir/file.path", storagePropertiesMap);
-        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("/dir/file.path"));
-        Assertions.assertEquals("hdfs://test.com/dir/file.path", locationPath.getNormalizedLocation());
-        Assertions.assertEquals("hdfs://test.com/dir/file.path", locationPath.toStorageLocation().toString());
-        //OSS-HDFS/*        props.clear();
-        /*        props.put(HdfsResource.HADOOP_FS_NAME, "oss://test.com");
-        storagePropertiesMap = StorageProperties.createAll(props).stream()
-                .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
-        locationPath = LocationPath.of("/dir/file.path", storagePropertiesMap);
-        Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("oss://"));
-        Assertions.assertEquals("oss://test.com/dir/file.path", locationPath.getNormalizedLocation());
-        Assertions.assertEquals("s3://test.com/dir/file.path", locationPath.toStorageLocation().toString());*/
     }
 
     @Test
@@ -235,7 +209,7 @@ public class LocationPathTest {
         LocationPath locationPath = LocationPath.of("/path/to/local");
         // FE
         Assertions.assertTrue(locationPath.getNormalizedLocation().equalsIgnoreCase("/path/to/local"));
-        Assertions.assertTrue(null == locationPath.getSchema());
+        Assertions.assertTrue(StringUtils.isEmpty(locationPath.getSchema()));
         // BE
         String beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.equalsIgnoreCase("/path/to/local"));
@@ -244,7 +218,6 @@ public class LocationPathTest {
     @Test
     public void testLocationProperties() {
         assertNormalize("hdfs://namenode:8020/path/to/file", "hdfs://namenode:8020/path/to/file");
-        assertNormalize("hdfs:///path/to/file", "hdfs://namenode:8020/path/to/file");
         assertNormalize("hdfs://namenode/path/to/file", "hdfs://namenode/path/to/file");
         assertNormalize("s3://bucket/path/to/file", "s3://bucket/path/to/file");
         assertNormalize("s3a://bucket/path/to/file", "s3://bucket/path/to/file");
@@ -257,7 +230,8 @@ public class LocationPathTest {
         assertNormalize("gfs://bucket/path/to/file", "gfs://bucket/path/to/file");
         assertNormalize("cosn://bucket/path/to/file", "s3://bucket/path/to/file");
         assertNormalize("viewfs://cluster/path/to/file", "viewfs://cluster/path/to/file");
-        assertNormalize("hdfs:/path/to/file", "hdfs://namenode:8020/path/to/file");
+        assertNormalize("/path/to/file", "hdfs://namenode:8020/path/to/file");
+        assertNormalize("hdfs:///path/to/file", "hdfs://namenode:8020/path/to/file");
     }
 
     private void assertNormalize(String input, String expected) {

@@ -195,7 +195,7 @@ public class LocationPath {
                     .replace("%2F", "/")
                     .replace("%3A", ":");
         } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to encode location: " + location, e);
         }
     }
 
@@ -220,7 +220,7 @@ public class LocationPath {
         try {
             return LocationPath.of(location, storagePropertiesMap, true);
         } catch (UserException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Failed to create LocationPath for location: " + location, e);
         }
     }
 
