@@ -1547,11 +1547,10 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     std::unique_ptr<RangeGetIterator> it;
 
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [key0, key1, &num_rowsets](int*) {
-                LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                          << hex(key0) << "," << hex(key1) << "]";
-            });
+    DORIS_CLOUD_DEFER_COPY(key0, key1) {
+        LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=[" << hex(key0)
+                  << "," << hex(key1) << "]";
+    };
 
     std::stringstream ss;
     do {
