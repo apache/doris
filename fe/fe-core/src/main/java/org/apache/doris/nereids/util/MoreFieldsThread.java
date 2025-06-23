@@ -58,10 +58,6 @@ public class MoreFieldsThread extends Thread {
     }
 
     public final void setOrigin(Origin origin) {
-        // Thread thread = Thread.currentThread();
-        // if (thread != this) {
-        //     throw new IllegalStateException("Can not change origin by another thread");
-        // }
         this.origin = origin;
     }
 
