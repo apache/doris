@@ -212,6 +212,29 @@ public:
         return std::make_shared<DataTypeFixedLengthObject>();
     }
 
+    bool supported_incremental_mode() const override { return true; }
+
+    void execute_function_with_incremental(AggregateDataPtr place, const IColumn** columns,
+                                           Arena* arena, int64_t current_row_position,
+                                           int64_t rows_start_offset, int64_t rows_end_offset,
+                                           int64_t partition_start, int64_t partition_end,
+                                           bool ignore_subtraction, bool ignore_addition,
+                                           bool has_null) const override {
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto* data = column.get_data().data();
+        const int64_t previous_frame_first_position = current_row_position - 1 + rows_start_offset;
+        const int64_t current_frame_last_position = current_row_position + rows_end_offset;
+        if (!ignore_subtraction && previous_frame_first_position >= partition_start &&
+            previous_frame_first_position < partition_end) {
+            this->data(place).sum -= data[previous_frame_first_position];
+        }
+        if (!ignore_addition && current_frame_last_position >= partition_start &&
+            current_frame_last_position < partition_end) {
+            this->data(place).sum += data[current_frame_last_position];
+        }
+    }
+
 private:
     UInt32 scale;
 };

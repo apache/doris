@@ -246,6 +246,22 @@ public:
         }
     }
 
+    /// some agg function like sum/count/avg/min/max could support incremental mode,
+    /// eg sum(col) over (rows between 3 preceding and 3 following), could resue the previous result
+    /// sum[i] = sum[i-1] - col[x] + col[y]
+    virtual bool supported_incremental_mode() const { return false; }
+
+    virtual void execute_function_with_incremental(AggregateDataPtr place, const IColumn** columns,
+                                                   Arena* arena, int64_t current_row_position,
+                                                   int64_t rows_start_offset,
+                                                   int64_t rows_end_offset, int64_t partition_start,
+                                                   int64_t partition_end, bool ignore_subtraction,
+                                                   bool ignore_addition, bool has_null) const {
+        throw doris::Exception(Status::FatalError(
+                "Aggregate function " + get_name() +
+                " does not support cumulative mode, but it is called in cumulative mode"));
+    }
+
 protected:
     DataTypes argument_types;
     int version {};
