@@ -1236,7 +1236,7 @@ public class PropertyAnalyzer {
             } else {
                 // continue to check default vault
                 Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
-                if (info == null) {
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
                     throw new AnalysisException("No default storage vault."
                             + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
                             + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
