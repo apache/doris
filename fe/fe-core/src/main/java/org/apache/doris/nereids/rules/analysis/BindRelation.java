@@ -165,7 +165,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
         TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
-                unboundRelation.getLocation());
+                Optional.of(unboundRelation));
 
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
@@ -180,7 +180,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
-                unboundRelation.getLocation());
+                Optional.of(unboundRelation));
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 

@@ -136,6 +136,13 @@ public class ThreadPoolManager {
             new LogDiscardPolicyThrowException(poolName), poolName, needRegisterMetric);
     }
 
+    public static ThreadPoolExecutor newDaemonCacheThreadPoolThrowException(int maxNumThread,
+            String poolName, boolean needRegisterMetric, ThreadFactory backingThreadFactory) {
+        return newDaemonThreadPool(0, maxNumThread, KEEP_ALIVE_TIME,
+                TimeUnit.SECONDS, new SynchronousQueue(),
+                new LogDiscardPolicyThrowException(poolName), poolName, needRegisterMetric, backingThreadFactory);
+    }
+
     public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread,
             int queueSize, String poolName, boolean needRegisterMetric) {
         return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
@@ -187,14 +194,28 @@ public class ThreadPoolManager {
     }
 
     public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
+            int maximumPoolSize,
+            long keepAliveTime,
+            TimeUnit unit,
+            BlockingQueue<Runnable> workQueue,
+            RejectedExecutionHandler handler,
+            String poolName,
+            boolean needRegisterMetric) {
+        return newDaemonThreadPool(
+                corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, handler,
+                poolName, needRegisterMetric, null);
+    }
+
+    public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
                                                          int maximumPoolSize,
                                                          long keepAliveTime,
                                                          TimeUnit unit,
                                                          BlockingQueue<Runnable> workQueue,
                                                          RejectedExecutionHandler handler,
                                                          String poolName,
-                                                         boolean needRegisterMetric) {
-        ThreadFactory threadFactory = namedThreadFactory(poolName);
+                                                         boolean needRegisterMetric,
+                                                         ThreadFactory backingThreadFactory) {
+        ThreadFactory threadFactory = namedThreadFactory(poolName, backingThreadFactory);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize,
                 keepAliveTime, unit, workQueue, threadFactory, handler);
         if (needRegisterMetric) {
@@ -236,13 +257,23 @@ public class ThreadPoolManager {
         return scheduledThreadPoolExecutor;
     }
 
+    private static ThreadFactory namedThreadFactory(String poolName) {
+        return namedThreadFactory(poolName, null);
+    }
+
     /**
      * Create a thread factory that names threads with a prefix and also sets the threads to daemon.
      */
-    private static ThreadFactory namedThreadFactory(String poolName) {
-        return new ThreadFactoryBuilder().setDaemon(true).setNameFormat(poolName + "-%d").build();
-    }
 
+
+    private static ThreadFactory namedThreadFactory(String poolName, ThreadFactory backingThreadFactory) {
+        ThreadFactoryBuilder threadFactoryBuilder = new ThreadFactoryBuilder().setDaemon(true)
+                .setNameFormat(poolName + "-%d");
+        if (backingThreadFactory != null) {
+            threadFactoryBuilder.setThreadFactory(backingThreadFactory);
+        }
+        return threadFactoryBuilder.build();
+    }
 
     public static ThreadPoolExecutor newDaemonThreadPoolWithPreAuth(
             int corePoolSize,
