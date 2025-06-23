@@ -228,15 +228,7 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(value_type));
     }
 
-    void insert_default() override {
-        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
-            data.push_back(int(PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val()));
-        } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
-            data.push_back(int(PrimitiveTypeTraits<T>::CppType::FIRST_DAY));
-        } else {
-            data.push_back(value_type());
-        }
-    }
+    void insert_default() override { data.push_back(default_value()); }
 
     void insert_many_defaults(size_t length) override {
         if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATEV2 ||
@@ -427,6 +419,16 @@ public:
     }
 
 protected:
+    static value_type default_value() {
+        if constexpr (T == PrimitiveType::TYPE_DATEV2 || T == PrimitiveType::TYPE_DATETIMEV2) {
+            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY.to_date_int_val();
+        } else if constexpr (T == PrimitiveType::TYPE_DATE || T == PrimitiveType::TYPE_DATETIME) {
+            return PrimitiveTypeTraits<T>::CppType::FIRST_DAY;
+        } else {
+            return value_type();
+        }
+    }
+
     Container data;
 };
 
