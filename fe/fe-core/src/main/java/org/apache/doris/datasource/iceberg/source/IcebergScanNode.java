@@ -391,27 +391,6 @@ public class IcebergScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e.getCause());
         }
 
-        TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT)) {
-            // we can create a special empty split and skip the plan process
-            if (splits.isEmpty()) {
-                return splits;
-            }
-            long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot >= 0) {
-                tableLevelPushDownCount = true;
-                List<Split> pushDownCountSplits;
-                if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
-                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
-                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
-                } else {
-                    pushDownCountSplits = Collections.singletonList(splits.get(0));
-                }
-                setPushDownCount(countFromSnapshot);
-                assignCountToSplits(pushDownCountSplits, countFromSnapshot);
-                return pushDownCountSplits;
-            }
-        }
         selectedPartitionNum = partitionPathSet.size();
         return splits;
     }

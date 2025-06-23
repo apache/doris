@@ -67,7 +67,7 @@ public:
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     int64_t _remaining_table_level_row_count;
 };
 

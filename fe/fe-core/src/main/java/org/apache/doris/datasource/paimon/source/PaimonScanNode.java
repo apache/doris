@@ -289,7 +289,6 @@ public class PaimonScanNode extends FileQueryScanNode {
                                     null,
                                     PaimonSplit.PaimonSplitCreator.DEFAULT);
                             for (Split dorisSplit : dorisSplits) {
-                                ((PaimonSplit) dorisSplit).setSchemaId(file.schemaId());
                                 // try to set deletion file
                                 if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
                                     ((PaimonSplit) dorisSplit).setDeletionFile(optDeletionFiles.get().get(i));
