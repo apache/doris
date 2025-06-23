@@ -459,8 +459,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String icebergDb = icebergExternalTable.getDatabase().getFullName();
                         String ddlSql = icebergExternalTable.getViewText();
                         Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
-                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
+                                icebergCatalog, icebergDb, ddlSql, cascadesContext, qbName);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan,
+                                unboundRelation.getHintContext());
                     }
                     if (icebergExternalTable.isView()) {
                         throw new UnsupportedOperationException(
@@ -469,7 +470,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                         qualifierWithoutTableName, unboundRelation.getTableSample(),
                         unboundRelation.getTableSnapshot(), ImmutableList.of(),
-                        Optional.ofNullable(unboundRelation.getScanParams()));
+                        Optional.ofNullable(unboundRelation.getScanParams()), unboundRelation.getHintContext());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
@@ -516,8 +517,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeExternalView(
-            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext,
-            Optional<String> relationQbName) {
+            ExternalTable table, String externalCatalog, String externalDb, String ddlSql,
+            CascadesContext cascadesContext, Optional<String> relationQbName) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();

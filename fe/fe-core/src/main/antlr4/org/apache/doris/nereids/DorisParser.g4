@@ -2040,6 +2040,7 @@ nonReserved
     | NEXT
     | NGRAM_BF
     | NO
+    | NO_USE_MV
     | NO_USE_CBO_RULE
     | NON_NULLABLE
     | NULLS
@@ -2070,6 +2071,7 @@ nonReserved
     | POLICY
     | PREAGG_OFF
     | PREAGG_ON
+    | PREAGGOPEN
     | PRIVILEGES
     | PROC
     | PROCESS
@@ -2162,6 +2164,7 @@ nonReserved
     | UP
     | USER
     | USE_CBO_RULE
+    | USE_MV
     | VALUE
     | VARCHAR
     | VARIABLE
