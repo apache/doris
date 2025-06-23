@@ -28,6 +28,7 @@ import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
@@ -66,6 +67,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -100,6 +102,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
+import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -1265,7 +1268,11 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+            Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+        if (hasIndexChangeJobOnTable(dbId, olapTable.getId())) {
+            throw new UserException(
+                    "current table " + olapTable.getName() + " has build index job, schema change is not allowed.");
+        }
         checkReplicaCount(olapTable);
 
         // process properties first
@@ -1922,6 +1929,18 @@ public class SchemaChangeHandler extends AlterHandler {
             // index id -> index schema
             Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
 
+            // Check if the index supports light index change and session variable is enabled
+            boolean enableAddIndexForNewData = true;
+            try {
+                ConnectContext context = ConnectContext.get();
+                if (context != null && context.getSessionVariable() != null) {
+                    enableAddIndexForNewData = context.getSessionVariable().isEnableAddIndexForNewData();
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to get session variable enable_add_index_for_new_data, "
+                        + "using default value: false", e);
+            }
+
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
@@ -2094,18 +2113,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
-                    // Check if the index supports light index change and session variable is enabled
-                    boolean enableAddIndexForNewData = true;
-                    try {
-                        ConnectContext context = ConnectContext.get();
-                        if (context != null && context.getSessionVariable() != null) {
-                            enableAddIndexForNewData = context.getSessionVariable().isEnableAddIndexForNewData();
-                        }
-                    } catch (Exception e) {
-                        LOG.warn("Failed to get session variable enable_add_index_for_new_data, "
-                                + "using default value: false", e);
-                    }
-
                     // ngram_bf index can do light_schema_change in both local and cloud mode
                     // inverted index can only do light_schema_change in local mode
                     if (index.isLightAddIndexSupported(enableAddIndexForNewData)) {
@@ -2117,9 +2124,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode()) {
-                        throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
-                    }
 
                     for (Column column : olapTable.getBaseSchema()) {
                         if (!column.getType().isVariantType()) {
@@ -2160,12 +2164,18 @@ public class SchemaChangeHandler extends AlterHandler {
                             break;
                         }
                     }
-                    // only inverted index with local mode can do light drop index change
-                    // not sure whether the logic here is correct for ann index
-                    // just reuse the logic for inverted index
-                    if (found != null && (found.getIndexType() == IndexDef.IndexType.INVERTED
-                            || found.getIndexType() == IndexDef.IndexType.ANN)
-                            && Config.isNotCloudMode()) {
+                    // for inverted index, light schema change is supported in both cloud and local mode;
+                    // for ngram index, light schema change is supported only in cloud mode;
+                    boolean supportLightIndexChange = false;
+                    if (Config.isCloudMode() && enableAddIndexForNewData) {
+                        supportLightIndexChange = (
+                                found.getIndexType() == IndexType.NGRAM_BF
+                                        || found.getIndexType() == IndexDef.IndexType.INVERTED);
+                    } else {
+                        supportLightIndexChange = found.getIndexType() == IndexDef.IndexType.INVERTED
+                                || found.getIndexType() == IndexDef.IndexType.ANN;
+                    }
+                    if (found != null && supportLightIndexChange) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;
@@ -3210,6 +3220,25 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private String getCloudClusterName() throws UserException {
+        String clusterName = "";
+        if (Config.isCloudMode()) {
+            ConnectContext context = ConnectContext.get();
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+                throw new UserException("Get cluster failed when submit build index job.");
+            }
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                return clusterName;
+            } else {
+                throw new UserException("It should specify a cluster when submit build index job.");
+            }
+        }
+        return clusterName;
+    }
+
     public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
             Map<Long, Set<String>> invertedIndexOnPartitions, boolean isDropOp) throws UserException {
@@ -3232,17 +3261,31 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
+        String cloudClusterName = getCloudClusterName();
+
         try {
             long timeoutSecond = Config.alter_table_timeout_second;
             for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
                 long originIndexId = entry.getKey();
+
+                MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
+                List<Column> colList = indexMeta.getSchema(true);
+                for (Column col : colList) {
+                    TColumn tColumn = col.toThrift();
+                    col.setIndexFlag(tColumn, olapTable);
+                }
+                List<Index> indexList = indexMeta.getIndexes();
+                int schemaVersion = indexMeta.getSchemaVersion();
+
                 for (Partition partition : olapTable.getPartitions()) {
                     // create job
                     long jobId = Env.getCurrentEnv().getNextId();
                     IndexChangeJob indexChangeJob = new IndexChangeJob(
-                            jobId, db.getId(), olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
+                            jobId, db.getId(), olapTable.getId(), olapTable.getName(), timeoutSecond * 1000,
+                            schemaVersion, colList, indexList);
                     indexChangeJob.setOriginIndexId(originIndexId);
                     indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
+                    indexChangeJob.setCloudClusterName(cloudClusterName);
                     long partitionId = partition.getId();
                     String partitionName = partition.getName();
                     boolean found = false;
@@ -3293,6 +3336,18 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
                     && !indexChangeJob.isDone()) {
                 // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // schema change job is not allowed when index change job is running
+    boolean hasIndexChangeJobOnTable(long dbId, long tableId) {
+        for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
+            if (indexChangeJob.getDbId() == dbId
+                    && indexChangeJob.getTableId() == tableId
+                    && !indexChangeJob.isDone()) {
                 return true;
             }
         }

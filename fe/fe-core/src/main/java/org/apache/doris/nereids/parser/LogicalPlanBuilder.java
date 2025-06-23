@@ -5656,7 +5656,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitBuildIndex(BuildIndexContext ctx) {
-        String name = ctx.name.getText();
+        String name = ctx.name == null ? "" : ctx.name.getText();
         TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         PartitionNamesInfo partitionNamesInfo = null;
         if (ctx.partitionSpec() != null) {
