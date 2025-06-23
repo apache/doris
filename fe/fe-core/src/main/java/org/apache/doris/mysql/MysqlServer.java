@@ -19,7 +19,6 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.service.FrontendOptions;
 
@@ -54,7 +53,7 @@ public class MysqlServer {
     // default task service.
 
     private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
-            Config.max_mysql_service_task_threads_num, "mysql-nio-pool", true, MoreFieldsThread::new);
+            Config.max_mysql_service_task_threads_num, "mysql-nio-pool", true);
 
     public MysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;

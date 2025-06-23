@@ -38,8 +38,10 @@ public class ParserUtils {
         Thread thread = Thread.currentThread();
         Origin origin;
         if (thread instanceof MoreFieldsThread) {
+            // fast path
             origin = ((MoreFieldsThread) thread).getOrigin();
         } else {
+            // slow path
             origin = slowThreadLocal.get();
         }
         return Optional.ofNullable(origin);
