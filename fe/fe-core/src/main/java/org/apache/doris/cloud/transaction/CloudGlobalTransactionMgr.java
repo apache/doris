@@ -156,9 +156,50 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private static final Logger LOG = LogManager.getLogger(CloudGlobalTransactionMgr.class);
     private static final String NOT_SUPPORTED_MSG = "Not supported in cloud mode";
 
+    class CommitCostTimeStatistic {
+        long waitCommitLockCostTimeMs = 0;
+        long waitDeleteBitmapLockCostTimeMs = 0;
+        long calculateDeleteBitmapCostTimeMs = 0;
+
+        long commitToMsCostTimeMs = 0;
+
+        public long getCommitToMsCostTimeMs() {
+            return commitToMsCostTimeMs;
+        }
+
+        public void setCommitToMsCostTimeMs(long commitToMsCostTimeMs) {
+            this.commitToMsCostTimeMs = commitToMsCostTimeMs;
+        }
+
+        public long getCalculateDeleteBitmapCostTimeMs() {
+            return calculateDeleteBitmapCostTimeMs;
+        }
+
+        public void setCalculateDeleteBitmapCostTimeMs(long calculateDeleteBitmapCostTimeMs) {
+            this.calculateDeleteBitmapCostTimeMs = calculateDeleteBitmapCostTimeMs;
+        }
+
+        public long getWaitCommitLockCostTimeMs() {
+            return waitCommitLockCostTimeMs;
+        }
+
+        public void setWaitCommitLockCostTimeMs(long waitCommitLockCostTimeMs) {
+            this.waitCommitLockCostTimeMs = waitCommitLockCostTimeMs;
+        }
+
+        public long getWaitDeleteBitmapLockCostTimeMs() {
+            return waitDeleteBitmapLockCostTimeMs;
+        }
+
+        public void setWaitDeleteBitmapLockCostTimeMs(long waitDeleteBitmapLockCostTimeMs) {
+            this.waitDeleteBitmapLockCostTimeMs = waitDeleteBitmapLockCostTimeMs;
+        }
+    }
+
     private TxnStateCallbackFactory callbackFactory;
     private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
+    private Map<Long, CommitCostTimeStatistic> commitCostTimeStatisticMap = new ConcurrentHashMap<>();
 
     // dbId -> tableId -> txnId
     private Map<Long, Map<Long, Long>> lastTxnIdMap = Maps.newConcurrentMap();
@@ -2138,6 +2179,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 waitToCommitTxnCountMap.get(tableId).addAndGet(1);
             }
         }
+    }
+
+    @Override
+    public int getQueueLength() {
+        int count = 0;
+        for (Map.Entry<Long, AtomicInteger> entry : waitToCommitTxnCountMap.entrySet()) {
+            count += entry.getValue().get();
+        }
+        return count;
     }
 
     private void decreaseWaitingLockCount(List<Table> tableList) {
