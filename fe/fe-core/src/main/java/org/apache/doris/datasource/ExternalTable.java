@@ -391,7 +391,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         throw new NotImplementedException("getChunkSized not implemented");
     }
 
-    protected Optional<SchemaCacheValue> getSchemaCacheValue() {
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         return cache.getSchemaValue(dbName, name);
     }

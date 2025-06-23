@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
 
@@ -320,14 +321,14 @@ public class MTMVPartitionUtil {
         if (!relatedTable.needAutoRefresh()) {
             return true;
         }
-        // check if partitions of related table if changed
+        // check if partitions of related table is changed
         Set<String> snapshotPartitions = mtmv.getRefreshSnapshot().getSnapshotPartitions(mtmvPartitionName);
         if (!Objects.equals(relatedPartitionNames, snapshotPartitions)) {
             return false;
         }
         for (String relatedPartitionName : relatedPartitionNames) {
             MTMVSnapshotIf relatedPartitionCurrentSnapshot = relatedTable
-                    .getPartitionSnapshot(relatedPartitionName, context, Optional.empty());
+                    .getPartitionSnapshot(relatedPartitionName, context, MvccUtil.getSnapshotFromContext(relatedTable));
             if (LOG.isDebugEnabled()) {
                 LOG.debug(String.format("isSyncWithPartitions mvName is %s\n, mtmvPartitionName is %s\n, "
                                 + "mtmv refreshSnapshot is %s\n, relatedPartitionName is %s\n, "
@@ -546,10 +547,9 @@ public class MTMVPartitionUtil {
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
             for (String relatedPartitionName : relatedPartitionNames) {
-                MTMVSnapshotIf partitionSnapshot = relatedTable
-                        .getPartitionSnapshot(relatedPartitionName, context, Optional.empty());
-                refreshPartitionSnapshot.getPartitions()
-                        .put(relatedPartitionName, partitionSnapshot);
+                MTMVSnapshotIf partitionSnapshot = relatedTable.getPartitionSnapshot(relatedPartitionName, context,
+                        MvccUtil.getSnapshotFromContext(relatedTable));
+                refreshPartitionSnapshot.getPartitions().put(relatedPartitionName, partitionSnapshot);
             }
         }
         for (BaseTableInfo baseTableInfo : baseTables) {
@@ -568,7 +568,7 @@ public class MTMVPartitionUtil {
     }
 
     public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns(Optional.empty());
+        List<Column> partitionColumns = relatedTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(relatedTable));
         for (Column column : partitionColumns) {
             if (column.getName().equals(col)) {
                 return column.getType();

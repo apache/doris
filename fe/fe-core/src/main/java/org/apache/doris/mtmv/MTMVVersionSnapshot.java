@@ -31,10 +31,6 @@ public class MTMVVersionSnapshot implements MTMVSnapshotIf {
     @SerializedName("id")
     private long id;
 
-    public MTMVVersionSnapshot(long version) {
-        this.version = version;
-    }
-
     public MTMVVersionSnapshot(long version, long id) {
         this.version = version;
         this.id = id;
