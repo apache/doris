@@ -32,6 +32,11 @@ namespace doris {
 
 class HttpHandler;
 
+enum SendReplyType {
+    SYNC = 0,
+    ASYNC = 1
+};
+
 class HttpRequest {
 public:
     HttpRequest(evhttp_request* ev_req);
@@ -79,15 +84,27 @@ public:
 
     const char* remote_host() const;
 
+    void mark_send_reply(SendReplyType type = ASYNC) {
+        _send_reply_type = type;
+    }
+
     void finish_send_reply() {
         promise.set_value(true);
     }
 
     void wait_finish_send_reply() {
-        futrue.get();
+        if (_send_reply_type == SYNC) {
+            return;
+        }
+
+        auto status = _futrue.wait_for(std::chrono::seconds(600));
+        if (status != std::future_status::ready) {
+            LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
+        }
     }
 
 private:
+    SendReplyType _send_reply_type = SYNC;
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;

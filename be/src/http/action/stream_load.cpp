@@ -208,6 +208,8 @@ void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpR
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
+    req->mark_send_reply();
+
     streaming_load_current_processing->increment(1);
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
