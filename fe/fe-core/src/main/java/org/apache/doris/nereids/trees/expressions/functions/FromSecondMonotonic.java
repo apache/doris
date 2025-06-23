@@ -17,24 +17,26 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
-/** monotonicity of expressions */
-public interface Monotonic extends ExpressionTrait {
+/** monotonicity for from_{xx}second */
+public interface FromSecondMonotonic extends Monotonic {
+    @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
+        if (lower instanceof BigIntLiteral) {
+            return ((BigIntLiteral) lower).getValue() >= 0;
+        }
+        return false;
+    }
+
+    @Override
+    default boolean isPositive() {
         return true;
     }
 
-    // true means that the function is an increasing function
-    boolean isPositive();
-
-    // return the range input child index
-    // e.g. date_trunc(dt,'xxx') return 0
-    int getMonotonicFunctionChildIndex();
-
-    // return the function with the arguments replaced by literal
-    // e.g. date_trunc(dt, 'day'), dt in range ['2020-01-01 10:00:00', '2020-01-03 10:00:00']
-    // return date_trunc('2020-01-01 10:00:00', 'day')
-    Expression withConstantArgs(Expression literal);
+    @Override
+    default int getMonotonicFunctionChildIndex() {
+        return 0;
+    }
 }
