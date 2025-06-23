@@ -246,12 +246,30 @@ Status Compaction::merge_input_rowsets() {
     }
 
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
+    set_delete_predicate_for_output_rowset();
 
+    _local_read_bytes_total = _stats.bytes_read_from_local;
+    _remote_read_bytes_total = _stats.bytes_read_from_remote;
+    DorisMetrics::instance()->local_compaction_read_bytes_total->increment(_local_read_bytes_total);
+    DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
+            _remote_read_bytes_total);
+    DorisMetrics::instance()->local_compaction_write_bytes_total->increment(
+            _stats.cached_bytes_total);
+
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+    COUNTER_UPDATE(_output_row_num_counter, _output_rowset->num_rows());
+    COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
+
+    return check_correctness();
+}
+
+void Compaction::set_delete_predicate_for_output_rowset() {
     // Now we support delete in cumu compaction, to make all data in rowsets whose version
     // is below output_version to be delete in the future base compaction, we should carry
     // all delete predicate in the output rowset.
     // Output start version > 2 means we must set the delete predicate in the output rowset
-    if (_allow_delete_in_cumu_compaction && _output_rowset->version().first > 2) {
+    if (_output_rowset->version().first > 2 &&
+        (_allow_delete_in_cumu_compaction || is_index_change_compaction())) {
         DeletePredicatePB delete_predicate;
         std::accumulate(_input_rowsets.begin(), _input_rowsets.end(), &delete_predicate,
                         [](DeletePredicatePB* delete_predicate, const RowsetSharedPtr& rs) {
@@ -267,20 +285,6 @@ Status Compaction::merge_input_rowsets() {
             _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
         }
     }
-
-    _local_read_bytes_total = _stats.bytes_read_from_local;
-    _remote_read_bytes_total = _stats.bytes_read_from_remote;
-    DorisMetrics::instance()->local_compaction_read_bytes_total->increment(_local_read_bytes_total);
-    DorisMetrics::instance()->remote_compaction_read_bytes_total->increment(
-            _remote_read_bytes_total);
-    DorisMetrics::instance()->local_compaction_write_bytes_total->increment(
-            _stats.cached_bytes_total);
-
-    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
-    COUNTER_UPDATE(_output_row_num_counter, _output_rowset->num_rows());
-    COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
-
-    return check_correctness();
 }
 
 int64_t Compaction::get_avg_segment_rows() {
@@ -580,7 +584,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
 Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
     if (!config::inverted_index_compaction_enable || _input_row_num <= 0 ||
-        ctx.columns_to_do_index_compaction.empty()) {
+        ctx.columns_to_do_index_compaction.empty() || is_index_change_compaction()) {
         return Status::OK();
     }
 
@@ -1551,7 +1555,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.version = _output_version;
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
-    ctx.tablet_schema = _cur_tablet_schema;
+    ctx.tablet_schema = get_output_schema();
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
     ctx.compaction_type = compaction_type();
@@ -1588,12 +1592,20 @@ Status CloudCompactionMixin::garbage_collection() {
 }
 
 void CloudCompactionMixin::update_compaction_level() {
-    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
-    if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
-        int64_t compaction_level =
-                cumu_policy->get_compaction_level(cloud_tablet(), _input_rowsets, _output_rowset);
-        _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
+    // for index change compaction, compaction level should not changed.
+    // because input rowset num is 1.
+    if (is_index_change_compaction()) {
+        DCHECK(_input_rowsets.size() == 1);
+        _output_rowset->rowset_meta()->set_compaction_level(
+                _input_rowsets.back()->rowset_meta()->compaction_level());
+    } else {
+        auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+        auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
+        if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+            int64_t compaction_level = cumu_policy->get_compaction_level(
+                    cloud_tablet(), _input_rowsets, _output_rowset);
+            _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
+        }
     }
 }
 

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
@@ -65,6 +66,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -1264,7 +1266,11 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+            Map<String, String> propertyMap, List<Index> indexes) throws UserException {
+        if (hasIndexChangeJobOnTable(dbId, olapTable.getId())) {
+            throw new UserException(
+                    "current table " + olapTable.getName() + " has build index job, schema change is not allowed.");
+        }
         checkReplicaCount(olapTable);
 
         // process properties first
@@ -2116,9 +2122,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode()) {
-                        throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
-                    }
 
                     if (indexDef.getPartitionNames().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
@@ -2146,8 +2149,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                     }
                     // only inverted index with local mode can do light drop index change
-                    if (found != null && found.getIndexType() == IndexDef.IndexType.INVERTED
-                            && Config.isNotCloudMode()) {
+                    if (found != null && (found.getIndexType() == IndexDef.IndexType.INVERTED
+                            || found.getIndexType() == IndexType.NGRAM_BF)) {
                         alterIndexes.add(found);
                         isDropIndex = true;
                         lightIndexChange = true;
@@ -3185,6 +3188,25 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private String getCloudClusterName() throws UserException {
+        String clusterName = "";
+        if (Config.isCloudMode()) {
+            ConnectContext context = ConnectContext.get();
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+                throw new UserException("Get cluster failed when submit build index job.");
+            }
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                return clusterName;
+            } else {
+                throw new UserException("It should specify a cluster when submit build index job.");
+            }
+        }
+        return clusterName;
+    }
+
     public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
             Map<Long, Set<String>> invertedIndexOnPartitions, boolean isDropOp) throws UserException {
@@ -3207,6 +3229,8 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
+        String cloudClusterName = getCloudClusterName();
+
         try {
             long timeoutSecond = Config.alter_table_timeout_second;
             for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
@@ -3218,6 +3242,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             jobId, db.getId(), olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
                     indexChangeJob.setOriginIndexId(originIndexId);
                     indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
+                    indexChangeJob.setCloudClusterName(cloudClusterName);
                     long partitionId = partition.getId();
                     String partitionName = partition.getName();
                     boolean found = false;
@@ -3268,6 +3293,18 @@ public class SchemaChangeHandler extends AlterHandler {
                     && indexChangeJob.hasSameAlterInvertedIndex(isDrop, alterIndexes)
                     && !indexChangeJob.isDone()) {
                 // if JobState is done (CANCELLED or FINISHED), also allow user to create job again
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // schema change job is not allowed when index change job is running
+    boolean hasIndexChangeJobOnTable(long dbId, long tableId) {
+        for (IndexChangeJob indexChangeJob : ImmutableList.copyOf(indexChangeJobs.values())) {
+            if (indexChangeJob.getDbId() == dbId
+                    && indexChangeJob.getTableId() == tableId
+                    && !indexChangeJob.isDone()) {
                 return true;
             }
         }

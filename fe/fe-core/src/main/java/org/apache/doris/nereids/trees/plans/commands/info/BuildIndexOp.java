@@ -112,8 +112,7 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (indexType == IndexDef.IndexType.NGRAM_BF
-                || indexType == IndexDef.IndexType.BLOOMFILTER) {
+        if (indexType == IndexDef.IndexType.BLOOMFILTER) {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 

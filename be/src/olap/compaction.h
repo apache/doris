@@ -75,6 +75,17 @@ public:
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
 
+    virtual TabletSchemaSPtr get_output_schema() { return _cur_tablet_schema; }
+
+    // the difference between index change compmaction and other compaction.
+    // 1. delete predicate should be kept when input is cumu rowset.
+    // 2. inverted compaction should be skipped.
+    // 3. compute level should not be changed.
+    virtual bool is_index_change_compaction() { return false; }
+
+private:
+    void set_delete_predicate_for_output_rowset();
+
 protected:
     Status merge_input_rowsets();
 

@@ -39,6 +39,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "olap/compaction.h"
@@ -945,6 +946,35 @@ void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
     // FIXME: could happen in currently unresolved race conditions
     LOG(WARNING) << "Unexpected cumulative point: " << new_point
                  << ", origin: " << _cumulative_point.load();
+}
+
+Result<RowsetSharedPtr> CloudTablet::pick_a_rowset_for_index_change(
+        const std::set<int64_t>& alter_index_uids, bool is_drop_op, bool& is_base_rowset) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudTablet::pick_a_rowset_for_index_change",
+                                      Result<RowsetSharedPtr>(nullptr));
+    std::shared_lock rlock(_meta_lock);
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first == 0) {
+            continue;
+        }
+        if (rs->num_rows() == 0) {
+            LOG(WARNING) << "[index_change]find empty rs, index change may "
+                            "failed, id="
+                         << rs->rowset_id().to_string();
+        }
+
+        is_base_rowset = version.first < _cumulative_point;
+        for (const auto& index_id : alter_index_uids) {
+            if (is_drop_op && rs->tablet_schema()->has_expected_index_with_index_id(index_id)) {
+                return rs;
+            }
+            if (!is_drop_op && !rs->tablet_schema()->has_expected_index_with_index_id(index_id)) {
+                return rs;
+            }
+        }
+    }
+
+    return nullptr;
 }
 
 std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {

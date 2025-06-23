@@ -1580,6 +1580,17 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     return false;
 }
 
+bool TabletSchema::has_expected_index_with_index_id(int64_t index_id) const {
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if ((_indexes[i]->index_type() == IndexType::INVERTED ||
+             _indexes[i]->index_type() == IndexType::NGRAM_BF) &&
+            _indexes[i]->index_id() == index_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
         int32_t col_unique_id, const std::string& suffix_path) const {
     std::vector<const TabletIndex*> result;

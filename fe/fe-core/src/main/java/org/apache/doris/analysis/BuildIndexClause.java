@@ -116,9 +116,8 @@ public class BuildIndexClause extends AlterTableClause {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (indexType == IndexDef.IndexType.NGRAM_BF
-                || indexType == IndexDef.IndexType.BLOOMFILTER) {
-            throw new AnalysisException("ngram bloomfilter or bloomfilter index is not needed to build.");
+        if (indexType == IndexDef.IndexType.BLOOMFILTER) {
+            throw new AnalysisException("bloomfilter index is not needed to build.");
         }
         indexDef = new IndexDef(indexName, partitionNames, indexType, true);
         if (!table.isPartitionedTable()) {
