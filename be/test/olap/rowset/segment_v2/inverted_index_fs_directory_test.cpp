@@ -36,8 +36,8 @@ class DorisFSDirectoryTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Enable debug points for testing
+        _original_enable_debug_points = config::enable_debug_points;
         config::enable_debug_points = true;
-        DebugPoints::instance()->clear();
 
         _tmp_dir = std::filesystem::temp_directory_path() / "doris_fs_directory_test";
         std::filesystem::remove_all(_tmp_dir);
@@ -50,12 +50,13 @@ protected:
     void TearDown() override {
         _directory.reset();
         std::filesystem::remove_all(_tmp_dir);
-        DebugPoints::instance()->clear();
+        config::enable_debug_points = _original_enable_debug_points;
     }
 
     std::filesystem::path _tmp_dir;
     io::FileSystemSPtr _fs;
     std::unique_ptr<DorisFSDirectory> _directory;
+    bool _original_enable_debug_points;
 };
 
 // Test 1: LOG_AND_THROW_IF_ERROR macro error handling in list()
