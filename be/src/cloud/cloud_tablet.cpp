@@ -493,18 +493,16 @@ void CloudTablet::remove_unused_rowsets() {
             ++it;
             continue;
         }
+        tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
         rs->clear_cache();
         it = _unused_rowsets.erase(it);
         g_unused_rowsets_count << -1;
         removed_rowsets_num++;
     }
 
-    if (removed_rowsets_num > 0) {
-        LOG(INFO) << "tablet_id=" << tablet_id()
-                  << ", unused_rowset size=" << _unused_rowsets.size()
-                  << ", removed_rowsets_num=" << removed_rowsets_num
-                  << ", cost(us)=" << watch.get_elapse_time_us();
-    }
+    LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
+              << ", removed_rowsets_num=" << removed_rowsets_num
+              << ", cost(us)=" << watch.get_elapse_time_us();
 }
 
 void CloudTablet::update_base_size(const Rowset& rs) {

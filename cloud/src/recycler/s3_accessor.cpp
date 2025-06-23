@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #endif
@@ -120,6 +121,33 @@ public:
             return std::make_shared<DorisAWSLogger>(logLevel);
         };
         Aws::InitAPI(aws_options_);
+
+#ifdef USE_AZURE
+        auto azureLogLevel =
+                static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+        Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+        Azure::Core::Diagnostics::Logger::SetListener(
+                [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                    switch (level) {
+                    case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                        LOG(INFO) << message;
+                        break;
+                    case Azure::Core::Diagnostics::Logger::Level::Informational:
+                        LOG(INFO) << message;
+                        break;
+                    case Azure::Core::Diagnostics::Logger::Level::Warning:
+                        LOG(WARNING) << message;
+                        break;
+                    case Azure::Core::Diagnostics::Logger::Level::Error:
+                        LOG(ERROR) << message;
+                        break;
+                    default:
+                        LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                     << ", message: " << message;
+                        break;
+                    }
+                });
+#endif
     }
 
     ~S3Environment() { Aws::ShutdownAPI(aws_options_); }
@@ -308,8 +336,7 @@ int S3Accessor::init() {
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
         // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
-        options.PerRetryPolicies.emplace_back(
-                std::make_unique<AzureRetryRecordPolicy>(config::max_s3_client_retry));
+        options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}

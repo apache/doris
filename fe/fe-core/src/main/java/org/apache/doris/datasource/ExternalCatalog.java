@@ -166,6 +166,8 @@ public abstract class ExternalCatalog
     private volatile Configuration cachedConf = null;
     private byte[] confLock = new byte[0];
 
+    private volatile boolean isInitializing = false;
+
     public ExternalCatalog() {
     }
 
@@ -289,38 +291,46 @@ public abstract class ExternalCatalog
      * So you have to make sure the client of third system is initialized before any method was called.
      */
     public final synchronized void makeSureInitialized() {
-        initLocalObjects();
-        if (!initialized) {
-            if (useMetaCache.get()) {
-                if (metaCache == null) {
-                    metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
-                            name,
-                            OptionalLong.of(86400L),
-                            OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
-                            Config.max_meta_object_cache_num,
-                            ignored -> getFilteredDatabaseNames(),
-                            localDbName -> Optional.ofNullable(
-                                    buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
-                                            true)),
-                            (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
-                }
-                setLastUpdateTime(System.currentTimeMillis());
-            } else {
-                if (!Env.getCurrentEnv().isMaster()) {
-                    // Forward to master and wait the journal to replay.
-                    int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
-                    MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
-                    try {
-                        remoteExecutor.forward(id, -1);
-                    } catch (Exception e) {
-                        Util.logAndThrowRuntimeException(LOG,
-                                String.format("failed to forward init catalog %s operation to master.", name), e);
+        if (isInitializing) {
+            return;
+        }
+        isInitializing = true;
+        try {
+            initLocalObjects();
+            if (!initialized) {
+                if (useMetaCache.get()) {
+                    if (metaCache == null) {
+                        metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+                                name,
+                                OptionalLong.of(86400L),
+                                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60L),
+                                Config.max_meta_object_cache_num,
+                                ignored -> getFilteredDatabaseNames(),
+                                localDbName -> Optional.ofNullable(
+                                        buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
+                                                true)),
+                                (key, value, cause) -> value.ifPresent(v -> v.setUnInitialized(invalidCacheInInit)));
                     }
-                    return;
+                    setLastUpdateTime(System.currentTimeMillis());
+                } else {
+                    if (!Env.getCurrentEnv().isMaster()) {
+                        // Forward to master and wait the journal to replay.
+                        int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeout();
+                        MasterCatalogExecutor remoteExecutor = new MasterCatalogExecutor(waitTimeOut * 1000);
+                        try {
+                            remoteExecutor.forward(id, -1);
+                        } catch (Exception e) {
+                            Util.logAndThrowRuntimeException(LOG,
+                                    String.format("failed to forward init catalog %s operation to master.", name), e);
+                        }
+                        return;
+                    }
+                    init();
                 }
-                init();
+                initialized = true;
             }
-            initialized = true;
+        } finally {
+            isInitializing = false;
         }
     }
 

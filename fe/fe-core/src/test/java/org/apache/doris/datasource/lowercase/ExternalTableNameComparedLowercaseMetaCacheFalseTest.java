@@ -76,7 +76,6 @@ public class ExternalTableNameComparedLowercaseMetaCacheFalseTest extends TestWi
         env.getCatalogMgr().dropCatalog(stmt);
     }
 
-
     @Test
     public void testGlobalVariable() {
         Assertions.assertEquals(2, GlobalVariable.lowerCaseTableNames);
