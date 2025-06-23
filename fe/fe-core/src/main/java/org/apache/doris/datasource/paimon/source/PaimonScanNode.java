@@ -70,6 +70,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
+    private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
+
+    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
+    private static final String SCAN_SNAPSHOT_ID = "scan.snapshot-id";
+    private static final String SCAN_MODE = "scan.mode";
+    private static final String INCREMENTAL_BETWEEN = "incremental-between";
+    private static final String INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
+    private static final String INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
+
     private enum SplitReadType {
         JNI,
         NATIVE,
@@ -112,19 +121,12 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
-    private static final Logger LOG = LogManager.getLogger(PaimonScanNode.class);
     private PaimonSource source = null;
     private List<Predicate> predicates;
     private int rawFileSplitNum = 0;
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
-    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
-    private static final String SCAN_SNAPSHOT_ID = "scan.snapshot-id";
-    private static final String SCAN_MODE = "scan.mode";
-    private static final String INCREMENTAL_BETWEEN = "incremental-between";
-    private static final String INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
-    private static final String INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
 
     public PaimonScanNode(PlanNodeId id,
             TupleDescriptor desc,
@@ -350,6 +352,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         return splits;
     }
 
+    @VisibleForTesting
     public Map<String, String> getIncrReadParams() {
         Map<String, String> paimonScanParams = new HashMap<>();
         if (scanParams != null && scanParams.incrementalRead()) {

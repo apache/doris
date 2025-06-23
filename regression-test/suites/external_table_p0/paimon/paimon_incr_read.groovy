@@ -41,14 +41,14 @@ suite("test_paimon_incr_read", "p0,external,doris,external_docker,external_docke
         sql """switch `${catalog_name}`"""
         sql """use test_paimon_incr_read_db"""
         sql """set force_jni_scanner=false"""
-        qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+        order_qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
         logger.info("snapshot_incr test success")
-        qt_timestamp_incr  """select * from paimon_incr@incr('startTimestamp'=0, 'endTimestamp'='99999999999999')"""
+        order_qt_timestamp_incr  """select * from paimon_incr@incr('startTimestamp'=0, 'endTimestamp'='99999999999999')"""
         logger.info("timestamp_incr test success")
         sql """set force_jni_scanner=true"""
-        qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
+        order_qt_snapshot_incr  """select * from paimon_incr@incr('startSnapshotId'=1, 'endSnapshotId'=2)"""
         logger.info("snapshot_incr test success")
-        qt_timestamp_incr  """select * from paimon_incr@incr('startTimestamp'=0, 'endTimestamp'='99999999999999')"""
+        order_qt_timestamp_incr  """select * from paimon_incr@incr('startTimestamp'=0, 'endTimestamp'='99999999999999')"""
         logger.info("timestamp_incr test success")
     } finally {
         sql """drop catalog if exists ${catalog_name}"""
