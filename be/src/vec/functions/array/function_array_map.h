@@ -19,7 +19,9 @@
 
 #include <type_traits>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/functions/array/function_array_utils.h"
@@ -178,7 +180,7 @@ private:
     static bool _execute_internal(ColumnArrayMutableData& dst, ColumnArrayExecutionDatas datas,
                                   std::vector<bool>& col_const, size_t start_row, size_t end_row) {
         for (auto data : datas) {
-            if (!check_column<ColumnType>(*data.nested_col)) {
+            if (!is_column<ColumnType>(*data.nested_col)) {
                 return false;
             }
         }

@@ -39,9 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,12 +48,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -96,6 +91,8 @@ public class Backend implements Writable {
 
     @SerializedName("isDecommissioned")
     private AtomicBoolean isDecommissioned;
+
+    private AtomicBoolean isDecommissioning = new AtomicBoolean(false);
 
     // rootPath -> DiskInfo
     @SerializedName("disksRef")
@@ -404,6 +401,14 @@ public class Backend implements Writable {
         return false;
     }
 
+    public boolean setDecommissioning(boolean isDecommissioning) {
+        if (this.isDecommissioning.compareAndSet(!isDecommissioning, isDecommissioning)) {
+            LOG.warn("{} set decommissioning: {}", this.toString(), isDecommissioning);
+            return true;
+        }
+        return false;
+    }
+
     public void setHost(String host) {
         this.host = host;
     }
@@ -488,6 +493,10 @@ public class Backend implements Writable {
 
     public boolean isDecommissioned() {
         return this.isDecommissioned.get();
+    }
+
+    public boolean isDecommissioning() {
+        return this.isDecommissioning.get();
     }
 
     public boolean isQueryAvailable() {
@@ -1036,36 +1045,12 @@ public class Backend implements Writable {
         this.lastPublishTaskAccumulatedNum = accumulatedNum;
     }
 
-    public Set<String> getBeWorkloadGroupTagSet() {
-        Set<String> beTagSet = Sets.newHashSet();
-        String beTagStr = this.tagMap.get(Tag.WORKLOAD_GROUP);
-        if (StringUtils.isEmpty(beTagStr)) {
-            return beTagSet;
+    public String getComputeGroup() {
+        if (Config.isCloudMode()) {
+            return getCloudClusterId();
+        } else {
+            return getLocationTag().value;
         }
-
-        String[] beTagArr = beTagStr.split(",");
-        for (String beTag : beTagArr) {
-            beTagSet.add(beTag.trim());
-        }
-
-        return beTagSet;
-    }
-
-    public static boolean isMatchWorkloadGroupTag(String wgTagStr, Set<String> beTagSet) {
-        if (StringUtils.isEmpty(wgTagStr)) {
-            return true;
-        }
-        if (beTagSet.isEmpty()) {
-            return false;
-        }
-
-        String[] wgTagArr = wgTagStr.split(",");
-        Set<String> wgTagSet = new HashSet<>();
-        for (String wgTag : wgTagArr) {
-            wgTagSet.add(wgTag.trim());
-        }
-
-        return !Collections.disjoint(wgTagSet, beTagSet);
     }
 
 }

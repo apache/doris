@@ -67,16 +67,7 @@ private:
     std::shared_mutex _mtx;
     std::map<size_t, FileBlockSPtr> _cache_file_readers;
 
-    struct ReadStatistics {
-        bool hit_cache = true;
-        bool skip_cache = false;
-        int64_t bytes_read = 0;
-        int64_t bytes_write_into_file_cache = 0;
-        int64_t remote_read_timer = 0;
-        int64_t local_read_timer = 0;
-        int64_t local_write_timer = 0;
-    };
-    void _update_state(const ReadStatistics& stats, FileCacheStatistics* state,
+    void _update_stats(const ReadStatistics& stats, FileCacheStatistics* state,
                        bool is_inverted_index) const;
 };
 

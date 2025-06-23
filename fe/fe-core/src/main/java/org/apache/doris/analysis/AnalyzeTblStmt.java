@@ -120,12 +120,7 @@ public class AnalyzeTblStmt extends AnalyzeStmt implements NotFallbackInParser {
     @Override
     @SuppressWarnings({"rawtypes"})
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!ConnectContext.get().getSessionVariable().enableStats) {
-            throw new UserException("Analyze function is forbidden, you should add `enable_stats=true`"
-                    + "in your FE conf file");
-        }
         super.analyze(analyzer);
-
         tableName.analyze(analyzer);
 
         String catalogName = tableName.getCtl();

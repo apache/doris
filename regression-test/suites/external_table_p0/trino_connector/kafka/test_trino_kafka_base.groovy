@@ -68,7 +68,11 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
                 producer.send(record)
             }
         }
-
+        def tblDescFile = "${context.file.parent}/table_desc"
+        def tblDescFileTemp = "/tmp/"
+        for (def ip in host_ips) {
+            scpFiles("root", ip, tblDescFile, tblDescFileTemp, false)
+        }
 
         // create trino-connector catalog
         String catalog_name = "test_trino_kafka_base_catalog"
@@ -82,7 +86,7 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
                 "trino.connector.name"="kafka",
                 "trino.kafka.table-names"="${db_name}.${basic_data_table}",
                 "trino.kafka.nodes"="${externalEnvIp}:${kafka_port}",
-                "trino.kafka.table-description-dir" = "${context.file.parent}/table_desc"
+                "trino.kafka.table-description-dir" = "/tmp/table_desc"
             );
         """
         sql """use `${catalog_name}`.`${db_name}`"""

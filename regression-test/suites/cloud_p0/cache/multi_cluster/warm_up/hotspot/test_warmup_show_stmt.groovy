@@ -103,7 +103,7 @@ suite("test_warmup_show_stmt") {
         }
     }
     sleep(40000)
-    // result = sql """ show cache hotspot "/" """
+    // result = show_cache_hotspot()
     // if (result[0][0].equals("regression_cluster_id0")) {
     //     assertEquals(result[0][3], "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
     //     assertEquals(result[1][3], "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.supplier")
@@ -112,15 +112,15 @@ suite("test_warmup_show_stmt") {
     //     assertEquals(result[0][3], "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.supplier")
     // }
 
-    // try {
-    //     sql """ show cache hotspot "/error_cluster """ 
+    // try { 
+    //     show_cache_hotspot("error_cluster")
     //     assertTrue(false)
     // } catch (Exception e) {
     //     assertTrue(true)
     // }
 
     // try {
-    //     sql """ show cache hotspot "/regression_cluster_name1/regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.error_table """ 
+    //     show_cache_hotspot("regression_cluster_name1", "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.error_table")
     //     assertTrue(false)
     // } catch (Exception e) {
     //     assertTrue(true)

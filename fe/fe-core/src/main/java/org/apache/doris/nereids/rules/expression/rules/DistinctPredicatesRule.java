@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -43,6 +45,7 @@ public class DistinctPredicatesRule implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class).then(DistinctPredicatesRule::distinct)
+                        .toRule(ExpressionRuleType.DISTINCT_PREDICATES)
         );
     }
 
@@ -50,7 +53,7 @@ public class DistinctPredicatesRule implements ExpressionPatternRuleFactory {
         List<Expression> extractExpressions = ExpressionUtils.extract(expr);
         Set<Expression> distinctExpressions = new LinkedHashSet<>(extractExpressions);
         if (distinctExpressions.size() != extractExpressions.size()) {
-            return ExpressionUtils.combineAsLeftDeepTree(expr.getClass(), Lists.newArrayList(distinctExpressions));
+            return ExpressionUtils.compound(expr instanceof And, Lists.newArrayList(distinctExpressions));
         }
         return expr;
     }

@@ -31,7 +31,6 @@
 
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
@@ -189,8 +188,8 @@ private:
 
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
-                            string* encoded_keys);
-    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
+                            std::string* encoded_keys);
+    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);

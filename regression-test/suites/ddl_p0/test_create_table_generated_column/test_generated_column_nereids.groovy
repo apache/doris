@@ -176,8 +176,8 @@ suite("test_generated_column") {
     """
     sql "insert into gencol_refer_gencol(a,b) values(3,4)"
     test {
-        sql "alter table gencol_refer_gencol drop column a"
-        exception "Column 'a' has a generated column dependency on :[c]"
+        sql "alter table gencol_refer_gencol drop column b"
+        exception "Column 'b' has a generated column dependency on :[c]"
     }
     test {
         sql "alter table gencol_refer_gencol drop column c"

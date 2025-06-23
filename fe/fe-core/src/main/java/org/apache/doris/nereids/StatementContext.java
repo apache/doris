@@ -18,6 +18,10 @@
 package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -28,9 +32,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -59,6 +66,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -72,6 +80,7 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +113,7 @@ public class StatementContext implements Closeable {
     private ConnectContext connectContext;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+    private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -118,6 +128,8 @@ public class StatementContext implements Closeable {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
+
+    private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is unknown
     // the algorithm to derive plan when column stats are unknown is implemented in cascading framework, not in dphyper.
@@ -153,6 +165,7 @@ public class StatementContext implements Closeable {
     private final List<Expression> joinFilters = new ArrayList<>();
 
     private final List<Hint> hints = new ArrayList<>();
+    private boolean hintForcePreAggOn = false;
 
     // the columns in Plan.getExpressions(), such as columns in join condition or filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
@@ -162,19 +175,28 @@ public class StatementContext implements Closeable {
     private final Stack<CloseableResource> plannerResources = new Stack<>();
 
     // placeholder params for prepared statement
-    private List<Placeholder> placeholders;
+    private List<Placeholder> placeholders = new ArrayList<>();
 
     // all tables in query
     private boolean needLockTables = true;
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
-    // tables maybe used by mtmv rewritten in this query
+    // tables maybe used by mtmv rewritten in this query,
+    // this contains mvs which use table in tables and the tables in mvs
+    // such as
+    // mv1 use t1, t2.
+    // mv2 use mv1, t3, t4.
+    // mv3 use t3, t4, t5
+    // if query is: select * from t2 join t5
+    // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
     private final Map<List<String>, Pair<String, Long>> viewInfos = Maps.newHashMap();
+    // save insert into schema to avoid schema changed between two read locks
+    private final List<Column> insertTargetSchema = new ArrayList<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be replaced,
@@ -197,7 +219,7 @@ public class StatementContext implements Closeable {
 
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
-    private final List<PlannerHook> plannerHooks = new ArrayList<>();
+    private final Set<PlannerHook> plannerHooks = new HashSet<>();
 
     private String disableJoinReorderReason;
 
@@ -206,6 +228,23 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
     private boolean privChecked;
+
+    // if greater than 0 means the duration has used
+    private long materializedViewRewriteDuration = 0L;
+
+    // Record used table and it's used partitions
+    private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
+            HashMultimap.create();
+
+    // Record mtmv and valid partitions map because this is time-consuming behavior
+    private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
+
+    /// for dictionary sink.
+    private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
+    private long dictionaryUsedSrcVersion; // base table data version used in this refreshing.
+    private boolean partialLoadDictionary = false; // really used partial load.
+
+    private boolean prepareStage = false;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -232,7 +271,7 @@ public class StatementContext implements Closeable {
             this.sqlCacheContext = new SqlCacheContext(
                     connectContext.getCurrentUserIdentity(), connectContext.queryId());
             if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt.trim());
+                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
             }
         } else {
             this.sqlCacheContext = null;
@@ -241,6 +280,14 @@ public class StatementContext implements Closeable {
 
     public void setNeedLockTables(boolean needLockTables) {
         this.needLockTables = needLockTables;
+    }
+
+    public void setHintForcePreAggOn(boolean preAggOn) {
+        this.hintForcePreAggOn = preAggOn;
+    }
+
+    public boolean isHintForcePreAggOn() {
+        return hintForcePreAggOn;
     }
 
     /**
@@ -278,13 +325,17 @@ public class StatementContext implements Closeable {
         return tables;
     }
 
+    public List<Column> getInsertTargetSchema() {
+        return insertTargetSchema;
+    }
+
     public void setTables(Map<List<String>, TableIf> tables) {
         this.tables.clear();
         this.tables.putAll(tables);
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom) {
+    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom, Optional<Location> location) {
         Map<List<String>, TableIf> tables;
         switch (tableFrom) {
             case QUERY:
@@ -299,11 +350,19 @@ public class StatementContext implements Closeable {
             default:
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
-        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv()));
+        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), location));
     }
 
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+    }
+
+    public void setHasNondeterministic(boolean hasNondeterministic) {
+        this.hasNondeterministic = hasNondeterministic;
+    }
+
+    public boolean hasNondeterministic() {
+        return hasNondeterministic;
     }
 
     public ConnectContext getConnectContext() {
@@ -323,6 +382,18 @@ public class StatementContext implements Closeable {
 
     public Stopwatch getStopwatch() {
         return stopwatch;
+    }
+
+    public Stopwatch getMaterializedViewStopwatch() {
+        return materializedViewStopwatch;
+    }
+
+    public long getMaterializedViewRewriteDuration() {
+        return materializedViewRewriteDuration;
+    }
+
+    public void addMaterializedViewRewriteDuration(long millisecond) {
+        materializedViewRewriteDuration += millisecond;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
@@ -517,6 +588,23 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * get used mv hint by hint name
+     * @param useMvName hint name, can either be USE_MV or NO_USE_MV
+     * @return optional of useMvHint
+     */
+    public Optional<UseMvHint> getUseMvHint(String useMvName) {
+        for (Hint hint : getHints()) {
+            if (hint.isSyntaxError()) {
+                continue;
+            }
+            if (hint.getHintName().equalsIgnoreCase(useMvName)) {
+                return Optional.of((UseMvHint) hint);
+            }
+        }
+        return Optional.empty();
+    }
+
     public Optional<Statistics> getStatistics(Id id) {
         if (id instanceof RelationId) {
             return Optional.ofNullable(this.relationIdToStatisticsMap.get((RelationId) id));
@@ -611,7 +699,7 @@ public class StatementContext implements Closeable {
         return formatOptions;
     }
 
-    public List<PlannerHook> getPlannerHooks() {
+    public Set<PlannerHook> getPlannerHooks() {
         return plannerHooks;
     }
 
@@ -622,13 +710,13 @@ public class StatementContext implements Closeable {
     /**
      * Load snapshot information of mvcc
      */
-    public void loadSnapshots() {
+    public void loadSnapshots(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
         for (TableIf tableIf : tables.values()) {
             if (tableIf instanceof MvccTable) {
                 MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
                 // may be set by MTMV, we can not load again
                 if (!snapshots.containsKey(mvccTableInfo)) {
-                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot());
+                    snapshots.put(mvccTableInfo, ((MvccTable) tableIf).loadSnapshot(tableSnapshot, scanParams));
                 }
             }
         }
@@ -737,5 +825,45 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public List<Backend> getUsedBackendsDistributing() {
+        return usedBackendsDistributing;
+    }
+
+    public void setUsedBackendsDistributing(List<Backend> usedBackends) {
+        this.usedBackendsDistributing = usedBackends;
+    }
+
+    public long getDictionaryUsedSrcVersion() {
+        return dictionaryUsedSrcVersion;
+    }
+
+    public void setDictionaryUsedSrcVersion(long dictionaryUsedSrcVersion) {
+        this.dictionaryUsedSrcVersion = dictionaryUsedSrcVersion;
+    }
+
+    public boolean isPartialLoadDictionary() {
+        return partialLoadDictionary;
+    }
+
+    public void setPartialLoadDictionary(boolean partialLoadDictionary) {
+        this.partialLoadDictionary = partialLoadDictionary;
+    }
+
+    public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
+        return tableUsedPartitionNameMap;
+    }
+
+    public Map<BaseTableInfo, Collection<Partition>> getMvCanRewritePartitionsMap() {
+        return mvCanRewritePartitionsMap;
+    }
+
+    public void setPrepareStage(boolean isPrepare) {
+        this.prepareStage = isPrepare;
+    }
+
+    public boolean isPrepareStage() {
+        return prepareStage;
     }
 }

@@ -18,6 +18,8 @@
 package org.apache.doris.statistics.util;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableProperty;
@@ -30,16 +32,20 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -180,7 +186,7 @@ class StatisticsUtilTest {
         schema.add(column);
         OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
         HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
-
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
         // Test olap table auto analyze disabled.
         Map<String, String> properties = new HashMap<>();
         properties.put(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "disable");
@@ -195,7 +201,7 @@ class StatisticsUtilTest {
         };
 
         // Test auto analyze catalog disabled.
-        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "dbName", externalCatalog);
+        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsTable, Pair.of("index", column.getName())));
 
         // Test catalog auto analyze enabled.
@@ -210,7 +216,7 @@ class StatisticsUtilTest {
 
         // Test external table auto analyze enabled.
         externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
-        HMSExternalTable hmsTable1 = new HMSExternalTable(1, "name", "dbName", externalCatalog);
+        HMSExternalTable hmsTable1 = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
         externalCatalog.setAutoAnalyzePolicy("dbName", "name", "enable");
         Assertions.assertTrue(StatisticsUtil.needAnalyzeColumn(hmsTable1, Pair.of("index", column.getName())));
 
@@ -246,8 +252,9 @@ class StatisticsUtilTest {
             }
         };
         // Test not supported external table type.
-        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbcdb",
-                new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), ""));
+        JdbcExternalCatalog jdbcExternalCatalog = new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), "");
+        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb", "jdbcdb");
+        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog, jdbcExternalDatabase);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(externalTable, Pair.of("index", column.getName())));
 
         // Test hms external table not hive type.
@@ -257,7 +264,7 @@ class StatisticsUtilTest {
                 return DLAType.ICEBERG;
             }
         };
-        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsDb", externalCatalog);
+        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase);
         Assertions.assertFalse(StatisticsUtil.needAnalyzeColumn(hmsExternalTable, Pair.of("index", column.getName())));
 
         // Test partition first load.
@@ -394,7 +401,8 @@ class StatisticsUtilTest {
                 return true;
             }
         };
-        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null);
+        IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
+        IcebergExternalTable icebergTable = new IcebergExternalTable(0, "", "", null, icebergDatabase);
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName())));
 
         // Test table stats meta is null.
@@ -495,5 +503,59 @@ class StatisticsUtilTest {
             }
         };
         Assertions.assertTrue(StatisticsUtil.isLongTimeColumn(table, Pair.of("index", column.getName())));
+    }
+
+    @Test
+    void testCanCollectColumn() {
+        Column column = new Column("testColumn", Type.INT, true, null, null, "");
+        List<Column> schema = new ArrayList<>();
+        schema.add(column);
+        OlapTable table = new OlapTable(200, "testTable", schema, KeysType.AGG_KEYS, null, null);
+
+        // Test full analyze always return true;
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, false, 1));
+
+        // Test null table return true;
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, null, true, 1));
+
+        // Test external table always return true;
+        HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
+        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, hmsTable, true, 1));
+
+        // Test agg key return true;
+        MaterializedIndexMeta meta = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS, null);
+        new MockUp<OlapTable>() {
+            @Mock
+            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+                return meta;
+            }
+        };
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test agg value return false
+        column = new Column("testColumn", Type.INT, false, null, null, "");
+        Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test unique mor value column return false
+        MaterializedIndexMeta meta1 = new MaterializedIndexMeta(1L, schema, 1, 1, (short) 1, TStorageType.COLUMN, KeysType.UNIQUE_KEYS, null);
+        new MockUp<OlapTable>() {
+            @Mock
+            public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+                return meta1;
+            }
+
+            @Mock
+            public boolean isUniqKeyMergeOnWrite() {
+                return false;
+            }
+        };
+        Assertions.assertFalse(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
+        // Test unique mor key column return true
+        column = new Column("testColumn", Type.INT, true, null, null, "");
+        Assertions.assertTrue(StatisticsUtil.canCollectColumn(column, table, true, 1));
+
     }
 }

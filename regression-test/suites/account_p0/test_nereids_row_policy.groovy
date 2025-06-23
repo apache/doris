@@ -28,7 +28,7 @@ suite("test_nereids_row_policy") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     def assertQueryResult = { size ->
@@ -88,7 +88,7 @@ suite("test_nereids_row_policy") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
 
     dropPolciy "policy0"

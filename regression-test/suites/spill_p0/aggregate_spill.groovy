@@ -17,13 +17,13 @@
 
 suite("aggregate_spill") {
     sql """
-        set enable_agg_spill = true;
+        set enable_spill = true;
     """
     sql """
         set enable_force_spill = true;
     """
     sql """
-        set min_revocable_mem = 1;
+        set spill_min_revocable_mem = 1;
     """
     sql """
         set parallel_pipeline_task_num = 4;

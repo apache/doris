@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -126,7 +127,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     queryTopPlan,
                     materializationContext.getShuttledExprToScanExprMapping(),
                     viewToQuerySlotMapping,
-                    queryStructInfo.getTableBitSet());
+                    queryStructInfo.getTableBitSet(),
+                    ImmutableMap.of(), cascadesContext);
             boolean isRewrittenQueryExpressionValid = true;
             if (!rewrittenQueryExpressions.isEmpty()) {
                 List<NamedExpression> projects = new ArrayList<>();
@@ -362,9 +364,9 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         for (Expression expression : groupByShuttledExpressions) {
             canUnionRewrite = !expression.collectToSet(expr -> expr instanceof SlotReference
                     && ((SlotReference) expr).isColumnFromTable()
-                    && Objects.equals(((SlotReference) expr).getColumn().map(Column::getName).orElse(null),
+                    && Objects.equals(((SlotReference) expr).getOriginalColumn().map(Column::getName).orElse(null),
                     relatedCol)
-                    && Objects.equals(((SlotReference) expr).getTable().map(BaseTableInfo::new).orElse(null),
+                    && Objects.equals(((SlotReference) expr).getOriginalTable().map(BaseTableInfo::new).orElse(null),
                     relatedTableInfo)).isEmpty();
             if (canUnionRewrite) {
                 break;

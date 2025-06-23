@@ -88,32 +88,8 @@ suite('compaction_width_array_column', "p2") {
     while (isOverLap && tryCnt < 3) {
         isOverLap = false
 
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            assertEquals("success", compactJson.status.toLowerCase())
-        }
-
-        // wait for all compactions done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
-
+        // in asan compile, it may cost 30min to compact.
+        trigger_and_wait_compaction(tableName, "cumulative", 40*60)
         for (def tablet in tablets) {
             String tablet_id = tablet.TabletId
             (code, out, err) = curl("GET", tablet.CompactionStatus)

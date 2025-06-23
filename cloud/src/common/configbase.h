@@ -21,7 +21,9 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace doris::cloud::config {
@@ -152,7 +154,11 @@ public:
 
     void set_force(const std::string& key, const std::string& val);
 
-    // dump props to conf file
+    // Dump props to conf file if conffile exists, will append to it
+    // else will dump to a new conffile.
+    //
+    // This Function will generate a tmp file for modification and rename it
+    // to subtitute the original one if modication success.
     bool dump(const std::string& conffile);
 
 private:
@@ -169,5 +175,10 @@ extern std::map<std::string, std::string>* full_conf_map;
 // Return true if load
 bool init(const char* conf_file, bool fill_conf_map = false, bool must_exist = true,
           bool set_to_default = true);
+
+std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::string> field_map,
+                                        bool need_persist, const std::string& custom_conf_path);
+
+std::shared_mutex* get_mutable_string_config_lock();
 
 } // namespace doris::cloud::config

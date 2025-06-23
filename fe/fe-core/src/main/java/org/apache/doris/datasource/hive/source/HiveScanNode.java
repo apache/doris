@@ -42,6 +42,8 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
@@ -58,7 +60,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Setter;
-import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -87,6 +88,8 @@ public class HiveScanNode extends FileQueryScanNode {
     @Setter
     protected SelectedPartitions selectedPartitions = null;
 
+    private DirectoryLister directoryLister;
+
     private boolean partitionInit = false;
     private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
     private List<HivePartition> prunedPartitions;
@@ -101,15 +104,18 @@ public class HiveScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
-        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv);
+    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister) {
+        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv, directoryLister);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv) {
+            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv,
+            DirectoryLister directoryLister) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
+        this.directoryLister = directoryLister;
     }
 
     @Override
@@ -120,7 +126,7 @@ public class HiveScanNode extends FileQueryScanNode {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
-            skipCheckingAcidVersionFile = ConnectContext.get().getSessionVariable().skipCheckingAcidVersionFile;
+            skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
         }
     }
 
@@ -128,7 +134,7 @@ public class HiveScanNode extends FileQueryScanNode {
         List<HivePartition> resPartitions = Lists.newArrayList();
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
+        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
             Collection<PartitionItem> partitionItems;
@@ -219,7 +225,9 @@ public class HiveScanNode extends FileQueryScanNode {
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
-                            splitAssignment.addToQueue(allFiles);
+                            if (splitAssignment.needMoreSplit()) {
+                                splitAssignment.addToQueue(allFiles);
+                            }
                         } catch (Exception e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {
@@ -254,7 +262,7 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             partitionInit = true;
         }
-        int numPartitions = ConnectContext.get().getSessionVariable().getNumPartitionsInBatchMode();
+        int numPartitions = sessionVariable.getNumPartitionsInBatchMode();
         return numPartitions >= 0 && prunedPartitions.size() >= numPartitions;
     }
 
@@ -267,10 +275,18 @@ public class HiveScanNode extends FileQueryScanNode {
             List<Split> allFiles, String bindBrokerName, int numBackends) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
-            fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
+            try {
+                fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
+            } catch (Exception e) {
+                // Release shared load (getValidWriteIds acquire Lock).
+                // If no exception is throw, the lock will be released when `finalizeQuery()`.
+                Env.getCurrentHiveTransactionMgr().deregister(hiveTransaction.getQueryId());
+                throw e;
+            }
         } else {
             boolean withCache = Config.max_external_file_cache_num > 0;
-            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName);
+            fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1, bindBrokerName,
+                    directoryLister, hmsTable);
         }
         if (tableSample != null) {
             List<HiveMetaStoreCache.HiveFileStatus> hiveFileStatuses = selectFiles(fileCaches);
@@ -283,12 +299,12 @@ public class HiveScanNode extends FileQueryScanNode {
          * we don't need to split the file because for parquet/orc format, only metadata is read.
          * If we split the file, we will read metadata of a file multiple times, which is not efficient.
          *
-         * - Hive Transactional Table may need merge on read, so do not apply this optimization.
+         * - Hive Full Acid Transactional Table may need merge on read, so do not apply this optimization.
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
         if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
-                && hiveTransaction != null) {
+                && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
                 if (fileCacheValue.getFiles() != null) {
@@ -367,10 +383,10 @@ public class HiveScanNode extends FileQueryScanNode {
             }
             hiveTransaction.addPartition(partition.getPartitionName(hmsTable.getPartitionColumns()));
         }
-        ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
+        Map<String, String> txnValidIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds,
-            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
+
+        return cache.getFilesByTransaction(partitions, txnValidIds, hiveTransaction.isFullAcid(), bindBrokerName);
     }
 
     @Override
@@ -400,8 +416,23 @@ public class HiveScanNode extends FileQueryScanNode {
             if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
                     || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
-            } else {
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.OPENX_JSON_SERDE)) {
+                if (!sessionVariable.isReadHiveJsonInOneColumn()) {
+                    type = TFileFormatType.FORMAT_JSON;
+                } else if (sessionVariable.isReadHiveJsonInOneColumn()
+                        && hmsTable.firstColumnIsString()) {
+                    type = TFileFormatType.FORMAT_CSV_PLAIN;
+                } else {
+                    throw new UserException("You set read_hive_json_in_one_column = true, but the first column of "
+                            + "table " + hmsTable.getName()
+                            + " is not a string column.");
+                }
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_TEXT_SERDE)) {
+                type = TFileFormatType.FORMAT_TEXT;
+            } else if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_CSV_SERDE)) {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
+            } else {
+                throw new UserException("Unsupported hive table serde: " + serDeLib);
             }
         }
         return type;
@@ -416,7 +447,9 @@ public class HiveScanNode extends FileQueryScanNode {
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileAttributes fileAttributes = new TFileAttributes();
         Table table = hmsTable.getRemoteTable();
-        // TODO: separate hive text table and OpenCsv table
+        // set skip header count
+        // TODO: support skip footer count
+        fileAttributes.setSkipLines(HiveProperties.getSkipHeaderCount(table));
         String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
         if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
@@ -435,6 +468,8 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setNullFormat(HiveProperties.getNullFormat(table));
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
+            fileAttributes.setEnableTextValidateUtf8(
+                    sessionVariable.enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             // set set properties of OpenCSVSerde
@@ -446,11 +481,15 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setEnclose(HiveProperties.getQuoteChar(table).getBytes()[0]);
             // 4. set escape char
             textParams.setEscape(HiveProperties.getEscapeChar(table).getBytes()[0]);
+            // 5. set null format with empty string to make csv reader not use "\\N" to represent null
+            textParams.setNullFormat("");
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
             if (textParams.isSetEnclose()) {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
+            fileAttributes.setEnableTextValidateUtf8(
+                    sessionVariable.enableTextValidateUtf8);
         } else if (serDeLib.equals("org.apache.hive.hcatalog.data.JsonSerDe")) {
             TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
             textParams.setColumnSeparator("\t");
@@ -464,6 +503,37 @@ public class HiveScanNode extends FileQueryScanNode {
             fileAttributes.setReadJsonByLine(true);
             fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
+        } else if (serDeLib.equals("org.openx.data.jsonserde.JsonSerDe")) {
+            if (!sessionVariable.isReadHiveJsonInOneColumn()) {
+                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+                textParams.setColumnSeparator("\t");
+                textParams.setLineDelimiter("\n");
+                fileAttributes.setTextParams(textParams);
+
+                fileAttributes.setJsonpaths("");
+                fileAttributes.setJsonRoot("");
+                fileAttributes.setNumAsString(true);
+                fileAttributes.setFuzzyParse(false);
+                fileAttributes.setReadJsonByLine(true);
+                fileAttributes.setStripOuterArray(false);
+                fileAttributes.setHeaderType("");
+
+                fileAttributes.setOpenxJsonIgnoreMalformed(
+                        Boolean.parseBoolean(HiveProperties.getOpenxJsonIgnoreMalformed(table)));
+            } else if (sessionVariable.isReadHiveJsonInOneColumn()
+                    && hmsTable.firstColumnIsString()) {
+                TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
+                textParams.setLineDelimiter("\n");
+                textParams.setColumnSeparator("\n");
+                //First, perform row splitting according to `\n`. When performing column splitting,
+                // since there is no `\n`, only one column of data will be generated.
+                fileAttributes.setTextParams(textParams);
+                fileAttributes.setHeaderType("");
+            } else {
+                throw new UserException("You set read_hive_json_in_one_column = true, but the first column of table "
+                        + hmsTable.getName()
+                        + " is not a string column.");
+            }
         } else {
             throw new UserException(
                     "unsupported hive table serde: " + serDeLib);

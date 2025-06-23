@@ -47,17 +47,16 @@ public:
     // Get function name.
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     size_t get_number_of_arguments() const override { return 2; }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_struct(remove_nullable(arguments[0])))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_STRUCT)
                 << "First argument for function: " << name
                 << " should be DataTypeStruct but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_integer(arguments[1]) || is_string(arguments[1]))
+        DCHECK(is_int_or_bool(arguments[1]->get_primitive_type()) ||
+               is_string_type(arguments[1]->get_primitive_type()))
                 << "Second argument for function: " << name
                 << " should be Int or String but it has type " << arguments[1]->get_name() << ".";
         // Due to the inability to get the actual value of the index column
@@ -95,7 +94,7 @@ private:
     Status get_element_index(const DataTypeStruct& struct_type, const ColumnPtr& index_column,
                              const DataTypePtr& index_type, size_t* result) const {
         size_t index;
-        if (is_integer(index_type)) {
+        if (is_int_or_bool(index_type->get_primitive_type())) {
             index = index_column->get_int(0);
             size_t limit = struct_type.get_elements().size() + 1;
             if (index < 1 || index >= limit) {
@@ -105,7 +104,7 @@ private:
                                     get_name(), index, limit));
             }
             index -= 1; // the index start from 1
-        } else if (is_string(index_type)) {
+        } else if (is_string_type(index_type->get_primitive_type())) {
             std::string field_name = index_column->get_data_at(0).to_string();
             std::optional<size_t> pos = struct_type.try_get_position_by_name(field_name);
             if (!pos.has_value()) {

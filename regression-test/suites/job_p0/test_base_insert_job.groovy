@@ -73,6 +73,17 @@ suite("test_base_insert_job") {
         );
         """
     sql """
+       DROP SQL_BLOCK_RULE IF EXISTS test_base_insert_job_rule
+        """
+    sql """
+        CREATE SQL_BLOCK_RULE test_base_insert_job_rule
+            PROPERTIES(
+            "sql"="select \\\\* from test_base_insert_job_rule",
+            "global"="true",
+            "enable"="true"
+            );
+        """
+    sql """
         insert into ${tableName} values
         ('2023-03-18', 1, 1)
         """
@@ -242,6 +253,9 @@ suite("test_base_insert_job") {
         //resume tasks size should be greater than before pause
         afterResumeTasks.size() > tasks.size()
     })
+    sql """
+       DROP SQL_BLOCK_RULE IF EXISTS test_base_insert_job_rule
+        """
     // check resume job status
     def afterResumeJobStatus = sql """
         select status from jobs("type"="insert") where Name='${jobName}'

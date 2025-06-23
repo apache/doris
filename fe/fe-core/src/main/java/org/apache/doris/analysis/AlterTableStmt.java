@@ -158,10 +158,10 @@ public class AlterTableStmt extends DdlStmt implements NotFallbackInParser {
                         addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
                                 null, null);
                     } else if (alterFeature == EnableFeatureClause.Features.UPDATE_FLEXIBLE_COLUMNS) {
-                        ColumnDef skipBItmapCol = ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE);
+                        ColumnDef skipBitmapCol = ColumnDef.newSkipBitmapColumnDef(AggregateType.NONE);
                         List<Column> fullSchema = table.getBaseSchema(true);
                         String lastCol = fullSchema.get(fullSchema.size() - 1).getName();
-                        addColumnClause = new AddColumnClause(skipBItmapCol, new ColumnPosition(lastCol), null, null);
+                        addColumnClause = new AddColumnClause(skipBitmapCol, new ColumnPosition(lastCol), null, null);
                     }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);

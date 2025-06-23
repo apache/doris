@@ -55,7 +55,8 @@ public class ModifyTablePropertyOperationLog implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("SET (");
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            sb.append(entry.getKey()).append("=").append(entry.getValue()).append(",");
+            sb.append("\"").append(entry.getKey()).append("\"").append(" = ").append("\"").append(entry.getValue())
+                    .append("\" ").append(",");
         }
         sb.deleteCharAt(sb.length() - 1); // remove last ','
         sb.append(")");
@@ -105,5 +106,9 @@ public class ModifyTablePropertyOperationLog implements Writable {
 
     public String toJson()  {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public String toSql() {
+        return sql;
     }
 }

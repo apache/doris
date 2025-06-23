@@ -58,7 +58,7 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+        if (connectContext != null && connectContext.getState().isInternal()) {
             return plan;
         }
         CollectorContext context = new CollectorContext();
@@ -193,8 +193,8 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
         path.add(slot);
         if (slot instanceof SlotReference) {
             SlotReference slotReference = (SlotReference) slot;
-            Optional<Column> col = slotReference.getColumn();
-            Optional<TableIf> table = slotReference.getTable();
+            Optional<Column> col = slotReference.getOriginalColumn();
+            Optional<TableIf> table = slotReference.getOriginalTable();
             if (col.isPresent() && table.isPresent()) {
                 return Collections.singleton(slot);
             }

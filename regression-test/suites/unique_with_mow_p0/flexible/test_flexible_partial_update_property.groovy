@@ -73,6 +73,11 @@ suite('test_flexible_partial_update_property') {
         }
     }
 
+    test {
+        sql """alter table ${tableName} set ("enable_unique_key_skip_bitmap_column"="true");"""
+        exception "You can not modify property 'enable_unique_key_skip_bitmap_column'."
+    }
+
     doSchemaChange """alter table ${tableName} enable feature "UPDATE_FLEXIBLE_COLUMNS";"""
     show_res = sql "show create table ${tableName}"
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))

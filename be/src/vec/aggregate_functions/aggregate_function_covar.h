@@ -34,16 +34,17 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
 class BufferWritable;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename>
+template <PrimitiveType T>
 class ColumnVector;
 
-template <typename T>
+template <PrimitiveType T>
 struct BaseData {
     BaseData() = default;
     virtual ~BaseData() = default;
@@ -94,11 +95,11 @@ struct BaseData {
     }
 
     void add(const IColumn* column_x, const IColumn* column_y, size_t row_num) {
-        const auto& sources_x =
-                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_x);
+        const auto& sources_x = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*column_x);
         double source_data_x = double(sources_x.get_data()[row_num]);
-        const auto& sources_y =
-                assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column_y);
+        const auto& sources_y = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*column_y);
         double source_data_y = double(sources_y.get_data()[row_num]);
 
         sum_x += source_data_x;
@@ -113,7 +114,7 @@ struct BaseData {
     int64_t count {};
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct PopData : BaseData<T> {
     static const char* name() { return "covar"; }
 
@@ -123,7 +124,7 @@ struct PopData : BaseData<T> {
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct SampData : BaseData<T> {
     static const char* name() { return "covar_samp"; }
 
@@ -175,4 +176,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

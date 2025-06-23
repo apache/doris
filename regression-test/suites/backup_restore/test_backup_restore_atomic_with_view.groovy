@@ -19,7 +19,7 @@ suite("test_backup_restore_atomic_with_view", "backup_restore") {
     String suiteName = "backup_restore_atomic_with_view"
     String dbName = "${suiteName}_db"
     String dbName1 = "${suiteName}_db_1"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableName = "${suiteName}_table"
     String viewName = "${suiteName}_view"

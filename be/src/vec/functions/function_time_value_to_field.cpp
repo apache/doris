@@ -47,13 +47,11 @@ public:
         return std::make_shared<ToDataType>();
     }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
 
-        const auto* column_time = assert_cast<const TimeValue::ColumnTime*>(
+        const auto* column_time = assert_cast<const TimeValue::ColumnTimeV2*>(
                 block.get_by_position(arguments[0]).column.get());
 
         auto col_res = ToDataType::ColumnType::create();

@@ -48,7 +48,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -154,7 +154,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     // Used for group commit insert
     private boolean isGroupCommit = false;
-    private int baseSchemaVersion = -1;
     private TUniqueId loadId = null;
     private long tableId = -1;
     public boolean isGroupCommitStreamLoadSql = false;
@@ -394,7 +393,7 @@ public class NativeInsertStmt extends InsertStmt {
         createDataSink();
 
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        long timeoutSecond = ConnectContext.get().getExecTimeoutS();
         if (label == null || Strings.isNullOrEmpty(label.getLabelName())) {
             label = new LabelName(db.getFullName(),
                     insertType.labePrefix + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_"));
@@ -772,7 +771,8 @@ public class NativeInsertStmt extends InsertStmt {
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
                             smap.getRhs()
-                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
+                                    .add(LoadExprTransformUtils.getExprFromDesc(analyzer,
+                                            slotToIndex.get(slot.getColumnName()), slot));
                         }
                         Expr e = entry.second.getDefineExpr().clone(smap);
                         e.analyze(analyzer);
@@ -804,7 +804,8 @@ public class NativeInsertStmt extends InsertStmt {
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
                             smap.getRhs()
-                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
+                                    .add(LoadExprTransformUtils.getExprFromDesc(analyzer,
+                                            slotToIndex.get(slot.getColumnName()), slot));
                         }
                         Expr e = entry.second.getDefineExpr().clone(smap);
                         e.analyze(analyzer);
@@ -901,7 +902,8 @@ public class NativeInsertStmt extends InsertStmt {
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
                             smap.getRhs()
-                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
+                                    .add(LoadExprTransformUtils.getExprFromDesc(analyzer,
+                                            slotToIndex.get(slot.getColumnName()), slot));
                         }
                         extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0));
@@ -1023,7 +1025,9 @@ public class NativeInsertStmt extends InsertStmt {
                 ExprSubstitutionMap smap = new ExprSubstitutionMap();
                 for (SlotRef slot : columns) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
+                    smap.getRhs().add(
+                            LoadExprTransformUtils.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()),
+                                    slot));
                 }
                 targetExpr = targetExpr.clone(smap);
                 targetExpr.analyze(analyzer);
@@ -1304,7 +1308,8 @@ public class NativeInsertStmt extends InsertStmt {
         OlapTable olapTable = (OlapTable) getTargetTable();
         olapTable.readLock();
         try {
-            if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            if (groupCommitPlanner != null
+                    && olapTable.getBaseSchemaVersion() == groupCommitPlanner.baseSchemaVersion) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("reuse group commit plan, table={}", olapTable);
                 }
@@ -1322,7 +1327,6 @@ public class NativeInsertStmt extends InsertStmt {
                     targetColumnNames, queryId, ConnectContext.get().getSessionVariable().getGroupCommit());
             // save plan message to be reused for prepare stmt
             loadId = queryId;
-            baseSchemaVersion = olapTable.getBaseSchemaVersion();
             return groupCommitPlanner;
         } finally {
             olapTable.readUnlock();
@@ -1334,7 +1338,7 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public int getBaseSchemaVersion() {
-        return baseSchemaVersion;
+        return groupCommitPlanner.baseSchemaVersion;
     }
 
     public void setIsFromDeleteOrUpdateStmt(boolean isFromDeleteOrUpdateStmt) {

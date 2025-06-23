@@ -45,6 +45,7 @@ suite ("MVWithAs") {
     sql """insert into MVWithAs values("2020-01-01",1,"a",1);"""
 
     sql "analyze table MVWithAs with sync;"
+    sql """alter table MVWithAs modify column time_col set stats ('row_count'='7');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from MVWithAs order by time_col;", "MVWithAs_mv")
@@ -52,9 +53,6 @@ suite ("MVWithAs") {
 
     mv_rewrite_success("select count(tag_id) from MVWithAs t;", "MVWithAs_mv")
     order_qt_select_mv "select count(tag_id) from MVWithAs t;"
-
-    sql """set enable_stats=true;"""
-    sql """alter table MVWithAs modify column time_col set stats ('row_count'='7');"""
 
     mv_rewrite_fail("select * from MVWithAs order by time_col;", "MVWithAs_mv")
 

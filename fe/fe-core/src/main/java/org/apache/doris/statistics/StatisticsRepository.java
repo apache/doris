@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.AlterColumnStatsStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -26,6 +24,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.commands.AlterColumnStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -198,7 +198,7 @@ public class StatisticsRepository {
         return size == 0 ? null : rows.get(0);
     }
 
-    private static Histogram queryColumnHistogramByName(
+    public static Histogram queryColumnHistogramByName(
             long ctlId, long dbId, long tableId, long indexId, String colName) {
         ResultRow resultRow = queryColumnHistogramById(ctlId, dbId, tableId, indexId, colName);
         if (resultRow == null) {
@@ -217,7 +217,7 @@ public class StatisticsRepository {
 
     public static void dropStatistics(
             long ctlId, long dbId, long tblId, Set<String> colNames, Set<String> partNames) throws DdlException {
-        if (colNames == null && partNames == null) {
+        if ((colNames == null || colNames.isEmpty()) && (partNames == null || partNames.isEmpty())) {
             executeDropStatisticsAllColumnSql(ctlId, dbId, tblId);
         } else {
             dropStatisticsByColAndPartitionName(ctlId, dbId, tblId, colNames, partNames);
@@ -312,22 +312,22 @@ public class StatisticsRepository {
         }
     }
 
-    public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
-        TableName tableName = alterColumnStatsStmt.getTableName();
-        List<Long> partitionIds = alterColumnStatsStmt.getPartitionIds();
-        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
-        String rowCount = alterColumnStatsStmt.getValue(StatsType.ROW_COUNT);
-        String ndv = alterColumnStatsStmt.getValue(StatsType.NDV);
-        String nullCount = alterColumnStatsStmt.getValue(StatsType.NUM_NULLS);
-        String min = alterColumnStatsStmt.getValue(StatsType.MIN_VALUE);
-        String max = alterColumnStatsStmt.getValue(StatsType.MAX_VALUE);
-        String dataSize = alterColumnStatsStmt.getValue(StatsType.DATA_SIZE);
-        long indexId = alterColumnStatsStmt.getIndexId();
+    public static void alterColumnStatistics(AlterColumnStatsCommand alterColumnStatsCommand) throws Exception {
+        TableNameInfo tableNameInfo = alterColumnStatsCommand.getTableNameInfo();
+        List<Long> partitionIds = alterColumnStatsCommand.getPartitionIds();
+        DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableNameInfo);
+        String rowCount = alterColumnStatsCommand.getValue(StatsType.ROW_COUNT);
+        String ndv = alterColumnStatsCommand.getValue(StatsType.NDV);
+        String nullCount = alterColumnStatsCommand.getValue(StatsType.NUM_NULLS);
+        String min = alterColumnStatsCommand.getValue(StatsType.MIN_VALUE);
+        String max = alterColumnStatsCommand.getValue(StatsType.MAX_VALUE);
+        String dataSize = alterColumnStatsCommand.getValue(StatsType.DATA_SIZE);
+        long indexId = alterColumnStatsCommand.getIndexId();
         if (rowCount == null) {
             throw new RuntimeException("Row count is null.");
         }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
-        String colName = alterColumnStatsStmt.getColumnName();
+        String colName = alterColumnStatsCommand.getColumnName();
         Column column = objects.table.getColumn(colName);
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);

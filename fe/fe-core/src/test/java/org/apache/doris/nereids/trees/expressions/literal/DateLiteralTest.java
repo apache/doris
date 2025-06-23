@@ -23,7 +23,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.time.DateTimeException;
 import java.util.function.Consumer;
 
 class DateLiteralTest {
@@ -68,7 +67,7 @@ class DateLiteralTest {
         new DateLiteral("2022-1-1");
         new DateLiteral("20220101");
 
-        Assertions.assertThrows(DateTimeException.class, () -> new DateLiteral("-01-01"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateLiteral("-01-01"));
     }
 
     @Test
@@ -129,8 +128,8 @@ class DateLiteralTest {
 
     @Test
     void testWrongPunctuationDate() {
-        Assertions.assertThrows(DateTimeException.class, () -> new DateTimeV2Literal("2020€02€01"));
-        Assertions.assertThrows(DateTimeException.class, () -> new DateTimeV2Literal("2020【02】01"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateTimeV2Literal("2020€02€01"));
+        Assertions.assertThrows(AnalysisException.class, () -> new DateTimeV2Literal("2020【02】01"));
     }
 
     @Test

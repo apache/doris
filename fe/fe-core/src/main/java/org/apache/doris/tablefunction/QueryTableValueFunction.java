@@ -62,7 +62,7 @@ public abstract class QueryTableValueFunction extends TableValuedFunctionIf {
 
         // check priv
         UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(userIdentity, catalogName, PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(userIdentity, catalogName, PrivPredicate.SELECT)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "user " + userIdentity + " has no privilege to query in catalog " + catalogName);
         }

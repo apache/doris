@@ -167,7 +167,7 @@ suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
     qt_count1 """ SELECT COUNT() from ${tableName}; """
 
     // ADD INDEX
-    sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
+    sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("support_phrase" = "true", "parser" = "english", "lower_case" = "true") """
 
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
@@ -234,14 +234,14 @@ suite("test_build_index_fault", "inverted_index, nonConcurrent,p2"){
 
     // BUILD INDEX with error injection
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_url (`url`) USING INVERTED """
-    GetDebugPoint().enableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
+    GetDebugPoint().enableDebugPointForAllBEs("IndexBuilder::handle_single_rowset_iterator_next_batch_error")
     sql """ BUILD INDEX idx_url ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)
     assertEquals("CANCELLED", state)
     // check data
     qt_count7 """ SELECT COUNT() from ${tableName}; """
 
-    GetDebugPoint().disableDebugPointForAllBEs("IndexBuilder::handle_single_rowset")
+    GetDebugPoint().disableDebugPointForAllBEs("IndexBuilder::handle_single_rowset_iterator_next_batch_error")
     // rebuild index
     sql """ BUILD INDEX idx_url ON ${tableName}; """
     state = wait_for_last_build_index_on_table_finish(tableName, timeout)

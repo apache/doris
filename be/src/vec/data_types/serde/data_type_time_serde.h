@@ -18,20 +18,19 @@
 #pragma once
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stddef.h>
-#include <stdint.h>
+
+#include <cstdint>
 
 #include "data_type_number_serde.h"
-#include "vec/core/types.h"
 
 namespace doris {
 class JsonbOutStream;
 #include "common/compile_check_begin.h"
 namespace vectorized {
-class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<Float64> {
+class DataTypeTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2> {
 public:
     DataTypeTimeV2SerDe(int scale = 0, int nesting_level = 1)
-            : DataTypeNumberSerDe<Float64>(nesting_level), scale(scale) {};
+            : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMEV2>(nesting_level), scale(scale) {};
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;

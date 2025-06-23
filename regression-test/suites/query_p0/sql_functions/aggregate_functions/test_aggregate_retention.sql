@@ -43,7 +43,7 @@ SELECT
             GROUP BY uid 
             ORDER BY uid ASC;
 
-SET parallel_fragment_exec_instance_num=4;
+SET parallel_pipeline_task_num=4;
 
 SELECT * from retention_test ORDER BY uid;
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("nereids_explain") {
+suite("explain") {
     sql """
         SET enable_nereids_planner=true
     """
@@ -29,7 +29,6 @@ suite("nereids_explain") {
         contains "sum(2) + sum(lo_suppkey)"
     }
 
-
     explain {
         sql("physical plan select 100")
         contains "PhysicalOneRowRelation"
@@ -42,7 +41,7 @@ suite("nereids_explain") {
 
     explain {
         sql("parsed plan select 100")
-        contains "UnboundOneRowRelation"
+        contains "LogicalOneRowRelation"
     }
 
     explain {
@@ -70,8 +69,7 @@ suite("nereids_explain") {
     assertTrue(!explainStr.contains("projections"))
 
     explain {
-        sql("select week(cast('0000-01-01' as DATEV2), cast(2 as INT));")
-        notContains "week"
-        contains "1"
+        sql("select week(cast('0000-02-02' as DATEV2), cast(2 as INT));")
+        contains "5"
     }
 }

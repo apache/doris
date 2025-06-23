@@ -19,6 +19,7 @@ suite("test_hudi_partition_prune", "p2,external,hudi,external_remote,external_re
     String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
+        return
     }
 
     String catalog_name = "test_hudi_partition_prune"

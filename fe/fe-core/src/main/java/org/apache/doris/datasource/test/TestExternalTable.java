@@ -33,8 +33,8 @@ import java.util.Optional;
 public class TestExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(TestExternalTable.class);
 
-    public TestExternalTable(long id, String name, String dbName, TestExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.TEST_EXTERNAL_TABLE);
+    public TestExternalTable(long id, String name, String remoteName, TestExternalCatalog catalog, TestExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.TEST_EXTERNAL_TABLE);
     }
 
     @Override

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
@@ -119,6 +121,12 @@ public class IPv4Literal extends LiteralExpr {
     }
 
     @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return "\"" + getStringValue() + "\"";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.IPV4_LITERAL;
         msg.ipv4_literal = new TIPv4Literal(this.value);
@@ -140,7 +148,7 @@ public class IPv4Literal extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 }

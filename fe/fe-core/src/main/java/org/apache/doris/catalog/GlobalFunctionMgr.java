@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -48,26 +47,14 @@ public class GlobalFunctionMgr extends MetaObject implements GsonPostProcessable
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
 
     public static GlobalFunctionMgr read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            GlobalFunctionMgr globalFunctionMgr = new GlobalFunctionMgr();
-            globalFunctionMgr.readFields(in);
-            return globalFunctionMgr;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, GlobalFunctionMgr.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, GlobalFunctionMgr.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         // write functions
-        Text.writeString(out, GsonUtils.GSON.toJson(name2Function));
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        FunctionUtil.readFields(in, null, name2Function);
+        Text.writeString(out, GsonUtils.GSON.toJson(this, GlobalFunctionMgr.class));
     }
 
     public void gsonPostProcess() throws IOException {

@@ -19,13 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageFormat;
@@ -41,8 +37,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -55,7 +49,7 @@ import java.util.Map;
  * Different properties is recognized by prefix such as dynamic_partition
  * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
-public class TableProperty implements Writable, GsonPostProcessable {
+public class TableProperty implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
 
     @SerializedName(value = "properties")
@@ -469,6 +463,8 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.remove(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         storagePolicy = "";
         properties.remove(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+        properties.remove(DynamicPartitionProperty.STORAGE_POLICY);
+        dynamicPartitionProperty.clearStoragePolicy();
     }
 
     public List<String> getCopiedRowStoreColumns() {
@@ -631,10 +627,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
-    public void setEnableUniqueKeySkipBitmap(boolean enable) {
-        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, Boolean.toString(enable));
-    }
-
     public boolean getEnableUniqueKeySkipBitmap() {
         return Boolean.parseBoolean(properties.getOrDefault(
             PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false"));
@@ -695,6 +687,9 @@ public class TableProperty implements Writable, GsonPostProcessable {
             modifyTableProperties(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS,
                     Joiner.on(",").join(rowStoreColumns));
             buildRowStoreColumns();
+        } else {
+            // clear row store columns
+            this.rowStoreColumns = null;
         }
     }
 
@@ -710,16 +705,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
             LOG.error("should not happen when build replica allocation", e);
             this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static TableProperty read(DataInput in) throws IOException {
-        TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class);
-        return tableProperty;
     }
 
     public void gsonPostProcess() throws IOException {
@@ -751,19 +736,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
         buildInAtomicRestore();
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-            // get replica num from property map and create replica allocation
-            String repNum = properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
-            if (!Strings.isNullOrEmpty(repNum)) {
-                ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(repNum));
-                properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        replicaAlloc.toCreateStmt());
-            } else {
-                properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
-            }
-        }
         removeDuplicateReplicaNumProperty();
         buildReplicaAllocation();
     }
@@ -791,10 +763,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public String getStorageVaultName() {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, "");
-    }
-
-    public void setStorageVaultName(String storageVaultName) {
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, storageVaultName);
     }
 
     public String getPropertiesString() throws IOException {

@@ -208,3 +208,5 @@ generate_bulk_request "composite_type_array" "" "item_" "$array_data_file" "$bul
 curl -X POST "http://${ES_8_HOST}:9200/_bulk" --data-binary "@$bulk_request_file" -H "Content-Type: application/json"
 # put _meta for composite_type_array
 curl "http://${ES_8_HOST}:9200/composite_type_array/_mapping" -H "Content-Type:application/json" -X PUT -d "@/mnt/scripts/index/array_meta_composite_type_array.json"
+
+touch /tmp/SUCCESS

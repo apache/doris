@@ -29,7 +29,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
@@ -43,9 +42,9 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 
 TEST(AggTest, basic_test) {
-    auto column_vector_int32 = ColumnVector<Int32>::create();
+    auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
-        column_vector_int32->insert(cast_to_nearest_field_type(i));
+        column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
     }
     // test implement interface
     AggregateFunctionSimpleFactory factory;
@@ -95,7 +94,7 @@ TEST(AggTest, topn_test) {
         agg_function->add(place, const_cast<const IColumn**>(columns), i, nullptr);
     }
 
-    std::string result = reinterpret_cast<AggregateFunctionTopNData<std::string>*>(place)->get();
+    std::string result = reinterpret_cast<AggregateFunctionTopNData<TYPE_STRING>*>(place)->get();
     std::string expect_result =
             "{\"1\":2048,\"2\":683,\"3\":341,\"4\":205,\"5\":137,\"6\":97,\"7\":73,\"8\":57,\"9\":"
             "46,\"10\":37}";

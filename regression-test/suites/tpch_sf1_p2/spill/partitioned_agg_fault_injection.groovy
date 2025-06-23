@@ -19,7 +19,7 @@ suite("partitioned_agg_fault_injection", "p2, nonConcurrent") {
     multi_sql """
     use regression_test_tpch_sf1_p2;
     set enable_force_spill=true;
-    set min_revocable_mem=1024;
+    set spill_min_revocable_mem=1024;
     """
     def test_sql = """
     select

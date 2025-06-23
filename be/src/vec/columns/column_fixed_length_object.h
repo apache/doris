@@ -21,6 +21,7 @@
 
 #include <cstddef>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -105,12 +106,12 @@ public:
     }
 
     Field operator[](size_t n) const override {
-        return Field(
+        return Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     void get(size_t n, Field& res) const override {
-        res = Field(
+        res = Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
@@ -119,6 +120,7 @@ public:
     }
 
     void insert(const Field& x) override {
+        DCHECK_EQ(vectorized::get<const String&>(x).length(), _item_size);
         insert_data(vectorized::get<const String&>(x).data(), _item_size);
     }
 
@@ -187,14 +189,19 @@ public:
     ColumnPtr filter(const IColumn::Filter& filter, ssize_t result_size_hint) const override {
         column_match_filter_size(size(), filter.size());
         auto res = create(_item_size);
-        res->resize(result_size_hint);
-
-        for (size_t i = 0, pos = 0; i < filter.size(); i++) {
+        size_t column_size = size();
+        if (result_size_hint > 0) {
+            res->reserve(result_size_hint);
+        }
+        res->resize(column_size);
+        size_t pos = 0;
+        for (size_t i = 0; i < filter.size(); i++) {
             if (filter[i]) {
                 memcpy(&res->_data[pos * _item_size], &_data[i * _item_size], _item_size);
                 pos++;
             }
         }
+        res->resize(pos);
         return res;
     }
 
@@ -210,7 +217,7 @@ public:
         return pos;
     }
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         if (limit == 0) {
             limit = size();
         } else {
@@ -261,6 +268,11 @@ public:
     }
 
     size_t allocated_bytes() const override { return _data.allocated_bytes(); }
+
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        return _data.capacity() - _data.size() > src_col.size();
+    }
 
     //NOTICE: here is replace: this[self_row] = rhs[row]
     //But column string is replaced all when self_row = 0

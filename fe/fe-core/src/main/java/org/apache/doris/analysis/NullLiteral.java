@@ -21,16 +21,17 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class NullLiteral extends LiteralExpr {
@@ -101,19 +102,30 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
+    }
+
+    @Override
     public String getStringValue() {
         return "NULL";
     }
 
     @Override
-    public String getStringValueInFe(FormatOptions options) {
+    public String getStringValueForQuery(FormatOptions options) {
         return null;
+    }
+
+    @Override
+    public String getStringValueForStreamLoad(FormatOptions options) {
+        return FeConstants.null_string;
     }
 
     // the null value inside an array is represented as "null", for exampe:
     // [null, null]. Not same as other primitive type to represent as \N.
     @Override
-    public String getStringValueForArray(FormatOptions options) {
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
         return options.getNullFormat();
     }
 
@@ -150,15 +162,5 @@ public class NullLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.NULL_LITERAL;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-    }
-
-    public static NullLiteral read(DataInput in) throws IOException {
-        NullLiteral literal = new NullLiteral();
-        literal.readFields(in);
-        return literal;
     }
 }

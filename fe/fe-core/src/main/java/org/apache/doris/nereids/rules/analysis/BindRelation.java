@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -35,6 +36,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -95,6 +98,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -104,6 +109,7 @@ import java.util.Optional;
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
+    private static final Logger LOG = LogManager.getLogger(StatementContext.class);
 
     public BindRelation() {}
 
@@ -160,7 +166,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(
                 cascadesContext.getConnectContext(), unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                unboundRelation.getLocation());
 
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
         if (cascadesContext.isLeadingJoin()) {
@@ -174,18 +181,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
-        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY);
+        TableIf table = cascadesContext.getStatementContext().getAndCacheTable(tableQualifier, TableFrom.QUERY,
+                unboundRelation.getLocation());
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
-    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier) {
+    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier,
+            CascadesContext cascadesContext) {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation, qualifier);
         List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, partIds,
-                    tabletIds, unboundRelation.getHints(), unboundRelation.getTableSample());
+                    tabletIds, unboundRelation.getHints(),
+                    unboundRelation.getTableSample(),
+                    ImmutableList.of());
         } else {
             Optional<String> indexName = unboundRelation.getIndexName();
             // For direct mv scan.
@@ -203,16 +214,19 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     (OlapTable) table, qualifier, tabletIds,
                     CollectionUtils.isEmpty(partIds) ? ((OlapTable) table).getPartitionIds() : partIds, indexId,
                     preAggStatus, CollectionUtils.isEmpty(partIds) ? ImmutableList.of() : partIds,
-                    unboundRelation.getHints(), unboundRelation.getTableSample());
+                    unboundRelation.getHints(), unboundRelation.getTableSample(), ImmutableList.of());
             } else {
                 scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, qualifier, tabletIds, unboundRelation.getHints(),
-                    unboundRelation.getTableSample());
+                    unboundRelation.getTableSample(), ImmutableList.of());
             }
         }
         if (!tabletIds.isEmpty()) {
             // This tabletIds is set manually, so need to set specifiedTabletIds
             scan = scan.withManuallySpecifiedTabletIds(tabletIds);
+        }
+        if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+            return scan.withPreAggStatus(PreAggStatus.on());
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
             // it's a random distribution agg table
@@ -250,14 +264,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Slot> childOutputSlots = olapScan.computeOutput();
         List<Expression> groupByExpressions = new ArrayList<>();
         List<NamedExpression> outputExpressions = new ArrayList<>();
-        List<Column> columns = olapTable.getBaseSchema();
+        List<Column> columns = olapScan.isIndexSelected()
+                ? olapTable.getSchemaByIndexId(olapScan.getSelectedIndexId())
+                : olapTable.getBaseSchema();
 
         for (Column col : columns) {
             // use exist slot in the plan
-            SlotReference slot = SlotReference.fromColumn(olapTable, col, col.getName(), olapScan.qualified());
+            SlotReference slot = SlotReference.fromColumn(olapTable, col, olapScan.qualified());
             ExprId exprId = slot.getExprId();
             for (Slot childSlot : childOutputSlots) {
-                if (childSlot instanceof SlotReference && ((SlotReference) childSlot).getName().equals(col.getName())) {
+                if (childSlot instanceof SlotReference && childSlot.getName().equals(col.getName())) {
                     exprId = childSlot.getExprId();
                     slot = slot.withExprId(exprId);
                     break;
@@ -347,8 +363,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
             List<String> qualifiedTableName) {
-        Optional<TableValuedFunction> tvf = table.getDatabase().getCatalog().getMetaTableFunction(
-                qualifiedTableName.get(1), qualifiedTableName.get(2));
+        Optional<TableValuedFunction> tvf = table.getSysTableFunction(
+                qualifiedTableName.get(0), qualifiedTableName.get(1), qualifiedTableName.get(2));
         if (tvf.isPresent()) {
             return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
         }
@@ -373,12 +389,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
+        cascadesContext.getStatementContext().loadSnapshots(
+                unboundRelation.getTableSnapshot(),
+                Optional.ofNullable(unboundRelation.getScanParams()));
         boolean isView = false;
         try {
             switch (table.getType()) {
                 case OLAP:
                 case MATERIALIZED_VIEW:
-                    return makeOlapScan(table, unboundRelation, qualifierWithoutTableName);
+                    return makeOlapScan(table, unboundRelation, qualifierWithoutTableName, cascadesContext);
                 case VIEW:
                     View view = (View) table;
                     isView = true;
@@ -392,32 +411,66 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         String hiveCatalog = hmsTable.getCatalog().getName();
                         String hiveDb = hmsTable.getDatabase().getFullName();
                         String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(
+                        Plan hiveViewPlan = parseAndAnalyzeExternalView(
                                 hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
                         LogicalHudiScan hudiScan = new LogicalHudiScan(unboundRelation.getRelationId(), hmsTable,
                                 qualifierWithoutTableName, unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
-                        hudiScan = hudiScan.withScanParams(hmsTable, unboundRelation.getScanParams());
+                                unboundRelation.getTableSnapshot(), ImmutableList.of(), Optional.empty());
+                        hudiScan = hudiScan.withScanParams(
+                                hmsTable, Optional.ofNullable(unboundRelation.getScanParams()));
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
                                 qualifierWithoutTableName,
                                 unboundRelation.getTableSample(),
-                                unboundRelation.getTableSnapshot());
+                                unboundRelation.getTableSnapshot(),
+                                ImmutableList.of(),
+                                Optional.ofNullable(unboundRelation.getScanParams()));
                     }
                 case ICEBERG_EXTERNAL_TABLE:
+                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
+                        Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
+                        if (tableSnapshot.isPresent()) {
+                            // iceberg view not supported with snapshot time/version travel
+                            // note that enable_fallback_to_original_planner should be set with false
+                            // or else this exception will not be thrown
+                            // because legacy planner will retry and thrown other exception
+                            throw new UnsupportedOperationException(
+                                "iceberg view not supported with snapshot time/version travel");
+                        }
+                        isView = true;
+                        String icebergCatalog = icebergExternalTable.getCatalog().getName();
+                        String icebergDb = icebergExternalTable.getDatabase().getFullName();
+                        String ddlSql = icebergExternalTable.getViewText();
+                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
+                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
+                    }
+                    if (icebergExternalTable.isView()) {
+                        throw new UnsupportedOperationException(
+                            "please set enable_query_iceberg_views=true to enable query iceberg views");
+                    }
+                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
+                        qualifierWithoutTableName, unboundRelation.getTableSample(),
+                        unboundRelation.getTableSnapshot(), ImmutableList.of(),
+                        Optional.ofNullable(unboundRelation.getScanParams()));
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case LAKESOUl_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, unboundRelation.getTableSample(),
-                            unboundRelation.getTableSnapshot());
+                            unboundRelation.getTableSnapshot(),
+                            ImmutableList.of(),
+                            Optional.ofNullable(unboundRelation.getScanParams()));
                 case SCHEMA:
-                    return new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
+                    // schema table's name is case-insensitive, we need save its name in SQL text to get correct case.
+                    return new LogicalSubQueryAlias<>(qualifiedTableName,
+                            new LogicalSchemaScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName));
                 case JDBC_EXTERNAL_TABLE:
                 case JDBC:
                     return new LogicalJdbcScan(unboundRelation.getRelationId(), table, qualifierWithoutTableName);
@@ -445,16 +498,19 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    private Plan parseAndAnalyzeHiveView(
-            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
+    private Plan parseAndAnalyzeExternalView(
+            ExternalTable table, String externalCatalog, String externalDb,
+            String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
-        // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
-        ctx.changeDefaultCatalog(hiveCatalog);
-        ctx.setDatabase(hiveDb);
+        String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
+        // change catalog and db to external catalog and db,
+        // so that we can parse and analyze the view sql in external context.
+        ctx.changeDefaultCatalog(externalCatalog);
+        ctx.setDatabase(externalDb);
         try {
-            return parseAndAnalyzeView(table, ddlSql, cascadesContext);
+            return parseAndAnalyzeView(table, convertedSql, cascadesContext);
         } finally {
             // restore catalog and db in connect context
             ctx.changeDefaultCatalog(previousCatalog);
@@ -520,4 +576,5 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
     }
+
 }

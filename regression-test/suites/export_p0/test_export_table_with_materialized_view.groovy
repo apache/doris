@@ -52,9 +52,11 @@ suite("test_export_table_with_materialized_view", "p0") {
         )
         DISTRIBUTED BY HASH(k1) BUCKETS 10 PROPERTIES("replication_num" = "1");
     """
-    sql """
+
+    createMV("""
     CREATE MATERIALIZED VIEW export_table_materialized_view AS SELECT k2, sum(v5) FROM ${table_export_name} GROUP BY k2;
-    """
+    """)
+
     StringBuilder sb = new StringBuilder()
     int i = 1
     for (; i < 100; i++) {

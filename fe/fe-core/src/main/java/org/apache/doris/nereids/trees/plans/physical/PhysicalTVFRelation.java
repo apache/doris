@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -38,7 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** PhysicalTableValuedFunctionRelation */
-public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation {
+public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation, BlockFuncDepsPropagation {
 
     private final TableValuedFunction function;
 

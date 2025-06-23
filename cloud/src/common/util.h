@@ -89,6 +89,12 @@ struct ValueBuf {
     // Return TXN_OK for success get a key, TXN_KEY_NOT_FOUND for key not found, otherwise for error.
     TxnErrorCode get(Transaction* txn, std::string_view key, bool snapshot = false);
 
+    // return the merged value in ValueBuf
+    std::string value() const;
+
+    // return all keys in ValueBuf, if the value is not splitted, size of keys is 1
+    std::vector<std::string> keys() const;
+
     std::vector<std::unique_ptr<RangeGetIterator>> iters;
     int8_t ver {-1};
 };

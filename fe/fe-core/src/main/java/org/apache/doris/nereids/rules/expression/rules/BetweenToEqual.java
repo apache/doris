@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -47,6 +48,7 @@ public class BetweenToEqual implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
             matchesType(And.class).then(BetweenToEqual::rewriteBetweenToEqual)
+                    .toRule(ExpressionRuleType.BETWEEN_TO_EQUAL)
         );
     }
 

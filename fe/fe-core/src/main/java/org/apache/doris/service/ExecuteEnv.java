@@ -20,7 +20,6 @@ package org.apache.doris.service;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.qe.MultiLoadMgr;
 
 import com.google.common.base.Strings;
 
@@ -30,7 +29,6 @@ import java.util.List;
 // Execute environment, used to save other module, need to singleton
 public class ExecuteEnv {
     private static volatile ExecuteEnv INSTANCE;
-    private MultiLoadMgr multiLoadMgr;
     private ConnectScheduler scheduler;
     private long startupTime;
     private long processUUID;
@@ -38,8 +36,7 @@ public class ExecuteEnv {
     private List<FeDiskInfo> diskInfos;
 
     private ExecuteEnv() {
-        multiLoadMgr = new MultiLoadMgr();
-        scheduler = new ConnectScheduler(Config.qe_max_connection);
+        scheduler = new ConnectScheduler(Config.qe_max_connection, Config.arrow_flight_max_connections);
         startupTime = System.currentTimeMillis();
         processUUID = System.currentTimeMillis();
         String logDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :
@@ -66,10 +63,6 @@ public class ExecuteEnv {
 
     public ConnectScheduler getScheduler() {
         return scheduler;
-    }
-
-    public MultiLoadMgr getMultiLoadMgr() {
-        return multiLoadMgr;
     }
 
     public long getStartupTime() {

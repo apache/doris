@@ -20,7 +20,6 @@
 
 #include <limits> // IWYU pragma: keep
 
-#include "gutil/port.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
 
@@ -230,12 +229,12 @@ private:
 template <typename T>
 bool RleDecoder<T>::ReadHeader() {
     DCHECK(bit_reader_.is_initialized());
-    if (PREDICT_FALSE(literal_count_ == 0 && repeat_count_ == 0)) {
+    if (literal_count_ == 0 && repeat_count_ == 0) [[unlikely]] {
         // Read the next run's indicator int, it could be a literal or repeated run
         // The int is encoded as a vlq-encoded value.
         uint32_t indicator_value = 0;
         bool result = bit_reader_.GetVlqInt(&indicator_value);
-        if (PREDICT_FALSE(!result)) {
+        if (!result) [[unlikely]] {
             return false;
         }
 
@@ -258,11 +257,11 @@ bool RleDecoder<T>::ReadHeader() {
 template <typename T>
 bool RleDecoder<T>::Get(T* val) {
     DCHECK(bit_reader_.is_initialized());
-    if (PREDICT_FALSE(!ReadHeader())) {
+    if (!ReadHeader()) [[unlikely]] {
         return false;
     }
 
-    if (PREDICT_TRUE(repeat_count_ > 0)) {
+    if (repeat_count_ > 0) [[likely]] {
         *val = current_value_;
         --repeat_count_;
         rewind_state_ = REWIND_RUN;
@@ -305,8 +304,8 @@ size_t RleDecoder<T>::GetNextRun(T* val, size_t max_run) {
     size_t ret = 0;
     size_t rem = max_run;
     while (ReadHeader()) {
-        if (PREDICT_TRUE(repeat_count_ > 0)) {
-            if (PREDICT_FALSE(ret > 0 && *val != current_value_)) {
+        if (repeat_count_ > 0) [[likely]] {
+            if (ret > 0 && *val != current_value_) [[unlikely]] {
                 return ret;
             }
             *val = current_value_;
@@ -403,7 +402,7 @@ size_t RleDecoder<T>::Skip(size_t to_skip) {
         bool result = ReadHeader();
         DCHECK(result);
 
-        if (PREDICT_TRUE(repeat_count_ > 0)) {
+        if (repeat_count_ > 0) [[likely]] {
             size_t nskip = (repeat_count_ < to_skip) ? repeat_count_ : to_skip;
             repeat_count_ -= nskip;
             to_skip -= nskip;
@@ -436,7 +435,7 @@ void RleEncoder<T>::Put(T value, size_t run_length) {
 
     // TODO(perf): remove the loop and use the repeat_count_
     for (; run_length > 0; run_length--) {
-        if (PREDICT_TRUE(current_value_ == value)) {
+        if (current_value_ == value) [[likely]] {
             ++repeat_count_;
             if (repeat_count_ > 8) {
                 // This is just a continuation of the current run, no need to buffer the
@@ -639,6 +638,8 @@ void RleEncoder<T>::Clear() {
 // error is encountered then it is not valid to read any more data until
 // Reset() is called.
 
+//bit-packed-run-len and rle-run-len must be in the range [1, 2^31 - 1].
+// This means that a Parquet implementation can always store the run length in a signed 32-bit integer.
 template <typename T>
 class RleBatchDecoder {
 public:
@@ -674,7 +675,7 @@ public:
 
     // Consume 'num_values_to_consume' values and copy them to 'values'.
     // Returns the number of consumed values or 0 if an error occurred.
-    int32_t GetBatch(T* values, int32_t batch_num);
+    uint32_t GetBatch(T* values, uint32_t batch_num);
 
 private:
     // Called when both 'literal_count_' and 'repeat_count_' have been exhausted.
@@ -834,11 +835,11 @@ bool RleBatchDecoder<T>::FillLiteralBuffer() {
 }
 
 template <typename T>
-int32_t RleBatchDecoder<T>::GetBatch(T* values, int32_t batch_num) {
-    int32_t num_consumed = 0;
+uint32_t RleBatchDecoder<T>::GetBatch(T* values, uint32_t batch_num) {
+    uint32_t num_consumed = 0;
     while (num_consumed < batch_num) {
         // Add RLE encoded values by repeating the current value this number of times.
-        int32_t num_repeats = NextNumRepeats();
+        uint32_t num_repeats = NextNumRepeats();
         if (num_repeats > 0) {
             int32_t num_repeats_to_set = std::min(num_repeats, batch_num - num_consumed);
             T repeated_value = GetRepeatedValue(num_repeats_to_set);
@@ -850,11 +851,11 @@ int32_t RleBatchDecoder<T>::GetBatch(T* values, int32_t batch_num) {
         }
 
         // Add remaining literal values, if any.
-        int32_t num_literals = NextNumLiterals();
+        uint32_t num_literals = NextNumLiterals();
         if (num_literals == 0) {
             break;
         }
-        int32_t num_literals_to_set = std::min(num_literals, batch_num - num_consumed);
+        uint32_t num_literals_to_set = std::min(num_literals, batch_num - num_consumed);
         if (!GetLiteralValues(num_literals_to_set, values + num_consumed)) {
             return 0;
         }

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.SqlCacheContext.FullColumnName;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
+import org.apache.doris.nereids.SqlCacheContext.TableVersion;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -61,12 +63,15 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.SqlCache;
+import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
@@ -81,6 +86,7 @@ import java.util.Set;
  * NereidsSqlCacheManager
  */
 public class NereidsSqlCacheManager {
+    private static final Logger LOG = LogManager.getLogger(NereidsSqlCacheManager.class);
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
@@ -128,6 +134,13 @@ public class NereidsSqlCacheManager {
      * tryAddFeCache
      */
     public void tryAddFeSqlCache(ConnectContext connectContext, String sql) {
+        switch (connectContext.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return;
+            default: { }
+        }
+
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
             return;
@@ -147,6 +160,12 @@ public class NereidsSqlCacheManager {
      * tryAddBeCache
      */
     public void tryAddBeCache(ConnectContext connectContext, String sql, CacheAnalyzer analyzer) {
+        switch (connectContext.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return;
+            default: { }
+        }
         Optional<SqlCacheContext> sqlCacheContextOpt = connectContext.getStatementContext().getSqlCacheContext();
         if (!sqlCacheContextOpt.isPresent()) {
             return;
@@ -178,6 +197,12 @@ public class NereidsSqlCacheManager {
      * tryParseSql
      */
     public Optional<LogicalSqlCache> tryParseSql(ConnectContext connectContext, String sql) {
+        switch (connectContext.getCommand()) {
+            case COM_STMT_EXECUTE:
+            case COM_STMT_PREPARE:
+                return Optional.empty();
+            default: { }
+        }
         String key = generateCacheKey(connectContext, normalizeSql(sql.trim()));
         SqlCacheContext sqlCacheContext = sqlCaches.getIfPresent(key);
         if (sqlCacheContext == null) {
@@ -199,14 +224,14 @@ public class NereidsSqlCacheManager {
                     .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
 
             if (sqlCacheContextWithVariable != null) {
-                return tryParseSqlWithoutCheckVariable(
-                        connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity
+                return tryParseSql(
+                        connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity, true
                 );
             } else {
                 return Optional.empty();
             }
         } else {
-            return tryParseSqlWithoutCheckVariable(connectContext, key, sqlCacheContext, currentUserIdentity);
+            return tryParseSql(connectContext, key, sqlCacheContext, currentUserIdentity, false);
         }
     }
 
@@ -223,44 +248,47 @@ public class NereidsSqlCacheManager {
         return NereidsParser.removeCommentAndTrimBlank(sql);
     }
 
-    private Optional<LogicalSqlCache> tryParseSqlWithoutCheckVariable(
-            ConnectContext connectContext, String key,
-            SqlCacheContext sqlCacheContext, UserIdentity currentUserIdentity) {
-        Env env = connectContext.getEnv();
-
-        if (!tryLockTables(connectContext, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
-        // check table and view and their columns authority
-        if (privilegeChanged(connectContext, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (tablesOrDataChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (viewsChanged(env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
-        LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
-        if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
-        // table structure and data not changed, now check policy
-        if (rowPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-        if (dataMaskPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
-            return invalidateCache(key);
-        }
-
+    private Optional<LogicalSqlCache> tryParseSql(
+            ConnectContext connectContext, String key, SqlCacheContext sqlCacheContext,
+            UserIdentity currentUserIdentity, boolean checkUserVariable) {
         try {
+            Env env = connectContext.getEnv();
+
+            if (!tryLockTables(connectContext, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+
+            // check table and view and their columns authority
+            if (privilegeChanged(connectContext, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+            if (tablesOrDataChanged(env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+            if (viewsChanged(env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+
+            LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
+            if (nondeterministicFunctionChanged(whateverPlan, connectContext, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+
+            // table structure and data not changed, now check policy
+            if (rowPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
+            if (dataMaskPoliciesChanged(currentUserIdentity, env, sqlCacheContext)) {
+                return invalidateCache(key);
+            }
             Optional<ResultSet> resultSetInFe = sqlCacheContext.getResultSetInFe();
 
-            List<Variable> currentVariables = resolveUserVariables(sqlCacheContext);
-            boolean usedVariablesChanged = usedVariablesChanged(currentVariables, sqlCacheContext);
+            List<Variable> currentVariables = ImmutableList.of();
+            if (checkUserVariable) {
+                currentVariables = resolveUserVariables(sqlCacheContext);
+            }
+            boolean usedVariablesChanged
+                    = checkUserVariable && usedVariablesChanged(currentVariables, sqlCacheContext);
             if (resultSetInFe.isPresent() && !usedVariablesChanged) {
                 MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
 
@@ -274,9 +302,15 @@ public class NereidsSqlCacheManager {
             }
 
             Status status = new Status();
-            PUniqueId cacheKeyMd5 = usedVariablesChanged
-                    ? sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables))
-                    : sqlCacheContext.getOrComputeCacheKeyMd5();
+
+            PUniqueId cacheKeyMd5;
+            if (usedVariablesChanged) {
+                invalidateCache(key);
+                cacheKeyMd5 = sqlCacheContext.doComputeCacheKeyMd5(Utils.fastToImmutableSet(currentVariables));
+            } else {
+                cacheKeyMd5 = sqlCacheContext.getOrComputeCacheKeyMd5();
+            }
+
             InternalService.PFetchCacheResult cacheData =
                     SqlCache.getCacheData(sqlCacheContext.getCacheProxy(),
                             cacheKeyMd5, sqlCacheContext.getLatestPartitionId(),
@@ -308,6 +342,35 @@ public class NereidsSqlCacheManager {
             return true;
         }
 
+        // the query maybe scan empty partition of the table, we should check these table version too,
+        // but the table not exists in sqlCacheContext.getScanTables(), so we need check here.
+        // check table type and version
+        for (Entry<FullTableName, TableVersion> scanTable : sqlCacheContext.getUsedTables().entrySet()) {
+            TableVersion tableVersion = scanTable.getValue();
+            if (tableVersion.type != TableType.OLAP && tableVersion.type != TableType.MATERIALIZED_VIEW) {
+                return true;
+            }
+            TableIf tableIf = findTableIf(env, scanTable.getKey());
+            if (!(tableIf instanceof OlapTable) || tableVersion.id != tableIf.getId()) {
+                return true;
+            }
+
+            OlapTable olapTable = (OlapTable) tableIf;
+            long currentTableVersion = 0L;
+            try {
+                currentTableVersion = olapTable.getVisibleVersion();
+            } catch (RpcException e) {
+                LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+                return true;
+            }
+            long cacheTableVersion = tableVersion.version;
+            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
+            if (currentTableVersion != cacheTableVersion) {
+                return true;
+            }
+        }
+
+        // check partition version
         for (ScanTable scanTable : sqlCacheContext.getScanTables()) {
             FullTableName fullTableName = scanTable.fullTableName;
             TableIf tableIf = findTableIf(env, fullTableName);
@@ -315,15 +378,13 @@ public class NereidsSqlCacheManager {
                 return true;
             }
             OlapTable olapTable = (OlapTable) tableIf;
-            long currentTableVersion = olapTable.getVisibleVersion();
-            long cacheTableVersion = scanTable.latestVersion;
-            // some partitions have been dropped, or delete or updated or replaced, or insert rows into new partition?
-            if (currentTableVersion != cacheTableVersion) {
+            Collection<Long> partitionIds = scanTable.getScanPartitions();
+            try {
+                olapTable.getVersionInBatchForCloudMode(partitionIds);
+            } catch (RpcException e) {
+                LOG.warn("failed to get version in batch for table {}", fullTableName, e);
                 return true;
             }
-
-            Collection<Long> partitionIds = scanTable.getScanPartitions();
-            olapTable.getVersionInBatchForCloudMode(partitionIds);
 
             for (Long scanPartitionId : scanTable.getScanPartitions()) {
                 Partition partition = olapTable.getPartition(scanPartitionId);
@@ -392,7 +453,7 @@ public class NereidsSqlCacheManager {
      */
     private boolean tryLockTables(ConnectContext connectContext, Env env, SqlCacheContext sqlCacheContext) {
         StatementContext currentStatementContext = connectContext.getStatementContext();
-        for (FullTableName fullTableName : sqlCacheContext.getUsedTables()) {
+        for (FullTableName fullTableName : sqlCacheContext.getUsedTables().keySet()) {
             TableIf tableIf = findTableIf(env, fullTableName);
             if (tableIf == null) {
                 return false;

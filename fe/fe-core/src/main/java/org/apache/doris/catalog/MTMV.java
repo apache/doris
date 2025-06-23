@@ -18,12 +18,11 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
@@ -43,8 +42,6 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.persist.gson.GsonUtils134;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -54,8 +51,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -183,7 +178,8 @@ public class MTMV extends OlapTable {
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            return this.status.updateNotNull(newStatus);
+            // only can update state, refresh state will be change by add task
+            return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
         }
@@ -201,7 +197,8 @@ public class MTMV extends OlapTable {
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true, true);
+                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                            true, null);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -293,14 +290,18 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<String> getExcludedTriggerTables() {
+    public Set<TableName> getExcludedTriggerTables() {
+        Set<TableName> res = Sets.newHashSet();
         readMvLock();
         try {
             if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-                return Sets.newHashSet();
+                return res;
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-            return Sets.newHashSet(split);
+            for (String alias : split) {
+                res.add(new TableName(alias));
+            }
+            return res;
         } finally {
             readMvUnlock();
         }
@@ -309,7 +310,8 @@ public class MTMV extends OlapTable {
     /**
      * Called when in query, Should use one connection context in query
      */
-    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
+            org.apache.doris.nereids.exceptions.AnalysisException {
         readMvLock();
         try {
             if (cache != null) {
@@ -320,13 +322,8 @@ public class MTMV extends OlapTable {
         }
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache;
-        try {
-            // Should new context with ADMIN user
-            mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true, false);
-        } finally {
-            connectionContext.setThreadLocalInfo();
-        }
+        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
+                false, connectionContext);
         writeMvLock();
         try {
             this.cache = mtmvCache;
@@ -334,10 +331,6 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
-    }
-
-    public MTMVCache getCache() {
-        return cache;
     }
 
     public Map<String, String> getMvProperties() {
@@ -495,36 +488,6 @@ public class MTMV extends OlapTable {
 
     public void writeMvUnlock() {
         this.mvRwLock.writeLock().unlock();
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        MTMV materializedView = null;
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            materializedView = GsonUtils134.GSON.fromJson(Text.readString(in), this.getClass());
-        } else {
-            materializedView = GsonUtils.GSON.fromJson(Text.readString(in), this.getClass());
-        }
-
-        refreshInfo = materializedView.refreshInfo;
-        querySql = materializedView.querySql;
-        status = materializedView.status;
-        if (materializedView.envInfo != null) {
-            envInfo = materializedView.envInfo;
-        } else {
-            envInfo = new EnvInfo(-1L, -1L);
-        }
-        jobInfo = materializedView.jobInfo;
-        mvProperties = materializedView.mvProperties;
-        relation = materializedView.relation;
-        mvPartitionInfo = materializedView.mvPartitionInfo;
-        refreshSnapshot = materializedView.refreshSnapshot;
-        // For compatibility
-        if (refreshSnapshot == null) {
-            refreshSnapshot = new MTMVRefreshSnapshot();
-        }
     }
 
     // toString() is not easy to find where to call the method

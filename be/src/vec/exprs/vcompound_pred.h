@@ -22,10 +22,8 @@
 #include <cstdint>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"

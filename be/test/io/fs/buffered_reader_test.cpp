@@ -36,7 +36,10 @@ namespace doris {
 using io::FileReader;
 class BufferedReaderTest : public testing::Test {
 public:
-    BufferedReaderTest() {
+    BufferedReaderTest() = default;
+
+protected:
+    void SetUp() override {
         std::unique_ptr<ThreadPool> _pool;
         static_cast<void>(ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
                                   .set_min_threads(5)
@@ -44,10 +47,9 @@ public:
                                   .build(&_pool));
         ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool = std::move(_pool);
     }
-
-protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    void TearDown() override {
+        ExecEnv::GetInstance()->_buffered_reader_prefetch_thread_pool.reset();
+    }
 };
 
 class SyncLocalFileReader : public io::FileReader {

@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -130,21 +131,21 @@ public:
 
     void set_num_rows(int64_t num_rows) { _rowset_meta_pb.set_num_rows(num_rows); }
 
-    size_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
+    int64_t total_disk_size() const { return _rowset_meta_pb.total_disk_size(); }
 
-    void set_total_disk_size(size_t total_disk_size) {
+    void set_total_disk_size(int64_t total_disk_size) {
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    size_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
+    int64_t data_disk_size() const { return _rowset_meta_pb.data_disk_size(); }
 
-    void set_data_disk_size(size_t data_disk_size) {
+    void set_data_disk_size(int64_t data_disk_size) {
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    size_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
+    int64_t index_disk_size() const { return _rowset_meta_pb.index_disk_size(); }
 
-    void set_index_disk_size(size_t index_disk_size) {
+    void set_index_disk_size(int64_t index_disk_size) {
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
@@ -299,6 +300,15 @@ public:
 
     auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
 
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta_pb.has_segments_key_bounds_truncated() &&
+               _rowset_meta_pb.segments_key_bounds_truncated();
+    }
+
+    void set_segments_key_bounds_truncated(bool truncated) {
+        _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
+    }
+
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {
@@ -316,12 +326,7 @@ public:
         return true;
     }
 
-    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
-        for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
-            KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
-            *new_key_bounds = key_bounds;
-        }
-    }
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);

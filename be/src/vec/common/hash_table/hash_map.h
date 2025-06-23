@@ -22,7 +22,6 @@
 
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 
 namespace doris {
 /** NOTE HashMap could only be used for memmoveable (position independent) types.
@@ -138,7 +137,7 @@ ALWAYS_INLINE inline auto lookup_result_get_mapped(
 }
 
 template <typename Key, typename Cell, typename Hash = DefaultHash<Key>,
-          typename Grower = HashTableGrower<>, typename Allocator = HashTableAllocator>
+          typename Grower = HashTableGrower<>, typename Allocator = Allocator<true, true> >
 class HashMapTable : public HashTable<Key, Cell, Hash, Grower, Allocator> {
 public:
     using Self = HashMapTable;

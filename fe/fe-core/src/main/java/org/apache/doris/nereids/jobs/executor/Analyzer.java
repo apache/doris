@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.rules.analysis.AddInitMaterializationHook;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
@@ -32,7 +31,7 @@ import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
 import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.CompressedMaterialize;
 import org.apache.doris.nereids.rules.analysis.EliminateDistinctConstant;
-import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalPreAggOnHint;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.FillUpQualifyMissingSlot;
@@ -48,7 +47,6 @@ import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
@@ -98,7 +96,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
             topDown(new AnalyzeCTE()),
-            topDown(new EliminateLogicalSelectHint()),
+            topDown(new EliminateLogicalSelectHint(),
+                    new EliminateLogicalPreAggOnHint()),
             bottomUp(
                     new BindRelation(),
                     new CheckPolicy()
@@ -106,7 +105,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new BindExpression()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
-            bottomUp(new AddInitMaterializationHook()),
             topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
                     new ProjectToGlobalAggregate(),
@@ -143,8 +141,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
             bottomUp(new CheckAnalysis()),
-            topDown(new EliminateGroupByConstant()),
-
             topDown(new SimplifyAggGroupBy()),
             bottomUp(new CompressedMaterialize()),
             topDown(new NormalizeAggregate()),
@@ -157,8 +153,15 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             topDown(new LeadingJoin()),
             bottomUp(new NormalizeGenerate()),
-            bottomUp(new SubqueryToApply()),
-            topDown(new MergeProjects())
+            bottomUp(new SubqueryToApply())
+        /*
+         * Notice, MergeProjects rule should NOT be placed after SubqueryToApply in analyze phase.
+         * because in SubqueryToApply, we may add assert_true function with subquery output slot in projects list.
+         * on the other hand, the assert_true function should be not be in final output.
+         * in order to keep the plan unchanged, we add a new project node to prune the extra assert_true slot.
+         * but MergeProjects rule will merge the two projects and keep assert_true anyway.
+         * so we move MergeProjects from analyze to rewrite phase.
+         */
         );
     }
 }

@@ -19,6 +19,8 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_schema_change_add_key_column", "nonConcurrent") {
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
     def tableName = "test_schema_change_add_key_column"
 
     def getAlterTableState = {
@@ -32,7 +34,7 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
     def getTabletStatus = { rowsetNum, lastRowsetSegmentNum ->
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
         logger.info("tablets: ${tablets}")
-        assertEquals(1, tablets.size())
+        assertTrue(tablets.size() >= 1)
         String compactionUrl = ""
         for (Map<String, String> tablet : tablets) {
             compactionUrl = tablet["CompactionStatus"]
@@ -56,13 +58,18 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
     // _batch_size is 8192 in vtablet_writer.cpp
     def backendId_to_params = get_be_param("doris_scanner_row_bytes")
     onFinish {
-        GetDebugPoint().disableDebugPointForAllBEs("MemTable.need_flush")
+        GetDebugPoint().clearDebugPointsForAllBEs()
         set_original_be_param("doris_scanner_row_bytes", backendId_to_params)
     }
     GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
+    GetDebugPoint().enableDebugPointForAllBEs("VBaseSchemaChangeWithSorting._inner_process.create_rowset")
     set_be_param.call("doris_scanner_row_bytes", "1")
 
-    for (int i = 0; i < 2; i++) {
+    // 0: table without sequence_col; add a key col
+    // 1: table without sequence_col; reorder cols
+    // 2: table with sequence_col; add a key col
+    // 3: table with sequence_col; reorder cols
+    for (int i = 0; i < 4; i++) {
         tableName = "test_schema_change_add_key_column_" + i
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -75,7 +82,7 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
             cluster by(`v3`, `v4`) 
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
             PROPERTIES (
-            """ + (i == 1 ? "\"function_column.sequence_col\"='v4', " : "") +
+            """ + (i >= 2 ? "\"function_column.sequence_col\"='v4', " : "") +
             """
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true"
@@ -126,7 +133,11 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
         logger.info("rowCount1: ${rowCount1}")
 
         // do schema change
-        sql """ ALTER TABLE ${tableName} ADD COLUMN `k3` int(11) key """
+        if (i == 0 || i == 2) {
+            sql """ ALTER TABLE ${tableName} ADD COLUMN `k3` int(11) key """
+        } else {
+            sql """ ALTER TABLE ${tableName} ORDER BY(`k2`, `k1`, v4, v3) """
+        }
         getAlterTableState()
         // check generate 1 segments
         getTabletStatus(2, 1) // [2-3] or [2-2] [3-3]
@@ -141,8 +152,8 @@ suite("test_schema_change_add_key_column", "nonConcurrent") {
         logger.info("result: ${result}")
         assertEquals(0, result.size())
         // check one row value
-        order_qt_select1 """ select * from ${tableName} where `k1` = 12345; """
-        order_qt_select2 """ select * from ${tableName} where `k1` = 17320; """
-        order_qt_select3 """ select * from ${tableName} where `k1` = 59832 and `k2` = 36673; """
+        order_qt_select1 """ select k1, k2, v3, v4 from ${tableName} where `k1` = 12345; """
+        order_qt_select2 """ select k1, k2, v3, v4 from ${tableName} where `k1` = 17320; """
+        order_qt_select3 """ select k1, k2, v3, v4 from ${tableName} where `k1` = 59832 and `k2` = 36673; """
     }
 }

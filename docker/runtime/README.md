@@ -52,7 +52,6 @@ $ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.
 
 2. You need to copy the corresponding directories to different directories in sequence as below in the table:
 
-()
 amd64(avx2) platform: 
 
 | doris type |                      doris package                       |                                    docker file path                                    |
@@ -79,7 +78,7 @@ Only after doris 3.0, the storage-computing separation mode requires the ms (met
 
 **NOTICE**
 
-The below images depend on the base image selectdb/base. If your environment cannot access it, you can pre-build the base image. The base image contains the basic environment for doris to run, including JDK, openssl, etc.
+The below images depend on the base image `apache/doris:base-latest`. If your environment cannot access it, you can pre-build the base image. The base image contains the basic environment for doris to run, including JDK, openssl, etc.
 
 1. As mentioned in the preparation steps above, the Dockerfile of the Base image is under the runtime/base-image path. To build it, make sure you have pulled the Doris code repo and execute the following command.
 
@@ -90,14 +89,13 @@ $ cd doris/runtime/base-image && docker build . -t doris-base:latest -f Dockerfi
 2. Adjust the base image name used by the Dockerfile of the doris component and replace the base image you built yourself, As shown in the following example:
 
 ```dockerfile
-...
 # Adjust the base image here
 FROM doris-base:latest:latest
 
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
-...
+
 ```
 
 ### Build Doris docker image
@@ -113,4 +111,4 @@ $ cd doris/runtime/broker && docker build . -t doris.broker:3.0.2 -f Dockerfile 
 
 ### Latest update time
 
-2024-10-28
+2025-02-12

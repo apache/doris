@@ -19,11 +19,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
     def tableName = "test_base_compaction_with_dup_key_max_file_size_limit"
- 
+
     // use customer table of tpch_sf100
     def rows = 15000000
-    def load_tpch_sf100_customer = { 
-        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString() 
+    def load_tpch_sf100_customer = {
+        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         def rowCount = sql "select count(*) from ${tableName}"
         def s3BucketName = getS3BucketName()
         def s3WithProperties = """WITH S3 (
@@ -63,7 +63,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
                 }
                 sleep(5000)
             }
-        } 
+        }
     }
     try {
         String backend_id;
@@ -73,7 +73,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
 
         backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
+
         logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def configList = parseJson(out.trim())
@@ -107,29 +107,6 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             }
             assertEquals(code, 0)
             return out
-        } 
-
-        def waitForCompaction = { be_host, be_http_port, tablet_id ->
-            // wait for all compactions done
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                StringBuilder sb = new StringBuilder();
-                sb.append("curl -X GET http://${be_host}:${be_http_port}")
-                sb.append("/api/compaction/run_status?tablet_id=")
-                sb.append(tablet_id)
-
-                String command = sb.toString()
-                logger.info(command)
-                process = command.execute()
-                code = process.waitFor()
-                out = process.getText()
-                logger.info("Get compaction status: code=" + code + ", out=" + out)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
         }
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -149,7 +126,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
             PROPERTIES (
             "replication_num" = "1", "disable_auto_compaction" = "true"
             )
-        """ 
+        """
 
         def tablet = (sql_return_maparray """ show tablets from ${tableName}; """)[0]
         String tablet_id = tablet.TabletId
@@ -165,10 +142,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-1] 0
         //      [2-2] 1G nooverlapping
         // cp: 3
-        assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"));
-        waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-
+        trigger_and_wait_compaction(tableName, "cumulative")
 
         // rowsets:
         //      [0-1] 0
@@ -181,21 +155,15 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-1] 0
         //      [2-2] 1G nooverlapping
         //      [3-3] 1G nooverlapping
-        // cp: 4 
-        assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"));
-        waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-
+        // cp: 4
+        trigger_and_wait_compaction(tableName, "cumulative")
 
         // The conditions for base compaction have been satisfied.
         // Since the size of first input rowset is 0, there is no file size limitation. (maybe fix it?)
         // rowsets:
         //      [0-3] 2G nooverlapping
-        // cp: 4 
-        assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "base", tablet_id).contains("Success"));
-        waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id) 
-
+        // cp: 4
+        trigger_and_wait_compaction(tableName, "base")
 
         // rowsets:
         //      [0-3] 2G nooverlapping
@@ -207,10 +175,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-3] 2G nooverlapping
         //      [4-4] 1G nooverlapping
         // cp: 5
-        assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"));
-        waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-
+        trigger_and_wait_compaction(tableName, "cumulative")
 
         // Due to the limit of config::base_compaction_dup_key_max_file_size_mbytes(1G),
         // can not do base compaction, return E-808
@@ -218,6 +183,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
         //      [0-3] 2G nooverlapping
         //      [4-4] 1G nooverlapping
         // cp: 5
+        // WHAT: replace with plugin and handle fail?
         assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
                     "base", tablet_id).contains("E-808"));
 

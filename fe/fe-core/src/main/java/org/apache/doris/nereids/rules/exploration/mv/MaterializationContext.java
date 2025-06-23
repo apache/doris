@@ -24,6 +24,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
@@ -326,7 +327,7 @@ public abstract class MaterializationContext {
     }
 
     /**
-     * Record fail reason when in rewriting
+     * Record fail reason when in rewriting by struct info
      */
     public void recordFailReason(StructInfo structInfo, String summary, Supplier<String> failureReasonSupplier) {
         // record it's rewritten
@@ -342,19 +343,38 @@ public abstract class MaterializationContext {
                 Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
 
+    /**
+     * Record fail reason when in rewriting by queryGroupPlan
+     */
+    public void recordFailReason(Plan queryGroupPlan, String summary, Supplier<String> failureReasonSupplier) {
+        // record it's rewritten
+        if (queryGroupPlan.getGroupExpression().isPresent()) {
+            this.addMatchedGroup(queryGroupPlan.getGroupExpression().get().getOwnerGroup().getGroupId(),
+                    false);
+        }
+        // once success, do not record the fail reason
+        if (this.success) {
+            return;
+        }
+        this.failReason.put(queryGroupPlan.getGroupExpression()
+                        .map(GroupExpression::getId).orElseGet(() -> new ObjectId(-1)),
+                Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
+    }
+
     @Override
     public String toString() {
         return getStringInfo();
     }
 
     /**
-     * ToSummaryString, this contains only summary info.
+     * get qualifiers for all mvs rewrite success and chosen by current query.
+     *
+     * @param materializationContexts all mv candidates context for current query
+     * @param physicalPlan the chosen plan for current query
+     * @return chosen mvs' qualifier set
      */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            Plan physicalPlan) {
-        if (materializationContexts.isEmpty()) {
-            return "";
-        }
+    public static Set<List<String>> getChosenMvsQualifiers(
+            List<MaterializationContext> materializationContexts, Plan physicalPlan) {
         Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
@@ -370,6 +390,19 @@ public abstract class MaterializationContext {
                 return null;
             }
         }, null);
+        return chosenMaterializationQualifiers;
+    }
+
+    /**
+     * ToSummaryString, this contains only summary info.
+     */
+    public static String toSummaryString(List<MaterializationContext> materializationContexts,
+            Plan physicalPlan) {
+        if (materializationContexts.isEmpty()) {
+            return "";
+        }
+        Set<List<String>> chosenMaterializationQualifiers = getChosenMvsQualifiers(
+                materializationContexts, physicalPlan);
 
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
@@ -384,7 +417,8 @@ public abstract class MaterializationContext {
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
+        Set<List<String>> rewriteSuccessButNotChoseQualifiers = materializationContexts.stream()
+                .filter(MaterializationContext::isSuccess)
                 .map(MaterializationContext::generateMaterializationIdentifier)
                 .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());
@@ -408,6 +442,22 @@ public abstract class MaterializationContext {
             }
         }
         return builder.toString();
+    }
+
+    /**
+     * If materialized view rewrite duration is exceeded, make all materializationContexts with reason
+     * materialized view rewrite duration is exceeded
+     * */
+    public static void makeFailWithDurationExceeded(Plan queryPlan,
+            List<MaterializationContext> materializationContexts, long duration) {
+        for (MaterializationContext context : materializationContexts) {
+            if (context.isSuccess()) {
+                continue;
+            }
+            context.recordFailReason(queryPlan,
+                    "materialized view rewrite duration is exceeded, the duration is " + duration,
+                    () -> "materialized view rewrite duration is exceeded, the duration is " + duration);
+        }
     }
 
     private static String generateIdentifierName(List<String> qualifiers) {

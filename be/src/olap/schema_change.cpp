@@ -38,8 +38,6 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
-#include "gutil/integral_types.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_system.h"
 #include "io/io_common.h"
 #include "olap/base_tablet.h"
@@ -137,6 +135,12 @@ public:
                             tablet_schema->column(i).get_aggregate_function(
                                     vectorized::AGG_LOAD_SUFFIX,
                                     tablet_schema->column(i).get_be_exec_version());
+                    if (!function) {
+                        return Status::InternalError(
+                                "could not find aggregate function on column {}, aggregation={}",
+                                tablet_schema->column(i).name(),
+                                tablet_schema->column(i).aggregation());
+                    }
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -254,6 +258,8 @@ private:
         RowRefComparator(const BaseTablet& tablet) : _num_columns(tablet.num_key_columns()) {}
 
         int compare(const RowRef& lhs, const RowRef& rhs) const {
+            // Notice: does not compare sequence column for mow table
+            // read from rowsets with delete bitmap, so there should be no duplicated keys
             return lhs.block->compare_at(lhs.position, rhs.position, _num_columns, *rhs.block, -1);
         }
 
@@ -593,7 +599,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         }
 
         auto rowset = DORIS_TRY(_internal_sorting(
-                blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second),
+                blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second + 1),
                 newest_write_timestamp, new_tablet, BETA_ROWSET, segments_overlap,
                 new_tablet_schema));
         _src_rowsets.push_back(std::move(rowset));
@@ -603,7 +609,7 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         blocks.clear();
 
         // increase temp version
-        _temp_delta_versions.second++;
+        _temp_delta_versions.second += 2;
         return Status::OK();
     };
 
@@ -630,7 +636,9 @@ Status VBaseSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset
         constexpr double HOLD_BLOCK_MEMORY_RATE =
                 0.66; // Reserve some memory for use by other parts of this job
         if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation ||
-            _mem_tracker->consumption() > _memory_limitation * HOLD_BLOCK_MEMORY_RATE) {
+            _mem_tracker->consumption() > _memory_limitation * HOLD_BLOCK_MEMORY_RATE ||
+            DebugPoints::instance()->is_enable(
+                    "VBaseSchemaChangeWithSorting._inner_process.create_rowset")) {
             RETURN_IF_ERROR(create_rowset());
 
             if (_mem_tracker->consumption() + new_block->allocated_bytes() > _memory_limitation) {
@@ -718,7 +726,7 @@ Result<RowsetSharedPtr> VLocalSchemaChangeWithSorting::_internal_sorting(
     return rowset;
 }
 
-Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_rowsets,
+Status VBaseSchemaChangeWithSorting::_external_sorting(std::vector<RowsetSharedPtr>& src_rowsets,
                                                        RowsetWriter* rowset_writer,
                                                        BaseTabletSPtr new_tablet,
                                                        TabletSchemaSPtr new_tablet_schema) {
@@ -730,8 +738,27 @@ Status VBaseSchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& 
     }
 
     Merger::Statistics stats;
-    RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
-                                           *new_tablet_schema, rs_readers, rowset_writer, &stats));
+    if (!new_tablet_schema->cluster_key_uids().empty()) {
+        // schema change read rowsets with delete bitmap, so there should be no duplicated keys
+        // RETURN_IF_ERROR(Compaction::update_delete_bitmap());
+        int64_t way_num = 0;
+        int64_t input_rowsets_data_size = 0;
+        int64_t input_row_num = 0;
+        for (auto& rowset : src_rowsets) {
+            way_num += rowset->rowset_meta()->get_merge_way_num();
+            input_rowsets_data_size += rowset->data_disk_size();
+            input_row_num += rowset->num_rows();
+        }
+        int64_t avg_segment_rows = config::vertical_compaction_max_segment_size /
+                                   (input_rowsets_data_size / (input_row_num + 1) + 1);
+        RETURN_IF_ERROR(Merger::vertical_merge_rowsets(
+                new_tablet, ReaderType::READER_ALTER_TABLE, *new_tablet_schema, rs_readers,
+                rowset_writer, avg_segment_rows, way_num, &stats));
+    } else {
+        RETURN_IF_ERROR(Merger::vmerge_rowsets(new_tablet, ReaderType::READER_ALTER_TABLE,
+                                               *new_tablet_schema, rs_readers, rowset_writer,
+                                               &stats));
+    }
     _add_merged_rows(stats.merged_rows);
     _add_filtered_rows(stats.filtered_rows);
     return Status::OK();
@@ -773,15 +800,20 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
               << ", alter_version=" << request.alter_version;
 
     // Lock schema_change_lock util schema change info is stored in tablet header
-    std::unique_lock<std::mutex> schema_change_lock(_base_tablet->get_schema_change_lock(),
-                                                    std::try_to_lock);
-    if (!schema_change_lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>("failed to obtain schema change lock. base_tablet={}",
-                                              request.base_tablet_id);
+    static constexpr long TRY_LOCK_TIMEOUT = 30;
+    std::unique_lock schema_change_lock(_base_tablet->get_schema_change_lock(), std::defer_lock);
+    bool owns_lock = schema_change_lock.try_lock_for(std::chrono::seconds(TRY_LOCK_TIMEOUT));
+
+    if (!owns_lock) {
+        return Status::Error<TRY_LOCK_FAILED>(
+                "Failed to obtain schema change lock, there might be inverted index being "
+                "built or cooldown runnning on base_tablet={}",
+                request.base_tablet_id);
     }
 
     Status res = _do_process_alter_tablet(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
+    DBUG_EXECUTE_IF("SchemaChangeJob::process_alter_tablet.leave.sleep", { sleep(5); });
     return res;
 }
 
@@ -1201,7 +1233,12 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
 
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         // TODO if support VerticalSegmentWriter, also need to handle cluster key primary key index
-        auto result = _new_tablet->create_rowset_writer(context, false);
+        bool vertical = false;
+        if (sc_sorting && !_new_tablet->tablet_schema()->cluster_key_uids().empty()) {
+            // see VBaseSchemaChangeWithSorting::_external_sorting
+            vertical = true;
+        }
+        auto result = _new_tablet->create_rowset_writer(context, vertical);
         if (!result.has_value()) {
             res = Status::Error<ROWSET_BUILDER_INIT>("create_rowset_writer failed, reason={}",
                                                      result.error().to_string());

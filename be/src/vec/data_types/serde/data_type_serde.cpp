@@ -57,7 +57,8 @@ void DataTypeSerDe::convert_variant_map_to_rapidjson(
             continue;
         }
         rapidjson::Value key;
-        key.SetString(item.first.data(), cast_set<rapidjson::SizeType>(item.first.size()));
+        key.SetString(item.first.get_path().data(),
+                      cast_set<rapidjson::SizeType>(item.first.get_path().size()));
         rapidjson::Value val;
         convert_field_to_rapidjson(item.second, val, allocator);
         if (val.IsNull() && item.first.empty()) {
@@ -84,32 +85,34 @@ void DataTypeSerDe::convert_field_to_rapidjson(const vectorized::Field& field,
                                                rapidjson::Value& target,
                                                rapidjson::Document::AllocatorType& allocator) {
     switch (field.get_type()) {
-    case vectorized::Field::Types::Null:
+    case PrimitiveType::TYPE_NULL:
         target.SetNull();
         break;
-    case vectorized::Field::Types::Int64:
+    case PrimitiveType::TYPE_BIGINT:
         target.SetInt64(field.get<Int64>());
         break;
-    case vectorized::Field::Types::Float64:
+    case PrimitiveType::TYPE_DOUBLE:
         target.SetDouble(field.get<Float64>());
         break;
-    case vectorized::Field::Types::JSONB: {
+    case PrimitiveType::TYPE_JSONB: {
         const auto& val = field.get<JsonbField>();
         JsonbValue* json_val = JsonbDocument::createValue(val.get_value(), val.get_size());
         convert_jsonb_to_rapidjson(*json_val, target, allocator);
         break;
     }
-    case vectorized::Field::Types::String: {
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+    case PrimitiveType::TYPE_STRING: {
         const String& val = field.get<String>();
         target.SetString(val.data(), cast_set<rapidjson::SizeType>(val.size()));
         break;
     }
-    case vectorized::Field::Types::Array: {
+    case PrimitiveType::TYPE_ARRAY: {
         const vectorized::Array& array = field.get<Array>();
         convert_array_to_rapidjson(array, target, allocator);
         break;
     }
-    case vectorized::Field::Types::VariantMap: {
+    case PrimitiveType::TYPE_VARIANT: {
         const vectorized::VariantMap& map = field.get<VariantMap>();
         convert_variant_map_to_rapidjson(map, target, allocator);
         break;

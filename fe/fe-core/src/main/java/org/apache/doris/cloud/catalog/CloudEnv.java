@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CreateStageStmt;
 import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
@@ -41,6 +40,9 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -92,6 +94,10 @@ public class CloudEnv extends Env {
 
     public CloudUpgradeMgr getCloudUpgradeMgr() {
         return this.upgradeMgr;
+    }
+
+    public CloudClusterChecker getCloudClusterChecker() {
+        return this.cloudClusterCheck;
     }
 
     public String getCloudInstanceId() {
@@ -180,13 +186,12 @@ public class CloudEnv extends Env {
                 .stream().filter(NodeInfoPB::hasNodeType).collect(Collectors.toList());
 
         helperNodes.clear();
-        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream().findFirst();
-        if (firstNonObserverNode.isPresent()) {
-            helperNodes.add(new HostInfo(
-                    Config.enable_fqdn_mode ? firstNonObserverNode.get().getHost()
-                            : firstNonObserverNode.get().getIp(),
-                    firstNonObserverNode.get().getEditLogPort()));
-        }
+        Optional<Cloud.NodeInfoPB> firstNonObserverNode = allNodes.stream()
+                .filter(nodeInfoPB -> nodeInfoPB.getNodeType() != NodeInfoPB.NodeType.FE_OBSERVER).findFirst();
+        firstNonObserverNode.ifPresent(nodeInfoPB -> helperNodes.add(new HostInfo(
+                Config.enable_fqdn_mode ? nodeInfoPB.getHost()
+                : nodeInfoPB.getIp(),
+                nodeInfoPB.getEditLogPort())));
         Preconditions.checkState(helperNodes.size() == 1);
 
         Optional<NodeInfoPB> local = allNodes.stream().filter(n -> ((Config.enable_fqdn_mode ? n.getHost() : n.getIp())
@@ -270,11 +275,12 @@ public class CloudEnv extends Env {
 
     public void checkCloudClusterPriv(String clusterName) throws DdlException {
         // check resource usage privilege
-        if (!Env.getCurrentEnv().getAuth().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
+        if (!Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
                 clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new DdlException("USAGE denied to user "
-                + ConnectContext.get().getQualifiedUser() + "'@'" + ConnectContext.get().getRemoteIP()
-                + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+                    + ConnectContext.get().getCurrentUserIdentity().getQualifiedUser() + "'@'" + ConnectContext.get()
+                    .getRemoteIP()
+                    + "' for cloud cluster '" + clusterName + "'", ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
         }
 
         if (!getCloudSystemInfoService().getCloudClusterNames().contains(clusterName)) {
@@ -330,12 +336,29 @@ public class CloudEnv extends Env {
         }
     }
 
+    public void createStage(CreateStageCommand command) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        if (!command.isDryRun()) {
+            ((CloudInternalCatalog) getInternalCatalog()).createStage(command.toStageProto(), command.isIfNotExists());
+        }
+    }
+
     public void dropStage(DropStageStmt stmt) throws DdlException {
         if (Config.isNotCloudMode()) {
             throw new DdlException("stage is only supported in cloud mode");
         }
         ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
                 null, null, stmt.getStageName(), null, stmt.isIfExists());
+    }
+
+    public void dropStage(DropStageCommand command) throws DdlException {
+        if (Config.isNotCloudMode()) {
+            throw new DdlException("stage is only supported in cloud mode");
+        }
+        ((CloudInternalCatalog) getInternalCatalog()).dropStage(Cloud.StagePB.StageType.EXTERNAL,
+                null, null, command.getStageName(), null, command.isIfExists());
     }
 
     public long loadCloudWarmUpJob(DataInputStream dis, long checksum) throws Exception {
@@ -397,8 +420,8 @@ public class CloudEnv extends Env {
         return checksum;
     }
 
-    public void cancelCloudWarmUp(CancelCloudWarmUpStmt stmt) throws DdlException {
-        getCacheHotspotMgr().cancel(stmt);
+    public void cancelCloudWarmUp(CancelWarmUpJobCommand command) throws DdlException {
+        getCacheHotspotMgr().cancel(command);
     }
 
     @Override

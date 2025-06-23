@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -73,6 +74,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                 new LogicalIcebergTableSinkRewrite().build(),
                 new LogicalJdbcTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
+                new LogicalDictionarySinkRewrite().build(),
                 new LogicalDeferMaterializeResultSinkRewrite().build()
                 ));
         return builder.build();
@@ -125,7 +127,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                             return slot.withExprId(newId);
                         }
                         return slot;
-                    })
+                    }).toRule(ExpressionRuleType.EXPR_ID_REWRITE_REPLACE)
             );
         }
     }
@@ -174,6 +176,14 @@ public class ExprIdRewriter extends ExpressionRewrite {
         @Override
         public Rule build() {
             return logicalOlapTableSink().thenApply(ExprIdRewriter.this::applyRewrite)
+                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
+        }
+    }
+
+    private class LogicalDictionarySinkRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalDictionarySink().thenApply(ExprIdRewriter.this::applyRewrite)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }

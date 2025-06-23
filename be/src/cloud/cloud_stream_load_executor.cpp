@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_stream_load_executor.h"
 
+#include <bvar/bvar.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
@@ -26,6 +28,10 @@
 #include "util/debug_points.h"
 
 namespace doris {
+
+bvar::Adder<uint64_t> stream_load_commit_retry_counter("stream_load_commit_retry_counter");
+bvar::Window<bvar::Adder<uint64_t>> stream_load_commit_retry_counter_minute(
+        "stream_load_commit_retry_counter", "1m", &stream_load_commit_retry_counter, 60);
 
 enum class TxnOpParamType : int {
     ILLEGAL,
@@ -114,6 +120,7 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
                     .tag("retry_times", retry_times)
                     .error(st);
             retry_times++;
+            stream_load_commit_retry_counter << 1;
         }
         return st;
     }

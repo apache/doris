@@ -212,7 +212,7 @@ suite("test_unique_schema_key_change_add","p0") {
 
 
      //TODO Test the unique model by adding a key column with STRING
-     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[comment]."
+     errorMessage="errCode = 2, detailMessage = String Type should not be used in key column[comment]"
      expectException({
           sql initTable
           sql initTableData
@@ -256,7 +256,7 @@ suite("test_unique_schema_key_change_add","p0") {
 
 
      //TODO Test the unique model by adding a column with JSON type none default value 
-     errorMessage="errCode = 2, detailMessage = JSONB or VARIANT type column default value just support null"
+     errorMessage="errCode = 2, detailMessage = Json or Variant type column default value just support null"
      expectException({
           sql initTable
           sql initTableData
@@ -270,7 +270,7 @@ suite("test_unique_schema_key_change_add","p0") {
 
 
      //TODO Test the unique model by adding a key column with JSON
-     errorMessage="errCode = 2, detailMessage = JSONB or VARIANT type should not be used in key column[j]."
+     errorMessage="errCode = 2, detailMessage = JsonType type should not be used in key column[j]."
      expectException({
           sql initTable
           sql initTableData

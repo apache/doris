@@ -38,11 +38,8 @@ public class JvmService {
 
     private final JvmInfo jvmInfo;
 
-    private JvmStats jvmStats;
-
     public JvmService() {
         this.jvmInfo = JvmInfo.jvmInfo();
-        this.jvmStats = JvmStats.jvmStats();
     }
 
     public JvmInfo info() {
@@ -50,8 +47,7 @@ public class JvmService {
     }
 
     public synchronized JvmStats stats() {
-        jvmStats = JvmStats.jvmStats();
-        return jvmStats;
+        return JvmStats.jvmStats();
     }
 
     @Override

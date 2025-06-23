@@ -70,7 +70,7 @@ import java.util.stream.Collectors;
  * create table command
  */
 @Developing
-public class CreateTableCommand extends Command implements ForwardWithSync {
+public class CreateTableCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(CreateTableCommand.class);
 
     private final Optional<LogicalPlan> ctasQuery;
@@ -109,6 +109,7 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         if (slots.size() != ctasCols.size()) {
             throw new AnalysisException("ctas column size is not equal to the query's");
         }
+        String autoRangePartitionName = getAutoRangePartitionNameOrNull();
         ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
@@ -123,8 +124,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
                         DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
                 if (s.isColumnFromTable()) {
-                    if ((!((SlotReference) s).getTable().isPresent()
-                            || !((SlotReference) s).getTable().get().isManagedTable())) {
+                    if ((!((SlotReference) s).getOriginalTable().isPresent()
+                            || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
                         if (createTableInfo.getPartitionTableInfo().inIdentifierPartitions(s.getName())
                                 || (createTableInfo.getDistribution() != null
                                 && createTableInfo.getDistribution().inDistributionColumns(s.getName()))) {
@@ -154,8 +155,14 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                     }
                 }
             }
-            // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
-            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
+            if (autoRangePartitionName != null && autoRangePartitionName.equalsIgnoreCase(s.getName())) {
+                // for auto range partition column, it must be not nullable. so keep its origin.
+                columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
+            } else {
+                // if the column is an expression, we set it to nullable, otherwise according to the nullable of the
+                // slot.
+                columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
+            }
         }
         List<String> qualifierTableName = RelationUtil.getQualifierName(ctx, createTableInfo.getTableNameParts());
         createTableInfo.validateCreateTableAsSelect(qualifierTableName, columnsOfQuery.build(), ctx);
@@ -199,6 +206,20 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         }
     }
 
+    private String getAutoRangePartitionNameOrNull() {
+        try {
+            if (createTableInfo.getPartitionTableInfo().isAutoPartition()
+                    && createTableInfo.getPartitionTableInfo().getPartitionType().equalsIgnoreCase("RANGE")) {
+                // should collect first before use them.
+                createTableInfo.getPartitionTableInfo().extractPartitionColumns();
+                return createTableInfo.getPartitionTableInfo().getIdentifierPartitionColumns().get(0);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
+    }
+
     public boolean isCtasCommand() {
         return ctasQuery.isPresent();
     }
@@ -208,14 +229,23 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
         return visitor.visitCreateTableCommand(this, context);
     }
 
-    // for test
     public CreateTableInfo getCreateTableInfo() {
         return createTableInfo;
+    }
+
+    public Optional<LogicalPlan> getCtasQuery() {
+        return ctasQuery;
     }
 
     @Override
     public StmtType stmtType() {
         return StmtType.CREATE;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        // ATTN: createTableInfo.getEngineName() may be null
+        return !CreateTableInfo.ENGINE_OLAP.equalsIgnoreCase(createTableInfo.getEngineName());
     }
 }
 

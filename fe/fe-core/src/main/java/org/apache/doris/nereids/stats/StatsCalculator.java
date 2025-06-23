@@ -178,27 +178,36 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
-    private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
-    private final GroupExpression groupExpression;
+    protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
+    protected final GroupExpression groupExpression;
 
-    private boolean forbidUnknownColStats = false;
+    protected boolean forbidUnknownColStats = false;
 
-    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
+    protected Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
-    private boolean isPlayNereidsDump = false;
+    protected boolean isPlayNereidsDump = false;
 
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
+    protected Map<String, Histogram> totalHistogramMap = new HashMap<>();
 
-    private Map<CTEId, Statistics> cteIdToStats;
+    protected Map<CTEId, Statistics> cteIdToStats;
 
-    private CascadesContext cascadesContext;
+    protected CascadesContext cascadesContext;
 
-    private StatsCalculator(CascadesContext context) {
+    public StatsCalculator(CascadesContext context) {
         this.groupExpression = null;
         this.cascadesContext = context;
     }
 
-    private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
+    /**
+     * StatsCalculator
+     * @param groupExpression group Expression
+     * @param forbidUnknownColStats forbid UnknownColStats
+     * @param columnStatisticMap columnStatisticMap
+     * @param isPlayNereidsDump isPlayNereidsDump
+     * @param cteIdToStats cteIdToStats
+     * @param context CascadesContext
+     */
+    public StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         this.groupExpression = groupExpression;
@@ -271,7 +280,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         LOG.info("disable join reorder since col stats invalid: "
                                 + reason.get());
                     } catch (Exception e) {
-                        LOG.info("disableNereidsJoinReorderOnce failed");
+                        LOG.info("disable NereidsJoinReorderOnce failed");
                     }
                     return reason;
                 }
@@ -281,33 +290,37 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * estimate stats
+     * estimate
      */
-    public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
-            Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
-        StatsCalculator statsCalculator = new StatsCalculator(
-                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
-        statsCalculator.estimate();
-        return statsCalculator;
-    }
-
-    // For unit test only
-    public static void estimate(GroupExpression groupExpression, CascadesContext context) {
-        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
-                new HashMap<>(), false, Collections.emptyMap(), context);
-        statsCalculator.estimate();
-    }
-
-    private void estimate() {
+    public void estimate() {
         Plan plan = groupExpression.getPlan();
-        Statistics newStats = plan.accept(this, null);
+        Statistics newStats;
+        try {
+            newStats = plan.accept(this, null);
+        } catch (Exception e) {
+            // throw exception in debug mode
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().feDebug) {
+                throw e;
+            }
+            LOG.warn("stats calculation failed, plan " + plan.toString(), e);
+            // use unknown stats or the first child's stats
+            if (plan.children().isEmpty() || !(plan.child(0) instanceof GroupPlan)) {
+                Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
+                for (Slot slot : plan.getOutput()) {
+                    columnStatisticMap.put(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType()));
+                }
+                newStats = new Statistics(1, 1, columnStatisticMap);
+            } else {
+                newStats = ((GroupPlan) plan.child(0)).getStats();
+            }
+        }
         newStats.normalizeColumnStatistics();
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
+        final Statistics tmpStats = newStats;
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
             boolean isReliable = groupExpression.getPlan().getExpressions().stream()
-                    .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
+                    .noneMatch(e -> tmpStats.isInputSlotsUnknown(e.getInputSlots()));
             groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
         } else {
@@ -326,6 +339,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
+    }
+
+    // For unit test only
+    public static void estimate(GroupExpression groupExpression, CascadesContext context) {
+        StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
+                new HashMap<>(), false, Collections.emptyMap(), context);
+        statsCalculator.estimate();
     }
 
     @Override
@@ -449,6 +469,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    private boolean isRegisteredRowCount(OlapScan olapScan) {
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        return tableMeta != null && tableMeta.userInjected;
+    }
+
     /**
      * if the table is not analyzed and BE does not report row count, return -1
      */
@@ -495,8 +521,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // mv is selected, return its estimated stats
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
+            LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
+                    optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
                 double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
+                        selectedPartitionsRowCount);
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
                 if (selectedPartitionsRowCount >= optStats.get().getRowCount()) {
                     Statistics derivedStats = optStats.get();
@@ -517,7 +547,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // for system table or FeUt, use ColumnStatistic.UNKNOWN
         if (StatisticConstants.isSystemTable(olapTable) || !FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable().internalSession) {
+                || ConnectContext.get().getState().isInternal()) {
             for (Slot slot : ((Plan) olapScan).getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -550,7 +580,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
-        if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
+        if (!isRegisteredRowCount(olapScan)
+                && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
@@ -559,9 +590,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
             });
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = getColumnStatsFromPartitionCacheOrTableCache(
-                        olapScan, slot, selectedPartitionNames);
-                if (slot.getColumn().isPresent()) {
+                ColumnStatistic cache;
+                if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enablePartitionAnalyze) {
+                    cache = getColumnStatsFromPartitionCacheOrTableCache(
+                            olapScan, slot, selectedPartitionNames);
+                } else {
+                    cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
+                }
+                if (slot.getOriginalColumn().isPresent()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }
                 ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
@@ -606,7 +642,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic updateMinMaxForListPartitionKey(OlapTable olapTable,
             List<String> selectedPartitionNames,
             SlotReference slot, ColumnStatistic cache) {
-        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getOriginalColumn().get());
         if (partitionColumnIdx != -1) {
             try {
                 LiteralExpr minExpr = null;
@@ -650,7 +686,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     private ColumnStatistic updateMinMaxForTheFirstRangePartitionKey(OlapTable olapTable,
             List<String> selectedPartitionNames,
             SlotReference slot, ColumnStatistic cache) {
-        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getOriginalColumn().get());
         // for multi partition keys, only the first partition key need to adjust min/max
         if (partitionColumnIdx == 0) {
             // update partition column min/max by partition info
@@ -741,7 +777,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private boolean isVisibleSlotReference(Slot slot) {
         if (slot instanceof SlotReference) {
-            Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+            Optional<Column> colOpt = ((SlotReference) slot).getOriginalColumn();
             if (colOpt.isPresent()) {
                 return colOpt.get().isVisible();
             }
@@ -1050,7 +1086,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new StatisticsBuilder(newStatistics).setWidthInJoinCluster(1).build();
     }
 
-    private Statistics computeFilter(Filter filter) {
+    protected Statistics computeFilter(Filter filter) {
         Statistics stats = groupExpression.childStatistics(0);
         if (groupExpression.getFirstChildPlan(OlapScan.class) != null) {
             return new FilterEstimation(true).estimate(filter.getPredicate(), stats);
@@ -1181,7 +1217,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+        if (connectContext != null && connectContext.getState().isInternal()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1199,13 +1235,20 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             catalogId = -1;
             dbId = -1;
         }
-        return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+        ColumnStatistic columnStatistics = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                 catalogId, dbId, table.getId(), idxId, colName);
+        if (!columnStatistics.isUnKnown
+                && columnStatistics.ndv == 0
+                && (columnStatistics.minExpr != null || columnStatistics.maxExpr != null)
+                && columnStatistics.numNulls == columnStatistics.count) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        return columnStatistics;
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId, List<String> partitionNames) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+        if (connectContext != null && connectContext.getState().isInternal()) {
             return ColumnStatistic.UNKNOWN;
         }
         long catalogId;
@@ -1275,7 +1318,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
-                || ConnectContext.get().getSessionVariable().internalSession) {
+                || ConnectContext.get().getState().isInternal()) {
             builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
@@ -1314,7 +1357,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return builder.setRowCount(tableRowCount).build();
     }
 
-    private Statistics computeJoin(Join join) {
+    protected Statistics computeJoin(Join join) {
         return JoinEstimation.estimate(groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
     }
@@ -1401,7 +1444,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return rowCount;
     }
 
-    private Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
+    protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         Statistics childStats = groupExpression.childStatistics(0);
         double rowCount = estimateGroupByRowCount(groupByExpressions, childStats);

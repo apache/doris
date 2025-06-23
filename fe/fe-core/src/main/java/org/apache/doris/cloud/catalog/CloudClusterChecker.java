@@ -52,6 +52,8 @@ public class CloudClusterChecker extends MasterDaemon {
 
     private CloudSystemInfoService cloudSystemInfoService;
 
+    private final Object checkLock = new Object();
+
     boolean isUpdateCloudUniqueId = false;
 
     public CloudClusterChecker(CloudSystemInfoService cloudSystemInfoService) {
@@ -104,7 +106,6 @@ public class CloudClusterChecker extends MasterDaemon {
                 // For old versions that do no have status field set
                 ClusterStatus clusterStatus = remoteClusterIdToPB.get(addId).hasClusterStatus()
                         ? remoteClusterIdToPB.get(addId).getClusterStatus() : ClusterStatus.NORMAL;
-                MetricRepo.registerCloudMetrics(clusterId, clusterName);
                 List<Backend> toAdd = new ArrayList<>();
                 for (Cloud.NodeInfoPB node : remoteClusterIdToPB.get(addId).getNodesList()) {
                     String addr = Config.enable_fqdn_mode ? node.getHost() : node.getIp();
@@ -183,8 +184,21 @@ public class CloudClusterChecker extends MasterDaemon {
                     } catch (UserException e) {
                         LOG.warn("failed to register water shed txn id, decommission be {}", be.getId(), e);
                     }
-                    be.setDecommissioned(true);
+                    be.setDecommissioning(true);
                 }
+            }
+
+            if (status == Cloud.NodeStatusPB.NODE_STATUS_DECOMMISSIONED) {
+                // When the synchronization status of the node is "NODE_STATUS_DECOMMISSIONED",
+                // it indicates that the conditions for decommissioning have
+                // already been checked in CloudTabletRebalancer.java,
+                // such as the tablets having been successfully migrated and no remnants of WAL on the backend (BE).
+                if (!be.isDecommissioned()) {
+                    LOG.warn("impossible status, somewhere has bug,  backend: {} status: {}", be, status);
+                }
+                be.setDecommissioned(true);
+                // edit log
+                Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
             }
         }
     }
@@ -321,9 +335,11 @@ public class CloudClusterChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        checkCloudBackends();
-        updateCloudMetrics();
-        checkCloudFes();
+        synchronized (checkLock) {
+            checkCloudBackends();
+            updateCloudMetrics();
+            checkCloudFes();
+        }
     }
 
     private void checkFeNodesMapValid() {
@@ -543,6 +559,14 @@ public class CloudClusterChecker extends MasterDaemon {
                 aliveNum = backend.isAlive() ? aliveNum + 1 : aliveNum;
             }
             MetricRepo.updateClusterBackendAliveTotal(entry.getKey(), entry.getValue(), aliveNum);
+        }
+    }
+
+    public void checkNow() {
+        if (Env.getCurrentEnv().isMaster()) {
+            synchronized (checkLock) {
+                runAfterCatalogReady();
+            }
         }
     }
 }

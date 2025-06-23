@@ -18,7 +18,7 @@
 suite("test_join_14", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql 'set parallel_fragment_exec_instance_num = 2;'
+    sql 'set parallel_pipeline_task_num = 2;'
     sql "use nereids_test_query_db"
 
     def tbName1 = "test"
@@ -168,6 +168,7 @@ suite("test_join_14", "nereids_p0") {
                    limit 60015"""
         }
     }
+
     for (c in columns){
         sql"""select * from ${tbName2} a full outer join ${tbName1} b on (a.${c} = b.${c}) 
                 order by isnull(a.k1), a.k1, a.k2, a.k3, a.k4, isnull(b.k1), b.k1, b.k2, b.k3, 
@@ -205,5 +206,22 @@ suite("test_join_14", "nereids_p0") {
         def res74 = sql"""select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where a.k1 is null order by b.k1, b.k2, b.k3"""
         check2_doris(res73, res74)
+    }
+
+    sql "set runtime_filter_type='IN_OR_BLOOM_FILTER',runtime_filter_max_in_num=1,parallel_pipeline_task_num=2;"
+    for (type in join_types) {
+        for (c in columns) {
+            qt_join_basic1"""select * from ${tbName2} a ${type} join ${tbName1} b on (a.${c} = b.${c}) 
+                   order by isnull(a.k1), a.k1, a.k2, a.k3, isnull(b.k1), b.k1, b.k2, b.k3 
+                   limit 60015"""
+        }
+    }
+	sql "set runtime_filter_type='IN',runtime_filter_max_in_num=1,parallel_pipeline_task_num=2;"
+    for (type in join_types) {
+        for (c in columns) {
+            qt_join_basic1"""select * from ${tbName2} a ${type} join ${tbName1} b on (a.${c} = b.${c}) 
+                   order by isnull(a.k1), a.k1, a.k2, a.k3, isnull(b.k1), b.k1, b.k2, b.k3 
+                   limit 60015"""
+        }
     }
 }

@@ -321,15 +321,15 @@ suite("test_multi_partition_key", "p0") {
             false
     )
     test {
-        sql "ALTER TABLE test_multi_column_drop_partition_column DROP COLUMN k1"
-        exception "Can not drop key column when table has value column with REPLACE aggregation method"
+        sql "ALTER TABLE test_multi_column_drop_partition_column DROP COLUMN k4"
+        exception "Can not drop key column k4 in aggregation key table having REPLACE or REPLACE_IF_NOT_NULL column"
     }
     // drop replace value
     sql "ALTER TABLE test_multi_column_drop_partition_column DROP COLUMN v1, DROP COLUMN v2, DROP COLUMN v3"
     assertEquals("FINISHED", getAlterColumnFinalState("test_multi_column_drop_partition_column"))
     test {
         sql "ALTER TABLE test_multi_column_drop_partition_column DROP COLUMN k1"
-        exception "Partition column[k1] cannot be dropped"
+        exception "Can not drop partition or distribution column : k1"
     }
     sql "insert into test_multi_column_drop_partition_column " +
             "values(100, 0, 0, 0, 0, '2000-01-01 00:00:00', 0.001, -0.001, 0.001)"

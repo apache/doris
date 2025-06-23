@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -75,7 +76,14 @@ public class ShowTableIdCommand extends ShowCommand {
             if (table != null) {
                 List<String> row = new ArrayList<>();
                 row.add(database.getFullName());
-                row.add(table.getName());
+                if (table.isTemporary()) {
+                    if (!Util.isTempTableInCurrentSession(table.getName())) {
+                        continue;
+                    }
+                    row.add(Util.getTempTableDisplayName(table.getName()));
+                } else {
+                    row.add(table.getName());
+                }
                 row.add(String.valueOf(database.getId()));
                 rows.add(row);
                 break;

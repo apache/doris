@@ -28,7 +28,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
@@ -64,7 +63,7 @@ public:
                                     size_t count) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;
-    virtual Status add_array_nulls(uint32_t row_id) = 0;
+    virtual Status add_array_nulls(const uint8_t* null_map, size_t num_rows) = 0;
 
     virtual Status finish() = 0;
 

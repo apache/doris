@@ -45,8 +45,8 @@ public class PropertyPassThroughTest extends TestWithFeService  {
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         S3TableValuedFunction s3Tvf = (S3TableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertTrue(s3Tvf.getBrokerDesc().getProperties().containsKey("fs.s3a.list.version"));
-        Assertions.assertTrue(s3Tvf.getBrokerDesc().getProperties().containsKey("test_property"));
+        Assertions.assertFalse(s3Tvf.getBrokerDesc().getBackendConfigProperties().containsKey("fs.s3a.list.version"));
+        Assertions.assertFalse(s3Tvf.getBrokerDesc().getBackendConfigProperties().containsKey("test_property"));
     }
 
     @Test
@@ -63,6 +63,6 @@ public class PropertyPassThroughTest extends TestWithFeService  {
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
         HdfsTableValuedFunction hdfsTvf = (HdfsTableValuedFunction) oldFuncTable.getTableFunction();
-        Assertions.assertTrue(hdfsTvf.getBrokerDesc().getProperties().containsKey("test_property"));
+        Assertions.assertFalse(hdfsTvf.getBrokerDesc().getBackendConfigProperties().containsKey("test_property"));
     }
 }

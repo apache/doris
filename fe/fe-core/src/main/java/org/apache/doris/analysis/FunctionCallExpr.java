@@ -35,6 +35,8 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -62,8 +64,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.text.StringCharacterIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -490,7 +490,10 @@ public class FunctionCallExpr extends Expr {
             return 3;
         } else if (type.isTime()) {
             return 4;
+        } else if (type.isComplexType() || type.isJsonbType()) {
+            return 7;
         } else {
+            // default is string for BE execution
             return 6;
         }
     }
@@ -666,6 +669,92 @@ public class FunctionCallExpr extends Expr {
         return sb.toString();
     }
 
+    private String paramsToSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+
+        if (fnParams.isStar()) {
+            sb.append("*");
+        }
+        if (fnParams.isDistinct()) {
+            sb.append("DISTINCT ");
+        }
+        int len = children.size();
+
+        if (fnName.getFunction().equalsIgnoreCase("char")) {
+            for (int i = 1; i < len; ++i) {
+                sb.append(children.get(i).toSql(disableTableName, needExternalSql, tableType, table));
+                if (i < len - 1) {
+                    sb.append(", ");
+                }
+            }
+            sb.append(" using ");
+            String encodeType = children.get(0).toSql(disableTableName, needExternalSql, tableType, table);
+            if (encodeType.charAt(0) == '\'') {
+                encodeType = encodeType.substring(1, encodeType.length());
+            }
+            if (encodeType.charAt(encodeType.length() - 1) == '\'') {
+                encodeType = encodeType.substring(0, encodeType.length() - 1);
+            }
+            sb.append(encodeType).append(")");
+            return sb.toString();
+        }
+
+        // XXX_diff are used by nereids only
+        if (fnName.getFunction().equalsIgnoreCase("years_diff") || fnName.getFunction().equalsIgnoreCase("months_diff")
+                || fnName.getFunction().equalsIgnoreCase("days_diff")
+                || fnName.getFunction().equalsIgnoreCase("hours_diff")
+                || fnName.getFunction().equalsIgnoreCase("minutes_diff")
+                || fnName.getFunction().equalsIgnoreCase("seconds_diff")
+                || fnName.getFunction().equalsIgnoreCase("milliseconds_diff")
+                || fnName.getFunction().equalsIgnoreCase("microseconds_diff")) {
+            sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
+            sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table)).append(")");
+            return sb.toString();
+        }
+        // used by nereids END
+
+        if (fnName.getFunction().equalsIgnoreCase("json_array")
+                || fnName.getFunction().equalsIgnoreCase("json_object")
+                || fnName.getFunction().equalsIgnoreCase("json_insert")
+                || fnName.getFunction().equalsIgnoreCase("json_replace")
+                || fnName.getFunction().equalsIgnoreCase("json_set")) {
+            len = len - 1;
+        }
+
+        for (int i = 0; i < len; ++i) {
+            if (i != 0) {
+                if (fnName.getFunction().equalsIgnoreCase("group_concat")
+                        && orderByElements.size() > 0 && i == len - orderByElements.size()) {
+                    sb.append(" ");
+                } else {
+                    sb.append(", ");
+                }
+            }
+            if (ConnectContext.get() != null && ConnectContext.get().getState().isQuery() && i == 1
+                    && (fnName.getFunction().equalsIgnoreCase("aes_decrypt")
+                    || fnName.getFunction().equalsIgnoreCase("aes_encrypt")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_decrypt")
+                    || fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+                sb.append("\'***\'");
+                continue;
+            } else if (orderByElements.size() > 0 && i == len - orderByElements.size()) {
+                sb.append("ORDER BY ");
+            }
+            sb.append(children.get(i).toSql(disableTableName, needExternalSql, tableType, table));
+            if (orderByElements.size() > 0 && i >= len - orderByElements.size()) {
+                if (orderByElements.get(i - len + orderByElements.size()).getIsAsc()) {
+                    sb.append(" ASC");
+                } else {
+                    sb.append(" DESC");
+                }
+            }
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
     @Override
     public String toSqlImpl() {
         Expr expr;
@@ -699,6 +788,52 @@ public class FunctionCallExpr extends Expr {
         } else {
             sb.append(((FunctionCallExpr) expr).fnName);
             sb.append(paramsToSql());
+            if (fnName.getFunction().equalsIgnoreCase("json_quote")
+                    || fnName.getFunction().equalsIgnoreCase("json_array")
+                    || fnName.getFunction().equalsIgnoreCase("json_object")
+                    || fnName.getFunction().equalsIgnoreCase("json_insert")
+                    || fnName.getFunction().equalsIgnoreCase("json_replace")
+                    || fnName.getFunction().equalsIgnoreCase("json_set")) {
+                return forJSON(sb.toString());
+            }
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+
+        // when function is like or regexp, the expr generated sql should be like this
+        // eg: child1 like child2
+        if (fnName.getFunction().equalsIgnoreCase("like")
+                || fnName.getFunction().equalsIgnoreCase("regexp")) {
+            sb.append(children.get(0).toSql(disableTableName, needExternalSql, tableType, table));
+            sb.append(" ");
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(" ");
+            sb.append(children.get(1).toSql(disableTableName, needExternalSql, tableType, table));
+        } else if (fnName.getFunction().equalsIgnoreCase("encryptkeyref")) {
+            sb.append("key ");
+            for (int i = 0; i < children.size(); i++) {
+                String str = ((StringLiteral) children.get(i)).getValue();
+                if (str.isEmpty()) {
+                    continue;
+                }
+                sb.append(str);
+                sb.append(".");
+            }
+            sb.deleteCharAt(sb.length() - 1);
+        } else {
+            sb.append(((FunctionCallExpr) expr).fnName);
+            sb.append(paramsToSql(disableTableName, needExternalSql, tableType, table));
             if (fnName.getFunction().equalsIgnoreCase("json_quote")
                     || fnName.getFunction().equalsIgnoreCase("json_array")
                     || fnName.getFunction().equalsIgnoreCase("json_object")
@@ -2335,16 +2470,6 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 
-    public void readFields(DataInput in) throws IOException {
-        fnName = FunctionName.read(in);
-        fnParams = FunctionParams.read(in);
-        if (fnParams.exprs() != null) {
-            children.addAll(fnParams.exprs());
-        }
-        isAnalyticFnCall = in.readBoolean();
-        isMergeAggFn = in.readBoolean();
-    }
-
     @Override
     protected void normalize(TExprNode msg, Normalizer normalizer) {
         String functionName = fnName.getFunction().toUpperCase();
@@ -2354,12 +2479,6 @@ public class FunctionCallExpr extends Expr {
             throw new IllegalStateException("Can not normalize non deterministic functions");
         }
         super.normalize(msg, normalizer);
-    }
-
-    public static FunctionCallExpr read(DataInput in) throws IOException {
-        FunctionCallExpr func = new FunctionCallExpr();
-        func.readFields(in);
-        return func;
     }
 
     @Override

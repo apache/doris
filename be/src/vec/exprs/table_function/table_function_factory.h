@@ -37,10 +37,25 @@ class TableFunction;
 class TableFunctionFactory {
 public:
     TableFunctionFactory() = delete;
-    static Status get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn);
+    static Status get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn,
+                         int be_version);
 
     const static std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
             _function_map;
+
+    /// @TEMPORARY: for be_exec_version=8. replace function to old version.
+    const static std::unordered_map<std::string, std::string> _function_to_replace;
+    const static int NEWEST_VERSION_EXPLODE_MULTI_PARAM = 8;
+
+private:
+    /// @TEMPORARY: for be_exec_version=8
+    static void temporary_function_update(int fe_version_now, std::string& name) {
+        // replace if fe is old version.
+        if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
+            _function_to_replace.find(name) != _function_to_replace.end()) {
+            name = _function_to_replace.at(name);
+        }
+    }
 };
 } // namespace vectorized
 #include "common/compile_check_end.h"

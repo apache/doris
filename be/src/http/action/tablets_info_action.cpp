@@ -51,7 +51,7 @@ void TabletsInfoAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, get_tablets_info(tablet_num_to_return).ToString());
 }
 
-EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
+EasyJson TabletsInfoAction::get_tablets_info(std::string tablet_num_to_return) {
     EasyJson tablets_info_ej;
 
     int64_t number;

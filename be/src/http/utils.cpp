@@ -17,6 +17,7 @@
 
 #include "http/utils.h"
 
+#include <absl/strings/str_split.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <sys/stat.h>
@@ -269,7 +270,8 @@ Status list_remote_files_v2(const std::string& address, const std::string& token
         return status;
     }
 
-    std::vector<string> file_list = strings::Split(file_list_str, "\n", strings::SkipWhitespace());
+    std::vector<std::string> file_list =
+            absl::StrSplit(file_list_str, "\n", absl::SkipWhitespace());
     if (file_list.size() % 2 != 0) {
         return Status::InternalError("batch download files: invalid file list, size is not even");
     }

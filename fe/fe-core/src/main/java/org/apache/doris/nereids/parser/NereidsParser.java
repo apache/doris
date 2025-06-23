@@ -35,6 +35,8 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableMap;
@@ -280,9 +282,25 @@ public class NereidsParser {
         return parseMultiple(sql, null);
     }
 
+    /**
+     * parse multiple sql statements.
+     *
+     * @param sql sql string
+     * @param logicalPlanBuilder logical plan builder
+     * @return logical plan
+     */
     public List<Pair<LogicalPlan, StatementContext>> parseMultiple(String sql,
                                                                    @Nullable LogicalPlanBuilder logicalPlanBuilder) {
-        return parse(sql, logicalPlanBuilder, DorisParser::multiStatements);
+        List<Pair<LogicalPlan, StatementContext>> result = parse(sql, logicalPlanBuilder, DorisParser::multiStatements);
+        // ensure each StatementContext has complete OriginStatement information
+        for (int i = 0; i < result.size(); i++) {
+            Pair<LogicalPlan, StatementContext> pair = result.get(i);
+            StatementContext statementContext = pair.second;
+            if (statementContext.getOriginStatement() == null) {
+                statementContext.setOriginStatement(new OriginStatement(sql, i));
+            }
+        }
+        return result;
     }
 
     public Expression parseExpression(String expression) {
@@ -343,6 +361,14 @@ public class NereidsParser {
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
+    public LogicalPlan parseForEncryption(String sql, Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        CommonTokenStream tokenStream = parseAllTokens(sql);
+        ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
+        LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForEncryption(
+                getHintMap(sql, tokenStream, DorisParser::selectHint), indexInSqlToString);
+        return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
+    }
+
     /** parseForSyncMv */
     public Optional<String> parseForSyncMv(String sql) {
         CommonTokenStream tokenStream = parseAllTokens(sql);
@@ -384,7 +410,7 @@ public class NereidsParser {
     public static ParserRuleContext toAst(
             CommonTokenStream tokenStream, Function<DorisParser, ParserRuleContext> parseFunction) {
         DorisParser parser = new DorisParser(tokenStream);
-
+        parser.ansiSQLSyntax = GlobalVariable.enable_ansi_query_organization_behavior;
         parser.addParseListener(POST_PROCESSOR);
         parser.removeErrorListeners();
         parser.addErrorListener(PARSE_ERROR_LISTENER);

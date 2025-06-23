@@ -269,7 +269,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
-                Config.hms_events_batch_size_per_rpc);
+                hmsExternalCatalog.getHmsEventsBatchSizePerRpc());
         try {
             return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {

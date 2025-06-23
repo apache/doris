@@ -30,7 +30,6 @@ class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
 class PassToOneExchanger;
-class LocalMergeSortExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final : public PipelineXSinkLocalState<LocalExchangeSharedState> {
 public:
@@ -54,7 +53,6 @@ private:
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
     friend class PassToOneExchanger;
-    friend class LocalMergeSortExchanger;
     friend class AdaptivePassthroughExchanger;
     template <typename BlockType>
     friend class Exchanger;
@@ -91,7 +89,16 @@ public:
               _num_partitions(num_partitions),
               _texprs(texprs),
               _partitioned_exprs_num(texprs.size()),
-              _bucket_seq_to_instance_idx(bucket_seq_to_instance_idx) {}
+              _shuffle_idx_to_instance_idx(bucket_seq_to_instance_idx) {}
+#ifdef BE_TEST
+    LocalExchangeSinkOperatorX(const std::vector<TExpr>& texprs,
+                               const std::map<int, int>& bucket_seq_to_instance_idx)
+            : Base(),
+              _num_partitions(0),
+              _texprs(texprs),
+              _partitioned_exprs_num(texprs.size()),
+              _shuffle_idx_to_instance_idx(bucket_seq_to_instance_idx) {}
+#endif
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override {
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
@@ -104,9 +111,16 @@ public:
     Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
-    Status open(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state.exec_time_counter());
+        local_state._shared_state->set_low_memory_mode(state);
+        local_state._exchanger->set_low_memory_mode();
+    }
 
 private:
     friend class LocalExchangeSinkLocalState;
@@ -116,8 +130,7 @@ private:
     const std::vector<TExpr>& _texprs;
     const size_t _partitioned_exprs_num;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    const std::map<int, int> _bucket_seq_to_instance_idx;
-    std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;
+    std::map<int, int> _shuffle_idx_to_instance_idx;
     bool _use_global_shuffle = false;
 };
 

@@ -38,6 +38,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_stats.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
@@ -74,13 +75,9 @@ struct DataDirInfo {
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
     DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
-    std::string bvar_name;
+    std::string metric_name;
 };
-struct PredicateFilterInfo {
-    int type = 0;
-    uint64_t input_row = 0;
-    uint64_t filtered_row = 0;
-};
+
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
     bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
@@ -147,7 +144,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
-    OLAP_FIELD_TYPE_OBJECT = 25,
+    OLAP_FIELD_TYPE_BITMAP = 25,
     OLAP_FIELD_TYPE_STRING = 26,
     OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
     OLAP_FIELD_TYPE_DATEV2 = 28,
@@ -327,16 +324,15 @@ struct OlapReaderStatistics {
 
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_short_circuit_cond_filtered = 0;
+    int64_t rows_expr_cond_filtered = 0;
     int64_t vec_cond_input_rows = 0;
     int64_t short_circuit_cond_input_rows = 0;
+    int64_t expr_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
-
-    std::map<int, PredicateFilterInfo> filter_info;
-
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
@@ -351,7 +347,8 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
-    int64_t generate_row_ranges_ns = 0;
+    int64_t generate_row_ranges_by_keys_ns = 0;
+    int64_t generate_row_ranges_by_column_conditions_ns = 0;
     int64_t generate_row_ranges_by_bf_ns = 0;
     int64_t generate_row_ranges_by_zonemap_ns = 0;
     int64_t generate_row_ranges_by_dict_ns = 0;
@@ -376,6 +373,7 @@ struct OlapReaderStatistics {
     int64_t inverted_index_searcher_cache_hit = 0;
     int64_t inverted_index_searcher_cache_miss = 0;
     int64_t inverted_index_downgrade_count = 0;
+    InvertedIndexStatistics inverted_index_stats;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
@@ -420,8 +418,6 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
-struct RowsetId;
-RowsetId next_rowset_id();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -442,7 +438,7 @@ struct RowsetId {
             if (ec != std::errc {}) [[unlikely]] {
                 if (config::force_regenerate_rowsetid_on_start_error) {
                     LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                    high = next_rowset_id().hi;
+                    high = MAX_ROWSET_ID - 1;
                 } else {
                     throw Exception(
                             Status::FatalError("failed to init rowset id: {}", rowset_id_str));

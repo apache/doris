@@ -52,6 +52,9 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
+    if (!_write_info.broker_addresses.empty()) {
+        fs_properties.broker_addresses = &(_write_info.broker_addresses);
+    }
     io::FileDescription file_description = {
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
@@ -61,7 +64,6 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        bool parquet_disable_dictionary = false;
         TParquetCompressionType::type parquet_compression_type;
         switch (_compress_type) {
         case TFileCompressType::PLAIN: {
@@ -81,10 +83,11 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                          to_string(_compress_type));
         }
         }
+        ParquetFileOptions parquet_options = {parquet_compression_type,
+                                              TParquetVersion::PARQUET_1_0, false, false};
         _file_format_transformer.reset(new VParquetTransformer(
-                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
-                parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false, _iceberg_schema_json, &_schema));
+                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
+                parquet_options, _iceberg_schema_json, &_schema));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
@@ -118,7 +121,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
         }
     }
     if (status_ok) {
-        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
+        auto commit_data = _build_iceberg_commit_data();
+        _state->add_iceberg_commit_datas(commit_data);
     }
     return result_status;
 }

@@ -36,7 +36,7 @@ public class SwitchingFileSystem implements FileSystem {
     private final Map<String, String> properties;
 
     public SwitchingFileSystem(ExternalMetaCacheMgr extMetaCacheMgr, String bindBrokerName,
-            Map<String, String> properties) {
+                               Map<String, String> properties) {
         this.extMetaCacheMgr = extMetaCacheMgr;
         this.bindBrokerName = bindBrokerName;
         this.properties = properties;
@@ -125,7 +125,7 @@ public class SwitchingFileSystem implements FileSystem {
     public FileSystem fileSystem(String location) {
         return extMetaCacheMgr.getFsCache().getRemoteFileSystem(
                 new FileSystemCache.FileSystemCacheKey(
-                        LocationPath.getFSIdentity(location,
+                        LocationPath.getFSIdentity(location, properties,
                                 bindBrokerName), properties, bindBrokerName));
     }
 }

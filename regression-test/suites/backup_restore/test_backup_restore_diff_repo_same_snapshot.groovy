@@ -17,14 +17,15 @@
 
 suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
     String suiteName = "test_backup_restore_diff_repo_same_snapshot"
-    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName_1 = "${suiteName}_1_repo_" + UUID.randomUUID().toString().replace("-", "")
+    String repoName_2 = "${suiteName}_2_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"
     String tableName = "${suiteName}_table"
     String snapshotName = "${suiteName}_snapshot"
 
     def syncer = getSyncer()
-    syncer.createS3Repository("${repoName}_1")
-    syncer.createS3Repository("${repoName}_2")
+    syncer.createS3Repository("${repoName_1}")
+    syncer.createS3Repository("${repoName_2}")
 
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}_1"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}_2"
@@ -61,12 +62,12 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
     // Backup to different repo, with same snapshot name.
     sql """
         BACKUP SNAPSHOT ${dbName}_1.${snapshotName}
-        TO `${repoName}_1`
+        TO `${repoName_1}`
         ON (${tableName}_1)
     """
     sql """
         BACKUP SNAPSHOT ${dbName}_2.${snapshotName}
-        TO `${repoName}_2`
+        TO `${repoName_2}`
         ON (${tableName}_2)
     """
 
@@ -74,13 +75,13 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
     syncer.waitSnapshotFinish("${dbName}_2")
 
     // Restore snapshot from repo_1 to db_1
-    def snapshot = syncer.getSnapshotTimestamp("${repoName}_1", snapshotName)
+    def snapshot = syncer.getSnapshotTimestamp("${repoName_1}", snapshotName)
     assertTrue(snapshot != null)
 
     sql "TRUNCATE TABLE ${dbName}_1.${tableName}_1"
     sql """
         RESTORE SNAPSHOT ${dbName}_1.${snapshotName}
-        FROM `${repoName}_1`
+        FROM `${repoName_1}`
         ON ( `${tableName}_1`)
         PROPERTIES
         (
@@ -95,13 +96,13 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
     assertEquals(result.size(), values.size());
 
     // Restore snapshot from repo_2 to db_2
-    snapshot = syncer.getSnapshotTimestamp("${repoName}_2", snapshotName)
+    snapshot = syncer.getSnapshotTimestamp("${repoName_2}", snapshotName)
     assertTrue(snapshot != null)
 
     sql "TRUNCATE TABLE ${dbName}_2.${tableName}_2"
     sql """
         RESTORE SNAPSHOT ${dbName}_2.${snapshotName}
-        FROM `${repoName}_2`
+        FROM `${repoName_2}`
         ON ( `${tableName}_2`)
         PROPERTIES
         (
@@ -119,7 +120,7 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
     sql "DROP TABLE ${dbName}_2.${tableName}_2 FORCE"
     sql "DROP DATABASE ${dbName}_1 FORCE"
     sql "DROP DATABASE ${dbName}_2 FORCE"
-    sql "DROP REPOSITORY `${repoName}_1`"
-    sql "DROP REPOSITORY `${repoName}_2`"
+    sql "DROP REPOSITORY `${repoName_1}`"
+    sql "DROP REPOSITORY `${repoName_2}`"
 }
 

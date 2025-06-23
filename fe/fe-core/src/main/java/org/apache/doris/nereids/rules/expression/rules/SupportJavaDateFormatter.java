@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
@@ -38,9 +39,12 @@ public class SupportJavaDateFormatter implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(DateFormat.class).then(SupportJavaDateFormatter::rewriteDateFormat),
-                matchesType(FromUnixtime.class).then(SupportJavaDateFormatter::rewriteFromUnixtime),
+                matchesType(DateFormat.class).then(SupportJavaDateFormatter::rewriteDateFormat)
+                        .toRule(ExpressionRuleType.SUPPORT_JAVA_DATE_FORMATTER),
+                matchesType(FromUnixtime.class).then(SupportJavaDateFormatter::rewriteFromUnixtime)
+                        .toRule(ExpressionRuleType.SUPPORT_JAVA_DATE_FORMATTER),
                 matchesType(UnixTimestamp.class).then(SupportJavaDateFormatter::rewriteUnixTimestamp)
+                        .toRule(ExpressionRuleType.SUPPORT_JAVA_DATE_FORMATTER)
         );
     }
 

@@ -25,7 +25,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/endian.h"
-#include "gutil/strings/substitute.h"
 
 namespace doris {
 

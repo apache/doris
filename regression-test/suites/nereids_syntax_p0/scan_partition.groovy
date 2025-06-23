@@ -43,7 +43,7 @@ suite("test_scan_part") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    sql "SET parallel_fragment_exec_instance_num=8"
+    sql "SET parallel_pipeline_task_num=8"
     qt_sql """
             SELECT id, SUM(i1) FROM test_part WHERE i2 IN ('1','5')
            GROUP BY id HAVING id = 1;

@@ -56,6 +56,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalCTEProducerToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink;
 import org.apache.doris.nereids.rules.implementation.LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN;
+import org.apache.doris.nereids.rules.implementation.LogicalDictionarySinkToPhysicalDictionarySink;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
@@ -107,7 +108,10 @@ import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSetOperation;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSort;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushDownJoinOtherCondition;
+import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNDistinctThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -132,6 +136,9 @@ public class RuleSet {
             .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
             .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
+            .addAll(new PushDownTopNThroughJoin().buildRules())
+            .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
+            .addAll(new PushDownTopNDistinctThroughJoin().buildRules())
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
@@ -203,6 +210,7 @@ public class RuleSet {
             .add(new LogicalFileSinkToPhysicalFileSink())
             .add(new LogicalResultSinkToPhysicalResultSink())
             .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
+            .add(new LogicalDictionarySinkToPhysicalDictionarySink())
             .build();
 
     // left-zig-zag tree is used when column stats are not available.

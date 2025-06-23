@@ -18,9 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -31,8 +32,6 @@ import org.apache.doris.thrift.TIntLiteral;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -261,17 +260,13 @@ public class IntLiteral extends NumericLiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-        if (expr instanceof StringLiteral) {
-            return ((StringLiteral) expr).compareLiteral(this);
-        }
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (value == expr.getLongValue()) {
-            return 0;
-        } else {
-            return value > expr.getLongValue() ? 1 : -1;
+        if (expr instanceof StringLiteral) {
+            return - ((StringLiteral) expr).compareLiteral(this);
         }
+        return Long.compare(value, expr.getLongValue());
     }
 
     @Override
@@ -289,11 +284,6 @@ public class IntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
-    }
-
-    @Override
     public long getLongValue() {
         return value;
     }
@@ -305,6 +295,12 @@ public class IntLiteral extends NumericLiteralExpr {
 
     @Override
     public String toSqlImpl() {
+        return getStringValue();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return getStringValue();
     }
 
@@ -360,17 +356,6 @@ public class IntLiteral extends NumericLiteralExpr {
     public void swapSign() throws NotImplementedException {
         // swapping sign does not change the type
         value = -value;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = in.readLong();
-    }
-
-    public static IntLiteral read(DataInput in) throws IOException {
-        IntLiteral literal = new IntLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

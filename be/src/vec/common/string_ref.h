@@ -343,16 +343,6 @@ inline size_t hash_less_than8(const char* data, size_t size) {
     return k2;
 }
 
-inline size_t hash_less_than16(const char* data, size_t size) {
-    if (size > 8) {
-        auto a = unaligned_load<doris::vectorized::UInt64>(data);
-        auto b = unaligned_load<doris::vectorized::UInt64>(data + size - 8);
-        return hash_len16(a, rotate_by_at_least1(b + size, size)) ^ b;
-    }
-
-    return hash_less_than8(data, size);
-}
-
 inline size_t crc32_hash(const char* pos, size_t size) {
     if (size == 0) {
         return 0;

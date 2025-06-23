@@ -35,11 +35,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -65,9 +63,7 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -79,7 +75,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.zip.GZIPInputStream;
 
 
 public class BackupJob extends AbstractJob implements GsonPostProcessable {
@@ -210,17 +205,19 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
 
             //clear old task
-            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getTabletId());
-            unfinishedTaskIds.remove(task.getTabletId());
-            taskProgress.remove(task.getTabletId());
-            taskErrMsg.remove(task.getTabletId());
+            AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, task.getSignature());
+            unfinishedTaskIds.remove(task.getSignature());
+            taskProgress.remove(task.getSignature());
+            taskErrMsg.remove(task.getSignature());
 
-            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendIdWithoutException(), task.getTabletId(),
+            long signature = env.getNextId();
+            long beId = replica.getBackendIdWithoutException();
+            SnapshotTask newTask = new SnapshotTask(null, beId, signature,
                     task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
-            unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+            unfinishedTaskIds.put(signature, beId);
 
             //send task
             AgentBatchTask batchTask = new AgentBatchTask(newTask);
@@ -277,9 +274,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 request.getSnapshotFiles());
 
         snapshotInfos.put(task.getTabletId(), info);
-        taskProgress.remove(task.getTabletId());
-        Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
-        taskErrMsg.remove(task.getTabletId());
+        taskProgress.remove(task.getSignature());
+        taskErrMsg.remove(task.getSignature());
+        Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         if (LOG.isDebugEnabled()) {
             LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
                     info, unfinishedTaskIds.size(), (oldValue != null), this);
@@ -348,7 +345,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     @Override
     public synchronized void replayRun() {
-        // nothing to do
+        if (state == BackupJobState.SAVE_META) {
+            saveMetaInfo(true);
+        }
     }
 
     @Override
@@ -384,7 +383,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                     continue;
                 }
                 ((UploadTask) task).updateBrokerProperties(
-                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
             LOG.info("finished to update upload job properties. {}", this);
@@ -444,7 +443,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 waitingAllUploadingFinished();
                 break;
             case SAVE_META:
-                saveMetaInfo();
+                saveMetaInfo(false);
                 break;
             case UPLOAD_INFO:
                 uploadMetaAndJobInfoFile();
@@ -637,13 +636,15 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                                         + ". visible version: " + visibleVersion);
                         return;
                     }
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(), tablet.getId(),
+                    long signature = env.getNextId();
+                    long beId = replica.getBackendIdWithoutException();
+                    SnapshotTask task = new SnapshotTask(null, beId, signature,
                             jobId, dbId, olapTable.getId(), partition.getId(),
                             index.getId(), tablet.getId(),
                             visibleVersion,
                             schemaHash, timeoutMs, false /* not restore task */);
                     batchTask.addTask(task);
-                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
+                    unfinishedTaskIds.put(signature, beId);
                 }
             }
 
@@ -675,8 +676,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
             return;
         }
-
-        removeUnsupportProperties(copiedTbl);
         copiedTables.add(copiedTbl);
     }
 
@@ -708,12 +707,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             }
             copiedResources.add(copiedResource);
         }
-    }
-
-    private void removeUnsupportProperties(OlapTable tbl) {
-        // We cannot support the colocate attribute because the colocate information is not backed up
-        // synchronously when backing up.
-        tbl.setColocateGroup(null);
     }
 
     private void waitingAllSnapshotsFinished() {
@@ -785,7 +778,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
-                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()),
+                        repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
                         repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
@@ -820,7 +813,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void saveMetaInfo() {
+    private void saveMetaInfo(boolean replay) {
         String createTimeStr = TimeUtils.longToTimeString(createTime,
                 TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         // local job dir: backup/repo__repo_id/label__createtime/
@@ -878,6 +871,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
+            return;
+        }
+
+        if (replay) {
             return;
         }
 
@@ -1101,85 +1098,12 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     public static BackupJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            BackupJob job = new BackupJob();
-            job.readFields(in);
-            return job;
+        String json = Text.readString(in);
+        if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
+            return GsonUtils.fromJsonCompressed(in, BackupJob.class);
         } else {
-            String json = Text.readString(in);
-            if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
-                return GsonUtils.fromJsonCompressed(in, BackupJob.class);
-            } else {
-                return GsonUtils.GSON.fromJson(json, BackupJob.class);
-            }
+            return GsonUtils.GSON.fromJson(json, BackupJob.class);
         }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        if (type == JobType.BACKUP_COMPRESSED) {
-            type = JobType.BACKUP;
-
-            Text text = new Text();
-            text.readFields(in);
-
-            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
-            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
-                try (DataInputStream stream = new DataInputStream(gzipStream)) {
-                    readOthers(stream);
-                }
-            }
-        } else {
-            readOthers(in);
-        }
-    }
-
-    public void readOthers(DataInput in) throws IOException {
-        // table refs
-        int size = in.readInt();
-        tableRefs = Lists.newArrayList();
-        for (int i = 0; i < size; i++) {
-            TableRef tblRef = TableRef.read(in);
-            tableRefs.add(tblRef);
-        }
-
-        state = BackupJobState.valueOf(Text.readString(in));
-
-        // times
-        snapshotFinishedTime = in.readLong();
-        snapshotUploadFinishedTime = in.readLong();
-
-        // snapshot info
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            SnapshotInfo snapshotInfo = SnapshotInfo.read(in);
-            snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
-        }
-
-        // backup meta
-        if (in.readBoolean()) {
-            backupMeta = BackupMeta.read(in);
-        }
-
-        // No need to persist job info. It is generated then write to file
-
-        // metaInfoFilePath and jobInfoFilePath
-        if (in.readBoolean()) {
-            localMetaInfoFilePath = Text.readString(in);
-        }
-
-        if (in.readBoolean()) {
-            localJobInfoFilePath = Text.readString(in);
-        }
-        // read properties
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            properties.put(key, value);
-        }
-
-        gsonPostProcess();
     }
 
     public void gsonPostProcess() throws IOException {

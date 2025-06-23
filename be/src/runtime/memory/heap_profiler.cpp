@@ -25,6 +25,7 @@
 #include "io/fs/local_file_system.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void HeapProfiler::set_prof_active(bool prof) {
 #ifdef USE_JEMALLOC
@@ -35,7 +36,7 @@ void HeapProfiler::set_prof_active(bool prof) {
         if (err) {
             LOG(WARNING) << "jemalloc heap profiling start failed, " << err;
         } else {
-            LOG(WARNING) << "jemalloc heap profiling started";
+            LOG(INFO) << "jemalloc heap profiling started";
         }
     } catch (...) {
         LOG(WARNING) << "jemalloc heap profiling start failed";
@@ -89,12 +90,27 @@ void HeapProfiler::heap_profiler_stop() {
     set_prof_active(false);
 }
 
-bool HeapProfiler::check_heap_profiler() {
+bool HeapProfiler::check_active_heap_profiler() {
 #ifdef USE_JEMALLOC
     size_t value = 0;
     size_t sz = sizeof(value);
+    // A Bug in Jemalloc 5.3, `jemallctl("prof", &value, &sz, nullptr, 0)` always returns `0`,
+    // the real conf `prof` value cannot be checked.
     jemallctl("prof.active", &value, &sz, nullptr, 0);
     return value;
+#else
+    return false;
+#endif
+}
+
+bool HeapProfiler::check_enable_heap_profiler() {
+#ifdef USE_JEMALLOC
+    bool prof = false;
+    size_t sz = sizeof(prof);
+    if (jemallctl("opt.prof", &prof, &sz, nullptr, 0) != 0) {
+        LOG(WARNING) << "Failed to get option: opt.prof";
+    }
+    return prof;
 #else
     return false;
 #endif
@@ -127,4 +143,17 @@ std::string HeapProfiler::dump_heap_profile_to_dot() {
     }
 }
 
+bool HeapProfiler::heap_profiler_reset(size_t lg_sample) {
+#ifdef USE_JEMALLOC
+    int ret = jemallctl("prof.reset", nullptr, nullptr, &lg_sample, sizeof(lg_sample));
+    if (ret != 0) {
+        LOG(WARNING) << "jemallctl failed to set prof.reset:" << lg_sample
+                     << ".Check whether JEMALLOC_CONF is configured with prof:true.";
+        return false;
+    }
+#endif
+    return true;
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris

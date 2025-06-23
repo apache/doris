@@ -70,9 +70,9 @@ suite("test_alter_table_drop_column") {
     qt_order """ select * from ${uniqueTableName} order by citycode"""
 
     test {
-        sql """ alter table ${uniqueTableName} drop COLUMN siteid;"""
+        sql """ alter table ${uniqueTableName} drop COLUMN citycode;"""
         // check exception message contains
-        exception "Can not drop key column in Unique data model table"
+        exception "Can not drop key column citycode in unique data model table"
     }
 
     sql """ alter table ${uniqueTableName} drop COLUMN pv from ${uniqueTableRollupName};"""
@@ -120,7 +120,7 @@ suite("test_alter_table_drop_column") {
     test {
         sql """ alter table ${aggTableName} drop COLUMN citycode from ${aggTableRollupName};"""
         // check exception message contains
-        exception "Can not drop key column when rollup has value column with REPLACE aggregation method"
+        exception "Can not drop key column citycode when rollup has value column with REPLACE aggregation method"
     }
 
     sql """ alter table ${aggTableName} drop COLUMN pv from ${aggTableRollupName};"""
@@ -136,7 +136,7 @@ suite("test_alter_table_drop_column") {
     test {
         sql """ alter table ${aggTableName} drop COLUMN pv from ${aggTableRollupName};"""
         // check exception message contains
-        exception "Column does not exists"
+        exception "Column does not exists: pv"
     }
 
     // duplicate model table
@@ -161,7 +161,7 @@ suite("test_alter_table_drop_column") {
     test {
         sql """alter table ${dupTableName} drop COLUMN siteid;"""
         // check exception message contains
-        exception "Distribution column[siteid] cannot be dropped"
+        exception "Can not drop partition or distribution column : siteid"
     }
 
     sql "DROP TABLE IF EXISTS ${dupTableName} FORCE"

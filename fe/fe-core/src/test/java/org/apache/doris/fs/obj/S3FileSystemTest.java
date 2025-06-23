@@ -22,6 +22,8 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
+import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -70,7 +72,7 @@ public class S3FileSystemTest {
         properties = new HashMap<>();
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
-        properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
+        properties.put("AWS_ENDPOINT", "http://s3.ap-northeast-1.amazonaws.com");
         properties.put(PropertyConverter.USE_PATH_STYLE, "false");
         properties.put("AWS_REGION", "bj");
         content =
@@ -102,10 +104,12 @@ public class S3FileSystemTest {
                     return mockedClient;
                 }
             };
-            S3ObjStorage mockedStorage = new S3ObjStorage(properties);
+            AbstractS3CompatibleProperties s3CompatibleProperties =
+                    (AbstractS3CompatibleProperties) StorageProperties.createPrimary(properties);
+            S3ObjStorage mockedStorage = new S3ObjStorage(s3CompatibleProperties);
             Assertions.assertTrue(mockedStorage.getClient() instanceof MockedS3Client);
             // inject storage to file system.
-            fileSystem = new S3FileSystem(mockedStorage);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(s3CompatibleProperties);
             new MockUp<S3FileSystem>(S3FileSystem.class) {
                 @Mock
                 public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
@@ -124,7 +128,7 @@ public class S3FileSystemTest {
             };
         } else {
             // can also real file system to test.
-            fileSystem = (S3FileSystem) FileSystemFactory.getS3FileSystem(properties);
+            fileSystem = (S3FileSystem) FileSystemFactory.get(StorageProperties.createPrimary(properties));
         }
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         Assertions.assertEquals(Status.OK, fileSystem.directUpload(content, testFile));

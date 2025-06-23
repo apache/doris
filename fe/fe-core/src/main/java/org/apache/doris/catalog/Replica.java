@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TTabletInfo;
@@ -31,8 +30,6 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Comparator;
 
 /**
@@ -197,6 +194,8 @@ public class Replica {
 
     private long userDropTime = -1;
 
+    private long scaleInDropTime = -1;
+
     private long lastReportVersion = 0;
 
     public Replica() {
@@ -265,7 +264,9 @@ public class Replica {
         try {
             return getBackendId();
         } catch (UserException e) {
-            LOG.warn("getBackendIdWithoutException: ", e);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getBackendIdWithoutException: ", e);
+            }
             return -1;
         }
     }
@@ -739,28 +740,6 @@ public class Replica {
         return strBuffer.toString();
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        backendId = in.readLong();
-        version = in.readLong();
-        versionHash = in.readLong();
-        dataSize = in.readLong();
-        rowCount = in.readLong();
-        state = ReplicaState.valueOf(Text.readString(in));
-        lastFailedVersion = in.readLong();
-        lastFailedVersionHash = in.readLong();
-        lastSuccessVersion = in.readLong();
-        lastSuccessVersionHash = in.readLong();
-    }
-
-    @Deprecated
-    public static Replica read(DataInput in) throws IOException {
-        Replica replica = EnvFactory.getInstance().createReplica();
-        replica.readFields(in);
-        return replica;
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -859,6 +838,22 @@ public class Replica {
 
         return false;
     }
+
+    public void setScaleInDropTimeStamp(long scaleInDropTime) {
+        this.scaleInDropTime = scaleInDropTime;
+    }
+
+    public boolean isScaleInDrop() {
+        if (this.scaleInDropTime > 0) {
+            if (System.currentTimeMillis() - this.scaleInDropTime
+                    < Config.manual_drop_replica_valid_second * 1000L) {
+                return true;
+            }
+            this.scaleInDropTime = -1;
+        }
+        return false;
+    }
+
 
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE

@@ -26,13 +26,45 @@
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/hash_table/ph_hash_set.h"
 #include "vec/common/hash_table/string_hash_map.h"
+#include "vec/core/types.h"
 
 namespace doris {
-template <typename T>
-using DistinctData = PHHashSet<T, HashCRC32<T>>;
 
 template <typename T>
-using DistinctDataPhase2 = PHHashSet<T, HashMixWrapper<T>>;
+struct DistinctHashSetType {
+    using HashSet = PHHashSet<T, HashCRC32<T>>;
+};
+
+template <>
+struct DistinctHashSetType<vectorized::UInt8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::UInt8>;
+};
+
+template <>
+struct DistinctHashSetType<vectorized::Int8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::Int8>;
+};
+
+template <typename T>
+struct DistinctPhase2HashSetType {
+    using HashSet = PHHashSet<T, HashMixWrapper<T>>;
+};
+
+template <>
+struct DistinctPhase2HashSetType<vectorized::UInt8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::UInt8>;
+};
+
+template <>
+struct DistinctPhase2HashSetType<vectorized::Int8> {
+    using HashSet = SmallFixedSizeHashSet<vectorized::Int8>;
+};
+
+template <typename T>
+using DistinctData = typename DistinctHashSetType<T>::HashSet;
+
+template <typename T>
+using DistinctDataPhase2 = typename DistinctPhase2HashSetType<T>::HashSet;
 
 using DistinctDataWithStringKey = PHHashSet<StringRef>;
 

@@ -20,6 +20,7 @@ suite("push_down_min_through_join") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set be_number_for_test=1"
     sql "set DISABLE_NEREIDS_RULES='ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT, ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI'"
 
     sql """

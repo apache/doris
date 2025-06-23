@@ -50,6 +50,21 @@ struct UInt128Wrapper {
     bool operator==(const UInt128Wrapper& other) const { return value_ == other.value_; }
 };
 
+struct ReadStatistics {
+    bool hit_cache = true;
+    bool skip_cache = false;
+    int64_t bytes_read = 0;
+    int64_t bytes_write_into_file_cache = 0;
+    int64_t remote_read_timer = 0;
+    int64_t local_read_timer = 0;
+    int64_t local_write_timer = 0;
+    int64_t read_cache_file_directly_timer = 0;
+    int64_t cache_get_or_set_timer = 0;
+    int64_t lock_wait_timer = 0;
+    int64_t get_timer = 0;
+    int64_t set_timer = 0;
+};
+
 class BlockFileCache;
 struct FileBlocksHolder;
 using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
@@ -113,13 +128,13 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {
-        if (io_context->is_index_data) {
+        if (io_context->expiration_time != 0) {
+            cache_type = FileCacheType::TTL;
+            expiration_time = io_context->expiration_time;
+        } else if (io_context->is_index_data) {
             cache_type = FileCacheType::INDEX;
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
-        } else if (io_context->expiration_time != 0) {
-            cache_type = FileCacheType::TTL;
-            expiration_time = io_context->expiration_time;
         } else {
             cache_type = FileCacheType::NORMAL;
         }
@@ -134,6 +149,7 @@ struct CacheContext {
     FileCacheType cache_type;
     int64_t expiration_time {0};
     bool is_cold_data {false};
+    ReadStatistics* stats;
 };
 
 } // namespace doris::io

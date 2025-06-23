@@ -144,7 +144,7 @@ suite("test_unique_schema_value_modify","p0") {
 
 
      //TODO Test the unique model by modify a value type from BOOLEAN to DECIMAL
-     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32"
+     errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -344,8 +344,8 @@ suite("test_unique_schema_value_modify","p0") {
      }, insertSql, true,"${tbName}")
 
 
-     //TODO Test the unique model by modify a value type from TINYINT  to DECIMAL32
-     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL32"
+     //TODO Test the unique model by modify a value type from TINYINT  to DECIMAL128
+     errorMessage="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -508,7 +508,7 @@ suite("test_unique_schema_value_modify","p0") {
 
 
      //TODO Test the unique model by modify a value type from SMALLINT  to DECIMAL
-     errorMessage = "errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL32"
+     errorMessage = "errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData

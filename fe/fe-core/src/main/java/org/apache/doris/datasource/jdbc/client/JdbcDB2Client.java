@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
@@ -84,14 +83,10 @@ public class JdbcDB2Client extends JdbcClient {
             case "REAL":
                 return Type.FLOAT;
             case "CHAR":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize().orElse(0));
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "VARCHAR":
             case "LONG VARCHAR":
-                ScalarType varcharType = ScalarType.createType(PrimitiveType.VARCHAR);
-                varcharType.setLength(fieldSchema.getColumnSize().orElse(0));
-                return varcharType;
+                return ScalarType.createVarcharType(fieldSchema.requiredColumnSize());
             case "DATE":
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP": {

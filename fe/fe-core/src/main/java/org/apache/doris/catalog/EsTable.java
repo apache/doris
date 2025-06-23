@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.es.EsMetaStateTracker;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsTablePartitions;
@@ -37,7 +36,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -152,15 +150,24 @@ public class EsTable extends Table implements GsonPostProcessable {
     }
 
     public Map<String, String> fieldsContext() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().fetchFieldsContext();
     }
 
     public Map<String, String> docValueContext() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
     public List<String> needCompatDateFields() throws UserException {
+        initEsMetaStateTracker();
         return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
+    private void initEsMetaStateTracker() {
+        if (esMetaStateTracker == null) {
+            esMetaStateTracker = new EsMetaStateTracker(client, this);
+        }
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -271,53 +278,7 @@ public class EsTable extends Table implements GsonPostProcessable {
         return md5;
     }
 
-    @Deprecated
     @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; ++i) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            tableContext.put(key, value);
-        }
-        hosts = tableContext.get("hosts");
-        seeds = hosts.split(",");
-        userName = tableContext.get("userName");
-        passwd = tableContext.get("passwd");
-        indexName = tableContext.get("indexName");
-        mappingType = tableContext.get("mappingType");
-
-        enableDocValueScan = Boolean.parseBoolean(
-                tableContext.getOrDefault("enableDocValueScan", EsResource.DOC_VALUE_SCAN_DEFAULT_VALUE));
-        enableKeywordSniff = Boolean.parseBoolean(
-                tableContext.getOrDefault("enableKeywordSniff", EsResource.KEYWORD_SNIFF_DEFAULT_VALUE));
-        if (tableContext.containsKey("maxDocValueFields")) {
-            try {
-                maxDocValueFields = Integer.parseInt(tableContext.get("maxDocValueFields"));
-            } catch (Exception e) {
-                maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
-            }
-        }
-        nodesDiscovery = Boolean.parseBoolean(
-                tableContext.getOrDefault(EsResource.NODES_DISCOVERY, EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
-        httpSslEnabled = Boolean.parseBoolean(
-                tableContext.getOrDefault(EsResource.HTTP_SSL_ENABLED, EsResource.HTTP_SSL_ENABLED_DEFAULT_VALUE));
-        likePushDown = Boolean.parseBoolean(
-                tableContext.getOrDefault(EsResource.LIKE_PUSH_DOWN, EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
-        includeHiddenIndex = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
-                EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
-        PartitionType partType = PartitionType.valueOf(Text.readString(in));
-        if (partType == PartitionType.UNPARTITIONED) {
-            partitionInfo = SinglePartitionInfo.read(in);
-        } else if (partType == PartitionType.RANGE) {
-            partitionInfo = RangePartitionInfo.read(in);
-        } else {
-            throw new IOException("invalid partition type: " + partType);
-        }
-        client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
-    }
-
     public void gsonPostProcess() throws IOException {
         hosts = tableContext.get("hosts");
         seeds = hosts.split(",");
@@ -346,6 +307,8 @@ public class EsTable extends Table implements GsonPostProcessable {
         includeHiddenIndex = Boolean.parseBoolean(tableContext.getOrDefault(EsResource.INCLUDE_HIDDEN_INDEX,
                 EsResource.INCLUDE_HIDDEN_INDEX_DEFAULT_VALUE));
 
+        // parse httpSslEnabled before use it here.
+        EsResource.fillUrlsWithSchema(seeds, httpSslEnabled);
         client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
@@ -353,9 +316,7 @@ public class EsTable extends Table implements GsonPostProcessable {
      * Sync es index meta from remote ES Cluster.
      */
     public void syncTableMetaData() {
-        if (esMetaStateTracker == null) {
-            esMetaStateTracker = new EsMetaStateTracker(client, this);
-        }
+        initEsMetaStateTracker();
         try {
             esMetaStateTracker.run();
             this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();

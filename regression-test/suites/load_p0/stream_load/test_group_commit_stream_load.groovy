@@ -306,4 +306,40 @@ suite("test_group_commit_stream_load") {
     } finally {
         // try_sql("DROP TABLE ${tableName}")
     }
+
+    // stream load with unique_key_update_mode
+    tableName = "test_group_commit_stream_load_update"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE ${tableName} (
+            `k` int(11) NULL, 
+            `v1` BIGINT NULL,
+            `v2` BIGINT NULL DEFAULT "9876",
+            `v3` BIGINT NOT NULL,
+            `v4` BIGINT NOT NULL DEFAULT "1234",
+            `v5` BIGINT NULL
+            ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES(
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "enable_unique_key_skip_bitmap_column" = "true"); """
+
+    def show_res = sql "show create table ${tableName}"
+    assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
+    sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
+    qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+    streamLoad {
+        table "${tableName}"
+        set 'group_commit', 'async_mode'
+        set 'format', 'json'
+        set 'read_json_by_line', 'true'
+        set 'strict_mode', 'false'
+        set 'unique_key_update_mode', 'update_FLEXIBLE_COLUMNS'
+        file "test1.json"
+        time 20000
+        unset 'label'
+    }
+    qt_read_json_by_line "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
 }

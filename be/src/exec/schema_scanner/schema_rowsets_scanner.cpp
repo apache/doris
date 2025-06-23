@@ -244,7 +244,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t creation_time = rowset->creation_time();
-            srcs[i - fill_idx_begin].from_unixtime(creation_time, TimezoneUtils::default_time_zone);
+            srcs[i - fill_idx_begin].from_unixtime(creation_time, _timezone_obj);
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
@@ -255,8 +255,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (size_t i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t newest_write_timestamp = rowset->newest_write_timestamp();
-            srcs[i - fill_idx_begin].from_unixtime(newest_write_timestamp,
-                                                   TimezoneUtils::default_time_zone);
+            srcs[i - fill_idx_begin].from_unixtime(newest_write_timestamp, _timezone_obj);
             datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));

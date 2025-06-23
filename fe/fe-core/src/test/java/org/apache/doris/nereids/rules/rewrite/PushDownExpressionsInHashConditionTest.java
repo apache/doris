@@ -20,7 +20,26 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Positive;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -183,5 +202,69 @@ public class PushDownExpressionsInHashConditionTest extends TestWithFeService im
                         )
                     )
                 );
+    }
+
+    @Test
+    public void testPushDownMarkConjuncts() {
+        Plan left = new LogicalOneRowRelation(new RelationId(1),
+                ImmutableList.of(new Alias(new ExprId(1), new IntegerLiteral(1), "a")));
+        Plan right = new LogicalOneRowRelation(new RelationId(2),
+                ImmutableList.of(new Alias(new ExprId(2), new IntegerLiteral(2), "b")));
+        Expression sameLeft = new Abs(left.getOutput().get(0));
+        Expression sameRight = new Positive(right.getOutput().get(0));
+        Expression hashLeft = new Cast(sameLeft, StringType.INSTANCE);
+        Expression hashRight = new Cast(sameRight, StringType.INSTANCE);
+        Expression markLeft = new Cast(sameLeft, BigIntType.INSTANCE);
+        Expression markRight = new Cast(sameRight, BigIntType.INSTANCE);
+
+        LogicalJoin<?, ?> plan = new LogicalJoin<>(
+                JoinType.INNER_JOIN,
+                left,
+                right,
+                new JoinReorderContext()
+        );
+
+        Expression sameConjuncts = new EqualTo(sameLeft, sameRight);
+        Expression hashConjuncts = new EqualTo(hashLeft, hashRight);
+        Expression markConjuncts = new EqualTo(markLeft, markRight);
+        Expression otherConjuncts = new Add(left.getOutput().get(0), new IntegerLiteral(1));
+
+        plan = plan.withJoinConjuncts(ImmutableList.of(sameConjuncts, hashConjuncts), ImmutableList.of(otherConjuncts),
+                ImmutableList.of(sameConjuncts, markConjuncts, otherConjuncts),
+                new JoinReorderContext());
+
+        PlanChecker.from(connectContext, plan).applyTopDown(new PushDownExpressionsInHashCondition())
+                .matches(logicalJoin(logicalProject(logicalOneRowRelation())
+                                .when(p -> p.getProjects().size() == 4
+                                        && p.getProjects().stream().filter(Alias.class::isInstance)
+                                        .map(Alias.class::cast).map(UnaryNode::child)
+                                        .filter(sameLeft::equals).count() == 1
+                                        && p.getProjects().stream().filter(Alias.class::isInstance)
+                                        .map(Alias.class::cast).map(UnaryNode::child)
+                                        .filter(markLeft::equals).count() == 1
+                                        && p.getProjects().stream().filter(Alias.class::isInstance)
+                                        .map(Alias.class::cast).map(UnaryNode::child)
+                                        .filter(hashLeft::equals).count() == 1),
+                        logicalProject(logicalOneRowRelation())
+                                .when(p -> p.getProjects().size() == 4
+                                        && p.getProjects().stream().filter(Alias.class::isInstance)
+                                        .map(Alias.class::cast).map(UnaryNode::child)
+                                        .filter(sameRight::equals).count() == 1
+                                        && p.getProjects().stream().filter(Alias.class::isInstance)
+                                        .map(Alias.class::cast).map(UnaryNode::child)
+                                        .filter(markRight::equals).count() == 1
+                                        && p.getProjects().stream().filter(Alias.class::isInstance)
+                                        .map(Alias.class::cast).map(UnaryNode::child)
+                                        .filter(hashRight::equals).count() == 1)
+                        ).when(j -> j.getMarkJoinConjuncts().size() == 3
+                        && j.getMarkJoinConjuncts().stream().filter(EqualTo.class::isInstance)
+                                .allMatch(e -> ((EqualTo) e).left() instanceof SlotReference
+                                        && ((EqualTo) e).right() instanceof SlotReference)
+                        && j.getMarkJoinConjuncts().stream().filter(EqualTo.class::isInstance).count() == 2)
+                        .when(j -> j.getHashJoinConjuncts().size() == 2
+                        && j.getHashJoinConjuncts().stream().filter(EqualTo.class::isInstance)
+                                .allMatch(e -> ((EqualTo) e).left() instanceof SlotReference
+                                        && ((EqualTo) e).right() instanceof SlotReference)
+                        && j.getHashJoinConjuncts().stream().filter(EqualTo.class::isInstance).count() == 2));
     }
 }

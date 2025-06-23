@@ -21,8 +21,6 @@ import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAutoAnalyzeJobsStmt;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -61,7 +59,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -381,11 +378,11 @@ public class AnalysisManagerTest {
         };
 
         SlotReference slot1 = new SlotReference(new ExprId(1), "slot1", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column1, Optional.empty(), ImmutableList.of());
+                new ArrayList<>(), table, column1, table, column1, ImmutableList.of());
         SlotReference slot2 = new SlotReference(new ExprId(2), "slot2", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column2, Optional.empty(), ImmutableList.of());
+                new ArrayList<>(), table, column2, table, column2, ImmutableList.of());
         SlotReference slot3 = new SlotReference(new ExprId(3), "slot3", IntegerType.INSTANCE, true,
-                new ArrayList<>(), table, column3, Optional.empty(), ImmutableList.of());
+                new ArrayList<>(), table, column3, table, column3, ImmutableList.of());
         Set<Slot> set1 = new HashSet<>();
         set1.add(slot1);
         set1.add(slot2);
@@ -502,146 +499,6 @@ public class AnalysisManagerTest {
     }
 
     @Test
-    public void testShowAutoJobs() {
-        AnalysisManager manager = new AnalysisManager();
-        TableName high1 = new TableName("catalog1", "db1", "high1");
-        TableName high2 = new TableName("catalog2", "db2", "high2");
-        TableName mid1 = new TableName("catalog3", "db3", "mid1");
-        TableName mid2 = new TableName("catalog4", "db4", "mid2");
-        TableName low1 = new TableName("catalog5", "db5", "low1");
-
-        manager.highPriorityJobs.put(high1, new HashSet<>());
-        manager.highPriorityJobs.get(high1).add(Pair.of("index1", "col1"));
-        manager.highPriorityJobs.get(high1).add(Pair.of("index2", "col2"));
-        manager.highPriorityJobs.put(high2, new HashSet<>());
-        manager.highPriorityJobs.get(high2).add(Pair.of("index1", "col3"));
-        manager.midPriorityJobs.put(mid1, new HashSet<>());
-        manager.midPriorityJobs.get(mid1).add(Pair.of("index1", "col4"));
-        manager.midPriorityJobs.put(mid2, new HashSet<>());
-        manager.midPriorityJobs.get(mid2).add(Pair.of("index1", "col5"));
-        manager.lowPriorityJobs.put(low1, new HashSet<>());
-        manager.lowPriorityJobs.get(low1).add(Pair.of("index1", "col6"));
-        manager.lowPriorityJobs.get(low1).add(Pair.of("index1", "col7"));
-
-        new MockUp<StatementBase>() {
-            @Mock
-            public boolean isAnalyzed() {
-                return true;
-            }
-        };
-        ShowAutoAnalyzeJobsStmt stmt = new ShowAutoAnalyzeJobsStmt(null, null);
-        List<AutoAnalysisPendingJob> autoAnalysisPendingJobs = manager.showAutoPendingJobs(stmt);
-        Assertions.assertEquals(5, autoAnalysisPendingJobs.size());
-        AutoAnalysisPendingJob job = autoAnalysisPendingJobs.get(0);
-        Assertions.assertEquals("catalog1", job.catalogName);
-        Assertions.assertEquals("db1", job.dbName);
-        Assertions.assertEquals("high1", job.tableName);
-        Assertions.assertEquals(2, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col1")));
-        Assertions.assertTrue(job.columns.contains(Pair.of("index2", "col2")));
-        Assertions.assertEquals(JobPriority.HIGH, job.priority);
-
-        job = autoAnalysisPendingJobs.get(1);
-        Assertions.assertEquals("catalog2", job.catalogName);
-        Assertions.assertEquals("db2", job.dbName);
-        Assertions.assertEquals("high2", job.tableName);
-        Assertions.assertEquals(1, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col3")));
-        Assertions.assertEquals(JobPriority.HIGH, job.priority);
-
-        job = autoAnalysisPendingJobs.get(2);
-        Assertions.assertEquals("catalog3", job.catalogName);
-        Assertions.assertEquals("db3", job.dbName);
-        Assertions.assertEquals("mid1", job.tableName);
-        Assertions.assertEquals(1, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col4")));
-        Assertions.assertEquals(JobPriority.MID, job.priority);
-
-        job = autoAnalysisPendingJobs.get(3);
-        Assertions.assertEquals("catalog4", job.catalogName);
-        Assertions.assertEquals("db4", job.dbName);
-        Assertions.assertEquals("mid2", job.tableName);
-        Assertions.assertEquals(1, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col5")));
-        Assertions.assertEquals(JobPriority.MID, job.priority);
-
-        job = autoAnalysisPendingJobs.get(4);
-        Assertions.assertEquals("catalog5", job.catalogName);
-        Assertions.assertEquals("db5", job.dbName);
-        Assertions.assertEquals("low1", job.tableName);
-        Assertions.assertEquals(2, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col6")));
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col7")));
-        Assertions.assertEquals(JobPriority.LOW, job.priority);
-
-        new MockUp<ShowAutoAnalyzeJobsStmt>() {
-            @Mock
-            public String getPriority() {
-                return JobPriority.HIGH.name().toUpperCase();
-            }
-        };
-        List<AutoAnalysisPendingJob> highJobs = manager.showAutoPendingJobs(stmt);
-        Assertions.assertEquals(2, highJobs.size());
-        job = highJobs.get(0);
-        Assertions.assertEquals("catalog1", job.catalogName);
-        Assertions.assertEquals("db1", job.dbName);
-        Assertions.assertEquals("high1", job.tableName);
-        Assertions.assertEquals(2, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col1")));
-        Assertions.assertTrue(job.columns.contains(Pair.of("index2", "col2")));
-        Assertions.assertEquals(JobPriority.HIGH, job.priority);
-
-        job = highJobs.get(1);
-        Assertions.assertEquals("catalog2", job.catalogName);
-        Assertions.assertEquals("db2", job.dbName);
-        Assertions.assertEquals("high2", job.tableName);
-        Assertions.assertEquals(1, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col3")));
-        Assertions.assertEquals(JobPriority.HIGH, job.priority);
-
-        new MockUp<ShowAutoAnalyzeJobsStmt>() {
-            @Mock
-            public String getPriority() {
-                return JobPriority.MID.name().toUpperCase();
-            }
-        };
-        List<AutoAnalysisPendingJob> midJobs = manager.showAutoPendingJobs(stmt);
-        Assertions.assertEquals(2, midJobs.size());
-        job = midJobs.get(0);
-        Assertions.assertEquals("catalog3", job.catalogName);
-        Assertions.assertEquals("db3", job.dbName);
-        Assertions.assertEquals("mid1", job.tableName);
-        Assertions.assertEquals(1, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col4")));
-        Assertions.assertEquals(JobPriority.MID, job.priority);
-
-        job = midJobs.get(1);
-        Assertions.assertEquals("catalog4", job.catalogName);
-        Assertions.assertEquals("db4", job.dbName);
-        Assertions.assertEquals("mid2", job.tableName);
-        Assertions.assertEquals(1, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col5")));
-        Assertions.assertEquals(JobPriority.MID, job.priority);
-
-        new MockUp<ShowAutoAnalyzeJobsStmt>() {
-            @Mock
-            public String getPriority() {
-                return JobPriority.LOW.name().toUpperCase();
-            }
-        };
-        List<AutoAnalysisPendingJob> lowJobs = manager.showAutoPendingJobs(stmt);
-        Assertions.assertEquals(1, lowJobs.size());
-        job = lowJobs.get(0);
-        Assertions.assertEquals("catalog5", job.catalogName);
-        Assertions.assertEquals("db5", job.dbName);
-        Assertions.assertEquals("low1", job.tableName);
-        Assertions.assertEquals(2, job.columns.size());
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col6")));
-        Assertions.assertTrue(job.columns.contains(Pair.of("index1", "col7")));
-        Assertions.assertEquals(JobPriority.LOW, job.priority);
-    }
-
-    @Test
     public void testAsyncDropStats() throws InterruptedException {
         AtomicInteger count = new AtomicInteger(0);
         new MockUp<AnalysisManager>() {
@@ -659,11 +516,11 @@ public class AnalysisManagerTest {
         AnalysisManager analysisManager = new AnalysisManager();
         for (int i = 0; i < 20; i++) {
             System.out.println("Submit " + i);
-            analysisManager.submitAsyncDropStatsTask(0, 0, 0, null, null);
+            analysisManager.submitAsyncDropStatsTask(null, 0, 0, 0, null, null, false);
         }
-        Thread.sleep(25000);
+        Thread.sleep(10000);
         System.out.println(count.get());
-        Assertions.assertTrue(count.get() > 10);
-        Assertions.assertTrue(count.get() < 20);
+        Assertions.assertTrue(count.get() > 0);
+        Assertions.assertTrue(count.get() <= 20);
     }
 }

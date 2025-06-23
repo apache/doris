@@ -21,11 +21,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -36,8 +37,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -139,6 +138,12 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return "'" + value.replaceAll("'", "''") + "'";
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         if (value == null) {
             msg.node_type = TExprNodeType.NULL_LITERAL;
@@ -154,8 +159,8 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
+    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
+        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
     @Override
@@ -320,17 +325,6 @@ public class StringLiteral extends LiteralExpr {
             return new JsonLiteral(value);
         }
         return super.uncheckedCastTo(targetType);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = Text.readString(in);
-    }
-
-    public static StringLiteral read(DataInput in) throws IOException {
-        StringLiteral literal = new StringLiteral();
-        literal.readFields(in);
-        return literal;
     }
 
     @Override

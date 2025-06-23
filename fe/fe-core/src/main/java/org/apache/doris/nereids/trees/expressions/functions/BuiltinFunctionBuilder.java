@@ -53,6 +53,10 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
         this.isVariableLength = arity > 0 && builderMethod.getParameterTypes()[arity - 1].isArray();
     }
 
+    public Constructor<BoundFunction> getBuilderMethod() {
+        return builderMethod;
+    }
+
     @Override
     public Class<? extends BoundFunction> functionClass() {
         return functionClass;
@@ -146,4 +150,16 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
                 .collect(ImmutableList.toImmutableList());
     }
 
+    @Override
+    public String parameterDisplayString() {
+        return Arrays.stream(builderMethod.getParameterTypes())
+                .map(p -> {
+                    if (p.isArray()) {
+                        return p.getComponentType().getSimpleName() + "...";
+                    } else {
+                        return p.getSimpleName();
+                    }
+                })
+                .collect(Collectors.joining(", ", "(", ")"));
+    }
 }

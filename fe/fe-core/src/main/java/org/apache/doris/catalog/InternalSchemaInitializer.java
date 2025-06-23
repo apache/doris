@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnNullableType;
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.DistributionDesc;
@@ -42,6 +41,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -57,6 +62,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 
 public class InternalSchemaInitializer extends Thread {
@@ -255,10 +261,10 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDb() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true,
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true,
                 new DbName("internal", FeConstants.INTERNAL_DB_NAME), null);
         try {
-            Env.getCurrentEnv().createDb(createDbStmt);
+            Env.getCurrentEnv().createDb(command);
         } catch (DdlException e) {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);
@@ -276,7 +282,6 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
-                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false");
             }
         };
 
@@ -333,13 +338,13 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
         Database db = optionalDatabase.get();
-        Optional<Table> optionalStatsTbl = db.getTable(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
-        if (!optionalStatsTbl.isPresent()) {
+        Optional<Table> optionalTable = db.getTable(StatisticConstants.TABLE_STATISTIC_TBL_NAME);
+        if (!optionalTable.isPresent()) {
             return false;
         }
 
         // 2. check statistic tables
-        Table statsTbl = optionalStatsTbl.get();
+        Table statsTbl = optionalTable.get();
         Optional<Column> optionalColumn =
                 statsTbl.fullSchema.stream().filter(c -> c.getName().equals("count")).findFirst();
         if (!optionalColumn.isPresent() || !optionalColumn.get().isAllowNull()) {
@@ -352,14 +357,69 @@ public class InternalSchemaInitializer extends Thread {
             }
             return false;
         }
-        optionalStatsTbl = db.getTable(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
-        if (!optionalStatsTbl.isPresent()) {
+        optionalTable = db.getTable(StatisticConstants.PARTITION_STATISTIC_TBL_NAME);
+        if (!optionalTable.isPresent()) {
             return false;
         }
 
         // 3. check audit table
-        optionalStatsTbl = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
-        return optionalStatsTbl.isPresent();
+        optionalTable = db.getTable(AuditLoader.AUDIT_LOG_TABLE);
+        if (!optionalTable.isPresent()) {
+            return false;
+        }
+
+        // 4. check and update audit table schema
+        OlapTable auditTable = (OlapTable) optionalTable.get();
+
+        // 5. check if we need to add new columns
+        return alterAuditSchemaIfNeeded(auditTable);
     }
 
+    private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {
+        List<ColumnDef> expectedSchema = InternalSchema.AUDIT_SCHEMA;
+        List<String> expectedColumnNames = expectedSchema.stream()
+                .map(ColumnDef::getName)
+                .map(String::toLowerCase)
+                .collect(Collectors.toList());
+        List<Column> currentColumns = auditTable.getBaseSchema();
+        List<String> currentColumnNames = currentColumns.stream()
+                .map(Column::getName)
+                .map(String::toLowerCase)
+                .collect(Collectors.toList());
+        // check if all expected columns are exists and in the right order
+        if (currentColumnNames.size() >= expectedColumnNames.size()
+                && expectedColumnNames.equals(currentColumnNames.subList(0, expectedColumnNames.size()))) {
+            return true;
+        }
+
+        List<AlterTableOp> alterClauses = Lists.newArrayList();
+        // add new columns
+        List<Column> addColumns = Lists.newArrayList();
+        for (ColumnDef expected : expectedSchema) {
+            if (!currentColumnNames.contains(expected.getName().toLowerCase())) {
+                addColumns.add(new Column(expected.getName(), expected.getType(), expected.isAllowNull()));
+            }
+        }
+        if (!addColumns.isEmpty()) {
+            AddColumnsOp addColumnsOp = new AddColumnsOp(null, Maps.newHashMap(), addColumns);
+            alterClauses.add(addColumnsOp);
+        }
+        // reorder columns
+        List<String> removedColumnNames = Lists.newArrayList(currentColumnNames);
+        removedColumnNames.removeAll(expectedColumnNames);
+        List<String> newColumnOrders = Lists.newArrayList(expectedColumnNames);
+        newColumnOrders.addAll(removedColumnNames);
+        ReorderColumnsOp reorderColumnsOp = new ReorderColumnsOp(newColumnOrders, null, Maps.newHashMap());
+        alterClauses.add(reorderColumnsOp);
+        TableNameInfo auditTableName = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                FeConstants.INTERNAL_DB_NAME, AuditLoader.AUDIT_LOG_TABLE);
+        AlterTableCommand alterTableCommand = new AlterTableCommand(auditTableName, alterClauses);
+        try {
+            Env.getCurrentEnv().alterTable(alterTableCommand);
+        } catch (Exception e) {
+            LOG.warn("Failed to alter audit table schema", e);
+            return false;
+        }
+        return true;
+    }
 }

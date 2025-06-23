@@ -119,7 +119,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         Preconditions.checkArgument(children.size() > 1, "and expression abnormal: " + and);
         for (Expression child : children) {
             outputStats = child.accept(this, new EstimationContext(inputStats));
-            outputStats.normalizeColumnStatistics(inputStats.getRowCount(), true);
+            outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
             inputStats = outputStats;
         }
         return outputStats;
@@ -169,14 +169,14 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     @Override
     public Statistics visitComparisonPredicate(ComparisonPredicate cp, EstimationContext context) {
         Expression left = cp.left();
-        if (left instanceof SlotReference && ((SlotReference) left).getColumn().isPresent()) {
-            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) left).getColumn().get().getName())) {
+        if (left instanceof SlotReference && ((SlotReference) left).getOriginalColumn().isPresent()) {
+            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) left).getOriginalColumn().get().getName())) {
                 return context.statistics;
             }
         }
         Expression right = cp.right();
-        if (right instanceof SlotReference && ((SlotReference) right).getColumn().isPresent()) {
-            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) right).getColumn().get().getName())) {
+        if (right instanceof SlotReference && ((SlotReference) right).getOriginalColumn().isPresent()) {
+            if ("__DORIS_DELETE_SIGN__".equals(((SlotReference) right).getOriginalColumn().get().getName())) {
                 return context.statistics;
             }
         }
@@ -513,14 +513,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 4. not A like XXX
                 // 5. not array_contains([xx, xx], xx)
                 colBuilder.setNumNulls(0);
-                Preconditions.checkArgument(
-                        child instanceof EqualPredicate
-                                || child instanceof InPredicate
-                                || child instanceof IsNull
-                                || child instanceof Like
-                                || child instanceof Match
-                                || child instanceof Function,
-                        "Not-predicate meet unexpected child: %s", child.toSql());
+
                 if (child instanceof Like) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
                     colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
@@ -545,6 +538,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 } else if (child instanceof Match) {
                     rowCount = context.statistics.getRowCount() - childStats.getRowCount();
                     colBuilder.setNdv(Math.max(1.0, originColStats.ndv - childColStats.ndv));
+                } else {
+                    rowCount = context.statistics.getRowCount() - childStats.getRowCount();
+                    colBuilder.setIsUnknown(true);
                 }
                 if (not.child().getInputSlots().size() == 1 && !(child instanceof IsNull)) {
                     // only consider the single column numNull, otherwise, ignore

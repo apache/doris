@@ -34,10 +34,10 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         String txYunAk = context.config.otherConfigs.get("txYunAk")
         String txYunSk = context.config.otherConfigs.get("txYunSk")
 
-        def obs = """select * from ${catalog_obs}.db1.all_table limit 1;"""
-        def oss = """select * from ${catalog_oss}.db1.all_table limit 1;"""
-        def cos = """select * from ${catalog_cos}.db1.all_table limit 1;"""
-        def cosn = """select * from ${catalog_cosn}.db1.all_table limit 1;"""
+        def obs = """select * from ${catalog_obs}.db1.all_table order by c1 limit 1;"""
+        def oss = """select * from ${catalog_oss}.db1.all_table order by c1 limit 1;"""
+        def cos = """select * from ${catalog_cos}.db1.all_table order by c1 limit 1;"""
+        def cosn = """select * from ${catalog_cosn}.db1.all_table order by c1 limit 1;"""
 
         sql """drop catalog if exists ${catalog_obs};"""
         sql """drop catalog if exists ${catalog_oss};"""
@@ -48,7 +48,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_cos} properties (
                 "type" = "paimon",
                 "paimon.catalog.type"="filesystem",
-                "warehouse" = "s3://doris-build-1308700295/regression/paimon1",
+                "warehouse" = "s3://sdb-qa-datalake-test-1308700295/regression/paimon1",
                 "s3.access_key" = "${txYunAk}",
                 "s3.secret_key" = "${txYunSk}",
                 "s3.endpoint" = "cos.ap-beijing.myqcloud.com"
@@ -58,7 +58,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_cosn} properties (
                 "type" = "paimon",
                 "paimon.catalog.type"="filesystem",
-                "warehouse" = "cosn://doris-build-1308700295/regression/paimon1",
+                "warehouse" = "cosn://sdb-qa-datalake-test-1308700295/regression/paimon1",
                 "cos.access_key" = "${txYunAk}",
                 "cos.secret_key" = "${txYunSk}",
                 "cos.endpoint" = "cos.ap-beijing.myqcloud.com"

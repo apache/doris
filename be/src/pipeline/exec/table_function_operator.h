@@ -31,7 +31,7 @@ class RuntimeState;
 namespace doris::pipeline {
 
 class TableFunctionOperatorX;
-class TableFunctionLocalState final : public PipelineXLocalState<> {
+class TableFunctionLocalState MOCK_REMOVE(final) : public PipelineXLocalState<> {
 public:
     using Parent = TableFunctionOperatorX;
     ENABLE_FACTORY_CREATOR(TableFunctionLocalState);
@@ -54,6 +54,8 @@ private:
     friend class TableFunctionOperatorX;
     friend class StatefulOperatorX<TableFunctionLocalState>;
 
+    MOCK_FUNCTION Status _clone_table_function(RuntimeState* state);
+
     void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns);
     bool _roll_table_functions(int last_eos_idx);
     // return:
@@ -72,18 +74,22 @@ private:
 
     RuntimeProfile::Counter* _init_function_timer = nullptr;
     RuntimeProfile::Counter* _process_rows_timer = nullptr;
-    RuntimeProfile::Counter* _copy_data_timer = nullptr;
     RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _repeat_data_timer = nullptr;
 };
 
-class TableFunctionOperatorX final : public StatefulOperatorX<TableFunctionLocalState> {
+class TableFunctionOperatorX MOCK_REMOVE(final)
+        : public StatefulOperatorX<TableFunctionLocalState> {
 public:
     using Base = StatefulOperatorX<TableFunctionLocalState>;
     TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
+
+#ifdef BE_TEST
+    TableFunctionOperatorX() = default;
+#endif
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status open(doris::RuntimeState* state) override;
+    Status prepare(doris::RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override {
         auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();

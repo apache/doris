@@ -72,8 +72,17 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String dt_null = "dt_null";
         String test_zd = "test_zd"
 
+        sql """switch internal"""
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+        }
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -88,7 +97,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "driver_class" = "${driver_class}"
         );"""
 
-        sql """use ${internal_db_name}"""
+        sql """use internal.${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
               CREATE TABLE ${internal_db_name}.${inDorisTable} (
@@ -193,23 +202,18 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         // test insert
         String uuid1 = UUID.randomUUID().toString();
         connect(user, "${pwd}", url) {
-            try {
+            test {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-                fail()
-            } catch (Exception e) {
-                log.info(e.getMessage())
+                exception "denied"
             }
         }
 
         sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
 
         connect(user, "${pwd}", url) {
-            try {
-                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-            } catch (Exception e) {
-                fail();
-            }
+            sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
         }
+
         order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
 
         String uuid2 = UUID.randomUUID().toString();
@@ -411,13 +415,13 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 YEAR) = '2023-01-01')"
         }
         order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 MONTH) = '2022-02-01')"
         }
         order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
         explain {
@@ -454,13 +458,13 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 YEAR) = '2021-01-01')"
         }
         order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
 
-            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 MONTH) = '2021-12-01')"
         }
         order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
         explain {
@@ -542,7 +546,15 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             );
         """
 
-        qt_sql_show_db_from_lower_case "show databases from mysql_lower_case_catalog;"
+        test {
+            sql """ show databases from mysql_lower_case_catalog; """
+            check { result, ex, startTime, endTime ->
+                def expectedDatabases = ["doris_1", "doris_2", "doris_3"]
+                expectedDatabases.each { dbName ->
+                    assertTrue(result.collect { it[0] }.contains(dbName), "Expected database '${dbName}' not found in result")
+                }
+            }
+        }
         qt_sql_show_tbl_from_lower_case "show tables from mysql_lower_case_catalog.doris_2;"
         qt_sql1_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
         qt_sql2_from_lower_case "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"
@@ -642,6 +654,79 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         // so need to test both.
         sql """drop catalog if exists mysql_conjuncts;"""
         sql """set enable_nereids_planner=true"""
+
+        
+        // test function rules
+        // test push down
+        sql """ drop catalog if exists mysql_function_rules"""
+        // test invalid config
+        test {
+            sql """create catalog if not exists mysql_function_rules properties(
+                "type"="jdbc",
+                "user"="root",
+                "password"="123456",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "${driver_class}",
+                "metadata_refresh_interval_sec" = "5",
+                "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+            );"""
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql """create catalog if not exists mysql_function_rules properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "${driver_class}",
+            "metadata_refresh_interval_sec" = "5",
+            "function_rules" = '{"pushdown" : {"supported" : ["date_trunc"]}}'
+        );"""
+
+        sql "use mysql_function_rules.doris_test"
+        explain {
+            sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date_trunc(`datetime`, 'month') = '2013-10-01 00:00:00')"""
+            contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((abs(`tinyint_u`) > 0))"""
+            contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["date_trunc"], "unsupported" : ["abs"]}}')"""         
+        explain {
+            sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date_trunc(`datetime`, 'month') = '2013-10-01 00:00:00')"""
+            contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // test rewrite
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["to_date"], "unsupported" : ["abs"]}, "rewrite" : {"to_date" : "date2"}}');"""
+        explain {
+            sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date2(`datetime`) = '2013-10-01')"""
+            contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // reset function rules
+        sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2013-10-01') AND ((abs(`tinyint_u`) > 0))"""
+            contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
+        }
+
+        // test invalid config
+        test {
+            sql """alter catalog mysql_function_rules set properties("function_rules" = 'invalid_json')"""
+            exception """Failed to parse push down rules: invalid_json"""
+        }
     }
 }
 

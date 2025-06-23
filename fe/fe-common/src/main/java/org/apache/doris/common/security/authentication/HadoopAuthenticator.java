@@ -17,9 +17,11 @@
 
 package org.apache.doris.common.security.authentication;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 
 import java.io.IOException;
+import java.lang.reflect.UndeclaredThrowableException;
 import java.security.PrivilegedExceptionAction;
 
 public interface HadoopAuthenticator {
@@ -31,6 +33,12 @@ public interface HadoopAuthenticator {
             return getUGI().doAs(action);
         } catch (InterruptedException e) {
             throw new IOException(e);
+        } catch (UndeclaredThrowableException e) {
+            if (e.getCause() instanceof RuntimeException) {
+                throw (RuntimeException) e.getCause();
+            } else {
+                throw new RuntimeException(e.getCause());
+            }
         }
     }
 
@@ -40,5 +48,10 @@ public interface HadoopAuthenticator {
         } else {
             return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config);
         }
+    }
+
+    static HadoopAuthenticator getHadoopAuthenticator(Configuration configuration) {
+        AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(configuration);
+        return getHadoopAuthenticator(authConfig);
     }
 }

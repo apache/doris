@@ -70,14 +70,14 @@ suite("test_join2", "query,p0") {
             SELECT '' AS "xxx", *
             FROM ${TBname1}
             INNER JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join2 """
             SELECT '' AS "xxx", *
             FROM ${TBname1}
             JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     test {
@@ -116,52 +116,52 @@ suite("test_join2", "query,p0") {
     qt_join6 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} LEFT OUTER JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join7 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} LEFT JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join8 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} RIGHT
             OUTER JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join9 """
             SELECT '' AS "xxx", *
             FROM ${TBname1}
             RIGHT JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
     qt_join10 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} FULL OUTER JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join11 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} FULL JOIN ${TBname2} USING (i)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join12 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} LEFT JOIN ${TBname2} USING (i)
             WHERE (k = 1)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     qt_join13 """
             SELECT '' AS "xxx", *
             FROM ${TBname1} LEFT JOIN ${TBname2} USING (i)
             WHERE (${TBname1}.i = 1)
-            ORDER BY 1,2,3,4,5,6;
+            ORDER BY 1,2,3,4,5;
         """
 
     sql "DROP TABLE IF EXISTS ${TBname1};"

@@ -28,6 +28,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -36,6 +37,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -74,18 +77,89 @@ public class StorageVaultMgr {
         ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
     }
 
-    public void refreshVaultMap(Map<String, String> vaultMap) {
-        rwLock.writeLock().lock();
-        vaultNameToVaultId = vaultMap;
-        rwLock.writeLock().unlock();
+    public void createStorageVaultResource(CreateStorageVaultCommand command) throws Exception {
+        switch (command.getVaultType()) {
+            case HDFS:
+                createHdfsVault(StorageVault.fromCommand(command));
+                break;
+            case S3:
+                createS3Vault(StorageVault.fromCommand(command));
+                break;
+            case UNKNOWN:
+            default:
+                throw new DdlException("Only support S3, HDFS storage vault.");
+        }
+        // Make BE eagerly fetch the storage vault info from Meta Service
+        ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
     }
 
-    public String getVaultIdByName(String name) {
-        String vaultId;
-        rwLock.readLock().lock();
-        vaultId = vaultNameToVaultId.getOrDefault(name, "");
-        rwLock.readLock().unlock();
-        return vaultId;
+    public void refreshVaultMap(Map<String, String> vaultMap, Pair<String, String> defaultVault) {
+        try {
+            rwLock.writeLock().lock();
+            vaultNameToVaultId = vaultMap;
+            defaultVaultInfo = defaultVault;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    public String getVaultIdByName(String vaultName) {
+        try {
+            rwLock.readLock().lock();
+            return vaultNameToVaultId.getOrDefault(vaultName, "");
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    public String getVaultNameById(String vaultId) {
+        try {
+            rwLock.readLock().lock();
+            for (Map.Entry<String, String> entry : vaultNameToVaultId.entrySet()) {
+                if (entry.getValue().equals(vaultId)) {
+                    return entry.getKey();
+                }
+            }
+            return "";
+        } finally {
+            rwLock.readLock().unlock();
+        }
+    }
+
+    private void addStorageVaultToCache(String vaultName, String vaultId, boolean defaultVault) {
+        try {
+            rwLock.writeLock().lock();
+            vaultNameToVaultId.put(vaultName, vaultId);
+            if (defaultVault) {
+                defaultVaultInfo = Pair.of(vaultName, vaultId);
+            }
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    private void updateStorageVaultCache(String oldVaultName, String newVaultName, String vaultId) {
+        try {
+            rwLock.writeLock().lock();
+            String cachedVaultId = vaultNameToVaultId.get(oldVaultName);
+            vaultNameToVaultId.remove(oldVaultName);
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(cachedVaultId),
+                    "Cached vault id %s is null or empty", cachedVaultId);
+            Preconditions.checkArgument(cachedVaultId.equals(vaultId),
+                    "Cached vault id not equal to remote storage. %s vs %s", cachedVaultId, vaultId);
+            vaultNameToVaultId.put(newVaultName, vaultId);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
+    private void updateDefaultStorageVaultCache(Pair<String, String> newDefaultVaultInfo) {
+        try {
+            rwLock.writeLock().lock();
+            defaultVaultInfo = newDefaultVaultInfo;
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
@@ -94,8 +168,8 @@ public class StorageVaultMgr {
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(name);
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
-        if (properties.containsKey(StorageVault.VAULT_NAME)) {
-            alterObjVaultBuilder.setAlterName(properties.get(StorageVault.VAULT_NAME));
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            alterObjVaultBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
         }
         return alterObjVaultBuilder;
     }
@@ -106,8 +180,8 @@ public class StorageVaultMgr {
         Cloud.StorageVaultPB.Builder alterHdfsInfoBuilder = Cloud.StorageVaultPB.newBuilder();
         alterHdfsInfoBuilder.setName(name);
         alterHdfsInfoBuilder.setHdfsInfo(hdfsInfos);
-        if (properties.containsKey(StorageVault.VAULT_NAME)) {
-            alterHdfsInfoBuilder.setAlterName(properties.get(StorageVault.VAULT_NAME));
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            alterHdfsInfoBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
         }
         return alterHdfsInfoBuilder;
     }
@@ -151,7 +225,9 @@ public class StorageVaultMgr {
                 request.setOp(Operation.ALTER_S3_VAULT);
             } else if (type == StorageVaultType.HDFS) {
                 properties.keySet().stream()
-                        .filter(HdfsStorageVault.FORBID_CHECK_PROPERTIES::contains)
+                        .filter(key -> HdfsStorageVault.FORBID_ALTER_PROPERTIES.contains(key)
+                                || key.toLowerCase().contains(S3Properties.S3_PREFIX)
+                                || key.toLowerCase().contains(S3Properties.PROVIDER))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
@@ -166,8 +242,12 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
-            LOG.info("Succeed to alter storage vault {}, id {}, origin default vault replaced {}",
-                    name, response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
+
+            if (request.hasVault() && request.getVault().hasAlterName()) {
+                updateStorageVaultCache(name, request.getVault().getAlterName(), response.getStorageVaultId());
+                LOG.info("Succeed to alter storage vault, old name:{} new name: {} id:{}", name,
+                        request.getVault().getAlterName(), response.getStorageVaultId());
+            }
 
             // Make BE eagerly fetch the storage vault info from Meta Service
             ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
@@ -205,7 +285,7 @@ public class StorageVaultMgr {
             throw new DdlException(e.getMessage());
         }
         LOG.info("succeed to set {} as default vault, vault id {}", vaultName, vaultId);
-        setDefaultStorageVault(Pair.of(vaultName, vaultId));
+        updateDefaultStorageVaultCache(Pair.of(vaultName, vaultId));
     }
 
     public void unsetDefaultStorageVault() throws DdlException {
@@ -222,29 +302,16 @@ public class StorageVaultMgr {
             LOG.warn("failed to unset default storage vault");
             throw new DdlException(e.getMessage());
         }
-        defaultVaultInfo = null;
+        updateDefaultStorageVaultCache(null);
     }
 
-    public void setDefaultStorageVault(Pair<String, String> vaultInfo) {
-        try {
-            rwLock.writeLock().lock();
-            defaultVaultInfo = vaultInfo;
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
-
-    public Pair getDefaultStorageVaultInfo() {
-        Pair vault = null;
+    public Pair<String, String> getDefaultStorageVault() {
         try {
             rwLock.readLock().lock();
-            if (defaultVaultInfo != null) {
-                vault = defaultVaultInfo;
-            }
+            return defaultVaultInfo;
         } finally {
             rwLock.readLock().unlock();
         }
-        return vault;
     }
 
     @VisibleForTesting
@@ -268,12 +335,11 @@ public class StorageVaultMgr {
                         vault.getName(), response);
                 throw new DdlException(response.getStatus().getMsg());
             }
-            rwLock.writeLock().lock();
-            vaultNameToVaultId.put(vault.getName(), response.getStorageVaultId());
-            rwLock.writeLock().unlock();
+
             LOG.info("Succeed to create hdfs vault {}, id {}, origin default vault replaced {}",
                     vault.getName(), response.getStorageVaultId(),
                     response.getDefaultStorageVaultReplaced());
+            addStorageVaultToCache(vault.getName(), response.getStorageVaultId(), vault.setAsDefault());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
@@ -318,11 +384,10 @@ public class StorageVaultMgr {
                 LOG.warn("failed to alter storage vault response: {} ", response);
                 throw new DdlException(response.getStatus().getMsg());
             }
-            rwLock.writeLock().lock();
-            vaultNameToVaultId.put(vault.getName(), response.getStorageVaultId());
-            rwLock.writeLock().unlock();
+
             LOG.info("Succeed to create s3 vault {}, id {}, origin default vault replaced {}",
                     vault.getName(), response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
+            addStorageVaultToCache(vault.getName(), response.getStorageVaultId(), vault.setAsDefault());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());

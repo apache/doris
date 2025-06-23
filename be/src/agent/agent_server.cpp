@@ -37,15 +37,11 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
-
-using std::string;
-using std::vector;
 
 namespace doris {
 
@@ -109,7 +105,7 @@ private:
 void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     for (const auto& path : exec_env->store_paths()) {
         try {
-            string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
+            std::string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
             std::filesystem::path dpp_download_path(dpp_download_path_str);
             if (std::filesystem::exists(dpp_download_path)) {
                 std::filesystem::remove_all(dpp_download_path);

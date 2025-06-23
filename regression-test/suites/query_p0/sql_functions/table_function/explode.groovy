@@ -137,4 +137,55 @@ suite("explode") {
     for (int r = 0; r < res_origin_size_aa.size(); ++ r) {
         assertEquals(res_origin_size_aa[r][0], res_explode_aa[r][0])
     }
+
+    sql "DROP TABLE IF EXISTS array_test;"
+    sql """
+    CREATE TABLE `array_test` (
+      `id` INT NULL,
+      `array_int` ARRAY<INT> NOT NULL,
+      `array_string` ARRAY<String> NULL,
+      `v_int` VARIANT NULL,
+      `v_string` VARIANT NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`id`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "min_load_replica_num" = "-1",
+    "is_being_synced" = "false",
+    "storage_medium" = "hdd",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false",
+    "enable_single_replica_compaction" = "false",
+    "group_commit_interval_ms" = "10000",
+    "group_commit_data_bytes" = "134217728"
+    );
+    """
+
+    sql """insert into array_test values( 1, [4,5,6], ["2","3"], '{"a": [4,5,6]}', '{"a": ["2","3"]}'),( 2, [14,15], ["2",null], '{"a": [14,15]}', '{"a": ["2",null]}'),( 3, [114,115,116], null, '{"a": [114,115,116]}','{"a": null}');"""
+
+
+    qt_test6 "select id,e1 from array_test as a lateral view explode(a.array_string) tmp1 as e1;"
+    qt_test7 "select id,e1 from array_test as a lateral view explode(a.array_int) tmp1 as e1;"
+    qt_test8 "select id,e1,e2 from array_test as a lateral view explode(a.array_int,a.array_string) tmp1 as e1,e2;"
+    qt_test9 "select id,e1,e2 from array_test as a lateral view explode(a.array_string,a.array_int) tmp1 as e1,e2;"
+    qt_test10 "select id,e1,e2,e3 from array_test as a lateral view explode(a.array_string,a.array_int,a.array_int) tmp1 as e1,e2,e3;"
+    qt_test11 "select id,e1,e2,e11,e12 from array_test as a lateral view explode(a.array_int,a.array_string) tmp1 as e1,e2 lateral view explode(a.array_int,a.array_string) tmp2 as e11,e12;"
+
+    qt_test12 "select id,e1 from array_test as a lateral view explode_outer(a.array_string) tmp1 as e1;"
+    qt_test13 "select id,e1 from array_test as a lateral view explode_outer(a.array_int) tmp1 as e1;"
+    qt_test14 "select id,e1,e2 from array_test as a lateral view explode_outer(a.array_int,a.array_string) tmp1 as e1,e2;"
+    qt_test15 "select id,e1,e2 from array_test as a lateral view explode_outer(a.array_string,a.array_int) tmp1 as e1,e2;"
+    qt_test16 "select id,e1,e2,e3 from array_test as a lateral view explode_outer(a.array_string,a.array_int,a.array_int) tmp1 as e1,e2,e3;"
+    qt_test17 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_outer(a.array_int,a.array_string) tmp1 as e1,e2 lateral view explode_outer(a.array_int,a.array_string) tmp2 as e11,e12;"
+
+    qt_test18 "select id,e1 from array_test as a lateral view explode_variant_array(a.v_string['a']) tmp1 as e1;"
+    qt_test19 "select id,e1 from array_test as a lateral view explode_variant_array(a.v_int['a']) tmp1 as e1;"
+    qt_test20 "select id,e1,e2 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2;"
+    qt_test21 "select id,e1,e2 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a']) tmp1 as e1,e2;"
+    qt_test22 "select id,e1,e2,e3 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a'],a.v_int['a']) tmp1 as e1,e2,e3;"
+    qt_test23 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2 lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp2 as e11,e12;"
+
 }

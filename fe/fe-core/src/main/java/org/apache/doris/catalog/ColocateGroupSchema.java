@@ -21,7 +21,6 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
@@ -169,11 +168,6 @@ public class ColocateGroupSchema implements Writable {
             distributionColTypes.add(ColumnType.read(in));
         }
         bucketsNum = in.readInt();
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-            short replicationNum = in.readShort();
-            this.replicaAlloc = new ReplicaAllocation(replicationNum);
-        } else {
-            this.replicaAlloc = ReplicaAllocation.read(in);
-        }
+        this.replicaAlloc = ReplicaAllocation.read(in);
     }
 }

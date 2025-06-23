@@ -45,14 +45,14 @@ public class SetVariableTest {
 
     @Test
     public void testSqlMode() throws Exception {
-        String setStr = "set sql_mode = concat(@@sql_mode, 'STRICT_TRANS_TABLES');";
+        String setStr = "set sql_mode = concat_ws(',', @@sql_mode, 'STRICT_TRANS_TABLES');";
         connectContext.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
         stmtExecutor.execute();
-        Assert.assertEquals("STRICT_TRANS_TABLES",
-                SqlModeHelper.decode(connectContext.getSessionVariable().getSqlMode()));
+        Assert.assertNotEquals(0,
+                connectContext.getSessionVariable().getSqlMode() & SqlModeHelper.MODE_STRICT_TRANS_TABLES);
 
-        String selectStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ @@sql_mode;";
+        String selectStr = "explain select @@sql_mode;";
         connectContext.getState().reset();
         stmtExecutor = new StmtExecutor(connectContext, selectStr);
         stmtExecutor.execute();
@@ -65,8 +65,10 @@ public class SetVariableTest {
     public void testExecMemLimit() throws Exception {
         String setStr = "set exec_mem_limit = @@exec_mem_limit * 10";
         connectContext.getState().reset();
+        long previousValue = connectContext.getSessionVariable().getMaxExecMemByte();
+        long expectedValue = previousValue * 10;
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
         stmtExecutor.execute();
-        Assert.assertEquals(21474836480L, connectContext.getSessionVariable().getMaxExecMemByte());
+        Assert.assertEquals(expectedValue, connectContext.getSessionVariable().getMaxExecMemByte());
     }
 }

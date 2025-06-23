@@ -4,7 +4,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3) and (t1.c1 = t4.c4)) otherCondition=()
 ----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalOlapScan[t1]
-------filter((t2.c2 = t2.c2))
+------filter(( not c2 IS NULL))
 --------PhysicalOlapScan[t2]
 ----hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------PhysicalOlapScan[t3]

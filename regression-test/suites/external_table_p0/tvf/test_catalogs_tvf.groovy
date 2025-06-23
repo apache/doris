@@ -105,7 +105,13 @@ suite("test_catalogs_tvf","p0,external,tvf,external_docker") {
 
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """GRANT SELECT_PRIV on `internal`.``.`` to '${user}'"""
-
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+    }
 
 
     connect(user, "${pwd}", context.config.jdbcUrl) {

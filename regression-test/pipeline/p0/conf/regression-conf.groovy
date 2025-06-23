@@ -80,6 +80,7 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0," +
     "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
+    "plsql_p0," + // plsql is not developped any more, add by sk
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
@@ -136,7 +137,8 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Source="aliyun"
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"

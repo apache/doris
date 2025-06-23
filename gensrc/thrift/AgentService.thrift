@@ -56,9 +56,9 @@ struct TTabletSchema {
 // V1 for Segment-V1
 // V2 for Segment-V2
 enum TStorageFormat {
-    DEFAULT,
-    V1,
-    V2
+    DEFAULT = 0,
+    V1 = 1,
+    V2 = 2
 }
 
 enum TTabletType {
@@ -74,7 +74,15 @@ enum TObjStorageType {
     COS = 4,
     OBS = 5,
     OSS = 6,
-    GCP = 7
+    GCP = 7,
+    TOS = 8
+}
+
+enum TCredProviderType {
+    // used for creating different credentials provider when creating s3client
+    DEFAULT = 0,  // DefaultAWSCredentialsProviderChain
+    SIMPLE = 1,  // SimpleAWSCredentialsProvider, corresponding to (ak, sk)
+    INSTANCE_PROFILE = 2  // InstanceProfileCredentialsProvider
 }
 
 struct TS3StorageParam {
@@ -90,6 +98,10 @@ struct TS3StorageParam {
     10: optional bool use_path_style = false
     11: optional string token
     12: optional TObjStorageType provider
+
+    13: optional TCredProviderType cred_provider_type
+    14: optional string role_arn  // aws assumed role's arn
+    15: optional string external_id  // aws assumed role's external_id if configure
 }
 
 struct TStoragePolicy {
@@ -138,9 +150,9 @@ enum TCompressionType {
 // This enum is used to distinguish between different organizational methods
 // of inverted index data, affecting how the index is stored and accessed.
 enum TInvertedIndexStorageFormat {
-    DEFAULT, // Default format, unspecified storage method.
-    V1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    DEFAULT = 0, // Default format, unspecified storage method.
+    V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
 struct TBinlogConfig {
@@ -417,7 +429,7 @@ struct TMoveDirReq {
 }
 
 enum TAgentServiceVersion {
-    V1
+    V1 = 0
 }
 
 struct TPublishVersionRequest {
@@ -441,6 +453,7 @@ struct TCalcDeleteBitmapPartitionInfo {
     5: optional list<i64> cumulative_compaction_cnts
     6: optional list<i64> cumulative_points
     7: optional list<i64> sub_txn_ids
+    8: optional list<i64> tablet_states
 }
 
 struct TCalcDeleteBitmapRequest {
@@ -466,9 +479,9 @@ struct TRecoverTabletReq {
 }
 
 enum TTabletMetaType {
-    PARTITIONID,
-    INMEMORY,
-    BINLOG_CONFIG
+    PARTITIONID = 0,
+    INMEMORY = 1,
+    BINLOG_CONFIG = 2
 }
 
 struct TTabletMetaInfo {

@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -35,11 +36,11 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
-import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -60,7 +61,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSplitSource;
 import org.apache.doris.thrift.TTableFormatFileDesc;
-import org.apache.doris.thrift.TTextSerdeType;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
@@ -75,6 +75,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -98,6 +99,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Save the reference of session variable, so that we don't need to get it from connection context.
     // connection context is a thread local variable, it is not available is running in other thread.
     protected SessionVariable sessionVariable;
+
+    protected TableScanParams scanParams;
 
     /**
      * External file scan node for Query hms table
@@ -161,9 +164,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             destSlotDescByName.put(slot.getColumn().getName(), slot);
         }
         params = new TFileScanRangeParams();
-        if (this instanceof HiveScanNode) {
-            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
-        }
         params.setDestTupleId(desc.getId().asInt());
         List<String> partitionKeys = getPathPartitionKeys();
         List<Column> columns = desc.getTable().getBaseSchema(false);
@@ -250,7 +250,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             SlotDescriptor slotDesc = desc.getSlot(slot.getSlotId());
             String colName = slotDesc.getColumn().getName();
-            int idx = tbl.getBaseColumnIdxByName(colName);
+            if (colName.startsWith(Column.GLOBAL_ROWID_COL)) {
+                continue;
+            }
+
+            int idx = -1;
+            List<Column> columns = getColumns();
+            for (int i = 0; i < columns.size(); i++) {
+                if (columns.get(i).getName().equals(colName)) {
+                    idx = i;
+                    break;
+                }
+            }
             if (idx == -1) {
                 throw new UserException("Column " + colName + " not found in table " + tbl.getName());
             }
@@ -275,15 +286,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
+        StmtExecutor executor = ConnectContext.get().getExecutor();
+        if (executor != null) {
+            executor.getSummaryProfile().setGetSplitsStartTime();
         }
         TFileFormatType fileFormatType = getFileFormatType();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
             genSlotToSchemaIdMapForOrc();
         }
         params.setFormatType(fileFormatType);
-        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON
+                || fileFormatType == TFileFormatType.FORMAT_TEXT;
         boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
         if (isCsvOrJson || isWal) {
             params.setFileAttributes(getFileAttributes());
@@ -327,20 +340,25 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+            if (executor != null) {
+                executor.getSummaryProfile().setGetSplitsFinishTime();
             }
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
             }
-            selectedSplitNum = numApproximateSplits();
-
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
+            selectedSplitNum = numApproximateSplits();
+            if (selectedSplitNum < 0) {
+                throw new UserException("Approximate split number should not be negative");
+            }
             totalFileSize = fileSplit.getLength() * selectedSplitNum;
-            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
+            long maxWaitTime = sessionVariable.getFetchSplitsMaxWaitTime();
             // Not accurate, only used to estimate concurrency.
-            int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
+            // Here, we must take the max of 1, because
+            // in the case of multiple BEs, `numApproximateSplits() / backendPolicy.numBackends()` may be 0,
+            // and finally numSplitsPerBE is 0, resulting in no data being queried.
+            int numSplitsPerBE = Math.max(selectedSplitNum / backendPolicy.numBackends(), 1);
             for (Backend backend : backendPolicy.getBackends()) {
                 SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
                 splitSources.add(splitSource);
@@ -383,8 +401,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         getSerializedTable().ifPresent(params::setSerializedTable);
 
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
+        if (executor != null) {
+            executor.getSummaryProfile().setCreateScanRangeFinishTime();
+            if (sessionVariable.showSplitProfileInfo()) {
+                executor.getSummaryProfile().setAssignedWeightPerBackend(backendPolicy.getAssignedWeightPerBackend());
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",
@@ -464,21 +485,24 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 params.setProperties(locationProperties);
 
                 if (!params.isSetBrokerAddresses()) {
-                    FsBroker broker;
+                    List<FsBroker> brokers;
                     if (brokerName != null) {
-                        broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug(String.format(
-                                    "Set location for broker [%s], selected BE host: [%s] selected broker host: [%s]",
-                                    brokerName, selectedBackend.getHost(), broker.host));
-                        }
+                        brokers = Env.getCurrentEnv().getBrokerMgr().getBrokers(brokerName);
                     } else {
-                        broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                        brokers = Env.getCurrentEnv().getBrokerMgr().getAllBrokers();
                     }
-                    if (broker == null) {
+                    if (brokers == null || brokers.isEmpty()) {
                         throw new UserException("No alive broker.");
                     }
-                    params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                    Collections.shuffle(brokers);
+                    for (FsBroker broker : brokers) {
+                        if (broker.isAlive) {
+                            params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                        }
+                    }
+                    if (params.getBrokerAddresses().isEmpty()) {
+                        throw new UserException("No alive broker.");
+                    }
                 }
             }
         } else if ((locationType == TFileType.FILE_S3 || locationType == TFileType.FILE_LOCAL)
@@ -560,9 +584,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public int getNumInstances() {
-        if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        if (sessionVariable.isIgnoreStorageDataDistribution()) {
+            return sessionVariable.getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
     }
@@ -587,6 +610,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected abstract TableIf getTargetTable() throws UserException;
 
+    // TODO: Rename this method when Metadata Service (MS) integration is complete.
+    // The current name "getLocationProperties" is a placeholder and may not reflect
+    // the new structure of storage parameters expected from MS.
     protected abstract Map<String, String> getLocationProperties() throws UserException;
 
     @Override
@@ -610,6 +636,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return snapshot;
         }
         return this.tableSnapshot;
+    }
+
+    public void setScanParams(TableScanParams scanParams) {
+        this.scanParams = scanParams;
+    }
+
+    public TableScanParams getScanParams() {
+        TableScanParams scan = desc.getRef().getScanParams();
+        if (scan != null) {
+            return scan;
+        }
+        return this.scanParams;
     }
 
     /**

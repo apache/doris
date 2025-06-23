@@ -489,8 +489,9 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
             );
         """
         order_qt_sql38 """ SELECT count(*) FROM ${dorisExTable1} WHERE id IN (SELECT k8 FROM $jdbcPg14Table1 WHERE k8 > 111); """
-        sql """ create view if not exists aview as select k7, k8 from $jdbcPg14Table1; """
-        order_qt_sql39 """ SELECT * FROM aview a JOIN aview b on a.k8 = b.k8 order by a.k8 desc limit 5 """
+        sql """ drop view if exists aview_pg """
+        sql """ create view if not exists aview_pg as select k7, k8 from $jdbcPg14Table1; """
+        order_qt_sql39 """ SELECT * FROM aview_pg a JOIN aview_pg b on a.k8 = b.k8 order by a.k8 desc limit 5 """
         order_qt_sql42 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 8 = 0) l JOIN ${dorisExTable1} o ON l.k8 = o.id """
         order_qt_sql43 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 8 = 0) l LEFT JOIN ${dorisExTable1} o ON l.k8 = o.id order by k8 limit 5"""
         order_qt_sql44 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 8 = 0) l RIGHT JOIN ${dorisExTable1} o ON l.k8 = o.id"""
@@ -622,7 +623,7 @@ suite("test_jdbc_query_pg", "p0,external,pg,external_docker,external_docker_pg")
         order_qt_sql93 """ SELECT CASE k8 WHEN 1 THEN CAST(1 AS decimal(4,1)) WHEN 2 THEN CAST(1 AS decimal(4,2)) 
                             ELSE CAST(1 AS decimal(4,3)) END FROM $jdbcPg14Table1 limit 3"""
         order_qt_sql95 """ SELECT * from (SELECT k8 FROM $jdbcPg14Table1 UNION (SELECT id as k8 FROM ${dorisExTable1}  UNION SELECT k7 as k8 FROM $jdbcPg14Table1) 
-                            UNION ALL SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3) as a order by k8 limit 3"""
+                            UNION ALL (SELECT id as k8 FROM $exMysqlTypeTable ORDER BY id limit 3)) as a order by k8 limit 3"""
         order_qt_sql100 """ SELECT COUNT(*) FROM $jdbcPg14Table1 WHERE EXISTS(SELECT max(id) FROM ${dorisExTable1}) """
         order_qt_sql103 """ SELECT count(*) FROM $jdbcPg14Table1 n WHERE (SELECT count(*) FROM ${dorisExTable1} r WHERE n.k8 = r.id) > 1 """
         order_qt_sql105 """ SELECT count(*) AS numwait FROM $jdbcPg14Table1 l1 WHERE

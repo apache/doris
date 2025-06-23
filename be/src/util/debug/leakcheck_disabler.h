@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "gutil/macros.h"
 #include "util/debug/leak_annotations.h"
 
 namespace doris {

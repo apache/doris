@@ -49,6 +49,7 @@ suite ("test_substr") {
     sql """insert into dwd(id) values(2);"""
 
     sql """analyze table dwd with sync;"""
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_success("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);",
@@ -56,7 +57,6 @@ suite ("test_substr") {
     qt_select_mv "SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);"
 
     sql """set enable_stats=true;"""
-    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     mv_rewrite_success("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);",
             "dwd_mv")
 }

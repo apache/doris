@@ -29,8 +29,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
 /**
- * executable function:
- * date_add/sub, years/months/week/days/hours/minutes/seconds_add/sub, datediff
+ * executable function: date_add/sub, years/quarters/months/week/days/hours/minutes/seconds_add/sub, datediff
  */
 public class DateTimeArithmetic {
     /**
@@ -100,6 +99,29 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "years_add")
     public static Expression yearsAdd(DateTimeV2Literal date, IntegerLiteral year) {
         return date.plusYears(year.getValue());
+    }
+
+    /**
+     * datetime arithmetic function quarters-add.
+     */
+    @ExecFunction(name = "quarters_add")
+    public static Expression quartersAdd(DateLiteral date, IntegerLiteral quarter) {
+        return date.plusMonths(3 * quarter.getValue());
+    }
+
+    @ExecFunction(name = "quarters_add")
+    public static Expression quartersAdd(DateTimeLiteral date, IntegerLiteral quarter) {
+        return date.plusMonths(3 * quarter.getValue());
+    }
+
+    @ExecFunction(name = "quarters_add")
+    public static Expression quartersAdd(DateV2Literal date, IntegerLiteral quarter) {
+        return date.plusMonths(3 * quarter.getValue());
+    }
+
+    @ExecFunction(name = "quarters_add")
+    public static Expression quartersAdd(DateTimeV2Literal date, IntegerLiteral quarter) {
+        return date.plusMonths(3 * quarter.getValue());
     }
 
     /**
@@ -293,6 +315,29 @@ public class DateTimeArithmetic {
     @ExecFunction(name = "years_sub")
     public static Expression yearsSub(DateTimeV2Literal date, IntegerLiteral year) {
         return yearsAdd(date, new IntegerLiteral(-year.getValue()));
+    }
+
+    /**
+     * datetime arithmetic function quarters-sub.
+     */
+    @ExecFunction(name = "quarters_sub")
+    public static Expression quartersSub(DateLiteral date, IntegerLiteral quarter) {
+        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+    }
+
+    @ExecFunction(name = "quarters_sub")
+    public static Expression quartersSub(DateTimeLiteral date, IntegerLiteral quarter) {
+        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+    }
+
+    @ExecFunction(name = "quarters_sub")
+    public static Expression quartersSub(DateV2Literal date, IntegerLiteral quarter) {
+        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
+    }
+
+    @ExecFunction(name = "quarters_sub")
+    public static Expression quartersSub(DateTimeV2Literal date, IntegerLiteral quarter) {
+        return quartersAdd(date, new IntegerLiteral(-quarter.getValue()));
     }
 
     /**

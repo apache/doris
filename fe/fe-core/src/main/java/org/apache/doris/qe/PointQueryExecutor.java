@@ -146,7 +146,7 @@ public class PointQueryExecutor implements CoordInterface {
         // update conjuncts
         Map<String, Expr> colNameToConjunct = Maps.newHashMap();
         for (Entry<PlaceholderId, SlotReference> entry : statementContext.getIdToComparisonSlot().entrySet()) {
-            String colName = entry.getValue().getColumn().get().getName();
+            String colName = entry.getValue().getOriginalColumn().get().getName();
             Expr conjunctVal = ((Literal)  statementContext.getIdToPlaceholderRealExpr()
                     .get(entry.getKey())).toLegacyLiteral();
             colNameToConjunct.put(colName, conjunctVal);
@@ -378,5 +378,10 @@ public class PointQueryExecutor implements CoordInterface {
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {
         return Lists.newArrayList();
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        // Do nothing
     }
 }

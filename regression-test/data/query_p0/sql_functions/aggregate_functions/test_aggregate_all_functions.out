@@ -150,6 +150,13 @@ beijing chengdu shanghai
 5	29.1
 6	101.1
 
+-- !select22_1_1 --
+1	\N
+2	\N
+3	\N
+5	\N
+6	\N
+
 -- !select23 --
 1	10.0
 2	224.5
@@ -191,6 +198,13 @@ beijing chengdu shanghai
 3	10.0
 5	29.0
 6	101.0
+
+-- !select28_1 --
+1	\N
+2	\N
+3	\N
+5	\N
+6	\N
 
 -- !select29 --
 1	0.0

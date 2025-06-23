@@ -55,3 +55,21 @@ INSERT INTO doris_test.final_test Values (1, 'second');
 INSERT INTO doris_test.ts values (1,1694438743);
 
 INSERT INTO doris_test.dt_with_tz values(1, '2022-01-02 00:00:00','2022-01-02 00:00:00.000000');
+
+INSERT INTO doris_test.extreme_test VALUES (1,127,127,32767,32767,2147483647,2147483647,9223372036854775807,9223372036854775807,255,255,65535,65535,4294967295,4294967295,18446744073709551615,18446744073709551615,3.4028235e38,3.4028235e38,1.7976931348623157e308,1.7976931348623157e308,9999999999999999.99,9999999999999999.99,'2106-02-07','2106-02-07','2106-02-07 06:28:15','2106-02-07 06:28:15','max_string','max_string','XXXXXXXXXX','XXXXXXXXXX','C','C','ffffffff-ffff-ffff-ffff-ffffffffffff','ffffffff-ffff-ffff-ffff-ffffffffffff','255.255.255.255','255.255.255.255','ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff','ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff');
+INSERT INTO doris_test.extreme_test VALUES (2,-128,-128,-32768,-32768,-2147483648,-2147483648,-9223372036854775808,-9223372036854775808,0,0,0,0,0,0,0,0,-3.4028235e38,-3.4028235e38,-1.7976931348623157e308,-1.7976931348623157e308,-9999999999999999.99,-9999999999999999.99,'1970-01-01','1970-01-01','1970-01-01 00:00:00','1970-01-01 00:00:00','min_string','min_string','0000000000','0000000000','A','A','00000000-0000-0000-0000-000000000000','00000000-0000-0000-0000-000000000000','0.0.0.0','0.0.0.0','0000:0000:0000:0000:0000:0000:0000:0000','0000:0000:0000:0000:0000:0000:0000:0000');
+INSERT INTO doris_test.extreme_test VALUES (3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,'1970-01-01','1970-01-01','1970-01-01 00:00:00','1970-01-01 00:00:00','','','','','A','A','00000000-0000-0000-0000-000000000000','00000000-0000-0000-0000-000000000000','0.0.0.0','0.0.0.0','0000:0000:0000:0000:0000:0000:0000:0000','0000:0000:0000:0000:0000:0000:0000:0000');
+INSERT INTO doris_test.extreme_test VALUES (4,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,0,NULL,'1970-01-01',NULL,'1970-01-01 00:00:00',NULL,'',NULL,'',NULL,'A',NULL,'00000000-0000-0000-0000-000000000000',NULL,'0.0.0.0',NULL,'0000:0000:0000:0000:0000:0000:0000:0000',NULL);
+
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test_multi_block;
+insert into doris_test.extreme_test_multi_block select * from doris_test.extreme_test;

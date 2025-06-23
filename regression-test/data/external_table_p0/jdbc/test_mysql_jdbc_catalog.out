@@ -375,16 +375,6 @@ year	smallint	Yes	false	\N	NONE
 -- !auto_default_t2 --
 0
 
--- !sql_show_db_from_lower_case --
-doris_1
-doris_2
-doris_3
-doris_test
-information_schema
-init_db
-mysql
-show_test_do_not_modify
-
 -- !sql_show_tbl_from_lower_case --
 doris_1
 doris_2
@@ -808,16 +798,6 @@ year	smallint	Yes	false	\N	NONE
 
 -- !auto_default_t2 --
 0
-
--- !sql_show_db_from_lower_case --
-doris_1
-doris_2
-doris_3
-doris_test
-information_schema
-init_db
-mysql
-show_test_do_not_modify
 
 -- !sql_show_tbl_from_lower_case --
 doris_1

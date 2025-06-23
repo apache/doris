@@ -28,8 +28,11 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -111,6 +114,11 @@ public class ShowCreateTableCommand extends ShowCommand {
     }
 
     @Override
+    public ShowResultSetMetaData getMetaData() {
+        return ShowResultSetMetaData.builder().build();
+    }
+
+    @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
 
@@ -125,7 +133,13 @@ public class ShowCreateTableCommand extends ShowCommand {
         try {
             if (table.getType() == Table.TableType.HMS_EXTERNAL_TABLE) {
                 rows.add(Arrays.asList(table.getName(),
-                        HiveMetaStoreClientHelper.showCreateTable(((HMSExternalTable) table).getRemoteTable())));
+                        HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
+                return new ShowResultSet(META_DATA, rows);
+            }
+            if ((table.getType() == Table.TableType.ICEBERG_EXTERNAL_TABLE)
+                    && ((IcebergExternalTable) table).isView()) {
+                rows.add(Arrays.asList(table.getName(),
+                        IcebergUtils.showCreateView(((IcebergExternalTable) table))));
                 return new ShowResultSet(META_DATA, rows);
             }
             List<String> createTableStmt = Lists.newArrayList();
@@ -139,7 +153,7 @@ public class ShowCreateTableCommand extends ShowCommand {
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
                 return new ShowResultSet(VIEW_META_DATA, rows);
             } else {
-                rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
                 return (table.getType() != Table.TableType.MATERIALIZED_VIEW
                         ? new ShowResultSet(META_DATA, rows)
                         : new ShowResultSet(MATERIALIZED_VIEW_META_DATA, rows));

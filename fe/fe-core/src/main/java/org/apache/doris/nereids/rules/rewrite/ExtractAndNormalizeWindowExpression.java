@@ -62,7 +62,7 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
                     if (output instanceof WindowExpression) {
                         WindowExpression windowExpression = (WindowExpression) output;
                         Expression expression = ((WindowExpression) output).getFunction();
-                        if (expression.containsType(OrderExpression.class)) {
+                        if (expression.children().stream().anyMatch(OrderExpression.class::isInstance)) {
                             throw new AnalysisException("order by is not supported in " + expression);
                         }
                         if (expression instanceof NullableAggregateFunction) {

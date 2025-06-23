@@ -35,6 +35,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AlterReplicaTask;
@@ -178,12 +179,21 @@ public abstract class AlterHandler extends MasterDaemon {
                                  OlapTable olapTable)
             throws UserException;
 
+    public abstract void processForNereids(String rawSql, List<AlterCommand> alterCommands, Database db,
+                                 OlapTable olapTable)
+            throws UserException;
+
     /*
      * entry function. handle alter ops
      */
     public void process(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws UserException {
         process("", alterClauses, db, olapTable);
+    }
+
+    public void processForNereids(List<AlterCommand> alterSystemCommands, Database db, OlapTable olapTable)
+            throws UserException {
+        processForNereids("", alterSystemCommands, db, olapTable);
     }
 
     /*

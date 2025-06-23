@@ -107,6 +107,7 @@ suite("test_max_compute_partition_prune", "p2,external,maxcompute,external_remot
 
         for (String  enable_profile : ["true","false"] ) {
             sql """set enable_profile = ${enable_profile} """;
+            sql """set fetch_splits_max_wait_time_ms = 10000 """;
 
             for (String num_partitions : ["1","10","100"] ) {
                 sql "set num_partitions_in_batch_mode =  ${num_partitions} "

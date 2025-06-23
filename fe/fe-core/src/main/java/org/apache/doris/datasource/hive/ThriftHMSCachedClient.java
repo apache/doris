@@ -31,6 +31,7 @@ import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
@@ -98,7 +99,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         if (hiveConf != null) {
-            hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+            HiveConf.setVar(hiveConf, ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         this.hiveConf = hiveConf;
@@ -564,7 +565,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
-    public ValidWriteIdList getValidWriteIds(String fullTableName, long currentTransactionId) {
+    public Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
+        Map<String, String> conf = new HashMap<>();
         try (ThriftHMSClient client = getClient()) {
             try {
                 return ugiDoAs(() -> {
@@ -581,7 +583,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                     ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(currentTransactionId,
                             tableValidWriteIdsList);
                     ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
-                    return writeIdList;
+
+                    conf.put(AcidUtil.VALID_TXNS_KEY, validTransactions.writeToString());
+                    conf.put(AcidUtil.VALID_WRITEIDS_KEY, writeIdList.writeToString());
+                    return conf;
                 });
             } catch (Exception e) {
                 client.setThrowable(e);
@@ -591,7 +596,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             // Ignore this exception when the version of hive is not compatible with these apis.
             // Currently, the workaround is using a max watermark.
             LOG.warn("failed to get valid write ids for {}, transaction {}", fullTableName, currentTransactionId, e);
-            return new ValidReaderWriteIdList(fullTableName, new long[0], new BitSet(), Long.MAX_VALUE);
+
+            ValidTxnList validTransactions = new ValidReadTxnList(
+                    new long[0], new BitSet(), Long.MAX_VALUE, Long.MAX_VALUE);
+            ValidWriteIdList writeIdList = new ValidReaderWriteIdList(
+                    fullTableName, new long[0], new BitSet(), Long.MAX_VALUE);
+            conf.put(AcidUtil.VALID_TXNS_KEY, validTransactions.writeToString());
+            conf.put(AcidUtil.VALID_WRITEIDS_KEY, writeIdList.writeToString());
+            return conf;
         }
     }
 

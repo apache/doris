@@ -30,30 +30,30 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-void BoolRLEDecoder::set_data(Slice* slice) {
+#include "common/compile_check_begin.h"
+Status BoolRLEDecoder::set_data(Slice* slice) {
     _data = slice;
     _num_bytes = slice->size;
     _offset = 0;
-    _current_value_idx = 0;
     if (_num_bytes < 4) {
-        throw Exception(Status::FatalError("Received invalid length : {} (corrupt data page?)",
-                                           std::to_string(_num_bytes)));
+        return Status::IOError("Received invalid length : " + std::to_string(_num_bytes) +
+                               " (corrupt data page?)");
     }
     // Load the first 4 bytes in little-endian, which indicates the length
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(_data->data);
+    const auto* data = reinterpret_cast<const uint8_t*>(_data->data);
     uint32_t num_bytes = decode_fixed32_le(data);
     if (num_bytes > static_cast<uint32_t>(_num_bytes - 4)) {
-        throw Exception(
-                Status::FatalError("Received invalid number of bytes : {} (corrupt data page?)",
-                                   std::to_string(_num_bytes)));
+        return Status::IOError("Received invalid number of bytes : " + std::to_string(num_bytes) +
+                               " (corrupt data page?)");
     }
     _num_bytes = num_bytes;
     auto decoder_data = data + 4;
     _decoder = RleDecoder<uint8_t>(decoder_data, num_bytes, 1);
+    return Status::OK();
 }
 
 Status BoolRLEDecoder::skip_values(size_t num_values) {
-    _current_value_idx += num_values;
+    _decoder.Skip(num_values);
     return Status::OK();
 }
 
@@ -69,7 +69,7 @@ Status BoolRLEDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr
 template <bool has_filter>
 Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                       ColumnSelectVector& select_vector, bool is_dict_filter) {
-    auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
+    auto& column_data = assert_cast<ColumnUInt8*>(doris_column.get())->get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
     size_t max_values = select_vector.num_values() - select_vector.num_nulls();
@@ -77,15 +77,16 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
     if (!_decoder.get_values(_values.data(), max_values)) {
         return Status::IOError("Can't read enough booleans in rle decoder");
     }
+    size_t current_value_idx = 0;
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
             bool value; // Can't use uint8_t directly, we should correct it.
             for (size_t i = 0; i < run_length; ++i) {
-                DCHECK(_current_value_idx < max_values)
-                        << _current_value_idx << " vs. " << max_values;
-                value = _values[_current_value_idx++];
+                DCHECK(current_value_idx < max_values)
+                        << current_value_idx << " vs. " << max_values;
+                value = _values[current_value_idx++];
                 column_data[data_index++] = (UInt8)value;
             }
             break;
@@ -95,7 +96,7 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            _current_value_idx += run_length;
+            current_value_idx += run_length;
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
@@ -103,7 +104,8 @@ Status BoolRLEDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePt
         }
         }
     }
-    _current_value_idx = 0;
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

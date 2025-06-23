@@ -60,18 +60,21 @@ suite("test_variant_index_format_v1", "p2, nonConcurrent") {
 
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    sql """
-        CREATE TABLE IF NOT EXISTS ${table_name} (
-            k bigint,
-            v variant,
-            INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
-        )
-        DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
-    """
-    sql """ set disable_inverted_index_v1_for_variant = true """
+    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
+        if (isCloudMode()) {
+            return;
+        }
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant,
+                INDEX idx_var(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT ''
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 1
+            properties("replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+        """
+    }
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
@@ -85,7 +88,7 @@ suite("test_variant_index_format_v1", "p2, nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    tablets = sql_return_maparray """ show tablets from ${table_name}; """
+    def tablets = sql_return_maparray """ show tablets from ${table_name}; """
     String tablet_id = tablets[0].TabletId
     String backend_id = tablets[0].BackendId
     String ip = backendId_to_backendIP.get(backend_id)

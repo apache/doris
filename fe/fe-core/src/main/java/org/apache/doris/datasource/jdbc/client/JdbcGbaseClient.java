@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
@@ -87,12 +86,10 @@ public class JdbcGbaseClient extends JdbcClient {
     }
 
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
         Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
@@ -145,10 +142,7 @@ public class JdbcGbaseClient extends JdbcClient {
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case Types.CHAR:
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize()
-                        .orElseThrow(() -> new IllegalArgumentException("Length not present")));
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case Types.TIME:
             case Types.VARCHAR:
             case Types.LONGVARCHAR:

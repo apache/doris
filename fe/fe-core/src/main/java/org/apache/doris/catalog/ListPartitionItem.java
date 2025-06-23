@@ -26,9 +26,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -44,16 +41,6 @@ public class ListPartitionItem extends PartitionItem {
 
     public ListPartitionItem(List<PartitionKey> partitionKeys) {
         this.partitionKeys = partitionKeys;
-    }
-
-    public static ListPartitionItem read(DataInput input) throws IOException {
-        int counter = input.readInt();
-        List<PartitionKey> partitionKeys = new ArrayList<>();
-        for (int i = 0; i < counter; i++) {
-            PartitionKey partitionKey = PartitionKey.read(input);
-            partitionKeys.add(partitionKey);
-        }
-        return new ListPartitionItem(partitionKeys);
     }
 
     public List<PartitionKey> getItems() {
@@ -188,11 +175,11 @@ public class ListPartitionItem extends PartitionItem {
     }
 
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        int size = partitionKeys.size();
-        if (size > 1) {
-            sb.append("(");
+        if (isDefaultPartition) {
+            return "";
         }
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
 
         int i = 0;
         for (PartitionKey partitionKey : partitionKeys) {
@@ -203,9 +190,7 @@ public class ListPartitionItem extends PartitionItem {
             i++;
         }
 
-        if (size > 1) {
-            sb.append(")");
-        }
+        sb.append(")");
 
         return sb.toString();
     }

@@ -33,9 +33,12 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
     for (options in clusterOptions) {
         options.feConfigs += [
             'cloud_cluster_check_interval_second=1',
+            'cloud_tablet_rebalancer_interval_second=1',
+            'cloud_pre_heating_time_limit_sec=5'
         ]
         options.cloudMode = true
         options.sqlModeNodeMgr = true
+        options.connectToFollower = true
         options.waitTimeout = 0
         options.feNum = 3
         options.useFollowersMode = true
@@ -59,9 +62,48 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
     clusterOptions[3].beClusterId = false;
     clusterOptions[3].beMetaServiceEndpoint = false;
 
+    def inject_to_ms_api = { msHttpPort, key, value, check_func ->
+        httpTest {
+            op "get"
+            endpoint msHttpPort
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=set&name=${key}&behavior=change_args&value=${value}"
+            check check_func
+        }
+    }
+
+    def clear_ms_inject_api = { msHttpPort, key, value, check_func ->
+        httpTest {
+            op "get"
+            endpoint msHttpPort
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=clear"
+            check check_func
+        }
+    }
+
+    def enable_ms_inject_api = { msHttpPort, check_func ->
+        httpTest {
+            op "get"
+            endpoint msHttpPort
+            uri "/MetaService/http/v1/injection_point?token=${token}&op=enable"
+            check check_func
+        }
+    }
+
     for (options in clusterOptions) {
         docker(options) {
             logger.info("docker started");
+            def ms = cluster.getAllMetaservices().get(0)
+            def msHttpPort = ms.host + ":" + ms.httpPort
+            // inject point, to change MetaServiceImpl_get_cluster_set_config
+            inject_to_ms_api.call(msHttpPort, "resource_manager::set_safe_drop_time", URLEncoder.encode('[-1]', "UTF-8")) {
+            respCode, body ->
+                log.info("inject resource_manager::set_safe_drop_time resp: ${body} ${respCode}".toString()) 
+            }
+
+            enable_ms_inject_api.call(msHttpPort) {
+                respCode, body ->
+                log.info("enable inject resp: ${body} ${respCode}".toString()) 
+            }
 
             def checkFrontendsAndBackends = {
                 // Check frontends
@@ -282,8 +324,8 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             // Drop the selected non-master frontend
             sql """ ALTER SYSTEM DROP ${feRole} "${feHost}:${feEditLogPort}"; """
             // After drop feHost container will exit
-            cluster.dropFrontends(true, dropFeInx)
             sleep(3 * 1000)
+            cluster.dropFrontends(true, dropFeInx)
             logger.info("Dropping frontend index: {}, remove it from docker compose", dropFeInx)
             // Wait for the frontend to be fully dropped
 
@@ -338,9 +380,10 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             currentFrontends = sql_return_maparray("SHOW FRONTENDS")
 
             int obServerCount = currentFrontends.count { it['Role'] == 'OBSERVER' } 
+            int followerServerCount = currentFrontends.count { it['Role'] == 'FOLLOWER' } 
             String fuzzyDropRole
             if (obServerCount != 0) {
-                fuzzyDropRole = (getRandomBoolean() == "true") ? "FOLLOWER" : "OBSERVER"
+                fuzzyDropRole = (getRandomBoolean() == "true" && followerServerCount != 1) ? "FOLLOWER" : "OBSERVER"
             } else {
                 fuzzyDropRole = "FOLLOWER"
             }
@@ -351,9 +394,10 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
 
             def role = frontendToDrop.Role
             // Drop the frontend
-            sql """ ALTER SYSTEM DROP $role "${frontendToDrop.Host}:${frontendToDrop.EditLogPort}"; """
             dropFeInx = cluster.getFrontends().find { it.host == frontendToDrop.Host }.index 
+            sql """ ALTER SYSTEM DROP $role "${frontendToDrop.Host}:${frontendToDrop.EditLogPort}"; """
             // After drop frontendToDrop.Host container will exit
+            sleep(3 * 1000)
             cluster.dropFrontends(true, dropFeInx)
             logger.info("Dropping again frontend index: {}, remove it from docker compose", dropFeInx)
             sleep(3 * 1000)
@@ -445,7 +489,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             sql """ ALTER SYSTEM DECOMMISSION BACKEND "${decommissionHost}:${decommissionPort}"; """
 
             // Wait for the decommission process to complete (this may take some time in a real environment)
-            int maxAttempts = 30
+            int maxAttempts = 60
             int attempts = 0
             boolean decommissionComplete = false
 
@@ -474,6 +518,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             logger.info("Successfully decommissioned backend and verified its status")
 
             checkClusterStatus(3, 3, 8)
+
         }
     }
 

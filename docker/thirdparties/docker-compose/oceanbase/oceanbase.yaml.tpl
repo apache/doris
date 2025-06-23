@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--oceanbase:
-    image: oceanbase/oceanbase-ce:4.2.1
+    image: oceanbase/oceanbase-ce:4.2.1-lts
     restart: always
     environment:
       MODE: slim
@@ -28,7 +28,7 @@ services:
     ports:
       - ${DOCKER_OCEANBASE_EXTERNAL_PORT}:2881
     healthcheck:
-      test: ["CMD-SHELL", "obclient -h127.1 -uroot@sys -P2881  -e 'SELECT 1'"]
+      test: ["CMD-SHELL", "obclient -h127.1 -P2881 -uroot@test -e 'SELECT * FROM doris_test.all_types limit 1'"]
       interval: 5s
       timeout: 60s
       retries: 120
@@ -36,13 +36,7 @@ services:
       - ./init:/root/boot/init.d
     networks:
       - doris--oceanbase
-  doris--oceanbase-hello-world:
-    image: hello-world
-    depends_on:
-      doris--oceanbase:
-        condition: service_healthy
-    networks:
-      - doris--oceanbase
+
 networks:
   doris--oceanbase:
     ipam:

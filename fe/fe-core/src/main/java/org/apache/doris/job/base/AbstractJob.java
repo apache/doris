@@ -149,12 +149,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     private Lock createTaskLock = new ReentrantLock();
 
     @Override
-    public void cancelAllTasks() throws JobException {
+    public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             return;
         }
         for (T task : runningTasks) {
-            task.cancel();
+            task.cancel(needWaitCancelComplete);
             canceledTaskCount.incrementAndGet();
         }
         runningTasks = new CopyOnWriteArrayList<>();
@@ -184,7 +184,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel();
+                .orElseThrow(() -> new JobException("Not found task id: " + taskId)).cancel(true);
         runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         canceledTaskCount.incrementAndGet();
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
@@ -192,6 +192,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
     }
 
+    /**
+     * for show command to display all tasks of this job.
+     */
     public List<T> queryAllTasks() {
         List<T> tasks = new ArrayList<>();
         if (CollectionUtils.isEmpty(runningTasks)) {
@@ -262,6 +265,15 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         this.startTimeMs = System.currentTimeMillis();
     }
 
+    /**
+     * Some of the logic does not satisfy idempotency—each job can only be called once.
+     */
+    public void initParams() {
+        if (jobConfig != null) {
+            jobConfig.initParams();
+        }
+    }
+
     public void checkJobParams() {
         if (null == jobId) {
             throw new IllegalArgumentException("jobId cannot be null");
@@ -292,7 +304,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             this.finishTimeMs = System.currentTimeMillis();
         }
         if (JobStatus.PAUSED.equals(newJobStatus) || JobStatus.STOPPED.equals(newJobStatus)) {
-            cancelAllTasks();
+            cancelAllTasks(JobStatus.STOPPED.equals(newJobStatus) ? false : true);
         }
         jobStatus = newJobStatus;
     }
@@ -460,5 +472,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
+    }
+
+    public boolean needPersist() {
+        return true;
     }
 }

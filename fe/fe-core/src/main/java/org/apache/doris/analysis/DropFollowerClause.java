@@ -24,6 +24,12 @@ public class DropFollowerClause extends FrontendClause {
         super(hostPort, FrontendNodeType.FOLLOWER);
     }
 
+    public DropFollowerClause(String hostPort, String host, int port, FrontendNodeType role) {
+        super(hostPort, role);
+        this.host = host;
+        this.port = port;
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();

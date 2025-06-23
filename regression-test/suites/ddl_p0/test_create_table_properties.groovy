@@ -300,7 +300,8 @@ suite("test_create_table_properties") {
         assertTrue(false, "should not be able to execute")
     }
 	catch (Exception ex) {
-        assertTrue(ex.getMessage().contains("Insert has filtered data in strict mode"))
+        def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
+        assertTrue(ex.getMessage().contains(exception_str))
 	} finally {
     }
     // alter table add default partition

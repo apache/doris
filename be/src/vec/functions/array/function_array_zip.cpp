@@ -35,7 +35,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -75,7 +74,8 @@ public:
         DataTypes res_data_types;
         size_t num_elements = arguments.size();
         for (size_t i = 0; i < num_elements; ++i) {
-            DCHECK(is_array(arguments[i])) << i << "-th element is not array type";
+            DCHECK(arguments[i]->get_primitive_type() == TYPE_ARRAY)
+                    << i << "-th element is not array type";
 
             const auto* array_type = check_and_get_data_type<DataTypeArray>(arguments[i].get());
             DCHECK(array_type) << "function: " << get_name() << " " << i + 1
@@ -124,9 +124,9 @@ public:
 
         auto tuples = ColumnStruct::create(tuple_columns);
         auto nullable_tuples =
-                ColumnNullable::create(tuples, ColumnUInt8::create(tuples->size(), 0));
+                ColumnNullable::create(std::move(tuples), ColumnUInt8::create(tuples->size(), 0));
         auto res_column = ColumnArray::create(
-                nullable_tuples,
+                std::move(nullable_tuples),
                 static_cast<const ColumnArray&>(*first_array_column).get_offsets_ptr());
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();

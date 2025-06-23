@@ -110,8 +110,9 @@ cloud/cmake-build*/
 cloud/ut_build*/
 
 ## tools
-tools/ssb-tools/ssb-data/
-tools/ssb-tools/ssb-dbgen/
+tools/ssb-tools/bin/ssb-data/
+tools/ssb-tools/bin/ssb-dbgen/
+tools/ssb-tools/bin/*.tar.gz
 tools/**/TPC-H_Tools_v*.zip
 tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx

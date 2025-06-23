@@ -30,7 +30,6 @@
 #include "level_decoder.h"
 #include "util/slice.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
@@ -49,7 +48,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -191,7 +190,6 @@ public:
 private:
     enum ColumnChunkReaderState { NOT_INIT, INITIALIZED, HEADER_PARSED, DATA_LOADED, PAGE_SKIPPED };
 
-    bool _has_dict_page() const;
     Status _decode_dict_page();
     void _reserve_decompress_buf(size_t size);
     int32_t _get_type_length();
@@ -229,5 +227,8 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     Statistics _statistics;
 };
+#include "common/compile_check_end.h"
+
+bool has_dict_page(const tparquet::ColumnMetaData& column);
 
 } // namespace doris::vectorized

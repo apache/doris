@@ -28,6 +28,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -48,7 +49,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** PhysicalSqlCache */
-public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStringPlan, ComputeResultSet {
+public class PhysicalSqlCache extends PhysicalLeaf
+        implements SqlCache, TreeStringPlan, ComputeResultSet, BlockFuncDepsPropagation {
     private final TUniqueId queryId;
     private final List<String> columnLabels;
     private final List<FieldInfo> fieldInfos;
@@ -64,7 +66,7 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
             Optional<ResultSet> resultSet, List<InternalService.PCacheValue> cacheValues,
             String backendAddress, String planBody) {
         super(PlanType.PHYSICAL_SQL_CACHE, Optional.empty(),
-                new LogicalProperties(() -> ImmutableList.of(), () -> DataTrait.EMPTY_TRAIT));
+                new LogicalProperties(ImmutableList::of, () -> DataTrait.EMPTY_TRAIT));
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "colNames can not be null");
         this.fieldInfos = Objects.requireNonNull(fieldInfos, "fieldInfos can not be null");

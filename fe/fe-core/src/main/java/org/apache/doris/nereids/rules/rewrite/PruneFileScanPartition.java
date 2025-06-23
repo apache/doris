@@ -17,13 +17,17 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
+import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -36,6 +40,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -64,7 +69,6 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                         // set isPruned so that it won't go pass the partition prune again
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
                     }
-
                     LogicalFileScan rewrittenScan = scan.withSelectedPartitions(selectedPartitions);
                     return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
@@ -89,8 +93,17 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .collect(Collectors.toList());
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        Optional<SortedPartitionRanges<String>> sortedPartitionRanges = Optional.empty();
+        if (externalTable instanceof SupportBinarySearchFilteringPartitions) {
+            NereidsSortedPartitionsCacheManager partitionsCacheManager = Env.getCurrentEnv()
+                    .getSortedPartitionsCacheManager();
+            sortedPartitionRanges = (Optional) partitionsCacheManager.get(
+                            (SupportBinarySearchFilteringPartitions) externalTable, scan);
+        }
+
         List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.EXTERNAL));
+                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx,
+                PartitionTableType.EXTERNAL, sortedPartitionRanges));
 
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));

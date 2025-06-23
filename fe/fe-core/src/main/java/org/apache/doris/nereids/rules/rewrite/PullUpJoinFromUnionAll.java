@@ -586,10 +586,17 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                     isEqual = false;
                 }
                 for (int i = 0; isEqual && i < plan2.getOutput().size(); i++) {
-                    NamedExpression expr = ((LogicalProject<?>) plan1).getProjects().get(i);
-                    NamedExpression replacedExpr = (NamedExpression)
-                            expr.rewriteUp(e -> plan1ToPlan2.getOrDefault(e, e));
-                    if (!replacedExpr.equals(((LogicalProject<?>) plan2).getProjects().get(i))) {
+                    Expression expr1 = ((LogicalProject<?>) plan1).getProjects().get(i);
+                    Expression expr2 = ((LogicalProject<?>) plan2).getProjects().get(i);
+                    if (expr1 instanceof Alias) {
+                        if (!(expr2 instanceof Alias)) {
+                            return false;
+                        }
+                        expr1 = expr1.child(0);
+                        expr2 = expr2.child(0);
+                    }
+                    Expression replacedExpr = expr1.rewriteUp(e -> plan1ToPlan2.getOrDefault(e, e));
+                    if (!replacedExpr.equals(expr2)) {
                         isEqual = false;
                     }
                 }

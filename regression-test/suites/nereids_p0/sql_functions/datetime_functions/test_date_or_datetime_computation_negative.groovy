@@ -31,7 +31,7 @@ suite("test_date_or_datetime_computation_negative") {
             );"""
 
     sql "set enable_insert_strict = false;"
-    sql "set parallel_fragment_exec_instance_num = 3;"
+    sql "set parallel_pipeline_task_num = 3;"
     sql "set enable_nereids_planner = true;"
 
     sql """INSERT INTO test_date_or_datetime_computation_negative VALUES (1, '0000-01-01', '0000-01-01', '0000-01-01', '0000-01-01', '0000-01-01 00:00:00', '0000-01-01 00:00:00');"""

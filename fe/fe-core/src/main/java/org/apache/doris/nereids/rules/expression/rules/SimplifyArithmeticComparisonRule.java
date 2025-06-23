@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
+import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -82,6 +84,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         return ImmutableList.of(
                 matchesType(ComparisonPredicate.class)
                         .thenApply(ctx -> simplify(ctx.expr, new ExpressionRewriteContext(ctx.cascadesContext)))
+                        .toRule(ExpressionRuleType.SIMPLIFY_ARITHMETIC_COMPARISON)
         );
     }
 
@@ -122,7 +125,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         if (!left.child(1).isConstant()) {
             throw new RuntimeException(String.format("Expected literal when arranging children for Expr %s", left));
         }
-        Literal leftLiteral = (Literal) FoldConstantRule.evaluate(left.child(1), context);
+        ComparableLiteral leftLiteral = (ComparableLiteral) FoldConstantRule.evaluate(left.child(1), context);
         Expression leftExpr = left.child(0);
 
         Class<? extends Expression> oppositeOperator = REARRANGEMENT_MAP.get(left.getClass());

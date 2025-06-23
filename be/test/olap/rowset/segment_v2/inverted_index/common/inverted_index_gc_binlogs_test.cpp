@@ -150,8 +150,8 @@ TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
         Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
 
-        vectorized::Field key = 10;
-        vectorized::Field v1 = "v1";
+        vectorized::Field key = vectorized::Field::create_field<TYPE_INT>(10);
+        vectorized::Field v1 = vectorized::Field::create_field<TYPE_STRING>("v1");
         columns[0]->insert(key);
         columns[1]->insert(v1);
 

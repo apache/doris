@@ -76,12 +76,12 @@ struct RowsetReaderContext {
     bool enable_unique_key_merge_on_write = false;
     const DeleteBitmap* delete_bitmap = nullptr;
     bool record_rowids = false;
-    RowIdConversion* rowid_conversion;
+    RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
 };
 

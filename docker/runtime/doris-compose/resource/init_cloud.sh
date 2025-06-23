@@ -38,24 +38,24 @@ wait_fdb_ready() {
 }
 
 check_init_cloud() {
+    if [ "$MY_TYPE" != "ms" -o "$MY_ID" != "1" ]; then
+        return
+    fi
+
     if [ -f $HAS_CREATE_INSTANCE_FILE ]; then
         return
     fi
 
-    if [ "$MY_TYPE" != "ms" -o "$MY_ID" != "1" ]; then
+    # Check if SQL_MODE_NODE_MGR is set
+    if [[ "$SQL_MODE_NODE_MGR" -eq 1 ]]; then
+        health_log "SQL_MODE_NODE_MGR is set, skipping create_instance"
+        touch $HAS_CREATE_INSTANCE_FILE
         return
     fi
 
     while true; do
 
         lock_cluster
-
-        # Check if SQL_MODE_NODE_MGR is set
-        if [[ "$SQL_MODE_NODE_MGR" -eq 1 ]]; then
-            health_log "SQL_MODE_NODE_MGR is set, skipping create_instance"
-            touch $HAS_CREATE_INSTANCE_FILE
-            return
-        fi
 
         output=$(curl -s "${META_SERVICE_ENDPOINT}/MetaService/http/create_instance?token=greedisgood9999" \
             -d '{"instance_id":"default_instance_id",

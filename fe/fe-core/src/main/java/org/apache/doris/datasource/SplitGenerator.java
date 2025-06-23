@@ -40,7 +40,7 @@ public interface SplitGenerator {
     /**
      * Whether the producer(e.g. ScanNode) support batch mode.
      */
-    default boolean isBatchMode() {
+    default boolean isBatchMode() throws UserException {
         return false;
     }
 
@@ -52,7 +52,7 @@ public interface SplitGenerator {
         return -1;
     }
 
-    default void startSplit(int numBackends) {
+    default void startSplit(int numBackends) throws UserException {
     }
 
     /**

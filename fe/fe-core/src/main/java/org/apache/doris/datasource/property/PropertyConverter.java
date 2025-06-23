@@ -36,6 +36,7 @@ import org.apache.doris.datasource.property.constants.PaimonProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
+import com.amazonaws.auth.InstanceProfileCredentialsProvider;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -48,6 +49,7 @@ import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
+import org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -174,7 +176,6 @@ public class PropertyConverter {
                                                               CloudCredential credential) {
         Map<String, String> obsProperties = Maps.newHashMap();
         obsProperties.put(OBSConstants.ENDPOINT, props.get(ObsProperties.ENDPOINT));
-        obsProperties.put(ObsProperties.FS.IMPL_DISABLE_CACHE, "true");
         obsProperties.put("fs.obs.impl", getHadoopFSImplByScheme("obs"));
         if (credential.isWhole()) {
             obsProperties.put(OBSConstants.ACCESS_KEY, credential.getAccessKey());
@@ -226,6 +227,15 @@ public class PropertyConverter {
         if (properties.containsKey(S3Properties.Env.CONNECTION_TIMEOUT_MS)) {
             properties.put(S3Properties.REQUEST_TIMEOUT_MS, properties.get(S3Properties.Env.CONNECTION_TIMEOUT_MS));
         }
+
+        if (properties.containsKey(S3Properties.Env.ROLE_ARN)) {
+            properties.put(S3Properties.ROLE_ARN, properties.get(S3Properties.Env.ROLE_ARN));
+        }
+
+        if (properties.containsKey(S3Properties.Env.EXTERNAL_ID)) {
+            properties.put(S3Properties.EXTERNAL_ID, properties.get(S3Properties.Env.EXTERNAL_ID));
+        }
+
         if (isMeta) {
             return properties;
         }
@@ -253,10 +263,16 @@ public class PropertyConverter {
         if (properties.containsKey(S3Properties.CONNECTION_TIMEOUT_MS)) {
             s3Properties.put(Constants.SOCKET_TIMEOUT, properties.get(S3Properties.CONNECTION_TIMEOUT_MS));
         }
+
         setS3FsAccess(s3Properties, properties, credential);
         s3Properties.putAll(properties);
         // remove extra meta properties
         S3Properties.FS_KEYS.forEach(s3Properties::remove);
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("s3Properties:{}\nproperties:{}", s3Properties, properties);
+        }
+
         return s3Properties;
     }
 
@@ -275,7 +291,6 @@ public class PropertyConverter {
     private static void setS3FsAccess(Map<String, String> s3Properties, Map<String, String> properties,
                                       CloudCredential credential) {
         s3Properties.put(Constants.MAX_ERROR_RETRIES, "2");
-        s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.putIfAbsent("fs.s3.impl", S3AFileSystem.class.getName());
         String credentialsProviders = getAWSCredentialsProviders(properties);
         s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, credentialsProviders);
@@ -286,13 +301,26 @@ public class PropertyConverter {
         if (credential.isTemporary()) {
             s3Properties.put(Constants.SESSION_TOKEN, credential.getSessionToken());
             s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, TemporaryAWSCredentialsProvider.class.getName());
-            s3Properties.put("fs.s3.impl.disable.cache", "true");
-            s3Properties.put("fs.s3a.impl.disable.cache", "true");
         }
         s3Properties.put(Constants.PATH_STYLE_ACCESS, properties.getOrDefault(USE_PATH_STYLE, "false"));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(S3Properties.S3_FS_PREFIX)) {
                 s3Properties.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)
+                && !Strings.isNullOrEmpty(properties.get(S3Properties.ROLE_ARN))) {
+            // refer to https://hadoop.apache.org/docs/stable/hadoop-aws/tools/hadoop-aws/assumed_roles.html
+            //          https://issues.apache.org/jira/browse/HADOOP-19201
+            s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, AssumedRoleCredentialProvider.class.getName());
+            s3Properties.put(Constants.ASSUMED_ROLE_ARN, properties.get(S3Properties.ROLE_ARN));
+            s3Properties.put(Constants.ASSUMED_ROLE_CREDENTIALS_PROVIDER,
+                    InstanceProfileCredentialsProvider.class.getName());
+
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)
+                    && !Strings.isNullOrEmpty(properties.get(S3Properties.EXTERNAL_ID))) {
+                LOG.warn("External ID is not supported for assumed role credential provider");
             }
         }
     }
@@ -322,11 +350,12 @@ public class PropertyConverter {
             endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
         }
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
-        ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
         if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
             // use endpoint or enable hdfs
             rewriteHdfsOnOssProperties(ossProperties, endpoint);
+        } else {
+            ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         }
         if (credential.isWhole()) {
             ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_ID, credential.getAccessKey());
@@ -362,7 +391,6 @@ public class PropertyConverter {
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
         Map<String, String> cosProperties = Maps.newHashMap();
         cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
-        cosProperties.put("fs.cosn.impl.disable.cache", "true");
         cosProperties.put("fs.cosn.impl", getHadoopFSImplByScheme("cosn"));
         cosProperties.put("fs.lakefs.impl", getHadoopFSImplByScheme("lakefs"));
         if (credential.isWhole()) {

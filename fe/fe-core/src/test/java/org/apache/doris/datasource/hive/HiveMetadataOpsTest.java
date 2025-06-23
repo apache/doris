@@ -68,7 +68,7 @@ public class HiveMetadataOpsTest {
         new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
             @Mock
             public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
-                return new HMSExternalDatabase(mockedCatalog, 0L, "mockedDb");
+                return new HMSExternalDatabase(mockedCatalog, 0L, "mockedDb", "mockedDb");
             }
 
             @Mock
@@ -121,7 +121,7 @@ public class HiveMetadataOpsTest {
             distributionDesc = new HashDistributionDesc(10, buckets);
         }
         List<String> colsName = cols.stream().map(Column::getName).collect(Collectors.toList());
-        CreateTableStmt stmt = new CreateTableStmt(true, false,
+        CreateTableStmt stmt = new CreateTableStmt(true, false, false,
                 tableName,
                 cols, null,
                 "hive",

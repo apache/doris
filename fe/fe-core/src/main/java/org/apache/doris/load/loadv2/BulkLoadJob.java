@@ -33,11 +33,9 @@ import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.annotation.LogException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -64,7 +62,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -113,8 +110,13 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS,
+                                    Long.toString(var.getAutoProfileThresholdMs()));
+            sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(var.getProfileLevel()));
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+            sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, Long.toString(-1));
+            sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(1));
         }
     }
 
@@ -132,15 +134,9 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                             stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
                             stmt.getUserInfo());
                     break;
-                case SPARK:
-                    bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
-                            stmt.getOrigStmt(), stmt.getUserInfo());
-                    break;
-                case MINI:
                 case DELETE:
-                case HADOOP:
                 case INSERT:
-                    throw new DdlException("LoadManager only support create broker and spark load job from stmt.");
+                    throw new DdlException("LoadManager only support create broker load job from stmt.");
                 default:
                     throw new DdlException("Unknown load job type.");
             }
@@ -325,30 +321,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     @Override
     public void gsonPostProcess() throws IOException {
         super.gsonPostProcess();
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
-            userInfo.setIsAnalyzed();
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        brokerDesc = BrokerDesc.read(in);
-        originStmt = OriginStatement.read(in);
-        // The origin stmt does not be analyzed in here.
-        // The reason is that it will throw MetaNotFoundException when the tableId could not be found by tableName.
-        // The origin stmt will be analyzed after the replay is completed.
-
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_117) {
-            userInfo = UserIdentity.read(in);
-            // must set is as analyzed, because when write the user info to meta image, it will be checked.
-            userInfo.setIsAnalyzed();
-        }
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String value = Text.readString(in);
-            sessionVariables.put(key, value);
-        }
     }
 
     public UserIdentity getUserInfo() {
@@ -414,11 +386,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 case BROKER_LOAD:
                     bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
                             insertStmt.getLoadLabel().getLabelName(), (BrokerDesc) insertStmt.getResourceDesc(),
-                            insertStmt.getOrigStmt(), insertStmt.getUserInfo());
-                    break;
-                case SPARK_LOAD:
-                    bulkLoadJob = new SparkLoadJob(db.getId(), insertStmt.getLoadLabel().getLabelName(),
-                            insertStmt.getResourceDesc(),
                             insertStmt.getOrigStmt(), insertStmt.getUserInfo());
                     break;
                 default:

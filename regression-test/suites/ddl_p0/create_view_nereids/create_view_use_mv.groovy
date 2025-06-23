@@ -48,8 +48,8 @@ suite("create_view_use_mv") {
     (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');"""
 
-    createMV("""
-    CREATE MATERIALIZED VIEW t_mv_mv AS select
+    create_sync_mv(context.dbName, "orders", "t_mv_mv", """
+    select
     o_orderkey,
     sum(o_totalprice) as sum_total,
     max(o_totalprice) as max_total,
@@ -62,13 +62,13 @@ suite("create_view_use_mv") {
 
     sql "drop view if exists t_mv_v_view"
     sql """CREATE VIEW t_mv_v_view (k1, k2, k3, k4, k5, k6, v1, v2, v3, v4, v5, v6) as
-            select `mv_o_orderkey` as k1, `mva_SUM__``o_totalprice``` as k2, `mva_MAX__``o_totalprice``` as k3,
+            select `mv_o_orderkey` as k1, `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` as k2, `mva_MAX__``o_totalprice``` as k3,
     `mva_MIN__``o_totalprice``` as k4, `mva_SUM__CASE WHEN 1 IS NULL THEN 0 ELSE 1 END` as k5, l_orderkey,
     sum(`mv_o_orderkey`) as sum_total,
     max(`mv_o_orderkey`) as max_total,
     min(`mv_o_orderkey`) as min_total,
-    count(`mva_SUM__``o_totalprice```) as count_all,
-    bitmap_union(to_bitmap(case when mv_o_orderkey > 1 then `mva_SUM__``o_totalprice``` else null end)) cnt_1,
+    count(`mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))`) as count_all,
+    bitmap_union(to_bitmap(case when mv_o_orderkey > 1 then `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` else null end)) cnt_1,
     bitmap_union(to_bitmap(case when mv_o_orderkey > 2 then `mva_MAX__``o_totalprice``` else null end)) as cnt_2
     from orders index t_mv_mv
     left join lineitem on lineitem.l_orderkey = orders.mv_o_orderkey
@@ -79,13 +79,13 @@ suite("create_view_use_mv") {
     sql "drop view if exists v_for_alter"
     sql "CREATE VIEW v_for_alter AS SELECT * FROM orders"
     sql """ALTER VIEW v_for_alter as
-            select `mv_o_orderkey` as k1, `mva_SUM__``o_totalprice``` as k2, `mva_MAX__``o_totalprice``` as k3,
+            select `mv_o_orderkey` as k1, `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` as k2, `mva_MAX__``o_totalprice``` as k3,
     `mva_MIN__``o_totalprice``` as k4, `mva_SUM__CASE WHEN 1 IS NULL THEN 0 ELSE 1 END` as k5, l_orderkey,
     sum(`mv_o_orderkey`) as sum_total,
     max(`mv_o_orderkey`) as max_total,
     min(`mv_o_orderkey`) as min_total,
-    count(`mva_SUM__``o_totalprice```) as count_all,
-    bitmap_union(to_bitmap(case when mv_o_orderkey > 1 then `mva_SUM__``o_totalprice``` else null end)) cnt_1,
+    count(`mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))`) as count_all,
+    bitmap_union(to_bitmap(case when mv_o_orderkey > 1 then `mva_SUM__CAST(``o_totalprice`` AS decimalv3(38,2))` else null end)) cnt_1,
     bitmap_union(to_bitmap(case when mv_o_orderkey > 2 then `mva_MAX__``o_totalprice``` else null end)) as cnt_2
     from orders index t_mv_mv
     left join lineitem on lineitem.l_orderkey = orders.mv_o_orderkey

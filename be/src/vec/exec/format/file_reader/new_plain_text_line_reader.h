@@ -16,11 +16,9 @@
 // under the License.
 
 #pragma once
-#include <stdint.h>
-
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,9 +27,9 @@
 #include "exec/line_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 struct IOContext;
 }
@@ -60,9 +58,9 @@ class BaseTextLineReaderContext : public TextLineReaderContextIf {
     using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
 
 public:
-    explicit BaseTextLineReaderContext(const std::string& line_delimiter_,
+    explicit BaseTextLineReaderContext(std::string line_delimiter_,
                                        const size_t line_delimiter_len_, const bool keep_cr_)
-            : line_delimiter(line_delimiter_),
+            : line_delimiter(std::move(line_delimiter_)),
               line_delimiter_len(line_delimiter_len_),
               keep_cr(keep_cr_) {
         use_memmem = line_delimiter_len != 1 || line_delimiter != "\n" || keep_cr;
@@ -113,14 +111,15 @@ public:
             int mask_carriage_return = _mm256_movemask_epi8(cmp_carriage_return);
 
             if (mask_newline != 0 || mask_carriage_return != 0) {
-                int pos_lf = (mask_newline != 0) ? i + __builtin_ctz(mask_newline) : INT32_MAX;
-                int pos_cr = (mask_carriage_return != 0) ? i + __builtin_ctz(mask_carriage_return)
-                                                         : INT32_MAX;
+                size_t pos_lf = (mask_newline != 0) ? i + __builtin_ctz(mask_newline) : INT32_MAX;
+                size_t pos_cr = (mask_carriage_return != 0)
+                                        ? i + __builtin_ctz(mask_carriage_return)
+                                        : INT32_MAX;
                 if (pos_lf < pos_cr) {
                     return start + pos_lf;
                 } else if (pos_cr < pos_lf) {
                     if (pos_lf != INT32_MAX) {
-                        if (pos_lf - 1 >= 0 && start[pos_lf - 1] == '\r') {
+                        if (pos_lf >= 1 && start[pos_lf - 1] == '\r') {
                             //check   xxx\r\r\r\nxxx
                             line_crlf = true;
                             return start + pos_lf - 1;
@@ -195,26 +194,24 @@ struct ReaderStateWrapper {
     ReaderState prev_state = ReaderState::START;
 };
 
-class EncloseCsvLineReaderContext final
-        : public BaseTextLineReaderContext<EncloseCsvLineReaderContext> {
+class EncloseCsvLineReaderCtx final : public BaseTextLineReaderContext<EncloseCsvLineReaderCtx> {
     // using a function ptr to decrease the overhead (found very effective during test).
     using FindDelimiterFunc = const uint8_t* (*)(const uint8_t*, size_t, const char*, size_t);
 
 public:
-    explicit EncloseCsvLineReaderContext(const std::string& line_delimiter_,
-                                         const size_t line_delimiter_len_,
-                                         const std::string& column_sep_,
-                                         const size_t column_sep_len_, size_t col_sep_num,
-                                         const char enclose, const char escape, const bool keep_cr_)
+    explicit EncloseCsvLineReaderCtx(const std::string& line_delimiter_,
+                                     const size_t line_delimiter_len_, std::string column_sep_,
+                                     const size_t column_sep_len_, size_t col_sep_num,
+                                     const char enclose, const char escape, const bool keep_cr_)
             : BaseTextLineReaderContext(line_delimiter_, line_delimiter_len_, keep_cr_),
               _enclose(enclose),
               _escape(escape),
               _column_sep_len(column_sep_len_),
-              _column_sep(column_sep_) {
+              _column_sep(std::move(column_sep_)) {
         if (column_sep_len_ == 1) {
-            find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<true>;
+            find_col_sep_func = &EncloseCsvLineReaderCtx::look_for_column_sep_pos<true>;
         } else {
-            find_col_sep_func = &EncloseCsvLineReaderContext::look_for_column_sep_pos<false>;
+            find_col_sep_func = &EncloseCsvLineReaderCtx::look_for_column_sep_pos<false>;
         }
         _column_sep_positions.reserve(col_sep_num);
     }
@@ -222,12 +219,13 @@ public:
     inline void refresh_impl() {
         _idx = 0;
         _should_escape = false;
+        _quote_escape = false;
         _result = nullptr;
         _column_sep_positions.clear();
         _state.reset();
     }
 
-    [[nodiscard]] inline const std::vector<size_t> column_sep_positions() const {
+    [[nodiscard]] inline std::vector<size_t> column_sep_positions() const {
         return _column_sep_positions;
     }
 
@@ -256,6 +254,8 @@ private:
 
     size_t _idx = 0;
     bool _should_escape = false;
+    // quote is specially escaped by quote in csv format
+    bool _quote_escape = false;
 
     const std::string _column_sep;
     std::vector<size_t> _column_sep_positions;
@@ -337,4 +337,5 @@ private:
     RuntimeProfile::Counter* _bytes_decompress_counter = nullptr;
     RuntimeProfile::Counter* _decompress_timer = nullptr;
 };
+#include "common/compile_check_end.h"
 } // namespace doris

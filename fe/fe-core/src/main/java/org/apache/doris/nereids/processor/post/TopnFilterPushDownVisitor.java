@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -221,7 +222,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             // in ut, relation.getStats() may return null
             if (relation.getStats() == null || ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable() == null
-                    || relation.getStats().getRowCount()
+                    || Math.max(relation.getStats().getRowCount(), 1)
                             * ConnectContext.get().getSessionVariable().topnFilterRatio > ctx.topn.getLimit()
                                     + ctx.topn.getOffset()) {
                 topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
@@ -231,12 +232,18 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return false;
     }
 
+    @Override
+    public Boolean visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan, PushDownContext ctx) {
+        return visitPhysicalRelation(lazyScan, ctx);
+    }
+
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan
                 || relation instanceof PhysicalEsScan
                 || relation instanceof PhysicalFileScan
                 || relation instanceof PhysicalJdbcScan
-                || relation instanceof PhysicalDeferMaterializeOlapScan;
+                || relation instanceof PhysicalDeferMaterializeOlapScan
+                || relation instanceof PhysicalLazyMaterializeOlapScan;
     }
 }

@@ -9,3 +9,29 @@
 -- !select3 --
 2	hello wold	welcome to the world
 
+-- !select1 --
+1	hello world	\N
+
+-- !select2 --
+1	hello world	\N
+2	hello wold	welcome to the world
+
+-- !select3 --
+2	hello wold	welcome to the world
+
+-- !select4 --
+1	hello world	\N
+
+-- !select1 --
+1	hello world	\N
+
+-- !select2 --
+1	hello world	\N
+2	hello wold	welcome to the world
+
+-- !select3 --
+2	hello wold	welcome to the world
+
+-- !select4 --
+1	hello world	\N
+

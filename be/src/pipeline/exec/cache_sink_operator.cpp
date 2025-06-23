@@ -40,19 +40,14 @@ Status CacheSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
-    //    auto& p = _parent->cast<Parent>();
 
     _shared_state->data_queue.set_max_blocks_in_sub_queue(state->data_queue_max_blocks());
     return Status::OK();
 }
 
-CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id)
-        : Base(sink_id, child_id, child_id) {
+CacheSinkOperatorX::CacheSinkOperatorX(int sink_id, int child_id, int dest_id)
+        : Base(sink_id, child_id, dest_id) {
     _name = "CACHE_SINK_OPERATOR";
-}
-
-Status CacheSinkOperatorX::open(RuntimeState* state) {
-    return Status::OK();
 }
 
 Status CacheSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {

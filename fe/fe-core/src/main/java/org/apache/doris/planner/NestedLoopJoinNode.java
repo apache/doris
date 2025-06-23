@@ -191,24 +191,13 @@ public class NestedLoopJoinNode extends JoinNodeBase {
 
         msg.nested_loop_join_node.setIsMark(isMarkJoin());
 
-        if (useSpecificProjections) {
-            if (vSrcToOutputSMap != null && vSrcToOutputSMap.getLhs() != null && outputTupleDesc != null) {
-                for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
-                    msg.nested_loop_join_node.addToSrcExprList(vSrcToOutputSMap.getLhs().get(i).treeToThrift());
-                }
-            }
-            if (outputTupleDesc != null) {
-                msg.nested_loop_join_node.setVoutputTupleId(outputTupleDesc.getId().asInt());
-            }
-        }
-
         if (vIntermediateTupleDescList != null) {
             for (TupleDescriptor tupleDescriptor : vIntermediateTupleDescList) {
                 msg.nested_loop_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
         msg.nested_loop_join_node.setIsOutputLeftSideOnly(isOutputLeftSideOnly);
-        msg.nested_loop_join_node.setUseSpecificProjections(useSpecificProjections);
+        msg.nested_loop_join_node.setUseSpecificProjections(false);
         msg.node_type = TPlanNodeType.CROSS_JOIN_NODE;
     }
 

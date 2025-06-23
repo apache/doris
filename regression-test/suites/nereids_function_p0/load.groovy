@@ -1,3 +1,5 @@
+import org.apache.commons.io.FileUtils
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -555,6 +557,267 @@ suite("load") {
             '''
         file "fn_test.dat"
     }
+
+    // set enable_decimal256 = true
+    sql """ set enable_decimal256 = true """
+    // create table for array not-null|nullable and rowstore
+    sql """ DROP TABLE IF EXISTS fn_test_not_nullable_array"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_not_nullable_array` (
+            `id` int not null,
+            `kabool` array<boolean> not null default '[]',
+            `katint` array<tinyint(4)> not null default '[]',
+            `kasint` array<smallint(6)> not null default '[]',
+            `kaint` array<int> not null default '[]',
+            `kabint` array<bigint(20)> not null default '[]',
+            `kalint` array<largeint(40)> not null default '[]',
+            `kafloat` array<float> not null default '[]',
+            `kadbl` array<double> not null default '[]',
+            `kadt` array<date> not null default '[]',
+            `kadtm` array<datetime> not null default '[]',
+            `kadtv2` array<datev2> not null default '[]',
+            `kadtmv2_` array<datetimev2(0)> not null default '[]',
+            `kadtmv2` array<datetimev2(6)> not null default '[]',
+            `kachr` array<char(255)> not null default '[]',
+            `kavchr` array<varchar(65533)> not null default '[]',
+            `kastr` array<string> not null default '[]',
+            `kadcmlv2` array<decimalv2(10, 0)> not null default '[]',
+            `kadcml` array<decimal(27, 9)> not null default '[]',
+            `kadcml1` array<decimal(16, 10)> not null default '[]',
+            `kadcml2` array<decimal(38, 38)> not null default '[]',
+            `kadcml256` array<decimal(76,56)> not null default '[]',
+            `kaipv4` array<ipv4> not null default '[]',
+            `kaipv6` array<ipv6> not null default '[]'
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1")
+    """
+
+    sql """ DROP TABLE IF EXISTS fn_test_nullable_array"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_nullable_array` (
+            `id` int null,
+            `kabool` array<boolean> null,
+            `katint` array<tinyint(4)> null,
+            `kasint` array<smallint(6)> null,
+            `kaint` array<int> null,
+            `kabint` array<bigint(20)> null,
+            `kalint` array<largeint(40)> null,
+            `kafloat` array<float> null,
+            `kadbl` array<double> null,
+            `kadt` array<date> null,
+            `kadtm` array<datetime> null,
+            `kadtv2` array<datev2> null,
+            `kadtmv2_` array<datetimev2(0)> null,
+            `kadtmv2` array<datetimev2(6)> null,
+            `kachr` array<char(255)> null,
+            `kavchr` array<varchar(65533)> null,
+            `kastr` array<string> null,
+            `kadcmlv2` array<decimalv2(10, 0)> null,
+            `kadcml` array<decimal(27, 9)> null,
+            `kadcml1` array<decimal(16, 10)> null,
+            `kadcml2` array<decimal(38, 38)> null,
+            `kadcml256` array<decimal(76,56)> null,
+            `kaipv4` array<ipv4> null,
+            `kaipv6` array<ipv6> null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1")
+    """
+
+    sql """ DROP TABLE IF EXISTS fn_test_nullable_rowstore_array"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_nullable_rowstore_array` (
+            `id` int null,
+            `kabool` array<boolean> null,
+            `katint` array<tinyint(4)> null,
+            `kasint` array<smallint(6)> null,
+            `kaint` array<int> null,
+            `kabint` array<bigint(20)> null,
+            `kalint` array<largeint(40)> null,
+            `kafloat` array<float> null,
+            `kadbl` array<double> null,
+            `kadt` array<date> null,
+            `kadtm` array<datetime> null,
+            `kadtv2` array<datev2> null,
+            `kadtmv2_` array<datetimev2(0)> null,
+            `kadtmv2` array<datetimev2(6)> null,
+            `kachr` array<char(255)> null,
+            `kavchr` array<varchar(65533)> null,
+            `kastr` array<string> null,
+            `kadcmlv2` array<decimalv2(10, 0)> null,
+            `kadcml` array<decimal(27, 9)> null,
+            `kadcml1` array<decimal(16, 10)> null,
+            `kadcml2` array<decimal(38, 38)> null,
+            `kadcml256` array<decimal(76,56)> null,
+            `kaipv4` array<ipv4> null,
+            `kaipv6` array<ipv6> null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1","store_row_column" = "true")
+    """
+
+    sql """ DROP TABLE IF EXISTS fn_test_not_nullable_rowstore_array"""
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_not_nullable_rowstore_array` (
+            `id` int not null,
+            `kabool` array<boolean> not null default '[]',
+            `katint` array<tinyint(4)> not null default '[]',
+            `kasint` array<smallint(6)> not null default '[]',
+            `kaint` array<int> not null default '[]',
+            `kabint` array<bigint(20)> not null default '[]',
+            `kalint` array<largeint(40)> not null default '[]',
+            `kafloat` array<float> not null default '[]',
+            `kadbl` array<double> not null default '[]',
+            `kadt` array<date> not null default '[]',
+            `kadtm` array<datetime> not null default '[]',
+            `kadtv2` array<datev2> not null default '[]',
+            `kadtmv2_` array<datetimev2(0)> not null default '[]',
+            `kadtmv2` array<datetimev2(6)> not null default '[]',
+            `kachr` array<char(255)> not null default '[]',
+            `kavchr` array<varchar(65533)> not null default '[]',
+            `kastr` array<string> not null default '[]',
+            `kadcmlv2` array<decimalv2(10, 0)> not null default '[]',
+            `kadcml` array<decimal(27, 9)> not null default '[]',
+            `kadcml1` array<decimal(16, 10)> not null default '[]',
+            `kadcml2` array<decimal(38, 38)> not null default '[]',
+            `kadcml256` array<decimal(76,56)> not null default '[]',
+            `kaipv4` array<ipv4> not null default '[]',
+            `kaipv6` array<ipv6> not null default '[]'
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 4
+        properties("replication_num" = "1","store_row_column" = "true")
+    """
+            
+            
+
+//    // we read csv files to table
+    def read_custom_csv_data_for_array = { tableName, filePaths, columnNames, not_null ->
+        def res = sql "select count() from $tableName"
+        def row_cnt = res[0][0] + 1
+        assert filePaths.size() == columnNames.size()
+        List<List<String>> table_content = new ArrayList<List<String>>()
+        def max_row = 0
+        def dataDir = "${context.dataPath}/"
+        for (int i = 0; i < filePaths.size(); i++) {
+            def filePath = dataDir + filePaths[i]
+            log.info("read file: ${filePath}".toString())
+            try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+                String line
+                List<String> col_content = new ArrayList<String>()
+                while ((line = br.readLine()) != null) {
+                    log.info("line: ${line}".toString())
+                    if (line.startsWith("//")) {
+                        continue
+                    }
+                    col_content.add(line)
+                }
+                max_row = Math.max(max_row, col_content.size())
+                table_content.add(col_content)
+            } catch (IOException e) {
+                e.printStackTrace()
+            }
+        }
+        // construct insert sql
+        for (int i = 0; i < max_row; i++) {
+            def insert_sql = "insert into $tableName (id "
+            for (String col : columnNames) {
+                insert_sql += ", " + col
+            }
+            insert_sql += ") values (" + row_cnt
+            for (int j = 0; j < table_content.size(); j++) {
+                def col_content = table_content[j]
+                String col_val = "null"
+                if (i < col_content.size()) {
+                    col_val = col_content[i]
+                }
+                if (not_null && (col_val == "NULL" || col_val == "null")) {
+                    col_val = "[]"
+                }
+                insert_sql += ", " + col_val
+            }
+            insert_sql += ")"
+            log.info("insert_sql: ${insert_sql}".toString())
+            sql insert_sql
+            row_cnt ++
+        }
+    }
+
+    List<String> columnNames = [
+                                "katint",
+                                "kasint",
+                                "kaint",
+                                "kabint",
+                                "kalint",
+                                "kafloat",
+                                "kadbl",
+                                "kadt",
+                                "kadtm",
+                                "kadtv2",
+                                "kadtmv2",
+                                "kadtmv2_",
+                                "kachr",
+                                "kavchr",
+                                "kastr",
+                                "kadcmlv2",
+                                "kadcml",
+                                "kadcml1",
+                                "kadcml2",
+                                "kadcml256",
+                                "kaipv4",
+                                "kaipv6"
+    ]
+
+    List<String> filePaths = [
+            "array/test_array_tinyint.csv",
+            "array/test_array_smallint.csv",
+            "array/test_array_int.csv",
+            "array/test_array_bigint.csv",
+            "array/test_array_largeint.csv",
+            "array/test_array_float.csv",
+            "array/test_array_double.csv",
+            "array/test_array_date.csv",
+            "array/test_array_datetime.csv",
+            "array/test_array_date.csv",
+            "array/test_array_date.csv",
+            "array/test_array_datetimev2(6).csv",
+            "array/test_array_char(255).csv",
+            "array/test_array_varchar(65535).csv",
+            "array/test_array_varchar(65535).csv",
+            "array/test_array_decimalv2(10,0).csv",
+            "array/test_array_decimalv3(27,9).csv",
+            "array/test_array_decimalv3(16,10).csv",
+            "array/test_array_decimalv3(38,38).csv",
+            "array/test_array_decimalv3(76,56).csv",
+            "array/test_array_ipv4.csv",
+            "array/test_array_ipv6.csv",
+    ]
+
+    read_custom_csv_data_for_array.call("fn_test_nullable_array", filePaths, columnNames, false)
+    read_custom_csv_data_for_array.call("fn_test_not_nullable_array", filePaths, columnNames, true)
+    read_custom_csv_data_for_array.call("fn_test_nullable_rowstore_array", filePaths, columnNames, false)
+    read_custom_csv_data_for_array.call("fn_test_not_nullable_rowstore_array", filePaths, columnNames, true)
+
+    // not-null rowstore table to checkout with not rowstore table
+    def sql_res_not_null_array = sql "select * from fn_test_not_nullable_array order by id;"
+    def sql_res_not_null_rowstore_array = sql "select * from fn_test_not_nullable_rowstore_array order by id;"
+    assertEquals(sql_res_not_null_array.size(), sql_res_not_null_rowstore_array.size())
+    for (int i = 0; i < sql_res_not_null_array.size(); i++) {
+        for (int j = 0; j < sql_res_not_null_array[i].size(); j++) {
+            assertEquals(sql_res_not_null_array[i][j], sql_res_not_null_rowstore_array[i][j])
+        }
+    }
+
+    // nullable rowstore table to checkout with not rowstore table
+    def sql_res_null_array = sql "select * from fn_test_nullable_array order by id;"
+    def sql_res_null_rowstore_array = sql "select * from fn_test_nullable_rowstore_array order by id;"
+    assertEquals(sql_res_null_array.size(), sql_res_null_rowstore_array.size())
+    for (int i = 0; i < sql_res_null_array.size(); i++) {
+        for (int j = 0; j < sql_res_null_array[i].size(); j++) {
+            assertEquals(sql_res_null_array[i][j], sql_res_null_rowstore_array[i][j], "i: ${i}, j: ${j}".toString())
+        }
+    }
+
 
     streamLoad {
         table "fn_test_bitmap"

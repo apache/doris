@@ -982,19 +982,19 @@ suite("test_leading") {
     qt_select92_5 """explain shape plan select /*+ leading(t2 shuffle {t1 broadcast t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select92_6 """explain shape plan select /*+ leading(t2 shuffle {t3 broadcast t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
 
-    qt_select93_1 """explain shape plan select /*+ leading(t1 t2 broadcast t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select93_2 """explain shape plan select /*+ leading(t1 {t2 broadcast t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select93_3 """explain shape plan select /*+ leading(t1 {t3 broadcast t2}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select93_4 """explain shape plan select /*+ leading(t2 t1 broadcast t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select93_5 """explain shape plan select /*+ leading(t2 {t1 broadcast t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select93_6 """explain shape plan select /*+ leading(t2 {t3 broadcast t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select93_1 """explain shape plan select /*+ leading(t1 broadcast t2 broadcast t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select93_2 """explain shape plan select /*+ leading(t1 broadcast {t2 broadcast t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select93_3 """explain shape plan select /*+ leading(t1 broadcast {t3 broadcast t2}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select93_4 """explain shape plan select /*+ leading(t2 broadcast t1 broadcast t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select93_5 """explain shape plan select /*+ leading(t2 broadcast {t1 broadcast t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select93_6 """explain shape plan select /*+ leading(t2 broadcast {t3 broadcast t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
 
-    qt_select94_2 """explain shape plan select /*+ leading(t1 shuffle t2 t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select94_2 """explain shape plan select /*+ leading(t1 shuffle {t2 t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select94_2 """explain shape plan select /*+ leading(t1 shuffle {t3 t2}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle t1 t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle {t1 t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle {t3 t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select94_2 """explain shape plan select /*+ leading(t1 shuffle t2 shuffle t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select94_2 """explain shape plan select /*+ leading(t1 shuffle {t2 shuffle t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select94_2 """explain shape plan select /*+ leading(t1 shuffle {t3 shuffle t2}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle t1 shuffle t3) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle {t1 shuffle t3}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select94_2 """explain shape plan select /*+ leading(t2 shuffle {t3 shuffle t1}) */ count(*) from t1 join t2 on c1 = c2 join t3 on c2 = c3;"""
 
     // outer join
     qt_select95_1 """explain shape plan select /*+ leading(t1 broadcast t2 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
@@ -1006,7 +1006,7 @@ suite("test_leading") {
         sql """shape plan select /*+ leading(t1 broadcast {t3 t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
         contains("UnUsed: leading(t1 broadcast { t3 t2 })")
     }
-    qt_select95_4 """explain shape plan select /*+ leading(t2 broadcast t1 t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select95_4 """explain shape plan select /*+ leading(t2 broadcast t1 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {
         sql """shape plan select /*+ leading(t2 broadcast {t1 t3}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
         contains("UnUsed: leading(t2 broadcast { t1 t3 })")
@@ -1019,8 +1019,8 @@ suite("test_leading") {
         sql """shape plan select /*+ leading(t3 broadcast t1 t2) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
         contains("UnUsed: leading(t3 broadcast t1 t2)")
     }
-    qt_select95_8 """explain shape plan select /*+ leading(t3 broadcast {t1 t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
-    qt_select95_9 """explain shape plan select /*+ leading(t3 broadcast {t2 t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select95_8 """explain shape plan select /*+ leading(t3 broadcast {t1 broadcast t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
+    qt_select95_9 """explain shape plan select /*+ leading(t3 broadcast {t2 broadcast t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
 
     qt_select96_1 """explain shape plan select /*+ leading(t1 shuffle t2 broadcast t3) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     explain {

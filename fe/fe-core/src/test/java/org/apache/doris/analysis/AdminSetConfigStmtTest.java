@@ -89,5 +89,12 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
         results = ConfigBase.getConfigInfo(matcher);
         Assert.assertEquals(num, results.size());
     }
+
+    @Test
+    public void testTrimPropertyKey() throws Exception {
+        String stmt = "admin set frontend config(\" alter_table_timeout_second \" = \"60\");";
+        AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
+        Assert.assertEquals("60", adminSetConfigStmt.getConfigs().get("alter_table_timeout_second"));
+    }
 }
 

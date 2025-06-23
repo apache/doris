@@ -29,7 +29,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
@@ -783,6 +782,18 @@ public:
         if (add_elem_size_overflow(num_elem)) {
             resize(grower.buf_size() + num_elem);
         }
+    }
+
+    size_t estimate_memory(size_t num_elem) const {
+        if (!add_elem_size_overflow(num_elem)) {
+            return 0;
+        }
+
+        auto new_size = num_elem + grower.buf_size();
+        Grower new_grower = grower;
+        new_grower.set(new_size);
+
+        return new_grower.buf_size() * sizeof(Cell);
     }
 
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.

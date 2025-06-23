@@ -18,21 +18,26 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.CacheFactory;
+import org.apache.doris.common.Pair;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 
 public class MetaCache<T> {
-    private LoadingCache<String, List<String>> namesCache;
+    private LoadingCache<String, List<Pair<String, String>>> namesCache;
+    //Pair<String, String> : <Remote name, Local name>
     private Map<Long, String> idToName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
@@ -43,7 +48,7 @@ public class MetaCache<T> {
             OptionalLong expireAfterWriteSec,
             OptionalLong refreshAfterWriteSec,
             long maxSize,
-            CacheLoader<String, List<String>> namesCacheLoader,
+            CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
             CacheLoader<String, Optional<T>> metaObjCacheLoader,
             RemovalListener<String, Optional<T>> removalListener) {
         this.name = name;
@@ -71,13 +76,26 @@ public class MetaCache<T> {
     }
 
     public List<String> listNames() {
-        return namesCache.get("");
+        return Objects.requireNonNull(namesCache.get("")).stream().map(Pair::value).collect(Collectors.toList());
+    }
+
+    public String getRemoteName(String localName) {
+        return Objects.requireNonNull(namesCache.getIfPresent("")).stream()
+                .filter(pair -> pair.value().equals(localName))
+                .map(Pair::key)
+                .findFirst()
+                .orElse(null);
     }
 
     public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        if (val == null) {
+        if (val == null || !val.isPresent()) {
             synchronized (metaObjCache) {
+                val = metaObjCache.getIfPresent(name);
+                if (val != null && val.isPresent()) {
+                    return val;
+                }
+                metaObjCache.invalidate(name);
                 val = metaObjCache.get(name);
                 idToName.put(id, name);
             }
@@ -90,29 +108,29 @@ public class MetaCache<T> {
         return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
-    public void updateCache(String objName, T obj, long id) {
-        metaObjCache.put(objName, Optional.of(obj));
+    public void updateCache(String remoteName, String localName, T obj, long id) {
+        metaObjCache.put(localName, Optional.of(obj));
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
-                return Lists.newArrayList(objName);
+                return Lists.newArrayList(Pair.of(remoteName, localName));
             } else {
-                v.add(objName);
+                v.add(Pair.of(remoteName, localName));
                 return v;
             }
         });
-        idToName.put(id, objName);
+        idToName.put(id, localName);
     }
 
-    public void invalidate(String objName, long id) {
+    public void invalidate(String localName, long id) {
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
             } else {
-                v.remove(objName);
+                v.removeIf(pair -> pair.value().equals(localName));
                 return v;
             }
         });
-        metaObjCache.invalidate(objName);
+        metaObjCache.invalidate(localName);
         idToName.remove(id);
     }
 
@@ -122,4 +140,8 @@ public class MetaCache<T> {
         idToName.clear();
     }
 
+    @VisibleForTesting
+    public LoadingCache<String, Optional<T>> getMetaObjCache() {
+        return metaObjCache;
+    }
 }

@@ -32,9 +32,9 @@ suite("create_table_use_partition_policy") {
         }
     }
     // data_sizes is one arrayList<Long>, t is tablet
-    def fetchDataSize = { data_sizes, t ->
-        def tabletId = t[0]
-        String meta_url = t[17]
+    def fetchDataSize = { List<Long> data_sizes, Map<String, Object> t ->
+        def tabletId = t.TabletId
+        String meta_url = t.MetaUrl
         def clos = {  respCode, body ->
             assertEquals("${respCode}".toString(), "200")
             String out = "${body}".toString()
@@ -47,7 +47,8 @@ suite("create_table_use_partition_policy") {
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
-    def tableName = "lineitem1"
+    def suffix = UUID.randomUUID().hashCode().abs()
+    def tableName = "lineitem1${suffix}"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
@@ -90,13 +91,13 @@ suite("create_table_use_partition_policy") {
     def load_lineitem_table = {
         stream_load_one_part("00")
         stream_load_one_part("01")
-        def tablets = sql """
+        def tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
-        while (tablets[0][8] == "0") {
+        while (tablets[0].LocalDataSize == "0") {
             log.info( "test local size is zero, sleep 10s")
             sleep(10000)
-            tablets = sql """
+            tablets = sql_return_maparray """
             SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
             """
         }
@@ -114,8 +115,8 @@ suite("create_table_use_partition_policy") {
         return false;
     }
 
-    def resource_name = "test_table_partition_with_data_resource"
-    def policy_name= "test_table_partition_with_data_policy"
+    def resource_name = "test_table_partition_with_data_resource${suffix}"
+    def policy_name= "test_table_partition_with_data_policy${suffix}"
 
     if (check_storage_policy_exist(policy_name)) {
         sql """
@@ -194,7 +195,7 @@ suite("create_table_use_partition_policy") {
     // sleep(30000);
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    def tablets = sql """
+    def tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
@@ -212,19 +213,21 @@ suite("create_table_use_partition_policy") {
     sleep(600000)
 
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
     fetchDataSize(sizes, tablets[0])
-    while (sizes[1] == 0) {
+    def retry = 100
+    while (sizes[1] == 0 && retry --> 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
         fetchDataSize(sizes, tablets[0])
     }
+    assertTrue(sizes[1] != 0, "remote size is still zero, maybe some error occurred")
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
@@ -232,7 +235,7 @@ suite("create_table_use_partition_policy") {
     while (RemoteDataSize1 != originLocalDataSize1 && sleepTimes < 60) {
         log.info( "test remote size is same with origin size, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
         fetchDataSize(sizes, tablets[0])
@@ -245,7 +248,7 @@ suite("create_table_use_partition_policy") {
     log.info( "test remote size not zero")
     assertEquals(RemoteDataSize1, originLocalDataSize1)
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
     """
     log.info( "test tablets not empty")
@@ -298,7 +301,7 @@ suite("create_table_use_partition_policy") {
     load_lineitem_table()
 
     // show tablets from table, 获取第一个tablet的 LocalDataSize1
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
@@ -316,7 +319,7 @@ suite("create_table_use_partition_policy") {
     sleep(600000)
 
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
     """
     log.info( "test tablets not empty")
@@ -324,7 +327,7 @@ suite("create_table_use_partition_policy") {
     while (sizes[1] == 0) {
         log.info( "test remote size is zero, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
         fetchDataSize(sizes, tablets[0])
@@ -336,7 +339,7 @@ suite("create_table_use_partition_policy") {
     while (RemoteDataSize1 != originLocalDataSize1 && sleepTimes < 60) {
         log.info( "test remote size is same with origin size, sleep 10s")
         sleep(10000)
-        tablets = sql """
+        tablets = sql_return_maparray """
         SHOW TABLETS FROM ${tableName} PARTITIONS(p202301)
         """
         fetchDataSize(sizes, tablets[0])
@@ -349,7 +352,7 @@ suite("create_table_use_partition_policy") {
     log.info( "test remote size not zero")
     assertEquals(RemoteDataSize1, originLocalDataSize1)
 
-    tablets = sql """
+    tablets = sql_return_maparray """
     SHOW TABLETS FROM ${tableName} PARTITIONS(p202302)
     """
     log.info( "test tablets not empty")

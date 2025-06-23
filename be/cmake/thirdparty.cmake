@@ -82,10 +82,6 @@ else()
     add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 endif()
 
-if (WITH_MYSQL)
-    add_thirdparty(mysql LIBNAME "lib/libmysqlclient.a")
-endif()
-
 if (USE_UNWIND)
     add_thirdparty(libunwind LIBNAME "lib64/libunwind.a")
 endif()
@@ -137,6 +133,8 @@ add_thirdparty(aws-c-mqtt LIB64)
 add_thirdparty(aws-checksums LIB64)
 add_thirdparty(aws-c-s3 LIB64)
 add_thirdparty(aws-c-sdkutils LIB64)
+add_thirdparty(aws-cpp-sdk-identity-management LIB64)
+add_thirdparty(aws-cpp-sdk-sts LIB64)
 if (NOT OS_MACOSX)
     add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
 endif()
@@ -170,4 +168,16 @@ endif()
 # Only used on x86 or x86_64
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     add_thirdparty(deflate)
+endif()
+
+add_thirdparty(icuuc LIB64)
+add_thirdparty(icui18n LIB64)
+add_thirdparty(icudata LIB64)
+
+
+add_thirdparty(pugixml LIB64)
+
+if (BUILD_FAISS)
+    add_thirdparty(openblas LIB64)
+    add_thirdparty(faiss LIB64)
 endif()

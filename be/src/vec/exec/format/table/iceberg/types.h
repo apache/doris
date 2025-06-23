@@ -18,17 +18,14 @@
 #pragma once
 
 #include <iostream>
-#include <map>
 #include <optional>
-#include <regex>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "common/exception.h"
 
-namespace doris {
-namespace iceberg {
+namespace doris::iceberg {
+#include "common/compile_check_begin.h"
 
 class PrimitiveType;
 class StructType;
@@ -115,25 +112,25 @@ private:
 
 class NestedType : public Type {
 public:
-    virtual ~NestedType() override = default;
+    ~NestedType() override = default;
 
     bool is_nested_type() override { return true; }
     NestedType* as_nested_type() override { return this; }
-    virtual int field_count() const = 0;
+    virtual size_t field_count() const = 0;
     virtual Type* field_type(const std::string& field_name) = 0;
     virtual const NestedField* field(int field_id) = 0;
 };
 
 class PrimitiveType : public Type {
 public:
-    virtual ~PrimitiveType() override = default;
+    ~PrimitiveType() override = default;
     bool is_primitive_type() override { return true; }
     PrimitiveType* as_primitive_type() override { return this; }
 };
 
 class MapType : public NestedType {
 public:
-    ~MapType() = default;
+    ~MapType() override = default;
     static std::unique_ptr<MapType> of_optional(int key_id, int value_id,
                                                 std::unique_ptr<Type> key_type,
                                                 std::unique_ptr<Type> value_type);
@@ -154,11 +151,11 @@ public:
 
     MapType* as_map_type() override { return this; }
 
-    virtual int field_count() const override { return 2; }
+    size_t field_count() const override { return 2; }
 
-    virtual Type* field_type(const std::string& field_name) override;
+    Type* field_type(const std::string& field_name) override;
 
-    virtual const NestedField* field(int field_id) override;
+    const NestedField* field(int field_id) override;
 
     std::string to_string() const override;
 
@@ -179,13 +176,13 @@ private:
 
 class ListType : public NestedType {
 public:
-    ~ListType() = default;
+    ~ListType() override = default;
     static std::unique_ptr<ListType> of_optional(int element_id,
                                                  std::unique_ptr<Type> element_type);
     static std::unique_ptr<ListType> of_required(int element_id,
                                                  std::unique_ptr<Type> element_type);
 
-    virtual TypeID type_id() const override { return TypeID::LIST; }
+    TypeID type_id() const override { return TypeID::LIST; }
 
     bool is_list_type() override { return true; }
 
@@ -193,13 +190,13 @@ public:
 
     const NestedField& element_field() const { return _element_field; }
 
-    virtual std::string to_string() const override;
+    std::string to_string() const override;
 
-    virtual int field_count() const override { return 1; }
+    size_t field_count() const override { return 1; }
 
-    virtual Type* field_type(const std::string& field_name) override;
+    Type* field_type(const std::string& field_name) override;
 
-    virtual const NestedField* field(int field_id) override;
+    const NestedField* field(int field_id) override;
 
 private:
     ListType(NestedField element_field) : _element_field(std::move(element_field)) {}
@@ -214,7 +211,7 @@ private:
 
 class StructType : public NestedType {
 public:
-    ~StructType() = default;
+    ~StructType() override = default;
     StructType(std::vector<NestedField> fields) : _fields(std::move(fields)) {
         for (const NestedField& field : _fields) {
             _fields_by_id.insert({field.field_id(), &field});
@@ -224,19 +221,19 @@ public:
 
     StructType(const StructType& other) {}
 
-    virtual TypeID type_id() const override { return TypeID::STRUCT; }
+    TypeID type_id() const override { return TypeID::STRUCT; }
 
     bool is_struct_type() override { return true; }
 
     StructType* as_struct_type() override { return this; }
 
-    virtual std::string to_string() const override;
+    std::string to_string() const override;
 
-    virtual int field_count() const override { return _fields.size(); }
+    size_t field_count() const override { return _fields.size(); }
 
-    virtual Type* field_type(const std::string& field_name) override;
+    Type* field_type(const std::string& field_name) override;
 
-    virtual const NestedField* field(int field_id) override { return _fields_by_id[field_id]; }
+    const NestedField* field(int field_id) override { return _fields_by_id[field_id]; }
 
     const std::vector<NestedField>& fields() const { return _fields; }
 
@@ -254,11 +251,11 @@ private:
     int precision;
 
 public:
-    ~DecimalType() = default;
+    ~DecimalType() override = default;
 
     DecimalType(int p, int s) : scale(s), precision(p) {}
 
-    virtual TypeID type_id() const override { return TypeID::DECIMAL; }
+    TypeID type_id() const override { return TypeID::DECIMAL; }
 
     std::string to_string() const override {
         std::stringstream ss;
@@ -273,7 +270,7 @@ public:
 
 class BinaryType : public PrimitiveType {
 public:
-    ~BinaryType() = default;
+    ~BinaryType() override = default;
 
     TypeID type_id() const override { return TypeID::BINARY; }
 
@@ -282,10 +279,10 @@ public:
 
 class FixedType : public PrimitiveType {
 public:
-    ~FixedType() = default;
+    ~FixedType() override = default;
     FixedType(int len) : length(len) {}
 
-    virtual TypeID type_id() const override { return TypeID::FIXED; }
+    TypeID type_id() const override { return TypeID::FIXED; }
 
     std::string to_string() const override {
         std::stringstream ss;
@@ -299,7 +296,7 @@ private:
 
 class UUIDType : public PrimitiveType {
 public:
-    ~UUIDType() = default;
+    ~UUIDType() override = default;
 
     TypeID type_id() const override { return TypeID::UUID; }
 
@@ -308,7 +305,7 @@ public:
 
 class StringType : public PrimitiveType {
 public:
-    ~StringType() = default;
+    ~StringType() override = default;
 
     TypeID type_id() const override { return TypeID::STRING; }
 
@@ -317,11 +314,11 @@ public:
 
 class TimestampType : public PrimitiveType {
 public:
-    ~TimestampType() = default;
+    ~TimestampType() override = default;
 
     TimestampType(bool adjust_to_utc) : _adjust_to_utc(adjust_to_utc) {}
 
-    virtual TypeID type_id() const override { return TypeID::TIMESTAMP; }
+    TypeID type_id() const override { return TypeID::TIMESTAMP; }
 
     bool should_adjust_to_utc() const { return _adjust_to_utc; }
 
@@ -339,7 +336,7 @@ private:
 
 class TimeType : public PrimitiveType {
 public:
-    ~TimeType() = default;
+    ~TimeType() override = default;
 
     TypeID type_id() const override { return TypeID::TIME; }
 
@@ -348,7 +345,7 @@ public:
 
 class DateType : public PrimitiveType {
 public:
-    ~DateType() = default;
+    ~DateType() override = default;
 
     TypeID type_id() const override { return TypeID::DATE; }
 
@@ -357,7 +354,7 @@ public:
 
 class DoubleType : public PrimitiveType {
 public:
-    ~DoubleType() = default;
+    ~DoubleType() override = default;
 
     TypeID type_id() const override { return TypeID::DOUBLE; }
 
@@ -373,7 +370,7 @@ public:
 
 class LongType : public PrimitiveType {
 public:
-    ~LongType() = default;
+    ~LongType() override = default;
 
     TypeID type_id() const override { return TypeID::LONG; }
 
@@ -382,7 +379,7 @@ public:
 
 class IntegerType : public PrimitiveType {
 public:
-    ~IntegerType() = default;
+    ~IntegerType() override = default;
 
     TypeID type_id() const override { return TypeID::INTEGER; }
 
@@ -391,7 +388,7 @@ public:
 
 class BooleanType : public PrimitiveType {
 public:
-    ~BooleanType() = default;
+    ~BooleanType() override = default;
 
     TypeID type_id() const override { return TypeID::BOOLEAN; }
 
@@ -403,5 +400,5 @@ public:
     static std::unique_ptr<PrimitiveType> from_primitive_string(const std::string& type_string);
 };
 
-} // namespace iceberg
-} // namespace doris
+#include "common/compile_check_end.h"
+} // namespace doris::iceberg

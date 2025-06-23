@@ -21,32 +21,41 @@ import com.google.common.collect.Sets
 
 class LoggerUtils {
     static Tuple2<Integer, String> getErrorInfo(Throwable t, File file) {
-        if (file.name.endsWith(".groovy")) {
-            def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file)
-            int lineNumber = -1
-            if (!st.is(null)) {
-                lineNumber = st.getLineNumber()
-            }
-            if (lineNumber == -1) {
+        try {
+            if (file.name.endsWith(".groovy")) {
+                // to disable global variables, we've add some content to the bottom of the groovy file
+                // so if st.getLineNumber > fileLineCt, continue to seek the original line.
+                def fileLineCt = file.readLines().size()
+
+                def st = findRootErrorStackTrace(t, Sets.newLinkedHashSet(), file, fileLineCt)
+
+                int lineNumber = -1
+                if (!st.is(null)) {
+                    lineNumber = st.getLineNumber()
+                }
+                if (lineNumber == -1) {
+                    return new Tuple2<Integer, String>(null, null)
+                }
+
+                List<String> lines = file.text.split("\n").toList()
+                String errorPrefixText = lines.subList(Math.max(0, lineNumber - 10), lineNumber).join("\n")
+                String errorSuffixText = lines.subList(lineNumber, Math.min(lines.size(), lineNumber + 10)).join("\n")
+                String errorText = "${errorPrefixText}\n^^^^^^^^^^^^^^^^^^^^^^^^^^ERROR LINE^^^^^^^^^^^^^^^^^^^^^^^^^^\n${errorSuffixText}".toString()
+                return new Tuple2<Integer, String>(lineNumber, errorText)
+            } else {
                 return new Tuple2<Integer, String>(null, null)
             }
-
-            List<String> lines = file.text.split("\n").toList()
-            String errorPrefixText = lines.subList(Math.max(0, lineNumber - 10), lineNumber).join("\n")
-            String errorSuffixText = lines.subList(lineNumber, Math.min(lines.size(), lineNumber + 10)).join("\n")
-            String errorText = "${errorPrefixText}\n^^^^^^^^^^^^^^^^^^^^^^^^^^ERROR LINE^^^^^^^^^^^^^^^^^^^^^^^^^^\n${errorSuffixText}".toString()
-            return new Tuple2<Integer, String>(lineNumber, errorText)
-        } else {
+        } catch (Exception e) {
             return new Tuple2<Integer, String>(null, null)
         }
     }
 
-    static StackTraceElement findRootErrorStackTrace(Throwable t, Set<Throwable> throwables, File file) {
+    static StackTraceElement findRootErrorStackTrace(Throwable t, Set<Throwable> throwables, File file, int fileLineCt) {
         throwables.add(t)
 
         def cause = t.getCause()
         if (!cause.is(null) && !throwables.contains(cause)) {
-            def foundStackTrace = findRootErrorStackTrace(cause, throwables, file)
+            def foundStackTrace = findRootErrorStackTrace(cause, throwables, file, fileLineCt)
             if (!foundStackTrace.is(null)) {
                 return foundStackTrace
             }
@@ -54,7 +63,9 @@ class LoggerUtils {
 
         for (def st : t.getStackTrace()) {
             if (Objects.equals(st.fileName, file.name)) {
-                return st
+                if (st.getLineNumber() < fileLineCt) {
+                    return st
+                }
             }
         }
         return null

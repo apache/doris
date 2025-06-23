@@ -20,6 +20,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include <memory>
+
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/types.h"
 #include "util/debug_points.h"
@@ -28,9 +30,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
-namespace doris {
-namespace segment_v2 {
-
+namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,
                                     OlapReaderStatistics* index_load_stats) {
     // TODO yyq: implement a new once flag to avoid status construct.
@@ -48,7 +49,7 @@ Status BloomFilterIndexReader::_load(bool use_page_cache, bool kept_in_memory,
                                      OlapReaderStatistics* index_load_stats) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
-    _bloom_filter_reader.reset(new IndexedColumnReader(_file_reader, bf_index_meta));
+    _bloom_filter_reader = std::make_unique<IndexedColumnReader>(_file_reader, bf_index_meta);
     RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory, index_load_stats));
     update_metadata_size();
     return Status::OK();
@@ -59,7 +60,7 @@ Status BloomFilterIndexReader::new_iterator(std::unique_ptr<BloomFilterIndexIter
     DBUG_EXECUTE_IF("BloomFilterIndexReader::new_iterator.fail", {
         return Status::InternalError("new_iterator for bloom filter index failed");
     });
-    iterator->reset(new BloomFilterIndexIterator(this, index_load_stats));
+    *iterator = std::make_unique<BloomFilterIndexIterator>(this, index_load_stats);
     return Status::OK();
 }
 
@@ -84,5 +85,5 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal,
     return Status::OK();
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2
+#include "common/compile_check_end.h"

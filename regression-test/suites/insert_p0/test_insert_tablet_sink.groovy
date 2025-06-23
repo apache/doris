@@ -62,7 +62,7 @@ suite("test_insert_tablet_sink") {
     sql """ insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar where k1>=3; """
     explain {
         sql "insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar;"
-        contains "TABLET_SINK_SHUFFLE_PARTITIONED"
+        contains "OLAP_TABLE_SINK_HASH_PARTITIONED"
     }
     
     sql """ insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar; """

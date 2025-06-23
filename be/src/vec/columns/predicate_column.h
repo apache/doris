@@ -32,6 +32,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /**
  * used to keep predicate column in storage layer
@@ -63,21 +64,22 @@ private:
         res_ptr->insert_many_strings_without_reserve(_refs.data(), sel_size);
     }
 
-    template <typename Y, template <typename> typename ColumnContainer>
+    template <PrimitiveType Y, template <PrimitiveType> typename ColumnContainer>
     void insert_default_value_res_column(const uint16_t* sel, size_t sel_size,
                                          ColumnContainer<Y>* res_ptr) {
         static_assert(std::is_same_v<ColumnContainer<Y>, ColumnType>);
         auto& res_data = res_ptr->get_data();
         DCHECK(res_data.empty());
         res_data.reserve(sel_size);
-        Y* y = (Y*)res_data.get_end_ptr();
+        auto* y = (typename PrimitiveTypeTraits<Y>::ColumnItemType*)res_data.get_end_ptr();
         for (size_t i = 0; i < sel_size; i++) {
-            if constexpr (std::is_same_v<Y, T>) {
+            if constexpr (std::is_same_v<typename PrimitiveTypeTraits<Y>::ColumnItemType,
+                                         typename PrimitiveTypeTraits<Y>::CppType>) {
                 y[i] = data[sel[i]];
             } else {
-                static_assert(sizeof(Y) == sizeof(T));
+                static_assert(sizeof(typename PrimitiveTypeTraits<Y>::ColumnItemType) == sizeof(T));
                 memcpy(reinterpret_cast<void*>(&y[i]), reinterpret_cast<void*>(&data[sel[i]]),
-                       sizeof(Y));
+                       sizeof(T));
             }
         }
         res_data.set_end_ptr(y + sel_size);
@@ -115,39 +117,33 @@ public:
             throw doris::Exception(
                     ErrorCode::INTERNAL_ERROR,
                     "should not call get_data_at in predicate column except for string type");
-            __builtin_unreachable();
         }
     }
 
     void insert_from(const IColumn& src, size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call insert_from in predicate column");
-        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call insert_range_from in predicate column");
-        __builtin_unreachable();
     }
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call insert_indices_from in predicate column");
-        __builtin_unreachable();
     }
 
     void pop_back(size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call pop_back in predicate column");
-        __builtin_unreachable();
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call update_hash_with_value in predicate column");
-        __builtin_unreachable();
     }
 
     void insert_string_value(const char* data_ptr, size_t length) {
@@ -285,7 +281,7 @@ public:
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
-            uint32_t fragment_start_offset = 0;
+            uint64_t fragment_start_offset = 0;
             size_t fragment_len = 0;
             for (size_t i = 0; i < num; i++) {
                 data[org_elem_num + i].data = destination + fragment_len;
@@ -321,9 +317,14 @@ public:
 
     size_t allocated_bytes() const override { return byte_size(); }
 
+    bool has_enough_capacity(const IColumn& src) const override {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "has_enough_capacity not supported in PredicateColumnType");
+    }
+
     void reserve(size_t n) override { data.reserve(n); }
 
-    std::string get_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return type_to_string(Type); }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -333,13 +334,11 @@ public:
     void insert(const Field& x) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "insert not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] Field operator[](size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "operator[] not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     void get(size_t n, Field& res) const override {
@@ -350,13 +349,11 @@ public:
     [[noreturn]] bool get_bool(size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get field not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get field not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     // it's impossible to use ComplexType as key , so we don't have to implement them
@@ -364,45 +361,39 @@ public:
                                                       char const*& begin) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "serialize_value_into_arena not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "deserialize_and_insert_from_arena not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] StringRef get_raw_data() const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "get_raw_data not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "structure_equals not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "filter not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "filter not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
-    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    [[noreturn]] MutableColumnPtr permute(const IColumn::Permutation& perm,
+                                          size_t limit) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "permute not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     Container& get_data() { return data; }
@@ -412,14 +403,13 @@ public:
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "replicate not supported in PredicateColumnType");
-        __builtin_unreachable();
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
-        if constexpr (std::is_same_v<T, StringRef>) {
+        if constexpr (is_string_type(Type)) {
             insert_string_to_res_column(sel, sel_size, column);
-        } else if constexpr (std::is_same_v<T, bool>) {
+        } else if constexpr (Type == TYPE_BOOLEAN) {
             insert_byte_to_res_column(sel, sel_size, col_ptr);
         } else {
             insert_default_value_res_column(sel, sel_size, column);
@@ -430,7 +420,6 @@ public:
     void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "should not call replace_column_data in predicate column");
-        __builtin_unreachable();
     }
 
 private:
@@ -440,4 +429,5 @@ private:
     std::vector<StringRef> _refs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

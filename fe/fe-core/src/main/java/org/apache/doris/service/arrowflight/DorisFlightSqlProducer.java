@@ -36,6 +36,8 @@ import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.Message;
 import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.CloseSessionRequest;
+import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.Criteria;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
@@ -110,7 +112,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
         sqlInfoBuilder.withFlightSqlServerName("DorisFE").withFlightSqlServerVersion("1.0")
-                .withFlightSqlServerArrowVersion("13.0").withFlightSqlServerReadOnly(false)
+                .withFlightSqlServerArrowVersion("18.2.0").withFlightSqlServerReadOnly(false)
                 .withSqlIdentifierQuoteChar("`").withSqlDdlCatalog(true).withSqlDdlSchema(false).withSqlDdlTable(false)
                 .withSqlIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE)
                 .withSqlQuotedIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE);
@@ -131,21 +133,19 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String[] handleParts = handle.split(":");
         String executedPeerIdentity = handleParts[0];
         String queryId = handleParts[1];
+        // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
         try {
-            // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
             final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
                     connectContext.getFlightSqlChannel().getResult(queryId));
             final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
             listener.start(vectorSchemaRoot);
             listener.putNext();
-        } catch (Exception e) {
-            listener.error(e);
+        } catch (Throwable e) {
             String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
-            LOG.warn(errMsg, e);
-            throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+            handleStreamException(e, errMsg, listener);
         } finally {
             listener.completed();
             // The result has been sent or sent failed, delete it.
@@ -174,7 +174,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String executedPeerIdentity = handleParts[0];
                 String preparedStatementId = handleParts[1];
                 flightSessionsManager.getConnectContext(executedPeerIdentity).removePreparedQuery(preparedStatementId);
-            } catch (final Exception e) {
+            } catch (final Throwable e) {
                 listener.onError(e);
                 return;
             }
@@ -276,11 +276,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     return new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
-            LOG.warn(errMsg, e);
+            LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
@@ -290,8 +290,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoStatement(final CommandStatementQuery request, final CallContext context,
             final FlightDescriptor descriptor) {
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-        return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            return executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(), descriptor);
+        } catch (Throwable e) {
+            String errMsg = "get flight info statement failed, " + e.getMessage();
+            LOG.error(errMsg, e);
+            throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+        }
     }
 
     @Override
@@ -361,7 +367,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
                         e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                         + connectContext.getState().getErrorMessage();
-                LOG.warn(errMsg, e);
+                LOG.error(errMsg, e);
                 listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
                 return;
             } catch (final Throwable t) {
@@ -404,10 +410,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     }
                 }
                 ackStream.onCompleted();
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 String errMsg = "acceptPutPreparedStatementUpdate failed, " + e.getMessage() + ", "
                         + Util.getRootCauseMessage(e);
-                LOG.warn(errMsg, e);
+                LOG.error(errMsg, e);
                 throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
             }
         };
@@ -451,7 +457,21 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamCatalogs(final CallContext context, final ServerStreamListener listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCatalogs unimplemented").toRuntimeException();
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
+            final Schema schema = Schemas.GET_CATALOGS_SCHEMA;
+
+            try (final VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(schema, rootAllocator)) {
+                listener.start(vectorSchemaRoot);
+                vectorSchemaRoot.allocateNew();
+                flightSqlSchemaHelper.getCatalogs(vectorSchemaRoot);
+                listener.putNext();
+                listener.completed();
+            }
+        } catch (final Throwable e) {
+            handleStreamException(e, "", listener);
+        }
     }
 
     @Override
@@ -463,7 +483,22 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamSchemas(final CommandGetDbSchemas command, final CallContext context,
             final ServerStreamListener listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getStreamSchemas unimplemented").toRuntimeException();
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
+            flightSqlSchemaHelper.setParameterForGetDbSchemas(command);
+            final Schema schema = Schemas.GET_SCHEMAS_SCHEMA;
+
+            try (VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(schema, rootAllocator)) {
+                listener.start(vectorSchemaRoot);
+                vectorSchemaRoot.allocateNew();
+                flightSqlSchemaHelper.getSchemas(vectorSchemaRoot);
+                listener.putNext();
+                listener.completed();
+            }
+        } catch (final Throwable e) {
+            handleStreamException(e, "", listener);
+        }
     }
 
     @Override
@@ -479,7 +514,23 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamTables(final CommandGetTables command, final CallContext context,
             final ServerStreamListener listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getStreamTables unimplemented").toRuntimeException();
+        try {
+            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
+            flightSqlSchemaHelper.setParameterForGetTables(command);
+            final Schema schema = command.getIncludeSchema() ? Schemas.GET_TABLES_SCHEMA
+                    : Schemas.GET_TABLES_SCHEMA_NO_SCHEMA;
+
+            try (VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(schema, rootAllocator)) {
+                listener.start(vectorSchemaRoot);
+                vectorSchemaRoot.allocateNew();
+                flightSqlSchemaHelper.getTables(vectorSchemaRoot);
+                listener.putNext();
+                listener.completed();
+            }
+        } catch (final Throwable e) {
+            handleStreamException(e, "", listener);
+        }
     }
 
     @Override
@@ -502,7 +553,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamPrimaryKeys(final CommandGetPrimaryKeys command, final CallContext context,
             final ServerStreamListener listener) {
-
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamPrimaryKeys unimplemented").toRuntimeException();
     }
 
@@ -542,12 +592,36 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         throw CallStatus.UNIMPLEMENTED.withDescription("getStreamCrossReference unimplemented").toRuntimeException();
     }
 
+    @Override
+    public void closeSession(CloseSessionRequest request, final CallContext context,
+            final StreamListener<CloseSessionResult> listener) {
+        // https://github.com/apache/arrow-adbc/issues/2821
+        // currently FlightSqlConnection does not provide a separate interface for external calls to
+        // FlightSqlClient::closeSession(), nor will it automatically call closeSession
+        // when FlightSqlConnection::close(). Python flight sql Cursor.close() will call closeSession().
+        // Neither C++ nor Java seem to have similar behavior.
+        try {
+            flightSessionsManager.closeConnectContext(context.peerIdentity());
+        } catch (final Throwable e) {
+            LOG.error("closeSession failed", e);
+            listener.onError(
+                    CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+        }
+        listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
+        listener.onCompleted();
+    }
+
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,
             final Schema schema) {
         final Ticket ticket = new Ticket(Any.pack(request).toByteArray());
-        // TODO Support multiple endpoints.
         final List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
 
         return new FlightInfo(schema, descriptor, endpoints, -1, -1);
+    }
+
+    private static void handleStreamException(Throwable e, String errMsg, ServerStreamListener listener) {
+        LOG.error(errMsg, e);
+        listener.error(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
+        throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
     }
 }

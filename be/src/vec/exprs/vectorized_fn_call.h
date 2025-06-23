@@ -45,6 +45,9 @@ class VectorizedFnCall : public VExpr {
     ENABLE_FACTORY_CREATOR(VectorizedFnCall);
 
 public:
+#ifdef BE_TEST
+    VectorizedFnCall() = default;
+#endif
     VectorizedFnCall(const TExprNode& node);
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     Status execute_runtime_fitler(doris::vectorized::VExprContext* context,
@@ -69,6 +72,8 @@ public:
 
     bool can_push_down_to_index() const override;
     bool equals(const VExpr& other) override;
+
+    size_t estimate_memory(const size_t rows) override;
 
 protected:
     FunctionBasePtr _function;

@@ -26,8 +26,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/port.h"
-#include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "util/coding.h"
 #include "util/slice.h" // for Slice
@@ -37,8 +35,6 @@ namespace doris {
 struct StringRef;
 
 namespace segment_v2 {
-
-using strings::Substitute;
 
 BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
         : _options(options),
@@ -275,7 +271,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     DCHECK(_parsed);
     DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
 
-    if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
+    if (*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }
@@ -304,7 +300,7 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     DCHECK(_parsed);
     DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
 
-    if (PREDICT_FALSE(*n == 0)) {
+    if (*n == 0) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }
@@ -315,7 +311,7 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     _buffer.resize(total);
     for (size_t i = 0; i < total; ++i) {
         ordinal_t ord = rowids[i] - page_first_ordinal;
-        if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {
+        if (ord >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
             break;
         }
 

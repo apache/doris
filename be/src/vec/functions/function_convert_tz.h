@@ -37,7 +37,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -45,10 +44,10 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
@@ -67,7 +66,7 @@ class FunctionConvertTZ : public IFunction {
     using ColumnType = date_cast::TypeToColumnV<ArgDateType>;
     using NativeType = date_cast::ValueTypeOfColumnV<ColumnType>;
     constexpr static bool is_v1 = date_cast::IsV1<ArgDateType>();
-    using ReturnDateType = std::conditional_t<is_v1, DataTypeDateTime, ArgDateType>;
+    using ReturnDateType = ArgDateType;
     using ReturnDateValueType = date_cast::TypeToValueTypeV<ReturnDateType>;
     using ReturnColumnType = date_cast::TypeToColumnV<ReturnDateType>;
     using ReturnNativeType = date_cast::ValueTypeOfColumnV<ReturnColumnType>;
@@ -166,18 +165,23 @@ public:
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        if (col_const[1] && col_const[2]) {
+        if (convert_tz_state->use_state) {
             auto result_column = ColumnType::create();
-            if (convert_tz_state->use_state) {
-                execute_tz_const_with_state(
-                        convert_tz_state, assert_cast<const ColumnType*>(argument_columns[0].get()),
-                        assert_cast<ReturnColumnType*>(result_column.get()),
-                        assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
-                        input_rows_count);
-            } else {
-                return Status::RuntimeError("ConvertTzState is not initialized in function {}",
-                                            get_name());
-            }
+            execute_tz_const_with_state(
+                    convert_tz_state, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                    assert_cast<ReturnColumnType*>(result_column.get()),
+                    assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                    input_rows_count);
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_column), std::move(result_null_map_column));
+        } else if (col_const[1] && col_const[2]) {
+            auto result_column = ColumnType::create();
+            execute_tz_const(context, assert_cast<const ColumnType*>(argument_columns[0].get()),
+                             assert_cast<const ColumnString*>(argument_columns[1].get()),
+                             assert_cast<const ColumnString*>(argument_columns[2].get()),
+                             assert_cast<ReturnColumnType*>(result_column.get()),
+                             assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data(),
+                             input_rows_count);
             block.get_by_position(result).column = ColumnNullable::create(
                     std::move(result_column), std::move(result_null_map_column));
         } else {
@@ -258,7 +262,34 @@ private:
                 continue;
             }
 
-            result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+            if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
+                result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateV2>) {
+                result_column->insert(Field::create_field<TYPE_DATEV2>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateTime>) {
+                result_column->insert(Field::create_field<TYPE_DATETIME>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            } else {
+                result_column->insert(Field::create_field<TYPE_DATE>(
+                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+            }
+        }
+    }
+
+    static void execute_tz_const(FunctionContext* context, const ColumnType* date_column,
+                                 const ColumnString* from_tz_column,
+                                 const ColumnString* to_tz_column, ReturnColumnType* result_column,
+                                 NullMap& result_null_map, size_t input_rows_count) {
+        auto from_tz = from_tz_column->get_data_at(0).to_string();
+        auto to_tz = to_tz_column->get_data_at(0).to_string();
+        for (size_t i = 0; i < input_rows_count; i++) {
+            if (result_null_map[i]) {
+                result_column->insert_default();
+                continue;
+            }
+            execute_inner_loop(date_column, from_tz, to_tz, result_column, result_null_map, i);
         }
     }
 
@@ -306,7 +337,19 @@ private:
             return;
         }
 
-        result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+        if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
+            result_column->insert(Field::create_field<TYPE_DATETIMEV2>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateV2>) {
+            result_column->insert(Field::create_field<TYPE_DATEV2>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        } else if constexpr (std::is_same_v<ArgDateType, DataTypeDateTime>) {
+            result_column->insert(Field::create_field<TYPE_DATETIME>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        } else {
+            result_column->insert(Field::create_field<TYPE_DATE>(
+                    binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2)));
+        }
     }
 };
 

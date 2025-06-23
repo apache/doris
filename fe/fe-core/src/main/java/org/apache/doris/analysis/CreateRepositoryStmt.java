@@ -22,6 +22,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -62,6 +63,10 @@ public class CreateRepositoryStmt extends DdlStmt implements NotFallbackInParser
         return storage.getStorageDesc().getProperties();
     }
 
+    public StorageProperties getStorageProperties() {
+        return storage.getStorageDesc().getStorageProperties();
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -70,7 +75,7 @@ public class CreateRepositoryStmt extends DdlStmt implements NotFallbackInParser
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        FeNameFormat.checkCommonName("repository", name);
+        FeNameFormat.checkRepositoryName(name);
     }
 
     @Override

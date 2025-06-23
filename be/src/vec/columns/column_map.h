@@ -34,7 +34,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
@@ -47,14 +46,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
+class Arena;
 /** A column of map values.
   */
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {
@@ -65,7 +59,8 @@ public:
     using Base = COWHelper<IColumn, ColumnMap>;
     using COffsets = ColumnArray::ColumnOffsets;
 
-    static Ptr create(const ColumnPtr& keys, const ColumnPtr& values, const ColumnPtr& offsets) {
+    static MutablePtr create(const ColumnPtr& keys, const ColumnPtr& values,
+                             const ColumnPtr& offsets) {
         return ColumnMap::create(keys->assume_mutable(), values->assume_mutable(),
                                  offsets->assume_mutable());
     }
@@ -102,9 +97,6 @@ public:
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
-
-    void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
@@ -113,7 +105,6 @@ public:
     void insert_default() override;
 
     void pop_back(size_t n) override;
-    bool is_column_map() const override { return true; }
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
@@ -121,7 +112,7 @@ public:
     void shrink_padding_chars() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
@@ -156,6 +147,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
@@ -201,6 +193,8 @@ public:
         values_column = values_column->convert_column_if_overflow();
         return IColumn::convert_column_if_overflow();
     }
+
+    void erase(size_t start, size_t length) override;
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;

@@ -18,13 +18,14 @@
 package org.apache.doris.datasource.jdbc.client;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.Optional;
 
 public class JdbcPostgreSQLClient extends JdbcClient {
+    private static final Logger LOG = LogManager.getLogger(JdbcPostgreSQLClient.class);
 
     private static final String[] supportedInnerType = new String[] {
             "int2", "int4", "int8", "smallserial", "serial",
@@ -49,12 +51,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
     }
 
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
         Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
@@ -65,12 +65,26 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 int arrayDimensions = 0;
                 if (dataType == Types.ARRAY) {
                     String columnName = rs.getString("COLUMN_NAME");
-                    try (PreparedStatement pstmt = conn.prepareStatement(
-                            String.format("SELECT array_ndims(%s) FROM %s.%s LIMIT 1",
-                                    columnName, remoteDbName, remoteTableName))) {
-                        try (ResultSet arrayRs = pstmt.executeQuery()) {
-                            if (arrayRs.next()) {
-                                arrayDimensions = arrayRs.getInt(1);
+                    PreparedStatement pstmt = null;
+                    ResultSet arrayRs = null;
+                    try {
+                        pstmt = conn.prepareStatement(
+                                String.format("SELECT array_ndims(%s) FROM %s.%s LIMIT 1",
+                                        columnName, remoteDbName, remoteTableName));
+                        arrayRs = pstmt.executeQuery();
+                        if (arrayRs.next()) {
+                            arrayDimensions = arrayRs.getInt(1);
+                        }
+                    } catch (SQLException ex) {
+                        LOG.warn("Failed to get array dimensions for column {}: {}",
+                                columnName, Util.getRootCauseMessage(ex));
+                    } finally {
+                        close(arrayRs, null);
+                        if (pstmt != null) {
+                            try {
+                                pstmt.close();
+                            } catch (SQLException ex) {
+                                LOG.warn("Failed to close prepared statement: {}", Util.getRootCauseMessage(ex));
                             }
                         }
                     }
@@ -114,9 +128,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "float8":
                 return Type.DOUBLE;
             case "bpchar":
-                ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
-                charType.setLength(fieldSchema.getColumnSize().orElse(0));
-                return charType;
+                return ScalarType.createCharType(fieldSchema.requiredColumnSize());
             case "timestamp":
             case "timestamptz": {
                 // postgres can support microsecond
@@ -170,6 +182,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
     private Type convertArrayType(JdbcFieldSchema fieldSchema) {
         int arrayDimensions = fieldSchema.getArrayDimensions().orElse(0);
         if (arrayDimensions == 0) {
+            LOG.warn("postgres array type without dimensions");
             return Type.UNSUPPORTED;
         }
 

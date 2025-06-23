@@ -23,18 +23,18 @@ import java.util.List;
  * select hint UseMv.
  */
 public class SelectHintUseMv extends SelectHint {
-    private final List<String> parameters;
+    private final List<List<String>> tables;
 
     private final boolean isUseMv;
 
-    public SelectHintUseMv(String hintName, List<String> parameters, boolean isUseMv) {
+    public SelectHintUseMv(String hintName, List<List<String>> tables, boolean isUseMv) {
         super(hintName);
-        this.parameters = parameters;
+        this.tables = tables;
         this.isUseMv = isUseMv;
     }
 
-    public List<String> getParameters() {
-        return parameters;
+    public List<List<String>> getTables() {
+        return tables;
     }
 
     public boolean isUseMv() {

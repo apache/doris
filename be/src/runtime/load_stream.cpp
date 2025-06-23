@@ -34,7 +34,6 @@
 #include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
@@ -52,6 +51,7 @@
 #define UNKNOWN_ID_FOR_TEST 0x7c00
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
@@ -64,7 +64,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
           _load_id(load_id),
           _txn_id(txn_id),
           _load_stream_mgr(load_stream_mgr) {
-    load_stream_mgr->create_tokens(_flush_tokens);
+    load_stream_mgr->create_token(_flush_token);
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _add_segment_timer = ADD_TIMER(_profile, "AddSegmentTime");
@@ -178,7 +178,6 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(WARNING) << "write data failed " << st << ", " << *this;
         }
     };
-    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
     auto load_stream_flush_token_max_tasks = config::load_stream_flush_token_max_tasks;
     auto load_stream_max_wait_flush_token_time_ms =
             config::load_stream_max_wait_flush_token_time_ms;
@@ -188,7 +187,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     });
     MonotonicStopWatch timer;
     timer.start();
-    while (flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
+    while (_flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
         if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
             _status.update(
                     Status::Error<true>("wait flush token back pressure time is more than "
@@ -206,7 +205,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     DBUG_EXECUTE_IF("TabletStream.append_data.submit_func_failed",
                     { st = Status::InternalError("fault injection"); });
     if (st.ok()) {
-        st = flush_token->submit_func(flush_func);
+        st = _flush_token->submit_func(flush_func);
     }
     if (!st.ok()) {
         _status.update(st);
@@ -242,7 +241,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             return _status.status();
         }
         DBUG_EXECUTE_IF("TabletStream.add_segment.segid_never_written",
-                        { segid = _segids_mapping[src_id]->size(); });
+                        { segid = static_cast<uint32_t>(_segids_mapping[src_id]->size()); });
         if (segid >= _segids_mapping[src_id]->size()) {
             _status.update(Status::InternalError(
                     "add segment failed, segment is never written, src_id={}, segment_id={}",
@@ -263,12 +262,11 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "add segment failed " << *this;
         }
     };
-    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
     Status st = Status::OK();
     DBUG_EXECUTE_IF("TabletStream.add_segment.submit_func_failed",
                     { st = Status::InternalError("fault injection"); });
     if (st.ok()) {
-        st = flush_token->submit_func(add_segment_func);
+        st = _flush_token->submit_func(add_segment_func);
     }
     if (!st.ok()) {
         _status.update(st);
@@ -303,9 +301,7 @@ void TabletStream::pre_close() {
 
     SCOPED_TIMER(_close_wait_timer);
     _status.update(_run_in_heavy_work_pool([this]() {
-        for (auto& token : _flush_tokens) {
-            token->wait();
-        }
+        _flush_token->wait();
         return Status::OK();
     }));
     // it is necessary to check status after wait_func,
@@ -430,19 +426,22 @@ LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool e
     std::shared_ptr<QueryContext> query_context =
             ExecEnv::GetInstance()->fragment_mgr()->get_query_ctx(load_tid);
     if (query_context != nullptr) {
-        _query_thread_context = {load_tid, query_context->query_mem_tracker,
-                                 query_context->workload_group()};
+        _resource_ctx = query_context->resource_ctx();
     } else {
-        _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
-                                                   MemTrackerLimiter::Type::LOAD,
-                                                   fmt::format("(FromLoadStream)Load#Id={}",
-                                                               ((UniqueId)load_id).to_string()))};
+        _resource_ctx = ResourceContext::create_shared();
+        _resource_ctx->task_controller()->set_task_id(load_tid);
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::LOAD,
+                fmt::format("(FromLoadStream)Load#Id={}", ((UniqueId)load_id).to_string()));
+        _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
     }
 #else
-    _query_thread_context = {load_tid, MemTrackerLimiter::create_shared(
-                                               MemTrackerLimiter::Type::LOAD,
-                                               fmt::format("(FromLoadStream)Load#Id={}",
-                                                           ((UniqueId)load_id).to_string()))};
+    _resource_ctx = ResourceContext::create_shared();
+    _resource_ctx->task_controller()->set_task_id(load_tid);
+    std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::LOAD,
+            fmt::format("(FromLoadStream)Load#Id={}", ((UniqueId)load_id).to_string()));
+    _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
 #endif
 }
 
@@ -453,7 +452,7 @@ LoadStream::~LoadStream() {
 
 Status LoadStream::init(const POpenLoadStreamRequest* request) {
     _txn_id = request->txn_id();
-    _total_streams = request->total_streams();
+    _total_streams = static_cast<int32_t>(request->total_streams());
     _is_incremental = (_total_streams == 0);
 
     _schema = std::make_shared<OlapTableSchemaParam>();
@@ -516,14 +515,14 @@ void LoadStream::_report_result(StreamId stream, const Status& status,
     if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
-        uint8_t* buf = nullptr;
+        uint8_t* profile_buf = nullptr;
         uint32_t len = 0;
         std::unique_lock<bthread::Mutex> l(_lock);
 
         _profile->to_thrift(&tprofile);
-        auto st = ser.serialize(&tprofile, &len, &buf);
+        auto st = ser.serialize(&tprofile, &len, &profile_buf);
         if (st.ok()) {
-            response.set_load_stream_profile(buf, len);
+            response.set_load_stream_profile(profile_buf, len);
         } else {
             LOG(WARNING) << "TRuntimeProfileTree serialize failed, errmsg=" << st << ", " << *this;
         }
@@ -639,7 +638,7 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
-    SCOPED_ATTACH_TASK(_query_thread_context);
+    SCOPED_ATTACH_TASK(_resource_ctx);
     // CLOSE_LOAD message should not be fault injected,
     // otherwise the message will be ignored and causing close wait timeout
     if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
@@ -718,4 +717,5 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_strea
     return ostr;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

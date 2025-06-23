@@ -16,123 +16,198 @@
 // under the License.
 
 suite("test_default_vault", "nonConcurrent") {
+    def suiteName = name;
     if (!isCloudMode()) {
-        logger.info("skip ${name} case, because not cloud mode")
+        logger.info("skip ${suiteName} case, because not cloud mode")
         return
     }
 
     if (!enableStoragevault()) {
-        logger.info("skip ${name} case")
+        logger.info("skip ${suiteName} case, because storage vault not enabled")
         return
     }
 
-    try {
-        sql """ UNSET DEFAULT STORAGE VAULT; """
+    expectExceptionLike({
+        sql """ set not_exist as default storage vault"""
+    }, "invalid storage vault name")
 
-        expectExceptionLike({
-            sql """ set not_exist as default storage vault """
-        }, "invalid storage vault name")
+    expectExceptionLike({
+        sql """ set null as default storage vault"""
+    }, "no viable alternative at input")
 
-        def tableName = "table_use_vault"
-        sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """ UNSET DEFAULT STORAGE VAULT; """
+    def randomStr = UUID.randomUUID().toString().replace("-", "")
+    def s3VaultName = "s3_" + randomStr
+    def s3TableName = "s3_tbl_" + randomStr
+    def hdfsVaultName = "hdfs_" + randomStr
+    def hdfsTableName = "hdfs_tbl_" + randomStr
 
-        expectExceptionLike({
-            sql """
-                CREATE TABLE ${tableName} (
-                    `key` INT,
-                    value INT
-                ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
-                PROPERTIES ('replication_num' = '1')
-            """
-        }, "No default storage vault")
-
+    expectExceptionLike({
         sql """
-            CREATE STORAGE VAULT IF NOT EXISTS create_s3_vault_for_default
-            PROPERTIES (
-                "type"="S3",
-                "s3.endpoint"="${getS3Endpoint()}",
-                "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}",
-                "s3.root.path" = "create_s3_vault_for_default",
-                "s3.bucket" = "${getS3BucketName()}",
-                "s3.external_endpoint" = "",
-                "provider" = "${getS3Provider()}",
-                "set_as_default" = "true"
-            );
-        """
-
-        sql """ set create_s3_vault_for_default as default storage vault """
-        def vaultInfos = sql """ SHOW STORAGE VAULT """
-        // check if create_s3_vault_for_default is set as default
-        for (int i = 0; i < vaultInfos.size(); i++) {
-            def name = vaultInfos[i][0]
-            if (name.equals("create_s3_vault_for_default")) {
-                // isDefault is true
-                assertEquals(vaultInfos[i][3], "true")
-            }
-        }
-
-        sql """ UNSET DEFAULT STORAGE VAULT; """
-        vaultInfos = sql """ SHOW STORAGE VAULT """
-        for (int i = 0; i < vaultInfos.size(); i++) {
-            assertEquals(vaultInfos[i][3], "false")
-        }
-
-
-        sql """ set built_in_storage_vault as default storage vault """
-
-        sql "DROP TABLE IF EXISTS ${tableName} FORCE;"
-        sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE ${s3VaultName} (
                 `key` INT,
                 value INT
             ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
             PROPERTIES ('replication_num' = '1')
         """
+    }, "No default storage vault")
 
-        sql """ insert into ${tableName} values(1, 1); """
-        sql """ sync;"""
-        def result = sql """ select * from ${tableName}; """
-        logger.info("result:${result}");
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0].toInteger() == 1)
+    sql """
+        CREATE STORAGE VAULT ${s3VaultName}
+        PROPERTIES (
+            "type"="S3",
+            "s3.endpoint"="${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}",
+            "s3.root.path" = "${s3VaultName}",
+            "s3.bucket" = "${getS3BucketName()}",
+            "s3.external_endpoint" = "",
+            "provider" = "${getS3Provider()}",
+            "use_path_style" = "false",
+            "set_as_default" = "true"
+        );
+    """
 
-        def create_table_stmt = sql """ show create table ${tableName} """
-        assertTrue(create_table_stmt[0][1].contains("built_in_storage_vault"))
+    boolean found = false
+    def vaultInfos = sql """ SHOW STORAGE VAULTS """
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        def name = vaultInfos[i][0]
+        if (name.equals(s3VaultName)) {
+            // isDefault is true
+            assertEquals(vaultInfos[i][3], "true")
+            found = true
+            break;
+        }
+    }
+    assertTrue(found)
 
+    sql """
+        CREATE TABLE ${s3TableName} (
+            C_CUSTKEY     INTEGER NOT NULL,
+            C_NAME        INTEGER NOT NULL
+        )
+        DUPLICATE KEY(C_CUSTKEY, C_NAME)
+        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """ insert into ${s3TableName} values(1, 1); """
+    sql """ sync;"""
+    def result = sql """ select * from ${s3TableName}; """
+    assertEquals(result.size(), 1);
+    def createTableStmt = sql """ show create table ${s3TableName} """
+    assertTrue(createTableStmt[0][1].contains(s3VaultName))
+
+    expectExceptionLike({
         sql """
-            CREATE STORAGE VAULT IF NOT EXISTS create_default_hdfs_vault
-            PROPERTIES (
-                "type"="hdfs",
-                "fs.defaultFS"="${getHmsHdfsFs()}",
-                "path_prefix" = "default_vault_ssb_hdfs_vault",
-                "hadoop.username" = "hadoop"
-            );
+            alter table ${s3TableName} set("storage_vault_name" = "not_exist_vault");
         """
+    }, "You can not modify")
 
-        sql """ set create_default_hdfs_vault as default storage vault """
+    sql """ UNSET DEFAULT STORAGE VAULT; """
+    vaultInfos = sql """ SHOW STORAGE VAULT """
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        assertEquals(vaultInfos[i][3], "false")
+    }
 
-        sql "DROP TABLE IF EXISTS ${tableName} FORCE;"
+    expectExceptionLike({
         sql """
-            CREATE TABLE ${tableName} (
+            CREATE TABLE ${s3TableName}_2 (
                 `key` INT,
                 value INT
             ) DUPLICATE KEY (`key`) DISTRIBUTED BY HASH (`key`) BUCKETS 1
             PROPERTIES ('replication_num' = '1')
         """
+    }, "No default storage vault")
 
-        create_table_stmt = sql """ show create table ${tableName} """
-        assertTrue(create_table_stmt[0][1].contains("create_default_hdfs_vault"))
+    sql """
+        CREATE STORAGE VAULT ${hdfsVaultName}
+        PROPERTIES (
+            "type"="HDFS",
+            "fs.defaultFS"="${getHmsHdfsFs()}",
+            "path_prefix" = "${hdfsVaultName}",
+            "hadoop.username" = "${getHmsUser()}",
+            "set_as_default" = "true"
+        );
+    """
 
-        expectExceptionLike({
-            sql """
-                alter table ${tableName} set("storage_vault_name" = "built_in_storage_vault");
-            """
-        }, "You can not modify")
+    found = false
+    vaultInfos = sql """ SHOW STORAGE VAULTS """
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        def name = vaultInfos[i][0]
+        if (name.equals(hdfsVaultName)) {
+            // isDefault is true
+            assertEquals(vaultInfos[i][3], "true")
+            found = true
+            break;
+        }
+    }
+    assertTrue(found)
 
-    } finally {
-        sql """ set built_in_storage_vault as default storage vault """
-        sql """ set built_in_storage_vault as default storage vault """
+    sql """
+        CREATE TABLE ${hdfsTableName} (
+            C_CUSTKEY     INTEGER NOT NULL,
+            C_NAME        INTEGER NOT NULL
+        )
+        DUPLICATE KEY(C_CUSTKEY, C_NAME)
+        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """ insert into ${hdfsTableName} values(1, 1); """
+    sql """ sync;"""
+    result = sql """ select * from ${hdfsTableName}; """
+    assertEquals(result.size(), 1);
+    createTableStmt = sql """ show create table ${hdfsTableName} """
+    assertTrue(createTableStmt[0][1].contains(hdfsVaultName))
+
+    expectExceptionLike({
+        sql """
+            alter table ${hdfsTableName} set("storage_vault_name" = "${hdfsVaultName}");
+        """
+    }, "You can not modify")
+
+    // test set stmt
+    sql """SET ${s3VaultName} AS DEFAULT STORAGE VAULT;"""
+    found = false
+    vaultInfos = sql """ SHOW STORAGE VAULTS """
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        def name = vaultInfos[i][0]
+        if (name.equals(s3VaultName)) {
+            // isDefault is true
+            assertEquals(vaultInfos[i][3], "true")
+            found = true
+            break;
+        }
+    }
+    assertTrue(found)
+
+    sql """
+        CREATE TABLE ${s3TableName}_2 (
+            C_CUSTKEY     INTEGER NOT NULL,
+            C_NAME        INTEGER NOT NULL
+        )
+        DUPLICATE KEY(C_CUSTKEY, C_NAME)
+        DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """ insert into ${s3TableName}_2 values(1, 1); """
+    sql """ sync;"""
+    result = sql """ select * from ${s3TableName}_2; """
+    assertEquals(result.size(), 1);
+    createTableStmt = sql """ show create table ${s3TableName}_2 """
+    assertTrue(createTableStmt[0][1].contains(s3VaultName))
+
+    sql """ UNSET DEFAULT STORAGE VAULT; """
+    vaultInfos = sql """ SHOW STORAGE VAULTS """
+    for (int i = 0; i < vaultInfos.size(); i++) {
+        if(vaultInfos[i][3].equalsIgnoreCase"true") {
+            assertFalse(true)
+        }
     }
 }

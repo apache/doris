@@ -17,10 +17,10 @@
 
 #pragma once
 
+#include <utility>
 #include <variant>
 #include <vector>
 
-#include "vec/common/arena.h"
 #include "vec/common/hash_table/hash_map_context.h"
 #include "vec/common/hash_table/hash_map_util.h"
 #include "vec/common/hash_table/ph_hash_map.h"
@@ -72,7 +72,7 @@ public:
 static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
 
 #ifndef NDEBUG
-static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 10;
+static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 5;
 #else
 static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
 #endif
@@ -80,7 +80,8 @@ static constexpr size_t PARTITION_SORT_ROWS_THRESHOLD = 20000;
 struct PartitionBlocks {
 public:
     PartitionBlocks(std::shared_ptr<PartitionSortInfo> partition_sort_info, bool is_first_sorter)
-            : _is_first_sorter(is_first_sorter), _partition_sort_info(partition_sort_info) {}
+            : _is_first_sorter(is_first_sorter),
+              _partition_sort_info(std::move(partition_sort_info)) {}
     ~PartitionBlocks() = default;
 
     void add_row_idx(size_t row) { _selector.push_back(row); }
@@ -102,17 +103,10 @@ public:
         return _init_rows <= 0 || _blocks.back()->bytes() > INITIAL_BUFFERED_BLOCK_BYTES;
     }
 
-    size_t get_total_rows() const { return _total_rows; }
-    size_t get_topn_filter_rows() const { return _topn_filter_rows; }
-    size_t get_do_topn_count() const { return _do_partition_topn_count; }
-
     vectorized::IColumn::Selector _selector;
     std::vector<std::unique_ptr<vectorized::Block>> _blocks;
-    size_t _total_rows = 0;
     size_t _current_input_rows = 0;
-    size_t _topn_filter_rows = 0;
-    size_t _do_partition_topn_count = 0;
-    int _init_rows = 4096;
+    int64_t _init_rows = 4096;
     bool _is_first_sorter = false;
 
     std::unique_ptr<vectorized::SortCursorCmp> _previous_row;

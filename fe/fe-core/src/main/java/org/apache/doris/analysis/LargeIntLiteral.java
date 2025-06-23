@@ -18,18 +18,16 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TLargeIntLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
@@ -134,7 +132,7 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public Object getRealValue() {
+    public BigInteger getRealValue() {
         return this.value;
     }
 
@@ -198,11 +196,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForArray(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValue() + options.getNestedStringWrapper();
-    }
-
-    @Override
     public long getLongValue() {
         return value.longValue();
     }
@@ -214,6 +207,12 @@ public class LargeIntLiteral extends NumericLiteralExpr {
 
     @Override
     public String toSqlImpl() {
+        return getStringValue();
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return getStringValue();
     }
 
@@ -250,17 +249,6 @@ public class LargeIntLiteral extends NumericLiteralExpr {
     public void swapSign() {
         // swapping sign does not change the type
         value = value.negate();
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        value = new BigInteger(Text.readString(in));
-    }
-
-    public static LargeIntLiteral read(DataInput in) throws IOException {
-        LargeIntLiteral largeIntLiteral = new LargeIntLiteral();
-        largeIntLiteral.readFields(in);
-        return largeIntLiteral;
     }
 
     @Override

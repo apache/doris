@@ -18,12 +18,11 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 /**
  * Propagate fd, keep children's fd
  */
-public interface PropagateFuncDeps extends LogicalPlan {
+public interface PropagateFuncDeps extends Plan {
     @Override
     default DataTrait computeDataTrait() {
         if (children().size() == 1) {

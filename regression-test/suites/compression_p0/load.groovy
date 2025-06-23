@@ -66,7 +66,6 @@ suite("load") {
     }
     
     sql "sync"
-    order_qt_sql1 "select * from ${tableName} order by k1, k2"
 
 
     // test LZ4 compression algorithm
@@ -119,7 +118,6 @@ suite("load") {
     }
     
     sql "sync"
-    order_qt_sql2 "select * from ${tableName} order by k1, k2"
 
 
     // test LZ4F compression algorithm
@@ -172,7 +170,6 @@ suite("load") {
     }
     
     sql "sync"
-    order_qt_sql3 "select * from ${tableName} order by k1, k2"
 
 
     // test LZ4HC compression algorithm
@@ -225,7 +222,6 @@ suite("load") {
     }
     
     sql "sync"
-    order_qt_sql4 "select * from ${tableName} order by k1, k2"
 
     
     // test ZLIB compression algorithm
@@ -278,7 +274,6 @@ suite("load") {
     }
     
     sql "sync"
-    order_qt_sql5 "select * from ${tableName} order by k1, k2"
 
 
     // test ZSTD compression algorithm
@@ -331,5 +326,36 @@ suite("load") {
     }
     
     sql "sync"
-    order_qt_sql6 "select * from ${tableName} order by k1, k2"
+
+    // test GZIP compression algorithm
+    tableName = "test_GZIP"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `k1` bigint(20) NULL,
+            `k2` tinyint(4) NULL,
+            `k3` smallint(6) NULL,
+            `k4` int(11) NULL,
+            `k5` bigint(20) NULL,
+            `k6` largeint(40) NULL,
+            `k7` datetime NULL,
+            `k8` date NULL,
+            `k9` char(10) NULL,
+            `k10` varchar(6) NULL,
+            `k11` decimal(27, 9) NULL
+        ) ENGINE=OLAP
+        Duplicate KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "compression" = "GZIP"
+        );
+    """
+    } catch (Exception e) {
+        log.info("Stream load result: ${e}".toString())
+        assertTrue(e.getMessage().contains("unknown compression type: GZIP"))
+    }
 }

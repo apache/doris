@@ -34,9 +34,10 @@ import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
 
@@ -168,7 +169,7 @@ public class BrokerLoadJobTest {
             }
         };
 
-        new MockUp<Load>() {
+        new MockUp<LoadExprTransformUtils>() {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
                                              Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
@@ -274,7 +275,7 @@ public class BrokerLoadJobTest {
                                           @Injectable BrokerFileGroupAggInfo fileGroupAggInfo, @Injectable BrokerFileGroup brokerFileGroup1,
                                           @Injectable BrokerFileGroup brokerFileGroup2, @Injectable BrokerFileGroup brokerFileGroup3,
                                           @Mocked MasterTaskExecutor masterTaskExecutor, @Injectable OlapTable olapTable,
-                                          @Mocked LoadingTaskPlanner loadingTaskPlanner) {
+                                          @Mocked NereidsLoadingTaskPlanner loadingTaskPlanner) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
         Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
         long taskId = 1L;

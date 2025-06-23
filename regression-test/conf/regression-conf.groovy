@@ -179,6 +179,7 @@ dfsNamenodeRpcAddress3=""
 hadoopSecurityAuthentication = ""
 hadoopKerberosKeytabPath = ""
 hadoopKerberosPrincipal = ""
+hadoopSecurityAutoToLocal = ""
 
 
 //paimon catalog test config for bigdata
@@ -198,12 +199,15 @@ extPgPort = 5432
 extPgUser = "****"
 extPgPassword = "***********"
 
-// elasticsearch external test config for bigdata
-enableExternalEsTest = false
-extEsHost = "***********"
-extEsPort = 9200
-extEsUser = "*******"
-extEsPassword = "***********"
+// minio external test config
+enableExternalMinioTest = false
+extMinioHost = "***.**.**.**"
+extMinioPort = 9000
+extMinioDomain = "myminio.com"
+extMinioAk = "minioadmin"
+extMinioSk = "minioadmin"
+extMinioRegion = "us-east-1"
+extMinioBucket = "test-bucket"
 
 enableExternalHudiTest = false
 hudiEmrCatalog = "***********"
@@ -244,6 +248,7 @@ enableTrinoConnectorTest = false
 enableKerberosTest=false
 kerberosHmsPort=9883
 kerberosHdfsPort=8820
+enableRefactorParamsHdfsTest=true
 
 
 // LakeSoul catalog test config
@@ -266,3 +271,12 @@ cbsS3Sk = "*******"
 cbsS3Endpoint = "oss-cn-beijing.aliyuncs.com"
 cbsS3Bucket = "test-bucket"
 cbsS3Prefix = "test-cluster-prefix"
+
+// External Env
+enableExternalIcebergTest = false
+// The properties string of iceberg catalog
+icebergS3TablesCatalog = ""
+
+enableExternalHudiTest = false
+// The properties string of hudi catalog
+hudiEmrCatalog = ""

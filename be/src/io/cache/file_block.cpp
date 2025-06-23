@@ -59,6 +59,10 @@ FileBlock::State FileBlock::state() const {
     return _download_state;
 }
 
+FileBlock::State FileBlock::state_unsafe() const {
+    return _download_state;
+}
+
 uint64_t FileBlock::get_caller_id() {
     uint64_t id;
 #if defined(__APPLE__)
@@ -144,7 +148,7 @@ Status FileBlock::append(Slice data) {
 
 Status FileBlock::finalize() {
     if (_downloaded_size != 0 && _downloaded_size != _block_range.size()) {
-        SCOPED_CACHE_LOCK(_mgr->_mutex);
+        SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
         size_t old_size = _block_range.size();
         _block_range.right = _block_range.left + _downloaded_size - 1;
         size_t new_size = _block_range.size();
@@ -179,7 +183,7 @@ Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_typ
 }
 
 Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_type) {
-    SCOPED_CACHE_LOCK(_mgr->_mutex);
+    SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
     std::lock_guard block_lock(_mutex);
     bool expr = (new_type != FileCacheType::TTL && _key.meta.type != FileCacheType::TTL);
     if (!expr) {
@@ -287,18 +291,20 @@ FileBlocksHolder::~FileBlocksHolder() {
                 std::lock_guard block_lock(file_block->_mutex);
                 file_block->complete_unlocked(block_lock);
                 if (file_block.use_count() == 2 &&
-                    file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
+                    (file_block->is_deleting() ||
+                     file_block->state_unlock(block_lock) == FileBlock::State::EMPTY)) {
                     should_remove = true;
                 }
             }
             if (should_remove) {
-                SCOPED_CACHE_LOCK(_mgr->_mutex);
+                SCOPED_CACHE_LOCK(_mgr->_mutex, _mgr);
                 std::lock_guard block_lock(file_block->_mutex);
                 if (file_block.use_count() == 2) {
                     DCHECK(file_block->state_unlock(block_lock) != FileBlock::State::DOWNLOADING);
                     // one in cache, one in here
-                    if (file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
-                        _mgr->remove(file_block, cache_lock, block_lock);
+                    if (file_block->is_deleting() ||
+                        file_block->state_unlock(block_lock) == FileBlock::State::EMPTY) {
+                        _mgr->remove(file_block, cache_lock, block_lock, false);
                     }
                 }
             }

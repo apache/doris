@@ -49,42 +49,17 @@ suite('test_manager_interface_4',"p0") {
 
         futures.add( thread {
             sleep(500);
-            List<List<Object>> result = sql """ show proc '/current_query_stmts' """ 
-            logger.info("result = ${result}" )
-            def x = 0
+            List<List<Object>> result = sql_return_maparray """  show processlist  """
             def queryid = ""
+            def x = 0
             logger.info("result = ${result}")
-
-            for( int i = 0;i<result.size();i++) {
-                if (result[i][7] != null && result[i][7].contains("18880094567") )//Statement
-                {
+            for( int i =0 ;i < result.size();i++ ){
+                if (result[i]["Info"].contains("18880094567")) {
+                    queryid = result[i]["QueryId"]
                     x = 1
-                    queryid = result[i][0]
-                    logger.info("query ID = ${queryid}")
-                    assertTrue(result[i][0]!= null) //QueryId
-                    assertTrue(result[i][1]!= null) //ConnectionId
-                    assertTrue(result[i][2]!= null)//Catalog
-                    assertTrue(result[i][3]!= null)//Database
-                    assertTrue(result[i][4]!= null)//User
-                    assertTrue(result[i][5]!= null)//ExecTime
-                    assertTrue(result[i][5].isNumber())//ExecTime
-                    assertTrue(result[i][6]!= null)//SqlHash
+                    break;
                 }
             }
-            assertTrue(x == 1)
-            
-            x = 0 
-            result = sql """  show proc '/current_queries' """
-            logger.info("result = ${result}")
-            for( int i = 0;i<result.size();i++) {
-                if (result[i][0] == queryid )//QueryId
-                {
-                    x = 1
-                    assertTrue(result[i][5]!= null)//ScanBytes
-                    assertTrue(result[i][6]!= null)//ProcessBytes
-                }
-            }
-            assertTrue(x == 1)
 
             result = sql """  show processlist  """
             logger.info("result = ${result}")

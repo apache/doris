@@ -19,9 +19,8 @@ package org.apache.doris.common.cache;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.SupportBinarySearchFilteringPartitions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
 import org.apache.doris.datasource.CatalogIf;
@@ -30,6 +29,9 @@ import org.apache.doris.nereids.rules.expression.rules.PartitionItemToRange;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndId;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -37,12 +39,15 @@ import com.google.common.collect.Range;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.apache.hadoop.util.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -53,6 +58,7 @@ import java.util.Optional;
  * and the QPS can be improved
  */
 public class NereidsSortedPartitionsCacheManager {
+    private static final Logger LOG = LogManager.getLogger(NereidsSortedPartitionsCacheManager.class);
     private volatile Cache<TableIdentifier, PartitionCacheContext> partitionCaches;
 
     public NereidsSortedPartitionsCacheManager() {
@@ -62,7 +68,13 @@ public class NereidsSortedPartitionsCacheManager {
         );
     }
 
-    public Optional<SortedPartitionRanges<?>> get(OlapTable table) {
+    public Optional<SortedPartitionRanges<?>> get(
+            SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && !connectContext.getSessionVariable().enableBinarySearchFilteringPartitions) {
+            return Optional.empty();
+        }
+
         DatabaseIf<?> database = table.getDatabase();
         if (database == null) {
             return Optional.empty();
@@ -74,26 +86,43 @@ public class NereidsSortedPartitionsCacheManager {
         TableIdentifier key = new TableIdentifier(
                 catalog.getName(), database.getFullName(), table.getName());
         PartitionCacheContext partitionCacheContext = partitionCaches.getIfPresent(key);
-        if (partitionCacheContext == null) {
-            return Optional.of(loadCache(key, table));
-        }
-        if (table.getId() != partitionCacheContext.tableId
-                || table.getVisibleVersion() != partitionCacheContext.tableVersion) {
+
+        try {
+            if (partitionCacheContext == null) {
+                return Optional.ofNullable(loadCache(key, table, scan));
+            }
+            if (table.getId() != partitionCacheContext.tableId
+                    || !Objects.equals(table.getPartitionMetaVersion(scan),
+                    partitionCacheContext.partitionMetaVersion)) {
+                partitionCaches.invalidate(key);
+                return Optional.ofNullable(loadCache(key, table, scan));
+            }
+        } catch (Throwable t) {
+            LOG.warn("Failed to load cache for table {}, key {}.", table.getName(), key, t);
             partitionCaches.invalidate(key);
-            return Optional.of(loadCache(key, table));
+            return Optional.empty();
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
     }
 
-    private SortedPartitionRanges<?> loadCache(TableIdentifier key, OlapTable olapTable) {
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        Map<Long, PartitionItem> allPartitions = partitionInfo.getIdToItem(false);
-        List<Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(allPartitions.entrySet());
-        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(allPartitions.size());
+    private SortedPartitionRanges<?> loadCache(
+            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan)
+            throws RpcException {
+        long now = System.currentTimeMillis();
+        long partitionMetaLoadTime = table.getPartitionMetaLoadTimeMillis(scan);
+
+        // if insert too frequently, we will skip sort partitions
+        if (now <= partitionMetaLoadTime || (now - partitionMetaLoadTime) <= (10 * 1000)) {
+            return null;
+        }
+
+        Map<?, PartitionItem> unsortedMap = table.getOriginPartitions(scan);
+        List<Entry<?, PartitionItem>> unsortedList = Lists.newArrayList(unsortedMap.entrySet());
+        List<PartitionItemAndRange<?>> sortedRanges = Lists.newArrayListWithCapacity(unsortedMap.size());
         List<PartitionItemAndId<?>> defaultPartitions = Lists.newArrayList();
-        for (Entry<Long, PartitionItem> entry : sortedList) {
+        for (Entry<?, PartitionItem> entry : unsortedList) {
             PartitionItem partitionItem = entry.getValue();
-            Long id = entry.getKey();
+            Object id = entry.getKey();
             if (!partitionItem.isDefaultPartition()) {
                 List<Range<MultiColumnBound>> ranges = PartitionItemToRange.toRanges(partitionItem);
                 for (Range<MultiColumnBound> range : ranges) {
@@ -118,7 +147,7 @@ public class NereidsSortedPartitionsCacheManager {
                 sortedRanges, defaultPartitions
         );
         PartitionCacheContext context = new PartitionCacheContext(
-                olapTable.getId(), olapTable.getVisibleVersion(), sortedPartitionRanges);
+                table.getId(), table.getPartitionMetaVersion(scan), sortedPartitionRanges);
         partitionCaches.put(key, context);
         return sortedPartitionRanges;
     }
@@ -166,20 +195,21 @@ public class NereidsSortedPartitionsCacheManager {
 
     private static class PartitionCacheContext {
         private final long tableId;
-        private final long tableVersion;
+        private final Object partitionMetaVersion;
         private final SortedPartitionRanges sortedPartitionRanges;
 
         public PartitionCacheContext(
-                long tableId, long tableVersion, SortedPartitionRanges sortedPartitionRanges) {
+                long tableId, Object partitionMetaVersion, SortedPartitionRanges sortedPartitionRanges) {
             this.tableId = tableId;
-            this.tableVersion = tableVersion;
+            this.partitionMetaVersion
+                    = Objects.requireNonNull(partitionMetaVersion, "partitionMetaVersion cannot be null");
             this.sortedPartitionRanges = sortedPartitionRanges;
         }
 
         @Override
         public String toString() {
             return "PartitionCacheContext(tableId="
-                    + tableId + ", tableVersion=" + tableVersion
+                    + tableId + ", tableVersion=" + partitionMetaVersion
                     + ", partitionNum=" + sortedPartitionRanges.sortedPartitions.size() + ")";
         }
     }

@@ -40,6 +40,7 @@ class Block;
 
 std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
+        {"PARTITION_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
@@ -65,6 +66,21 @@ std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns 
         {"PARTITION_COMMENT", TYPE_STRING, sizeof(StringRef), false},
         {"NODEGROUP", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLESPACE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"LOCAL_DATA_SIZE", TYPE_STRING, sizeof(StringRef), true},
+        {"REMOTE_DATA_SIZE", TYPE_STRING, sizeof(StringRef), true},
+        {"STATE", TYPE_STRING, sizeof(StringRef), true},
+        {"REPLICA_ALLOCATION", TYPE_STRING, sizeof(StringRef), true},
+        {"REPLICA_NUM", TYPE_INT, sizeof(int32_t), true},
+        {"STORAGE_POLICY", TYPE_STRING, sizeof(StringRef), true},
+        {"STORAGE_MEDIUM", TYPE_STRING, sizeof(StringRef), true},
+        {"COOLDOWN_TIME_MS", TYPE_STRING, sizeof(StringRef), true},
+        {"LAST_CONSISTENCY_CHECK_TIME", TYPE_STRING, sizeof(StringRef), true},
+        {"BUCKET_NUM", TYPE_INT, sizeof(int32_t), true},
+        {"COMMITTED_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
+        {"VISIBLE_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
+        {"PARTITION_KEY", TYPE_STRING, sizeof(StringRef), true},
+        {"RANGE", TYPE_STRING, sizeof(StringRef), true},
+        {"DISTRIBUTION", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaPartitionsScanner::SchemaPartitionsScanner()
@@ -110,6 +126,7 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(dbId);
+    schema_table_request_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::PARTITIONS);
@@ -117,13 +134,13 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
 
     TFetchSchemaTableDataResult result;
 
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, &result](FrontendServiceConnection& client) {
-                client->fetchSchemaTableData(result, request);
-            },
-            _rpc_timeout_ms));
+    RETURN_IF_ERROR(SchemaHelper::fetch_schema_table_data(master_addr.hostname, master_addr.port,
+                                                          request, &result));
+    RETURN_IF_ERROR(fill_db_partitions(result));
+    return Status::OK();
+}
 
+Status SchemaPartitionsScanner::fill_db_partitions(TFetchSchemaTableDataResult& result) {
     Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "fetch table options from FE failed, errmsg=" << status;
@@ -133,13 +150,13 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
 
     _partitions_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        TypeDescriptor descriptor(_s_tbls_columns[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _partitions_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
     _partitions_block->reserve(_block_rows_limit);
-    if (result_data.size() > 0) {
+    if (!result_data.empty()) {
         auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>("table options schema is not match for FE and BE");
@@ -175,6 +192,7 @@ Status SchemaPartitionsScanner::get_next_block_internal(vectorized::Block* block
     if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
+    SCOPED_TIMER(_fill_block_timer);
 
     if ((_partitions_block == nullptr) || (_row_idx == _total_rows)) {
         if (_db_index < _db_result.db_ids.size()) {

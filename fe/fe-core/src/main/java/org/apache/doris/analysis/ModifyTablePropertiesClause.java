@@ -67,6 +67,16 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         this.properties = properties;
     }
 
+    // for nereids
+    public ModifyTablePropertiesClause(Map<String, String> properties, String storagePolicy, boolean isBeingSynced,
+            boolean needTableStable, AlterOpType opType) {
+        super(opType);
+        this.properties = properties;
+        this.storagePolicy = storagePolicy;
+        this.isBeingSynced = isBeingSynced;
+        this.needTableStable = needTableStable;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
@@ -365,7 +375,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
-            // do nothing, will be analyzed when creating alter job
+            throw new AnalysisException("You can not modify property 'enable_unique_key_skip_bitmap_column'.");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
             throw new AnalysisException("You can not modify storage_page_size");
         } else {

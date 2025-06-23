@@ -60,7 +60,7 @@ public:
 
     const std::string& expr_name() const override;
 
-    void set_filter(std::shared_ptr<BitmapFilterFuncBase>& filter);
+    void set_filter(std::shared_ptr<BitmapFilterFuncBase> filter);
 
     std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const override {
         return _filter;

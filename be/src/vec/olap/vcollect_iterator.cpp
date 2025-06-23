@@ -431,7 +431,8 @@ Status VCollectIterator::_topn_next(Block* block) {
     *block = mutable_block.to_block();
     // append a column to indicate scanner filter_block is already done
     auto filtered_datatype = std::make_shared<DataTypeUInt8>();
-    auto filtered_column = filtered_datatype->create_column_const(block->rows(), (uint8_t)1);
+    auto filtered_column = filtered_datatype->create_column_const(
+            block->rows(), Field::create_field<TYPE_BOOLEAN>(1));
     block->insert(
             {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
@@ -734,12 +735,10 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _heap->pop();
         } else {
             _ref.reset();
-            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -770,11 +769,9 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
             _children.pop_front();
             return _normal_next(ref);
         } else {
-            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
@@ -877,10 +874,8 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     if (LIKELY(res.ok())) {
         return Status::OK();
     } else if (res.is<END_OF_FILE>()) {
-        _cur_child.reset();
         return Status::Error<END_OF_FILE>("");
     } else {
-        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }

@@ -47,64 +47,59 @@ suite("test_audit_log_behavior") {
                     "insert into audit_log_behavior values (1, '3F6B9A_${cnt++}')"
             ],
             [
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt}'), (2, 'Jelly')",
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt++}'), (2, ... /* total 2 rows, truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior values (2, '3F6B9A_${cnt}'), (2, 'Jelly')",
+                    "insert into audit_log_behavior values (2, '3F6B9A_${cnt++}'), (2, ... /* total 2 rows, truncated. audit_plugin_max_insert_stmt_length=58 */"
             ],
             [
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt}'), (2, 'Jelly'), (3, 'foobar')",
-                    "insert into audit_log_behavior values (1, '3F6B9A_${cnt++}'), (2, ... /* total 3 rows, truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior values (3, '3F6B9A_${cnt}'), (2, 'Jelly'), (3, 'foobar')",
+                    "insert into audit_log_behavior values (3, '3F6B9A_${cnt++}'), (2, ... /* total 3 rows, truncated. audit_plugin_max_insert_stmt_length=58 */"
             ],
             [
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt}'",
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}'"],
+                    "insert into audit_log_behavior select 4, '3F6B9A_${cnt}'",
+                    "insert into audit_log_behavior select 4, '3F6B9A_${cnt++}'"],
             [
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt}' union select 2, 'Jelly'",
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}' union  ... /* truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior select 5, '3F6B9A_${cnt}' union select 2, 'Jelly'",
+                    "insert into audit_log_behavior select 5, '3F6B9A_${cnt++}' union  ... /* truncated. audit_plugin_max_sql_length=58 */"
             ],
             [
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt}' from audit_log_behavior",
-                    "insert into audit_log_behavior select 1, '3F6B9A_${cnt++}' from a ... /* truncated audit_plugin_max_sql_length=58 */"
+                    "insert into audit_log_behavior select 6, '3F6B9A_${cnt}' from audit_log_behavior",
+                    "insert into audit_log_behavior select 6, '3F6B9A_${cnt++}' from a ... /* truncated. audit_plugin_max_sql_length=58 */"
             ],
             [
                     "select id, name from audit_log_behavior as loooooooooooooooong_alias",
-                    "select id, name from audit_log_behavior as loooooooooooooo ... /* truncated audit_plugin_max_sql_length=58 */"
+                    "select id, name from audit_log_behavior as loooooooooooooo ... /* truncated. audit_plugin_max_sql_length=58 */"
             ]
     ]
 
     qt_audit_log_schema """desc internal.__internal_schema.audit_log"""
 
-    for (def on : [true, false]) {
-        sql "set enable_nereids_planner=${on}"
-        sql "truncate table  __internal_schema.audit_log"
-        // run queries
-        for (int i = 0; i < cnt; i++) {
-            def tuple2 = sqls.get(i)
-            sql tuple2[0]
-        }
-
-        if (on == true) {
-            // only new planner supports call flush_audit_log
-            // make sure audit event is created.
-            // see WorkloadRuntimeStatusMgr.getQueryNeedAudit()
-            Thread.sleep(6000)
-            sql """call flush_audit_log()"""
-        }
-        // check result
-        for (int i = 0; i < cnt; i++) {
-            def tuple2 = sqls.get(i)
-            def retry = 180
-            def res = sql "select stmt from __internal_schema.audit_log where stmt like '%3F6B9A_${i}%' order by time asc limit 1"
-            while (res.isEmpty()) {
-                if (retry-- < 0) {
-                    logger.warn("It has retried a few but still failed, you need to check it")
-                    return
-                }
-                sleep(1000)
-                res = sql "select stmt from __internal_schema.audit_log where stmt like '%3F6B9A_${i}%' order by time asc limit 1"
-            }
-            assertEquals(res[0][0].toString(), tuple2[1].toString())
-        }
+    sql "truncate table  __internal_schema.audit_log"
+    // run queries
+    for (int i = 0; i < cnt; i++) {
+        def tuple2 = sqls.get(i)
+        sql tuple2[0]
     }
+
+    Thread.sleep(6000)
+    sql """call flush_audit_log()"""
+        
+    // check result
+    for (int i = 0; i < cnt; i++) {
+        def tuple2 = sqls.get(i)
+        def retry = 180
+        def query = "select stmt from __internal_schema.audit_log where stmt like 'insert%3F6B9A_${i}%' order by time asc limit 1"
+        def res = sql "${query}"
+        while (res.isEmpty()) {
+            if (retry-- < 0) {
+                logger.warn("It has retried a few but still failed, you need to check it")
+                return
+            }
+            sleep(1000)
+            res = sql "${query}"
+        }
+        assertEquals(tuple2[1].toString(), res[0][0].toString())
+    }
+
     // do not turn off
     sql "set global enable_audit_plugin = false"
     sql "set global audit_plugin_max_sql_length = 4096"

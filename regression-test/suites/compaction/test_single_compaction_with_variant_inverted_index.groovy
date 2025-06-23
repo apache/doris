@@ -57,16 +57,16 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
+        def process = command.execute()
         code = process.waitFor()
         err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
         out = process.getText()
         logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
         if (!disableAutoCompaction) {
-            return "Success, " + out
+            return "Success, " + out2
         }
-        assertEquals(code, 0)
-        return out
+        assertEquals(code2, 0)
+        return out2
     } 
 
     def triggerSingleCompaction = { be_host, be_http_port, tablet_id ->
@@ -78,16 +78,16 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
+        def process = command.execute()
         code = process.waitFor()
         err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
         out = process.getText()
         logger.info("Run compaction: code=" + code + ", out=" + out + ", disableAutoCompaction " + disableAutoCompaction + ", err=" + err)
         if (!disableAutoCompaction) {
-            return "Success, " + out
+            return "Success, " + out3
         }
-        assertEquals(code, 0)
-        return out
+        assertEquals(code3, 0)
+        return out3
     }
     def waitForCompaction = { be_host, be_http_port, tablet_id ->
         boolean running = true
@@ -100,7 +100,7 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
+            def process = command.execute()
             code = process.waitFor()
             out = process.getText()
             logger.info("Get compaction status: code=" + code + ", out=" + out)
@@ -121,7 +121,7 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
+        def process = command.execute()
         code = process.waitFor()
         out = process.getText()
         logger.info("Get tablet status: code=" + code + ", out=" + out)
@@ -132,26 +132,26 @@ suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
 
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
-    sql """ set disable_inverted_index_v1_for_variant = false """
-    sql """
-        CREATE TABLE ${tableName} (
-            `id` int(11) NULL,
-            `name` varchar(255) NULL,
-            `score` int(11) NULL,
-            `properties` variant,
-            INDEX idx_props (`properties`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
-        ) ENGINE=OLAP
-        DUPLICATE KEY(`id`)
-        COMMENT 'OLAP'
-        DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-            "replication_num" = "2",
-            "enable_single_replica_compaction" = "true",
-            "inverted_index_storage_format" = "V1",
-            "compaction_policy" = "time_series"
-        );
-    """
-    sql """ set disable_inverted_index_v1_for_variant = true """
+    setFeConfigTemporary([enable_inverted_index_v1_for_variant: true]) {
+        sql """
+            CREATE TABLE ${tableName} (
+                `id` int(11) NULL,
+                `name` varchar(255) NULL,
+                `score` int(11) NULL,
+                `properties` variant,
+                INDEX idx_props (`properties`) USING INVERTED PROPERTIES("parser" = "none") COMMENT ''
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "2",
+                "enable_single_replica_compaction" = "true",
+                "inverted_index_storage_format" = "V1",
+                "compaction_policy" = "time_series"
+            );
+        """
+    }
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 

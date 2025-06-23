@@ -43,6 +43,10 @@ public:
         }
     }
 
+#ifdef BE_TEST
+    VLiteral() = default;
+#endif
+
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
 

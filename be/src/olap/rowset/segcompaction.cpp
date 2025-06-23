@@ -32,11 +32,10 @@
 #include <string>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "beta_rowset_writer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
@@ -65,6 +64,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
@@ -86,7 +86,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
         vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
-        std::vector<uint32_t>& return_columns,
+        std::vector<uint32_t>& return_columns, std::vector<uint32_t>& key_group_cluster_key_idxes,
         std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
     const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
@@ -95,6 +95,19 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     read_options.use_page_cache = false;
     read_options.tablet_schema = ctx.tablet_schema;
     read_options.record_rowids = record_rowids;
+    if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
+        DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+        RETURN_IF_ERROR(tablet->calc_delete_bitmap_between_segments(ctx.rowset_id, *segments,
+                                                                    delete_bitmap));
+        for (auto& seg_ptr : *segments) {
+            auto d = delete_bitmap->get_agg(
+                    {ctx.rowset_id, seg_ptr->id(), DeleteBitmap::TEMP_VERSION_COMMON});
+            if (d->isEmpty()) {
+                continue; // Empty delete bitmap for the segment
+            }
+            read_options.delete_bitmap.emplace(seg_ptr->id(), std::move(d));
+        }
+    }
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     std::map<uint32_t, uint32_t> segment_rows;
     for (auto& seg_ptr : *segments) {
@@ -123,6 +136,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     reader_params.is_key_column_group = is_key;
     reader_params.use_page_cache = false;
     reader_params.record_rowids = record_rowids;
+    reader_params.key_group_cluster_key_idxes = key_group_cluster_key_idxes;
     return (*reader)->init(reader_params, nullptr);
 }
 
@@ -153,15 +167,14 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         // will be cleaned up by the GC background. So here we only print the error
         // message when we encounter an error.
         RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(seg_path),
-                                       strings::Substitute("Failed to delete file=$0", seg_path));
+                                       absl::Substitute("Failed to delete file=$0", seg_path));
         if (schema->has_inverted_index() &&
             schema->get_inverted_index_storage_format() >= InvertedIndexStorageFormatPB::V2) {
             auto idx_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
             VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
-            RETURN_NOT_OK_STATUS_WITH_WARN(
-                    fs->delete_file(idx_path),
-                    strings::Substitute("Failed to delete file=$0", idx_path));
+            RETURN_NOT_OK_STATUS_WITH_WARN(fs->delete_file(idx_path),
+                                           absl::Substitute("Failed to delete file=$0", idx_path));
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
@@ -175,7 +188,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                     VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                     RETURN_NOT_OK_STATUS_WITH_WARN(
                             fs->delete_file(idx_path),
-                            strings::Substitute("Failed to delete file=$0", idx_path));
+                            absl::Substitute("Failed to delete file=$0", idx_path));
                 }
                 // Erase the origin index file cache
                 auto idx_file_cache_key = InvertedIndexDescriptor::get_index_file_cache_key(
@@ -190,8 +203,9 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
 
 Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat,
                                                Merger::Statistics& merger_stat, uint32_t begin,
-                                               uint32_t end) {
+                                               uint32_t end, bool is_mow_with_cluster_keys) {
     uint64_t raw_rows_read = reader_stat.raw_rows_read; /* total rows read before merge */
+    uint64_t rows_del_by_bitmap = reader_stat.rows_del_by_bitmap;
     uint64_t sum_src_row = 0; /* sum of rows in each involved source segments */
     uint64_t filtered_rows = merger_stat.filtered_rows; /* rows filtered by del conditions */
     uint64_t output_rows = merger_stat.output_rows;     /* rows after merge */
@@ -205,11 +219,15 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_sum_src_row", { sum_src_row++; });
-    if (raw_rows_read != sum_src_row) {
+    uint64_t raw_rows = raw_rows_read;
+    if (is_mow_with_cluster_keys) {
+        raw_rows += rows_del_by_bitmap;
+    }
+    if (raw_rows != sum_src_row) {
         return Status::Error<CHECK_LINES_ERROR>(
                 "segcompaction read row num does not match source. expect read row:{}, actual read "
-                "row:{}",
-                sum_src_row, raw_rows_read);
+                "row:{}(raw_rows_read: {}, rows_del_by_bitmap: {})",
+                sum_src_row, raw_rows, raw_rows_read, rows_del_by_bitmap);
     }
 
     DBUG_EXECUTE_IF("SegcompactionWorker._check_correctness_wrong_merged_rows", { merged_rows++; });
@@ -236,7 +254,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
     DCHECK(_seg_compact_mem_tracker != nullptr);
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
+    SCOPED_ATTACH_TASK(_seg_compact_mem_tracker);
     /* throttle segcompaction task if memory depleted */
     if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
@@ -281,8 +299,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
         OlapReaderStatistics reader_stats;
         std::unique_ptr<vectorized::VerticalBlockReader> reader;
-        auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
-                                           is_key, column_ids, &reader);
+        auto s =
+                _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
+                                          is_key, column_ids, key_group_cluster_key_idxes, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             return Status::Error<SEGCOMPACTION_INIT_READER>(
                     "failed to get segcompaction reader. err: {}", s.to_string());
@@ -303,9 +322,10 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
 
     /* check row num after merge/aggregation */
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            _check_correctness(key_reader_stats, key_merger_stats, begin, end),
-            "check correctness failed");
+    bool is_mow_with_cluster_keys = !tablet->tablet_schema()->cluster_key_uids().empty();
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_correctness(key_reader_stats, key_merger_stats, begin,
+                                                      end, is_mow_with_cluster_keys),
+                                   "check correctness failed");
     {
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
         _writer->_clear_statistics_for_deleting_segments_unsafe(begin, end);
@@ -329,7 +349,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
         for (const auto& entry : std::filesystem::directory_iterator(ctx.tablet_path)) {
-            fmt::format_to(_writer->vlog_buffer, "[{}]", string(entry.path()));
+            fmt::format_to(_writer->vlog_buffer, "[{}]", std::string(entry.path()));
         }
         VLOG_DEBUG << "tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id
                    << "_segcompacted_point:" << _writer->_segcompacted_point
@@ -359,7 +379,7 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
         return;
     }
     if (!status.ok()) {
-        int16_t errcode = status.code();
+        int errcode = status.code();
         switch (errcode) {
         case FETCH_MEMORY_EXCEEDED:
         case SEGCOMPACTION_INIT_READER:
@@ -443,4 +463,5 @@ bool SegcompactionWorker::cancel() {
     return _is_compacting_state_mutable.exchange(false);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

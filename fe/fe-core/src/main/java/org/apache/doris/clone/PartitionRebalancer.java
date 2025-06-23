@@ -284,9 +284,10 @@ public class PartitionRebalancer extends Rebalancer {
             // Check src replica's validation
             Replica srcReplica = tabletCtx.getTablet().getReplicaByBackendId(move.fromBe);
             Preconditions.checkNotNull(srcReplica);
-            TabletScheduler.PathSlot slot = backendsWorkingSlots.get(srcReplica.getBackendIdWithoutException());
+            long beId = srcReplica.getBackendIdWithoutException();
+            TabletScheduler.PathSlot slot = backendsWorkingSlots.get(beId);
             Preconditions.checkNotNull(slot, "unable to get fromBe "
-                    + srcReplica.getBackendIdWithoutException() + " slot");
+                    + beId + " slot");
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {

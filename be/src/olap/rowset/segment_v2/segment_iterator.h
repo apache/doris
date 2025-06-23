@@ -138,18 +138,15 @@ public:
     RowsetId rowset_id() const { return _segment->rowset_id(); }
     int64_t tablet_id() const { return _tablet_id; }
 
-    bool update_profile(RuntimeProfile* profile) override {
-        bool updated = false;
-        updated |= _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
-        updated |= _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
+    void update_profile(RuntimeProfile* profile) override {
+        _update_profile(profile, _short_cir_eval_predicate, "ShortCircuitPredicates");
+        _update_profile(profile, _pre_eval_block_predicate, "PreEvaluatePredicates");
 
         if (_opts.delete_condition_predicates != nullptr) {
             std::set<const ColumnPredicate*> delete_predicate_set;
             _opts.delete_condition_predicates->get_all_column_predicate(delete_predicate_set);
-            updated |= _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
+            _update_profile(profile, delete_predicate_set, "DeleteConditionPredicates");
         }
-
-        return updated;
     }
 
     std::vector<std::unique_ptr<InvertedIndexIterator>>& inverted_index_iterators() {
@@ -165,17 +162,16 @@ private:
     Status _next_batch_internal(vectorized::Block* block);
 
     template <typename Container>
-    bool _update_profile(RuntimeProfile* profile, const Container& predicates,
+    void _update_profile(RuntimeProfile* profile, const Container& predicates,
                          const std::string& title) {
         if (predicates.empty()) {
-            return false;
+            return;
         }
         std::string info;
         for (auto pred : predicates) {
             info += "\n" + pred->debug_string();
         }
         profile->add_info_string(title, info);
-        return true;
     }
 
     [[nodiscard]] Status _lazy_init();
@@ -322,12 +318,6 @@ private:
             for (auto cid = 0; cid < num_keys; cid++) {
                 auto* field = key.schema()->column(cid);
                 _short_key[cid] = Schema::get_column_by_field(*field);
-
-                if (field->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                    _short_key[cid]->set_date_type();
-                } else if (field->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                    _short_key[cid]->set_datetime_type();
-                }
             }
         } else {
             for (int i = 0; i < num_keys; i++) {

@@ -17,9 +17,10 @@
 
 suite("compress_materialize") {
     sql """
+    set enable_compress_materialize=true;
     drop table if exists compress;
     CREATE TABLE `compress` (
-    `k` varchar(5) NOT NULL,
+    `k` varchar(6) NOT NULL,
     `v` int NOT NULL
     ) ENGINE=OLAP
     duplicate KEY(`k`)
@@ -34,7 +35,7 @@ suite("compress_materialize") {
 
     drop table if exists cmt2;
     CREATE TABLE `cmt2` (
-    `k2` varchar(5) NOT NULL,
+    `k2` varchar(6) NOT NULL,
     `v2` int NOT NULL
     ) ENGINE=OLAP
     duplicate KEY(`k2`)
@@ -193,6 +194,5 @@ suite("compress_materialize") {
     qt_sort "select * from compressSort order by k desc, v";
     qt_sort "select * from compressSort order by k desc nulls last";
     qt_sort "select * from compressSort order by k desc nulls last, v limit 3";
-
 }
 
