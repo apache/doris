@@ -17,18 +17,8 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
-import org.apache.doris.analysis.AdminCheckTabletsStmt;
-import org.apache.doris.analysis.AdminCleanTrashStmt;
-import org.apache.doris.analysis.AdminCompactTableStmt;
-import org.apache.doris.analysis.AdminRebalanceDiskStmt;
-import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
-import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
@@ -247,28 +237,14 @@ public class DdlExecutor {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
             env.truncateTable((TruncateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminRepairTableStmt) {
-            env.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
-            env.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCompactTableStmt) {
-            env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetTableStatusStmt) {
-            env.setTableStatus((AdminSetTableStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
             env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
             env.installPlugin((InstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof UninstallPluginStmt) {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCheckTabletsStmt) {
-            env.checkTablets((AdminCheckTabletsStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
-            env.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetReplicaVersionStmt) {
-            env.setReplicaVersion((AdminSetReplicaVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceStmt) {
@@ -279,12 +255,6 @@ public class DdlExecutor {
             env.getWorkloadSchedPolicyMgr().createWorkloadSchedPolicy((CreateWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCleanTrashStmt) {
-            env.cleanTrash((AdminCleanTrashStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {
-            env.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
-            env.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
@@ -444,14 +414,6 @@ public class DdlExecutor {
                 || ddlStmt instanceof CancelBackupStmt
                 || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt
-                || ddlStmt instanceof AdminRepairTableStmt
-                || ddlStmt instanceof AdminCancelRepairTableStmt
-                || ddlStmt instanceof AdminCompactTableStmt
-                || ddlStmt instanceof AdminCheckTabletsStmt
-                || ddlStmt instanceof AdminSetReplicaStatusStmt
-                || ddlStmt instanceof AdminCleanTrashStmt
-                || ddlStmt instanceof AdminRebalanceDiskStmt
-                || ddlStmt instanceof AdminCancelRebalanceDiskStmt
                 || ddlStmt instanceof AlterResourceStmt
                 || ddlStmt instanceof AlterPolicyStmt
                 || ddlStmt instanceof CancelAlterSystemStmt) {
