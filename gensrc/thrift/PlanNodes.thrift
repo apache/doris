@@ -491,6 +491,7 @@ struct TFileRangeDesc {
     // so fs_name should be with TFileRangeDesc
     12: optional string fs_name
     13: optional TFileFormatType format_type;
+    14: optional i64 self_split_weight
 }
 
 struct TSplitSource {
@@ -535,6 +536,13 @@ struct TDataGenScanRange {
 
 struct TIcebergMetadataParams {
   1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
+}
+
+struct THudiMetadataParams {
+  1: optional Types.THudiQueryType hudi_query_type
   2: optional string catalog
   3: optional string database
   4: optional string table
@@ -600,6 +608,7 @@ struct TMetaScanRange {
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
   11: optional TPartitionValuesMetadataParams partition_values_params
+  12: optional THudiMetadataParams hudi_params
 }
 
 // Specification of an individual data range which is held in its entirety

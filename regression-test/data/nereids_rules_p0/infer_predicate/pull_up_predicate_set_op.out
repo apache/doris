@@ -202,7 +202,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----------filter((a IN (1, 2) OR b IN ('2d', '3')))
+----------filter(OR[a IN (1, 2),b IN ('2d', '3')])
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----PhysicalOlapScan[test_pull_up_predicate_set_op3]
 

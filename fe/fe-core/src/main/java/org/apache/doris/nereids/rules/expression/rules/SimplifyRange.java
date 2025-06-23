@@ -474,7 +474,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
                 return new EqualTo(reference, values.iterator().next());
 
                 // this condition should as same as OrToIn, or else meet dead loop
-            } else if (values.size() < OrToIn.REWRITE_OR_TO_IN_PREDICATE_THRESHOLD) {
+            } else if (values.size() < 2) {
                 Iterator<Literal> iterator = values.iterator();
                 return new Or(new EqualTo(reference, iterator.next()), new EqualTo(reference, iterator.next()));
             } else {

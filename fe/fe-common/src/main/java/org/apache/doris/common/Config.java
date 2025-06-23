@@ -198,6 +198,12 @@ public class Config extends ConfigBase {
             "For ALTER, EXPORT jobs, remove the finished job if expired."})
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "针对 EXPORT 作业，如果系统内 EXPORT 作业数量超过这个值，则会删除最老的记录。",
+            "For EXPORT jobs, If the number of EXPORT jobs in the system exceeds this value, "
+                    + "the oldest records will be deleted."})
+    public static int max_export_history_job_num = 1000;
+
     @ConfField(description = {"事务的清理周期，单位为秒。每个周期内，将会清理已经结束的并且过期的历史事务信息",
             "The clean interval of transaction, in seconds. "
                     + "In each cycle, the expired history transaction will be cleaned"})
@@ -644,37 +650,6 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"Yarn 配置文件的路径", "Yarn config path"})
     public static String yarn_config_dir = System.getenv("DORIS_HOME") + "/lib/yarn-config";
-
-    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交间隔，单位是秒。",
-            "Maximal intervals between two sync job's commits."})
-    public static long sync_commit_interval_second = 10;
-
-    @ConfField(description = {"Sync job 调度器的执行间隔，单位是秒。",
-            "The interval of sync job scheduler, in seconds."})
-    public static int sync_checker_interval_second = 5;
-
-    @ConfField(description = {"Sync job 的最大并发数。",
-            "Maximal concurrent num of sync job."})
-    public static int max_sync_task_threads_num = 10;
-
-    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最小提交事件数。如果收到的事件数小于该值，"
-            + "Sync Job 会继续等待下一批数据，直到时间超过 `sync_commit_interval_second`。这个值应小于 canal 的缓冲区大小。",
-            "Min events that a sync job will commit. When receiving events less than it, SyncJob will continue "
-                    + "to wait for the next batch of data until the time exceeds `sync_commit_interval_second`."})
-    public static long min_sync_commit_size = 10000;
-
-    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最小提交字节数。如果收到的字节数小于该值，"
-            + "Sync Job 会继续等待下一批数据，直到时间超过 `sync_commit_interval_second`。这个值应小于 canal 的缓冲区大小。",
-            "Min bytes that a sync job will commit. When receiving bytes less than it, SyncJob will continue "
-                    + "to wait for the next batch of data until the time exceeds `sync_commit_interval_second`."})
-    public static long min_bytes_sync_commit = 15 * 1024 * 1024; // 15 MB
-
-    @ConfField(mutable = true, masterOnly = true, description = {"Sync job 的最大提交字节数。如果收到的字节数大于该值，"
-            + "Sync Job 会立即提交所有数据。这个值应大于 canal 的缓冲区大小和 `min_bytes_sync_commit`。",
-            "Max bytes that a sync job will commit. When receiving bytes larger than it, SyncJob will commit "
-                    + "all data immediately. You should set it larger than canal memory and "
-                    + "`min_bytes_sync_commit`."})
-    public static long max_bytes_sync_commit = 64 * 1024 * 1024; // 64 MB
 
     @ConfField(mutable = true, masterOnly = true, description = {"Broker Load 的最大等待 job 数量。"
             + "这个值是一个期望值。在某些情况下，比如切换 master，当前等待的 job 数量可能会超过这个值。",
@@ -1443,9 +1418,33 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             masterOnly = false,
-            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig"
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 300，用来控制控制NereidsSqlCacheManager中sql cache过期时间，超过一段时间不访问cache会被回收",
+                    "The current default setting is 300, which is used to control the expiration time of SQL cache"
+                            + "in NereidsSqlCacheManager. If the cache is not accessed for a period of time, "
+                            + "it will be reclaimed"
+            }
     )
     public static int expire_sql_cache_in_fe_second = 300;
+
+
+    /**
+     *  Expire sql sql in frontend time
+     */
+    @ConfField(
+            mutable = true,
+            masterOnly = false,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
+            description = {
+                "当前默认设置为 300，用来控制控制NereidsSortedPartitionsCacheManager中分区元数据缓存过期时间，"
+                    + "超过一段时间不访问cache会被回收",
+                "The current default setting is 300, which is used to control the expiration time of "
+                    + "the partition metadata cache in NereidsSortedPartitionsCheManager. "
+                    + "If the cache is not accessed for a period of time, it will be reclaimed"
+            }
+    )
+    public static int expire_cache_partition_meta_table_in_fe_second = 300;
 
     /**
      * Set the maximum number of rows that can be cached
@@ -2272,8 +2271,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(
             mutable = true,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            callbackClassString = "org.apache.doris.common.NereidsSqlCacheManager$UpdateConfig",
+            callbackClassString = "org.apache.doris.common.cache.NereidsSqlCacheManager$UpdateConfig",
             description = {
                 "当前默认设置为 100，用来控制控制NereidsSqlCacheManager管理的sql cache数量。",
                 "Now default set to 100, this config is used to control the number of "
@@ -2281,6 +2279,19 @@ public class Config extends ConfigBase {
             }
     )
     public static int sql_cache_manage_num = 100;
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager$UpdateConfig",
+            description = {
+                    "当前默认设置为 100，用来控制控制NereidsSortedPartitionsCacheManager中有序分区元数据的缓存个数，"
+                            + "用于加速分区裁剪",
+                    "The current default setting is 100, which is used to control the number of ordered "
+                            + "partition metadata caches in NereidsSortedPartitionsCacheManager, "
+                            + "and to accelerate partition pruning"
+            }
+    )
+    public static int cache_partition_meta_table_manage_num = 100;
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2566,11 +2577,6 @@ public class Config extends ConfigBase {
     public static int maximum_parallelism_of_export_job = 50;
 
     @ConfField(mutable = true, description = {
-            "ExportExecutorTask任务中一个OutFile语句允许的最大tablets数量",
-            "The maximum number of tablets allowed by an OutfileStatement in an ExportExecutorTask"})
-    public static int maximum_tablets_of_outfile_in_export = 10;
-
-    @ConfField(mutable = true, description = {
             "是否用 mysql 的 bigint 类型来返回 Doris 的 largeint 类型",
             "Whether to use mysql's bigint type to return Doris's largeint type"})
     public static boolean use_mysql_bigint_for_largeint = false;
@@ -2648,12 +2654,12 @@ public class Config extends ConfigBase {
     public static int arrow_flight_max_connections = 4096;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 1G估算一个bucket，"
-            + "但存算分离下partition size 10G估算一个bucket。 若配置小于0，会在在代码中会自适应存算一体模式默认1G，在存算分离默认10G",
+        "Auto Buckets中按照partition size去估算bucket数，存算一体partition size 5G估算一个bucket，"
+            + "但存算分离下partition size 10G估算一个bucket。 若配置小于0，会在在代码中会自适应存算一体模式默认5G，在存算分离默认10G",
         "In Auto Buckets, the number of buckets is estimated based on the partition size. "
-            + "For storage and computing integration, a partition size of 1G is estimated as one bucket."
+            + "For storage and computing integration, a partition size of 5G is estimated as one bucket."
             + " but for cloud, a partition size of 10G is estimated as one bucket. "
-            + "If the configuration is less than 0, the code will have an adaptive non-cloud mode with a default of 1G,"
+            + "If the configuration is less than 0, the code will have an adaptive non-cloud mode with a default of 5G,"
             + " and in cloud mode with a default of 10G."
     })
     public static int autobucket_partition_size_per_bucket_gb = -1;

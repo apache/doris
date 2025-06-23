@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
@@ -98,17 +99,19 @@ import java.util.function.Function;
  */
 public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
+
+    protected Plan parsedPlan;
+    protected Plan analyzedPlan;
+    protected Plan rewrittenPlan;
+    protected Plan optimizedPlan;
+    protected PhysicalPlan physicalPlan;
+
     private CascadesContext cascadesContext;
     private final StatementContext statementContext;
     private final List<ScanNode> scanNodeList = Lists.newArrayList();
     private final List<PhysicalRelation> physicalRelations = Lists.newArrayList();
     private DescriptorTable descTable;
 
-    private Plan parsedPlan;
-    private Plan analyzedPlan;
-    private Plan rewrittenPlan;
-    private Plan optimizedPlan;
-    private PhysicalPlan physicalPlan;
     private FragmentIdMapping<DistributedPlan> distributedPlans;
     // The cost of optimized plan
     private double cost = 0;
@@ -299,39 +302,48 @@ public class NereidsPlanner extends Planner {
     }
 
     /**
-     * compute rf wait time according to max table row count, if wait time is not default value
-     *     olap:
-     *     row < 1G: 1 sec
-     *     1G <= row < 10G: 5 sec
-     *     10G < row: 20 sec
-     *     external:
-     *     row < 1G: 5 sec
-     *     1G <= row < 10G: 10 sec
-     *     10G < row: 50 sec
+     * config rf wait time if wait time is the same as default value
+     * 1. local mode, config according to max table row count
+     *     a. olap table:
+     *       row < 1G: 1 sec
+     *       1G <= row < 10G: 5 sec
+     *       10G < row: 20 sec
+     *     b. external table:
+     *       row < 1G: 5 sec
+     *       1G <= row < 10G: 10 sec
+     *       10G < row: 50 sec
+     * 2. cloud mode, config it as query time out
      */
-    private void setRuntimeFilterWaitTimeByTableRowCountAndType() {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
-                != VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
-            List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
-                    .collectToList(LogicalCatalogRelation.class::isInstance);
-            double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
-            boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
+    private void configRuntimeFilterWaitTime() {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
+                && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
+                == VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (hasExternalTable) {
-                if (maxRow < 1_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
-                } else if (maxRow < 10_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
-                } else {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
-                }
+            if (Config.isCloudMode()) {
+                sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS,
+                        String.valueOf(Math.max(VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs(),
+                                1000 * sessionVariable.getQueryTimeoutS())));
             } else {
-                if (maxRow < 1_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
-                } else if (maxRow < 10_000_000_000L) {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                List<LogicalCatalogRelation> scans = cascadesContext.getRewritePlan()
+                        .collectToList(LogicalCatalogRelation.class::isInstance);
+                double maxRow = StatsCalculator.getMaxTableRowCount(scans, cascadesContext);
+                boolean hasExternalTable = scans.stream().anyMatch(scan -> !(scan instanceof LogicalOlapScan));
+                if (hasExternalTable) {
+                    if (maxRow < 1_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                    } else if (maxRow < 10_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                    } else {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "50000");
+                    }
                 } else {
-                    sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                    if (maxRow < 1_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "1000");
+                    } else if (maxRow < 10_000_000_000L) {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "5000");
+                    } else {
+                        sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS, "20000");
+                    }
                 }
             }
         }
@@ -357,7 +369,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private void analyze(boolean showPlanProcess) {
+    protected void analyze(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start analyze plan");
         }
@@ -377,7 +389,7 @@ public class NereidsPlanner extends Planner {
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
-    private void rewrite(boolean showPlanProcess) {
+    protected void rewrite(boolean showPlanProcess) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start rewrite plan");
         }
@@ -405,7 +417,7 @@ public class NereidsPlanner extends Planner {
                     .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
             disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
         }
-        setRuntimeFilterWaitTimeByTableRowCountAndType();
+        configRuntimeFilterWaitTime();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start optimize plan");
         }
@@ -535,7 +547,7 @@ public class NereidsPlanner extends Planner {
         }
     }
 
-    private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
+    protected PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
         return new PlanPostProcessors(cascadesContext).process(physicalPlan);
     }
 
@@ -552,7 +564,7 @@ public class NereidsPlanner extends Planner {
         return cascadesContext.getMemo().getRoot();
     }
 
-    private PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
+    protected PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
         if (nthPlan <= 1) {
             cost = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                     () -> new AnalysisException("lowestCostPlans with physicalProperties("
@@ -605,6 +617,9 @@ public class NereidsPlanner extends Planner {
     }
 
     private long getGarbageCollectionTime() {
+        if (!ConnectContext.get().getSessionVariable().enableProfile()) {
+            return 0;
+        }
         List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
         long initialGCTime = 0;
         for (GarbageCollectorMXBean gcBean : gcMxBeans) {
@@ -885,7 +900,7 @@ public class NereidsPlanner extends Planner {
         return explainOptions != null && explainOptions.showPlanProcess();
     }
 
-    private void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
+    protected void keepOrShowPlanProcess(boolean showPlanProcess, Runnable task) {
         if (showPlanProcess) {
             cascadesContext.withPlanProcess(showPlanProcess, task);
         } else {

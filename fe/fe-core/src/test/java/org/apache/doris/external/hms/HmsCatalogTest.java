@@ -29,13 +29,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.hive.HiveDlaTable;
 import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
 import org.apache.doris.qe.SessionVariable;
 
@@ -109,7 +107,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "catalog", hmsCatalog);
         Deencapsulation.setField(tbl, "dbName", "hms_db");
         Deencapsulation.setField(tbl, "name", "hms_tbl");
-        Deencapsulation.setField(tbl, "dlaTable", new HiveDlaTable(tbl));
+        Deencapsulation.setField(tbl, "dlaType", DLAType.HIVE);
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -141,7 +139,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
 
                 // mock initSchemaAndUpdateTime and do nothing
-                tbl.initSchemaAndUpdateTime(new ExternalSchemaCache.SchemaCacheKey("hms_db", "hms_tbl"));
+                tbl.initSchemaAndUpdateTime();
                 minTimes = 0;
 
                 tbl.getDatabase();
@@ -160,6 +158,7 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view1, "catalog", hmsCatalog);
         Deencapsulation.setField(view1, "dbName", "hms_db");
         Deencapsulation.setField(view1, "name", "hms_view1");
+        Deencapsulation.setField(view1, "dlaType", DLAType.HIVE);
 
         new Expectations(view1) {
             {
@@ -211,6 +210,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view2, "catalog", hmsCatalog);
         Deencapsulation.setField(view2, "dbName", "hms_db");
         Deencapsulation.setField(view2, "name", "hms_view2");
+        Deencapsulation.setField(view2, "dlaType", DLAType.HIVE);
+
         new Expectations(view2) {
             {
 
@@ -262,6 +263,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view3, "catalog", hmsCatalog);
         Deencapsulation.setField(view3, "dbName", "hms_db");
         Deencapsulation.setField(view3, "name", "hms_view3");
+        Deencapsulation.setField(view3, "dlaType", DLAType.HIVE);
+
         new Expectations(view3) {
             {
 
@@ -313,6 +316,8 @@ public class HmsCatalogTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(view4, "catalog", hmsCatalog);
         Deencapsulation.setField(view4, "dbName", "hms_db");
         Deencapsulation.setField(view4, "name", "hms_view4");
+        Deencapsulation.setField(view4, "dlaType", DLAType.HIVE);
+
         new Expectations(view4) {
             {
 

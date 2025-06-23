@@ -59,14 +59,14 @@ public abstract class WindowFunction extends BoundFunction implements SupportWin
     /**
      * LAG/LEAD param must be const, and offset must be number
      */
-    protected void checkValidParams(Expression param, boolean isOffset) {
+    protected void checkValidParams(Expression param) {
         DataType type = param.getDataType();
-        if (isOffset == true && !type.isNumericType()) {
+        if (!type.isNumericType()) {
             throw new AnalysisException("The offset of LAG/LEAD must be a number: " + this.toSql());
         }
         if (!param.isConstant()) {
             throw new AnalysisException(
-                    "The parameter 2 or parameter 3 of LAG/LEAD must be a constant value: " + this.toSql());
+                    "The parameter 2 of LAG/LEAD must be a constant value: " + this.toSql());
         }
     }
 }

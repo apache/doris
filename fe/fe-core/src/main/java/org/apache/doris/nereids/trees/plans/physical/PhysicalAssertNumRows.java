@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -133,5 +134,35 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalAssertNumRows<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,
                 null, physicalProperties, statistics, child());
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        if (assertNumRowsElement.getDesiredNumOfRows() == 1
+                && (assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.EQ
+                || assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.LT
+                || assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.LE)) {
+            getOutput().forEach(builder::addUniqueSlot);
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        if (assertNumRowsElement.getDesiredNumOfRows() == 1
+                && (assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.EQ
+                || assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.LT
+                || assertNumRowsElement.getAssertion() == AssertNumRowsElement.Assertion.LE)) {
+            getOutput().forEach(builder::addUniformSlot);
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
 }

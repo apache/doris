@@ -403,9 +403,9 @@ void OrcReader::_init_orc_cols(const orc::Type& type, std::vector<std::string>& 
         if (hive1_orc) {
             hive1_orc = _is_hive1_col_name(filed_name_lower_case);
         }
-        auto filed_name_lower_case_copy = filed_name_lower_case;
         orc_cols_lower_case.emplace_back(std::move(filed_name_lower_case));
-        type_map.emplace(std::move(filed_name_lower_case_copy), type.getSubtype(i));
+        auto file_name = type.getFieldName(i);
+        type_map.emplace(std::move(file_name), type.getSubtype(i));
         if (_is_acid) {
             const orc::Type* sub_type = type.getSubtype(i);
             if (sub_type->getKind() == orc::TypeKind::STRUCT) {

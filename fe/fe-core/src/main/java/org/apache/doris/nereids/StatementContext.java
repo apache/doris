@@ -212,6 +212,8 @@ public class StatementContext implements Closeable {
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
+    private boolean prepareStage = false;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -753,5 +755,13 @@ public class StatementContext implements Closeable {
 
     public void setPrivChecked(boolean privChecked) {
         this.privChecked = privChecked;
+    }
+
+    public void setPrepareStage(boolean isPrepare) {
+        this.prepareStage = isPrepare;
+    }
+
+    public boolean isPrepareStage() {
+        return prepareStage;
     }
 }

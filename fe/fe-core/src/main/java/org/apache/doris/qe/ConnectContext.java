@@ -229,12 +229,15 @@ public class ConnectContext {
 
     private StatsErrorEstimator statsErrorEstimator;
 
-    private Map<String, String> resultAttachedInfo = Maps.newHashMap();
+    private List<Map<String, String>> resultAttachedInfo = Lists.newArrayList();
 
     private String workloadGroupName = "";
     private boolean isGroupCommit;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
+
+    // unique session id in the doris cluster, added in #40680
+    private String sessionId = "";
 
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
@@ -775,6 +778,10 @@ public class ConnectContext {
         return getCatalog(defaultCatalog);
     }
 
+    public String getSessionId() {
+        return sessionId;
+    }
+
     /**
      * Maybe return when catalogName is not exist. So need to check nullable.
      */
@@ -1098,11 +1105,11 @@ public class ConnectContext {
         return env.getAuth().getExecMemLimit(getQualifiedUser());
     }
 
-    public void setResultAttachedInfo(Map<String, String> resultAttachedInfo) {
-        this.resultAttachedInfo = resultAttachedInfo;
+    public void addResultAttachedInfo(Map<String, String> resultAttachedInfo) {
+        this.resultAttachedInfo.add(resultAttachedInfo);
     }
 
-    public Map<String, String> getResultAttachedInfo() {
+    public List<Map<String, String>> getResultAttachedInfo() {
         return resultAttachedInfo;
     }
 

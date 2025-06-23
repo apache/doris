@@ -878,6 +878,7 @@ message AlterObjStoreInfoRequest {
         UPDATE_AK_SK    = 1;
         ADD_OBJ_INFO    = 2;
         LEGACY_UPDATE_AK_SK = 3;
+        ALTER_OBJ_INFO = 4;
 
         ADD_HDFS_INFO = 100;
         DROP_HDFS_INFO = 101;
@@ -1487,6 +1488,10 @@ message DeleteBitmapUpdateLockPB {
     optional int64 lock_id = 1;
     optional int64 expiration = 2;
     repeated int64 initiators = 3;
+}
+
+message MowTabletCompactionPB {
+    optional int64 expiration = 1;
 }
 
 message GetDeleteBitmapUpdateLockRequest {

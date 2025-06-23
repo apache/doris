@@ -33,11 +33,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -54,17 +56,18 @@ import java.util.List;
  */
 public class Sum0 extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
-        SupportWindowAnalytic, RollUpTrait {
+        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE)
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BooleanType.INSTANCE)
     );
 
     /**
@@ -81,6 +84,7 @@ public class Sum0 extends NotNullableAggregateFunction
         super("sum0", distinct, arg);
     }
 
+    @Override
     public MultiDistinctSum0 convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_sum because there is no distinct args");
@@ -90,9 +94,9 @@ public class Sum0 extends NotNullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if ((!argType.isNumericType() && !argType.isBooleanType() && !argType.isNullType())
-                || argType.isOnlyMetricType()) {
-            throw new AnalysisException("sum0 requires a numeric or boolean parameter: " + this.toSql());
+        if (!argType.isNumericType() && !argType.isBooleanType()
+                && !argType.isNullType() && !argType.isStringLikeType()) {
+            throw new AnalysisException("sum0 requires a numeric, boolean or string parameter: " + this.toSql());
         }
     }
 
@@ -117,8 +121,10 @@ public class Sum0 extends NotNullableAggregateFunction
 
     @Override
     public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        if (getArgument(0).getDataType() instanceof FloatType) {
-            return FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE);
+        if (getArgument(0).getDataType() instanceof NullType) {
+            return FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE);
+        } else if (getArgument(0).getDataType() instanceof DecimalV2Type) {
+            return FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD);
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
