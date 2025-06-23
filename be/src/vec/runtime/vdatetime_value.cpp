@@ -2189,6 +2189,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
                        date_val[6])) {
             return false;
         }
+        // will carring on the bits in cctz::civil_second. if day is 70, will carry to month.
         cctz::civil_second cs {date_val[0], date_val[1], date_val[2],
                                date_val[3], date_val[4], date_val[5]};
 
