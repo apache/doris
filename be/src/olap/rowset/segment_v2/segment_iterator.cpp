@@ -637,7 +637,8 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     DCHECK(ann_index_reader != nullptr);
     if (ann_index_reader->get_metric_type() == Metric::IP) {
         if (_ann_topn_runtime->is_asc()) {
-            VLOG_DEBUG << fmt::format("Asc topn for inner product can not be evaluated by ann index");
+            VLOG_DEBUG << fmt::format(
+                    "Asc topn for inner product can not be evaluated by ann index");
             return Status::OK();
         }
     } else {
@@ -670,16 +671,17 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     std::unique_ptr<std::vector<uint64_t>> result_row_ids;
     RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, _row_bitmap,
                                                                   result_column, result_row_ids));
-    VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size, _row_bitmap.cardinality(),
-             pre_size - _row_bitmap.cardinality());
+    VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
+                              _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
     _opts.stats->rows_ann_index_topn_filtered += (pre_size - _row_bitmap.cardinality());
     const size_t dst_col_idx = _ann_topn_runtime->get_dest_column_idx();
     ColumnIterator* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();
     DCHECK(column_iter != nullptr);
     VirtualColumnIterator* virtual_column_iter = dynamic_cast<VirtualColumnIterator*>(column_iter);
     DCHECK(virtual_column_iter != nullptr);
-    VLOG_DEBUG << fmt::format("Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
-             result_row_ids->size());
+    VLOG_DEBUG << fmt::format(
+            "Virtual column iterator, column_idx {}, is materialized with {} rows", dst_col_idx,
+            result_row_ids->size());
     // reference count of result_column should be 1, so move will not issue any data copy.
     virtual_column_iter->prepare_materialization(std::move(result_column),
                                                  std::move(result_row_ids));
@@ -2142,11 +2144,10 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
             }
         })
 
-        if (_current_return_columns[cid].get() ==  nullptr) {
+        if (_current_return_columns[cid].get() == nullptr) {
             return Status::InternalError(
-                    "SegmentIterator meet invalid column, return columns size {}, cid {}", 
+                    "SegmentIterator meet invalid column, return columns size {}, cid {}",
                     _current_return_columns.size(), cid);
-
         }
         RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
                                                                _current_return_columns[cid]));
@@ -2587,8 +2588,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         idx++;
     }
 #endif
-    VLOG_DEBUG << "dump block\n" << block->dump_data(0, block->rows());
-
     return Status::OK();
 }
 

@@ -78,8 +78,11 @@ Status AnnIndexReader::load_index(io::IOContext* io_ctx) {
         }
         _vector_index = std::make_unique<FaissVectorIndex>();
         {
-            // SCOPED_TIMER()
+            RuntimeProfile::Counter load_counter {TUnit::TIME_NS};
+            SCOPED_TIMER(&load_counter);
             RETURN_IF_ERROR(_vector_index->load(compound_dir->get()));
+            LOG_INFO("Ann index load costs {} ms",
+                     load_counter.value() / 1e6); // Convert to milliseconds
         }
 
         return Status::OK();

@@ -1189,7 +1189,7 @@ Status SegmentWriter::_write_inverted_index() {
 
 Status SegmentWriter::_write_ann_index() {
     for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_inverted_index());
+        RETURN_IF_ERROR(column_writer->write_ann_index());
     }
     return Status::OK();
 }

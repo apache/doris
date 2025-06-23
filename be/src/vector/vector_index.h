@@ -17,11 +17,9 @@
 
 #pragma once
 
-#include <memory>
 #include <roaring/roaring.hh>
 
 #include "common/status.h"
-#include "vec/functions/array/function_array_distance.h"
 #include "vector/metric.h"
 
 namespace lucene::store {

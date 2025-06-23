@@ -157,8 +157,14 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
             .distance = nullptr,
             .row_ids = nullptr,
     };
+    {
+        RuntimeProfile::Counter search_counter {TUnit::TIME_NS};
+        SCOPED_TIMER(&search_counter);
+        RETURN_IF_ERROR(ann_index_iterator->read_from_index(&ann_query_params));
+        LOG_INFO("Ann index search costs {} ms",
+                 search_counter.value() / 1e6); // Convert to milliseconds
+    }
 
-    RETURN_IF_ERROR(ann_index_iterator->read_from_index(&ann_query_params));
     DCHECK(ann_query_params.distance != nullptr);
     DCHECK(ann_query_params.row_ids != nullptr);
 

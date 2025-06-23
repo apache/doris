@@ -443,7 +443,8 @@ Status VExprContext::prepare_ann_range_search(const doris::VectorSearchUserParam
     RETURN_IF_ERROR(_root->prepare_ann_range_search(params, _ann_range_search_runtime,
                                                     _suitable_for_ann_index));
     VLOG_DEBUG << fmt::format("Prepare ann range search result {}, _suitable_for_ann_index {}",
-             this->_ann_range_search_runtime.to_string(), this->_suitable_for_ann_index);
+                              this->_ann_range_search_runtime.to_string(),
+                              this->_suitable_for_ann_index);
     return Status::OK();
 }
 

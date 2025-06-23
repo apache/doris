@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 #include "vector_index.h"
 // Add CLucene RAM Directory header
 #include <CLucene/store/RAMDirectory.h>

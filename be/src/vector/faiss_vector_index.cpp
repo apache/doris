@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 
 #include "CLucene/store/IndexInput.h"
 #include "CLucene/store/IndexOutput.h"
@@ -372,17 +373,29 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
 }
 
 doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
+    auto start_time = std::chrono::high_resolution_clock::now();
+
     lucene::store::IndexOutput* idx_output = dir->createOutput("faiss.idx");
     auto writer = std::make_unique<FaissIndexWriter>(idx_output);
     faiss::write_index(_index.get(), writer.get());
-    VLOG_DEBUG << fmt::format("Faiss index saved to faiss.idx, rows {}", _index->ntotal);
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    LOG_INFO(fmt::format("Faiss index saved to {}, {}, rows {}, cost {} ms", dir->toString(),
+                         "faiss.idx", _index->ntotal, duration.count()));
     return doris::Status::OK();
 }
 
 doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
+    LOG_INFO("Loading Faiss index from: {}", dir->getObjectName());
+    auto start_time = std::chrono::high_resolution_clock::now();
     lucene::store::IndexInput* idx_input = dir->openInput("faiss.idx");
     auto reader = std::make_unique<FaissIndexReader>(idx_input);
     faiss::Index* idx = faiss::read_index(reader.get());
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    LOG_INFO("Load index from {} costs {} ms, rows {}", dir->getObjectName(), duration.count(),
+             idx->ntotal);
     _index.reset(idx);
     return doris::Status::OK();
 }
