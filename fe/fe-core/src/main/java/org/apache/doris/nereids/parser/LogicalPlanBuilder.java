@@ -4112,7 +4112,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         ImmutableList.Builder<SelectHint> hints = ImmutableList.builder();
         if (!hasQbNameHint(selectHintContexts)) {
             // generate default query block name
-            String qbId = ConnectContext.get().getStatementContext() != null
+            String qbId = ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
                     ? ConnectContext.get().getStatementContext().getNextQueryBlockId().toString()
                     : "ROOT";
             hints.add(new SelectHintQbName(String.format("%s%s", SelectHintQbName.DEFAULT_QB_NAME_PREFIX, qbId), null));
