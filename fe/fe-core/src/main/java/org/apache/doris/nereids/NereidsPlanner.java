@@ -108,7 +108,6 @@ import java.util.function.Function;
 public class NereidsPlanner extends Planner {
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
-
     protected Plan parsedPlan;
     protected Plan analyzedPlan;
     protected Plan rewrittenPlan;
