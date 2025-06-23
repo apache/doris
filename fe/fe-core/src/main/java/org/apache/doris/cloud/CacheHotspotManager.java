@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud;
 
-import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -641,40 +640,6 @@ public class CacheHotspotManager extends MasterDaemon {
         LOG.info("finished to create cloud warm up job: {}", warmUpJob.getJobId());
 
         return jobId;
-    }
-
-    public long createJob(WarmUpClusterStmt stmt) throws AnalysisException {
-        if (runnableClusterSet.contains(stmt.getDstClusterName())) {
-            throw new AnalysisException("cluster: " + stmt.getDstClusterName() + " already has a runnable job");
-        }
-        Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
-        long jobId = Env.getCurrentEnv().getNextId();
-        if (!FeConstants.runningUnitTest) {
-            if (stmt.isWarmUpWithTable()) {
-                beToWarmUpTablets = warmUpNewClusterByTable(jobId, stmt.getDstClusterName(), stmt.getTables(),
-                                                            stmt.isForce());
-            } else {
-                beToWarmUpTablets = warmUpNewClusterByCluster(stmt.getDstClusterName(), stmt.getSrcClusterName());
-            }
-        }
-
-        Map<Long, List<List<Long>>> beToTabletIdBatches = splitBatch(beToWarmUpTablets);
-
-        CloudWarmUpJob.JobType jobType = stmt.isWarmUpWithTable() ? JobType.TABLE : JobType.CLUSTER;
-        CloudWarmUpJob warmUpJob;
-        if (jobType == JobType.TABLE) {
-            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType,
-                    stmt.getTables(), stmt.isForce());
-        } else {
-            warmUpJob = new CloudWarmUpJob(jobId, stmt.getDstClusterName(), beToTabletIdBatches, jobType);
-        }
-        addCloudWarmUpJob(warmUpJob);
-
-        Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);
-        LOG.info("finished to create cloud warm up job: {}", warmUpJob.getJobId());
-
-        return jobId;
-
     }
 
     public void cancel(CancelWarmUpJobCommand command) throws DdlException {

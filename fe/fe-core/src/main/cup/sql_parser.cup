@@ -1429,52 +1429,6 @@ alter_stmt ::=
     :}
     ;
 
-warm_up_stmt ::=
-    KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH KW_CLUSTER ident:srcClusterName opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
-    :}
-    | KW_WARM KW_UP KW_CLUSTER ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
-    :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH KW_COMPUTE KW_GROUP ident:srcClusterName opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, srcClusterName, force);
-    :}
-    | KW_WARM KW_UP KW_COMPUTE KW_GROUP ident:dstClusterName KW_WITH warm_up_list:list opt_force:force
-    {:
-        RESULT = new WarmUpClusterStmt(dstClusterName, list, force);
-    :}
-    ;
-
-warm_up_item ::=
-    KW_TABLE table_name:tbl
-    {:
-        Map<TableName, String> map = new HashMap<TableName, String>();
-        map.put(tbl, "");
-        RESULT = map;
-    :}
-    | KW_TABLE table_name:tbl KW_PARTITION ident:partitonName
-    {:
-        Map<TableName, String> map = new HashMap<TableName, String>();
-        map.put(tbl, partitonName);
-        RESULT = map;
-    :}
-    ;
-
-warm_up_list ::=
-    warm_up_item:map
-    {:
-        RESULT = Lists.newArrayList(map);
-    :}
-    | warm_up_list:list KW_AND warm_up_item:map
-    {:
-        list.add(map);
-        RESULT = list;
-    :}
-    ;
-
 opt_datasource_properties ::=
     // empty
     {:
