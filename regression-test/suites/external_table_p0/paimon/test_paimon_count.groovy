@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_deletion_vector", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_paimon_count", "p0,external,doris,external_docker,external_docker_doris") {
 
     logger.info("start paimon test")
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
@@ -25,7 +25,7 @@ suite("test_paimon_deletion_vector", "p0,external,doris,external_docker,external
     }
 
     try {
-        String catalog_name = "test_paimon_deletion_vector"
+        String catalog_name = "test_paimon_count"
         String hdfs_port = context.config.otherConfigs.get("hive2HdfsPort")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         sql """drop catalog if exists ${catalog_name}"""
@@ -38,47 +38,27 @@ suite("test_paimon_deletion_vector", "p0,external,doris,external_docker,external
 
         def test_cases = { String force ->
             sql """ set force_jni_scanner=${force} """
-            qt_1 """select count(*) from deletion_vector_orc;"""
-            qt_2 """select count(*) from deletion_vector_parquet;"""
-            qt_3 """select count(*) from deletion_vector_orc where id > 2;"""
-            qt_4 """select count(*) from deletion_vector_parquet where id > 2;"""
-            qt_5 """select * from deletion_vector_orc where id > 2 order by id;"""
-            qt_6 """select * from deletion_vector_parquet where id > 2 order by id;"""
-            qt_7 """select * from deletion_vector_table_1_0 order by id;"""
-            qt_8 """select count(*) from deletion_vector_table_1_0;"""
-            qt_9 """select count(*) from deletion_vector_table_1_0 where id > 2;"""
+            qt_append_select """ select * from append_table order by product_id; """
+            qt_append_count """ select count(*) from append_table; """
+            qt_merge_on_read_select """ select * from merge_on_read_table order by product_id; """
+            qt_merge_on_read_count """ select count(*) from merge_on_read_table; """
+            qt_deletion_vector_select """ select * from deletion_vector_parquet order by id; """
+            qt_deletion_vector_count """ select count(*) from deletion_vector_parquet; """
         }
 
         def test_table_count_push_down = { String force ->
             sql """ set force_jni_scanner=${force} """
             explain {
-                sql("select count(*) from deletion_vector_orc;")
+                sql("select count(*) from append_table;")
+                contains "pushdown agg=COUNT (-1)"
+            }
+            explain {
+                sql("select count(*) from merge_on_read_table;")
                 contains "pushdown agg=COUNT (-1)"
             }
             explain {
                 sql("select count(*) from deletion_vector_parquet;")
                 contains "pushdown agg=COUNT (-1)"
-            }
-            explain {
-                sql("select count(*) from deletion_vector_table_1_0;")
-                contains "pushdown agg=COUNT (-1)"
-            }
-        }
-
-        def test_not_table_count_push_down = { String force ->
-            sql """ set enable_count_push_down_for_external_table=false; """
-            sql """ set force_jni_scanner=${force} """
-            explain {
-                sql("select count(*) from deletion_vector_orc;")
-                contains "pushdown agg=NONE"
-            }
-            explain {
-                sql("select count(*) from deletion_vector_parquet;")
-                contains "pushdown agg=NONE"
-            }
-            explain {
-                sql("select count(*) from deletion_vector_table_1_0;")
-                contains "pushdown agg=NONE"
             }
         }
 
@@ -86,11 +66,7 @@ suite("test_paimon_deletion_vector", "p0,external,doris,external_docker,external
         test_cases("true")
         test_table_count_push_down("false")
         test_table_count_push_down("true")
-        test_not_table_count_push_down("false")
-        test_not_table_count_push_down("true")
     } finally {
-        sql """ set enable_count_push_down_for_external_table=true; """
         sql """set force_jni_scanner=false"""
     }
-
 }
