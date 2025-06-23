@@ -44,6 +44,10 @@ public class LikeToEqualRewrite implements ExpressionPatternRuleFactory {
     }
 
     private static Expression rewriteLikeToEqual(Like like) {
+        if (like.arity() == 3) {
+            return like;
+        }
+    
         Expression left = like.child(0);
         Expression right = like.child(1);
         if (!(right instanceof VarcharLiteral)) {

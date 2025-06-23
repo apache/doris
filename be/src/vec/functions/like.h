@@ -122,6 +122,8 @@ using VectorLikeFn = std::function<doris::Status(const ColumnString&, const Colu
 
 struct LikeState {
     bool is_like_pattern;
+    bool has_custom_escape = false;
+    char escape_char = {};
     LikeSearchState search_state;
     LikeFn function;
     ScalarLikeFn scalar_function;
@@ -149,7 +151,8 @@ using VPatternSearchStateSPtr = std::shared_ptr<VectorPatternSearchState>;
 
 class FunctionLikeBase : public IFunction {
 public:
-    size_t get_number_of_arguments() const override { return 2; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
 
     DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
         return std::make_shared<DataTypeUInt8>();
