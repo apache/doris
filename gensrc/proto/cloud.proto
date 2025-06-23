@@ -977,6 +977,7 @@ message CreateRowsetRequest {
     optional doris.RowsetMetaCloudPB rowset_meta = 2;
     optional bool temporary = 3;
     optional int64 txn_id = 4;
+    optional string tablet_job_id = 5;
 }
 
 message CreateRowsetResponse {
@@ -1377,6 +1378,7 @@ enum MetaServiceCode {
     VERSION_NOT_FOUND = 2010;
     TABLET_NOT_FOUND = 2011;
     STALE_TABLET_CACHE = 2012;
+    STALE_PREPARE_ROWSET = 2013;
 
     CLUSTER_NOT_FOUND = 3001;
     ALREADY_EXISTED = 3002;
