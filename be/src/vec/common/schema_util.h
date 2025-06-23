@@ -75,9 +75,6 @@ size_t get_number_of_dimensions(const IColumn& column);
 /// Returns type of scalars of Array of arbitrary dimensions.
 DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 
-/// Returns Array with requested number of dimensions and no scalars.
-Array create_empty_array_field(size_t num_dimensions);
-
 // Cast column to dst type
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 

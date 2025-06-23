@@ -106,7 +106,6 @@ static void fill_string_column_with_test_data(auto& column_string, int size, int
             all_path_stats[uid][key] += 1;
         }
         json_str += "}";
-        vectorized::Field str(json_str);
         column_string->insert_data(json_str.data(), json_str.size());
     }
 }
@@ -125,7 +124,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
     auto columns = block->mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
-        vectorized::Field key = i;
+        vectorized::Field key = vectorized::Field::create_field<TYPE_INT>(i);
         columns[0]->insert(key);
     }
 
@@ -301,7 +300,7 @@ TEST_F(VariantMultiIndexTest, test_variant_multi_index) {
                                                compaction._output_rs_writer.get(), 100000, 5,
                                                &compaction._stats)
                         .ok());
-    st = compaction._output_rs_writer->build(compaction._output_rowset);
+    Status st = compaction._output_rs_writer->build(compaction._output_rowset);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     EXPECT_TRUE(compaction._output_rowset->num_segments() == 1);

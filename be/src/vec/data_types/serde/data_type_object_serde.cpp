@@ -137,26 +137,41 @@ Status DataTypeVariantSerDe::deserialize_column_from_json_vector(
     return Status::OK();
 }
 
-Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+template <typename BuilderType>
+Status write_column_to_arrow_impl(const IColumn& column, const NullMap* null_map,
+                                  BuilderType& builder, int64_t start, int64_t end) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+                                             builder.type()->name()));
         } else {
             std::string serialized_value;
             var->serialize_one_row_to_string(i, &serialized_value);
             RETURN_IF_ERROR(
                     checkArrowStatus(builder.Append(serialized_value.data(),
                                                     static_cast<int>(serialized_value.size())),
-                                     column.get_name(), array_builder->type()->name()));
+                                     column.get_name(), builder.type()->name()));
         }
     }
     return Status::OK();
+}
+
+Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
+    const auto* var = check_and_get_column<ColumnVariant>(column);
+    if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
+        auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
+        return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::STRING) {
+        auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+        return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else {
+        return Status::InvalidArgument("Unsupported arrow type for string column: {}",
+                                       array_builder->type()->name());
+    }
 }
 
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
