@@ -126,8 +126,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
                 if (incremental) {
                     _has_inc_node = true;
                 }
-                LOG(INFO) << "init new node for instance " << _parent->_sender_id
-                          << ", incremantal:" << incremental;
+                VLOG_CRITICAL << "init new node for instance " << _parent->_sender_id
+                              << ", incremantal:" << incremental;
             } else {
                 channel = it->second;
             }
