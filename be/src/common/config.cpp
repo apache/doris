@@ -306,7 +306,7 @@ DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> b
     return true;
 });
 DEFINE_Int32(doris_scanner_min_thread_pool_thread_num, "8");
-DEFINE_Int32(remote_split_source_batch_size, "10240");
+DEFINE_Int32(remote_split_source_batch_size, "1000");
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -823,6 +823,8 @@ DEFINE_Int32(query_cache_max_partition_count, "1024");
 // the load process will reject new incoming load job of this tablet.
 // This is to avoid too many version num.
 DEFINE_mInt32(max_tablet_version_num, "2000");
+
+DEFINE_mInt32(time_series_max_tablet_version_num, "20000");
 
 // Frontend mainly use two thrift sever type: THREAD_POOL, THREADED_SELECTOR. if fe use THREADED_SELECTOR model for thrift server,
 // the thrift_server_type_of_fe should be set THREADED_SELECTOR to make be thrift client to fe constructed with TFramedTransport

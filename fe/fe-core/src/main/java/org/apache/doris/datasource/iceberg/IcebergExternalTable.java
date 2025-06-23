@@ -20,6 +20,8 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -90,5 +92,11 @@ public class IcebergExternalTable extends ExternalTable {
 
     public Table getIcebergTable() {
         return IcebergUtils.getIcebergTable(getCatalog(), getDbName(), getName());
+    }
+
+    @Override
+    public List<SysTable> getSupportedSysTables() {
+        makeSureInitialized();
+        return SupportedSysTables.ICEBERG_SUPPORTED_SYS_TABLES;
     }
 }
