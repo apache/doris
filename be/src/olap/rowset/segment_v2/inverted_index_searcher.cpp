@@ -102,9 +102,7 @@ Result<std::unique_ptr<IndexSearcherBuilder>> IndexSearcherBuilder::create_index
 Result<IndexSearcherPtr> IndexSearcherBuilder::get_index_searcher(
         lucene::store::Directory* directory) {
     OptionalIndexSearcherPtr result;
-    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> directory_ptr(directory);
-
-    auto st = build(directory_ptr.get(), result);
+    auto st = build(directory, result);
     if (!st.ok()) {
         return ResultError(st);
     }

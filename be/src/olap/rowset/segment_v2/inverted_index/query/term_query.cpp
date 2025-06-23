@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 TermQuery::TermQuery(SearcherPtr searcher, IndexQueryContextPtr context)
         : _searcher(std::move(searcher)), _context(std::move(context)) {}
@@ -29,10 +30,12 @@ void TermQuery::add(const InvertedIndexQueryInfo& query_info) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos size must be 1");
     }
 
-    _iter = TermIterator::create(_context->io_ctx, _searcher->getReader(), query_info.field_name,
-                                 query_info.term_infos[0].get_single_term());
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
 
-    if (_context->collection_similarity && query_info.is_similarity_score) {
+    _iter = TermIterator::create(_context->io_ctx, is_similarity, _searcher->getReader(),
+                                 query_info.field_name, query_info.term_infos[0].get_single_term());
+
+    if (is_similarity) {
         _similaritie = std::make_unique<BM25Similarity>();
         _similaritie->for_one_term(_context, query_info.field_name, _iter->term());
     }
@@ -57,4 +60,5 @@ void TermQuery::search(roaring::Roaring& roaring) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

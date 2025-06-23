@@ -20,25 +20,32 @@
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/util/bkd/bkd_writer.h>
 
+#include <roaring/roaring.hh>
+
 #include "CLucene/search/Similarity.h"
 #include "olap/inverted_index_parser.h"
-#include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/index_writer.h"
-#include "olap/types.h"
 
-namespace doris::segment_v2 {
+namespace doris {
+
+class KeyCoder;
 
 template <FieldType field_type>
-class InvertedIndexColumnWriterImpl : public IndexColumnWriter {
+struct CppTypeTraits;
+
+namespace segment_v2 {
+
+template <FieldType field_type>
+class InvertedIndexColumnWriter : public IndexColumnWriter {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
-    InvertedIndexColumnWriterImpl(const std::string& field_name, IndexFileWriter* index_file_writer,
-                                  const TabletIndex* index_meta, const bool single_field = true);
-    ~InvertedIndexColumnWriterImpl() override;
+    InvertedIndexColumnWriter(const std::string& field_name, IndexFileWriter* index_file_writer,
+                              const TabletIndex* index_meta, const bool single_field = true);
+    ~InvertedIndexColumnWriter() override;
 
     Status init() override;
     void close_on_error() override;
@@ -85,6 +92,7 @@ private:
     std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
+    std::unique_ptr<lucene::search::Similarity> _similarity = nullptr;
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
@@ -96,4 +104,5 @@ private:
     bool _should_analyzer = false;
 };
 
-} // namespace doris::segment_v2
+} // namespace segment_v2
+} // namespace doris

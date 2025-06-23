@@ -34,6 +34,8 @@
 #include "olap/options.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class CollectionValue;
 
 class Field;
@@ -73,9 +75,6 @@ public:
     // check if the column is valid for inverted index, some columns
     // are generated from variant, but not all of them are supported
     static bool check_support_inverted_index(const TabletColumn& column);
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);
 };
 
 class TmpFileDirs {
@@ -106,4 +105,6 @@ private:
 };
 
 } // namespace segment_v2
+
+#include "common/compile_check_end.h"
 } // namespace doris

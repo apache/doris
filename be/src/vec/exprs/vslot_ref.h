@@ -63,7 +63,7 @@ public:
         column_ids.insert(_column_id);
     }
 
-    MOCK_FUNCTION std::string column_name() const { return _column_name; }
+    MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
 
 private:
     int _slot_id;

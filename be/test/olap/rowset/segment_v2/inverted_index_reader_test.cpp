@@ -141,9 +141,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -193,9 +193,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add NULL values
@@ -259,9 +259,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
@@ -2376,6 +2376,7 @@ public:
         // Test try_read functionality with non-BKD index (should succeed)
         size_t count = 0;
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
+        inverted_index_iterator->set_context(context);
         status = inverted_index_iterator->try_read_from_inverted_index(
                 "c2", &str_ref, InvertedIndexQueryType::EQUAL_QUERY, &count);
         EXPECT_TRUE(status.ok());
@@ -2540,9 +2541,9 @@ public:
         std::unique_ptr<Field> field(FieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
@@ -2831,7 +2832,7 @@ public:
 
         for (auto& test_case : test_cases) {
             // Test try_query path
-            uint32_t count = 0;
+            size_t count = 0;
             auto status = bkd_reader->try_query(context, "c1", &test_case.second, test_case.first,
                                                 &count);
             EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
@@ -2893,6 +2894,7 @@ public:
         EXPECT_NE(iterator, nullptr);
 
         auto* inverted_index_iterator = static_cast<InvertedIndexIterator*>(iterator.get());
+        inverted_index_iterator->set_context(context);
 
         // Test the bypass path in read_from_inverted_index
         std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
@@ -3005,9 +3007,9 @@ public:
         std::unique_ptr<Field> field(FieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         for (const auto& value : values) {
@@ -3072,7 +3074,7 @@ public:
             }
 
             for (auto& test_case : test_cases) {
-                uint32_t count = 0;
+                size_t count = 0;
                 auto status = bkd_reader->try_query(context, "c_int", &test_case.second,
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
@@ -3414,9 +3416,9 @@ public:
         std::unique_ptr<Field> field(FieldFactory::create(test_column));
         ASSERT_NE(field.get(), nullptr);
 
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), &idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), &idx_meta);
 
         // This should fail for unsupported types, demonstrating the default case
         // If it succeeds, we can still test with invalid query parameters

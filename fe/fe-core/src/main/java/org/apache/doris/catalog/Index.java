@@ -78,9 +78,9 @@ public class Index implements Writable {
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
                 if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
-                    || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
                     String supportPhraseKey = InvertedIndexUtil
-                        .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+                            .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
                     if (!this.properties.containsKey(supportPhraseKey)) {
                         this.properties.put(supportPhraseKey, "true");
                     }

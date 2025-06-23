@@ -43,12 +43,14 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         return;
     }
 
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
+
     for (const auto& term_info : query_info.term_infos) {
         if (term_info.is_multi_terms()) {
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
         }
 
-        auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
+        auto iter = TermIterator::create(_context->io_ctx, is_similarity, _searcher->getReader(),
                                          query_info.field_name, term_info.get_single_term());
         _iterators.emplace_back(std::move(iter));
     }
@@ -67,7 +69,7 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         }
     }
 
-    if (_context->collection_similarity && query_info.is_similarity_score) {
+    if (is_similarity) {
         _use_skip = true;
         for (const auto& iter : _iterators) {
             auto similarity = std::make_unique<BM25Similarity>();

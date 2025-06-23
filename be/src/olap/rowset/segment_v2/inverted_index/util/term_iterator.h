@@ -24,6 +24,7 @@
 
 #include "CLucene/index/Terms.h"
 #include "common/be_mock_util.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 
 CL_NS_USE(index)
 
@@ -82,20 +83,27 @@ public:
 
     bool read_range(DocRange* docRange) const { return term_docs_->readRange(docRange); }
 
-    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
-                              const std::wstring& field_name, const std::string& term) {
-        return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
+    static TermIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
+                              lucene::index::IndexReader* reader, const std::wstring& field_name,
+                              const std::string& term) {
+        return create(io_ctx, is_similarity, reader, field_name,
+                      StringUtil::string_to_wstring(term));
     }
 
-    static TermIterPtr create(const io::IOContext* io_ctx, lucene::index::IndexReader* reader,
-                              const std::wstring& field_name, const std::wstring& ws_term) {
-        auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termDocs(t, true, io_ctx);
-        _CLDECDELETE(t);
+    static TermIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
+                              lucene::index::IndexReader* reader, const std::wstring& field_name,
+                              const std::wstring& ws_term) {
+        auto t = make_term(field_name, ws_term);
+        auto* term_pos = reader->termDocs(t.get(), is_similarity, io_ctx);
         return std::make_shared<TermIterator>(ws_term, TermDocsPtr(term_pos, CLuceneDeleter {}));
     }
 
 protected:
+    static TermPtr make_term(const std::wstring& field_name, const std::wstring& ws_term) {
+        return TermPtr(new lucene::index::Term(field_name.c_str(), ws_term.c_str()),
+                       TermDeleter {});
+    }
+
     std::wstring term_;
     TermDocsPtr term_docs_;
 };

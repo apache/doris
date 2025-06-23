@@ -138,9 +138,9 @@ public:
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
-        std::unique_ptr<InvertedIndexColumnWriter> column_writer;
-        auto status = InvertedIndexColumnWriter::create(field.get(), &column_writer,
-                                                        index_file_writer.get(), idx_meta);
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        auto status = IndexColumnWriter::create(field.get(), &column_writer,
+                                                index_file_writer.get(), idx_meta);
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
@@ -166,7 +166,7 @@ public:
         EXPECT_TRUE(result.has_value()) << "Failed to open compound reader";
 
         auto index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
-        auto searcher_result = index_searcher_builder->get_index_searcher(result.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(result.value().get());
         EXPECT_TRUE(searcher_result.has_value());
 
         auto* fulltext_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());

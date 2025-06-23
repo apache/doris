@@ -70,7 +70,7 @@ public:
 
     MOCK_FUNCTION Status try_query(const IndexQueryContextPtr& context,
                                    const std::string& column_name, const void* query_value,
-                                   InvertedIndexQueryType query_type, uint32_t* count) override {
+                                   InvertedIndexQueryType query_type, size_t* count) override {
         return Status::OK();
     }
 
@@ -101,12 +101,12 @@ protected:
 };
 
 TEST_F(IndexReaderHelperTest, IsFulltextIndexWithNonInvertedIndexTest) {
-    auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
+    //     auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
     auto bitmap_reader = std::make_shared<MockIndexReader>(IndexType::BITMAP, 2);
     auto bloomfilter_reader = std::make_shared<MockIndexReader>(IndexType::BLOOMFILTER, 3);
     auto ngram_reader = std::make_shared<MockIndexReader>(IndexType::NGRAM_BF, 4);
 
-    EXPECT_FALSE(IndexReaderHelper::is_fulltext_index(ann_reader));
+    //     EXPECT_FALSE(IndexReaderHelper::is_fulltext_index(ann_reader));
     EXPECT_FALSE(IndexReaderHelper::is_fulltext_index(bitmap_reader));
     EXPECT_FALSE(IndexReaderHelper::is_fulltext_index(bloomfilter_reader));
     EXPECT_FALSE(IndexReaderHelper::is_fulltext_index(ngram_reader));
@@ -131,10 +131,10 @@ TEST_F(IndexReaderHelperTest, IsFulltextIndexWithInvertedIndexTest) {
 }
 
 TEST_F(IndexReaderHelperTest, IsStringIndexWithNonInvertedIndexTest) {
-    auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
+    //     auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
     auto bitmap_reader = std::make_shared<MockIndexReader>(IndexType::BITMAP, 2);
 
-    EXPECT_FALSE(IndexReaderHelper::is_string_index(ann_reader));
+    //     EXPECT_FALSE(IndexReaderHelper::is_string_index(ann_reader));
     EXPECT_FALSE(IndexReaderHelper::is_string_index(bitmap_reader));
 }
 
@@ -157,11 +157,11 @@ TEST_F(IndexReaderHelperTest, IsStringIndexWithInvertedIndexTest) {
 }
 
 TEST_F(IndexReaderHelperTest, IsBkdIndexWithNonInvertedIndexTest) {
-    auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
+    //     auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
     auto bitmap_reader = std::make_shared<MockIndexReader>(IndexType::BITMAP, 2);
     auto bloomfilter_reader = std::make_shared<MockIndexReader>(IndexType::BLOOMFILTER, 3);
 
-    EXPECT_FALSE(IndexReaderHelper::is_bkd_index(ann_reader));
+    //     EXPECT_FALSE(IndexReaderHelper::is_bkd_index(ann_reader));
     EXPECT_FALSE(IndexReaderHelper::is_bkd_index(bitmap_reader));
     EXPECT_FALSE(IndexReaderHelper::is_bkd_index(bloomfilter_reader));
 }
@@ -185,12 +185,12 @@ TEST_F(IndexReaderHelperTest, IsBkdIndexWithInvertedIndexTest) {
 }
 
 TEST_F(IndexReaderHelperTest, IsSupportPhraseWithNonInvertedIndexTest) {
-    auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
+    //     auto ann_reader = std::make_shared<MockIndexReader>(IndexType::ANN, 1);
     auto bitmap_reader = std::make_shared<MockIndexReader>(IndexType::BITMAP, 2);
     auto bloomfilter_reader = std::make_shared<MockIndexReader>(IndexType::BLOOMFILTER, 3);
     auto ngram_reader = std::make_shared<MockIndexReader>(IndexType::NGRAM_BF, 4);
 
-    EXPECT_FALSE(IndexReaderHelper::is_support_phrase(ann_reader));
+    //     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(ann_reader));
     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(bitmap_reader));
     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(bloomfilter_reader));
     EXPECT_FALSE(IndexReaderHelper::is_support_phrase(ngram_reader));

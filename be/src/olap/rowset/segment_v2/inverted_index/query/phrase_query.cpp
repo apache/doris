@@ -44,12 +44,14 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         return;
     }
 
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
+
     if (query_info.slop == 0) {
-        init_exact_phrase_matcher(query_info);
+        init_exact_phrase_matcher(query_info, is_similarity);
     } else if (!query_info.ordered) {
-        init_sloppy_phrase_matcher(query_info);
+        init_sloppy_phrase_matcher(query_info, is_similarity);
     } else {
-        init_ordered_sloppy_phrase_matcher(query_info);
+        init_ordered_sloppy_phrase_matcher(query_info, is_similarity);
     }
 
     std::sort(_iterators.begin(), _iterators.end(), [](const DISI& a, const DISI& b) {
@@ -64,23 +66,26 @@ void PhraseQuery::add(const InvertedIndexQueryInfo& query_info) {
         _others.emplace_back(&_iterators[i]);
     }
 
-    init_similarities(query_info.field_name, query_info.is_similarity_score);
+    init_similarities(query_info.field_name, is_similarity);
 }
 
-void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
+void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                            bool is_similarity) {
     std::vector<PostingsAndPosition> postings;
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
         if (term_info.is_single_term()) {
             const auto& term = term_info.get_single_term();
-            auto iter = TermPositionsIterator::create(_context->io_ctx, _searcher->getReader(),
-                                                      query_info.field_name, term);
+            auto iter = TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                                      _searcher->getReader(), query_info.field_name,
+                                                      term);
             _iterators.emplace_back(iter);
             postings.emplace_back(iter, i);
         } else {
             std::vector<TermPositionsIterPtr> subs;
             for (const auto& term : term_info.get_multi_terms()) {
-                auto iter = TermPositionsIterator::create(_context->io_ctx, _searcher->getReader(),
+                auto iter = TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                                          _searcher->getReader(),
                                                           query_info.field_name, term);
                 subs.emplace_back(iter);
             }
@@ -93,7 +98,8 @@ void PhraseQuery::init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_
     _matchers.emplace_back(std::move(matcher));
 }
 
-void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
+void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                             bool is_similarity) {
     std::vector<PostingsAndFreq> postings;
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
@@ -102,8 +108,9 @@ void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query
         }
 
         const auto& term = term_info.get_single_term();
-        auto iter = TermPositionsIterator::create(_context->io_ctx, _searcher->getReader(),
-                                                  query_info.field_name, term);
+        auto iter =
+                TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                              _searcher->getReader(), query_info.field_name, term);
         _iterators.emplace_back(iter);
         postings.emplace_back(iter, i, std::vector<std::string> {term});
     }
@@ -111,7 +118,8 @@ void PhraseQuery::init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query
     _matchers.emplace_back(std::move(matcher));
 }
 
-void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info) {
+void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                                     bool is_similarity) {
     std::vector<PostingsAndPosition> postings;
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
@@ -119,9 +127,9 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
         }
 
-        auto iter =
-                TermPositionsIterator::create(_context->io_ctx, _searcher->getReader(),
-                                              query_info.field_name, term_info.get_single_term());
+        auto iter = TermPositionsIterator::create(_context->io_ctx, is_similarity,
+                                                  _searcher->getReader(), query_info.field_name,
+                                                  term_info.get_single_term());
         _iterators.emplace_back(iter);
         postings.emplace_back(iter, i);
     }
@@ -129,7 +137,7 @@ void PhraseQuery::init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInf
     _matchers.emplace_back(std::move(single_matcher));
 }
 
-void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_similarity_score) {
+void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_similarity) {
     // TODO: Current implementation - computes BM25 scores separately for each term
     // Note: This approach is suitable for TermQuery but does not conform to BM25 specification for PhraseQuery
     // BM25 phrase query specification requires:
@@ -142,7 +150,7 @@ void PhraseQuery::init_similarities(const std::wstring& field_name, bool is_simi
     //   2. Use phrase frequency instead of individual term frequencies
     //   3. Maintain document length normalization
     //   4. Refactor to create a single Similarity object handling the entire phrase
-    if (_context->collection_similarity && is_similarity_score) {
+    if (is_similarity) {
         _similarities.resize(_iterators.size());
         for (size_t i = 0; i < _iterators.size(); i++) {
             const auto& iter = _iterators[i];

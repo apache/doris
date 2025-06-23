@@ -48,6 +48,17 @@ namespace doris::pipeline {
 #include "common/compile_check_begin.h"
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
+    const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
+
+    if (olap_scan_node.__isset.score_sort_info && olap_scan_node.__isset.score_sort_limit) {
+        const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
+        const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
+        const size_t limit = olap_scan_node.score_sort_limit;
+        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
+        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
+    }
+
     RETURN_IF_ERROR(Base::init(state, info));
     RETURN_IF_ERROR(_sync_cloud_tablets(state));
     return Status::OK();
@@ -628,21 +639,6 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
-
-    if (olap_scan_node.__isset.score_sort_info && olap_scan_node.__isset.score_sort_limit) {
-        const doris::TExpr& ordering_expr = olap_scan_node.score_sort_info.ordering_exprs.front();
-        const bool asc = olap_scan_node.score_sort_info.is_asc_order[0];
-        const size_t limit = olap_scan_node.score_sort_limit;
-        std::shared_ptr<vectorized::VExprContext> ordering_expr_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(ordering_expr, ordering_expr_ctx));
-        _score_runtime = vectorized::ScoreRuntime::create_shared(ordering_expr_ctx, asc, limit);
-    }
-
-    return ScanLocalState<OlapScanLocalState>::init(state, info);
-}
-
 Status OlapScanLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<OlapScanOperatorX>();
     for (const auto& pair : p._slot_id_to_slot_desc) {
@@ -682,14 +678,17 @@ TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
 
-const auto& cache_param = _parent->cast<OlapScanOperatorX>()._cache_param;
-bool hit_cache = false;
-if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
-    std::string cache_key;
-    int64_t version = 0;
-    auto status = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
-    if (!status.ok()) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
+void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
+                                         const std::vector<TScanRangeParams>& scan_ranges) {
+    const auto& cache_param = _parent->cast<OlapScanOperatorX>()._cache_param;
+    bool hit_cache = false;
+    if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
+        std::string cache_key;
+        int64_t version = 0;
+        auto status = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
+        if (!status.ok()) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
+        }
         doris::QueryCacheHandle handle;
         hit_cache = QueryCache::instance()->lookup(cache_key, version, &handle);
     }

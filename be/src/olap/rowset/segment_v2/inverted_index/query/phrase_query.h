@@ -51,11 +51,12 @@ private:
     int32_t do_next(int32_t doc);
     bool matches(int32_t doc);
 
-    void init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info);
-    void init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info);
-    void init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info);
+    void init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info, bool is_similarity);
+    void init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info, bool is_similarity);
+    void init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                            bool is_similarity);
 
-    void init_similarities(const std::wstring& field_name, bool is_similarity_score);
+    void init_similarities(const std::wstring& field_name, bool is_similarity);
 
 public:
     static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);

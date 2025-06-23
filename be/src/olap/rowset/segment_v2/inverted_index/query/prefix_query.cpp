@@ -34,8 +34,9 @@ void PrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
     } else {
         std::vector<TermPositionsIterPtr> subs;
         for (const auto& ws_term : query_info.term_infos[0].get_multi_terms()) {
-            auto iter = TermPositionsIterator::create(_context->io_ctx, _searcher->getReader(),
-                                                      query_info.field_name, ws_term);
+            auto iter =
+                    TermPositionsIterator::create(_context->io_ctx, false, _searcher->getReader(),
+                                                  query_info.field_name, ws_term);
             subs.emplace_back(std::move(iter));
         }
         _lead1 = std::make_shared<UnionTermIterator<TermPositionsIterator>>(subs);

@@ -21,6 +21,7 @@
 #include "vec/columns/column_vector.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
     _bm25_scores[row_id] += score;
@@ -53,8 +54,7 @@ void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
 void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
                                                 vectorized::IColumn::MutablePtr& scores,
                                                 std::unique_ptr<std::vector<uint64_t>>& row_ids,
-                                                OrderType order_type, int32_t top_k) const {
-    using ScoreMapIterator = ScoreMap::const_iterator;
+                                                OrderType order_type, size_t top_k) const {
     std::vector<std::pair<uint32_t, float>> top_k_results;
 
     if (order_type == OrderType::DESC) {
@@ -107,7 +107,7 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
 
 template <typename Compare>
 void CollectionSimilarity::find_top_k_scores(
-        const ScoreMap& all_scores, int32_t top_k, Compare comp,
+        const ScoreMap& all_scores, size_t top_k, Compare comp,
         std::vector<std::pair<uint32_t, float>>& top_k_results) const {
     if (top_k <= 0) {
         return;
@@ -134,4 +134,5 @@ void CollectionSimilarity::find_top_k_scores(
     std::reverse(top_k_results.begin(), top_k_results.end());
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

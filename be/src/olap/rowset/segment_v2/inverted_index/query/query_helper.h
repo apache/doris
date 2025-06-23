@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class QueryHelper {
 public:
@@ -38,4 +39,5 @@ public:
                               const DocRange& doc_range);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -175,14 +175,6 @@ bool InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context
         return false;
     }
 
-    if (context->collection_similarity &&
-        (cache_key.query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-         cache_key.query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-         cache_key.query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
-         cache_key.query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY)) {
-        return false;
-    }
-
     if (cache->lookup(cache_key, cache_handler)) {
         DBUG_EXECUTE_IF("InvertedIndexReader.handle_query_cache_hit", {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("handle query cache hit");
@@ -374,16 +366,18 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         }
         cache_key = {index_file_key, column_name, query_type, std::move(str_tokens)};
 
-        auto* cache = InvertedIndexQueryCache::instance();
-        InvertedIndexQueryCacheHandle cache_handler;
-
-        std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
-        if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
-            return Status::OK();
-        }
-
         if (is_need_similarity_score(query_type)) {
             query_info.is_similarity_score = true;
+        }
+
+        auto* cache = InvertedIndexQueryCache::instance();
+        InvertedIndexQueryCacheHandle cache_handler;
+        std::shared_ptr<roaring::Roaring> term_match_bitmap = nullptr;
+        // Queries that require scoring will not hit the cache
+        if (!(context->collection_similarity && query_info.is_similarity_score)) {
+            if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map)) {
+                return Status::OK();
+            }
         }
 
         InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -672,7 +666,7 @@ Status BkdIndexReader::invoke_bkd_query(const IndexQueryContextPtr& context,
 
 Status BkdIndexReader::try_query(const IndexQueryContextPtr& context,
                                  const std::string& column_name, const void* query_value,
-                                 InvertedIndexQueryType query_type, uint32_t* count) {
+                                 InvertedIndexQueryType query_type, size_t* count) {
     try {
         std::shared_ptr<lucene::util::bkd::bkd_reader> r;
         auto st = get_bkd_reader(context, r);

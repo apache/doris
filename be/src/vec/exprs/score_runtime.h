@@ -21,6 +21,7 @@
 #include "vec/exprs/virtual_slot_ref.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class ScoreRuntime {
     ENABLE_FACTORY_CREATOR(ScoreRuntime);
@@ -59,4 +60,5 @@ private:
 };
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

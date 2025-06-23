@@ -153,7 +153,7 @@ class IndexCompactionUtils {
         const auto& index_searcher_builder = std::make_unique<BKDIndexSearcherBuilder>();
         auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
-        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().get());
         EXPECT_TRUE(searcher_result.has_value());
         auto bkd_searcher = std::get_if<BKDIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(bkd_searcher != nullptr);
@@ -194,7 +194,7 @@ class IndexCompactionUtils {
         const auto& index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
         auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
-        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().get());
         EXPECT_TRUE(searcher_result.has_value());
         auto string_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(string_searcher != nullptr);
@@ -232,7 +232,7 @@ class IndexCompactionUtils {
         const auto& index_searcher_builder = std::make_unique<FulltextIndexSearcherBuilder>();
         auto dir = index_file_reader->open(index);
         EXPECT_TRUE(dir.has_value());
-        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().release());
+        auto searcher_result = index_searcher_builder->get_index_searcher(dir.value().get());
         EXPECT_TRUE(searcher_result.has_value());
         auto string_searcher = std::get_if<FulltextIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(string_searcher != nullptr);
