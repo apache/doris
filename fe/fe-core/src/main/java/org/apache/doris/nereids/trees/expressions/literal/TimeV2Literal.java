@@ -21,7 +21,9 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.util.DateUtils;
 
 import java.time.LocalDateTime;
 
@@ -192,6 +194,25 @@ public class TimeV2Literal extends Literal {
 
     public int getMicroSecond() {
         return microsecond;
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(
+                LocalDateTime.now(DateUtils.getTimeZone()).plusHours(getHour()).plusMinutes(getMinute())
+                        .plusSeconds(getSecond()).plusNanos(getMicroSecond() * 1000),
+                ((TimeV2Type) dataType).getScale());
+        if (targetType.isDateType()) {
+            return new DateLiteral(time.getYear(), time.getMonth(), time.getDay());
+        } else if (targetType.isDateV2Type()) {
+            return new DateV2Literal(time.getYear(), time.getMonth(), time.getDay());
+        } else if (targetType.isDateTimeType()) {
+            return new DateTimeLiteral(time.getYear(), time.getMonth(), time.getDay(), time.getHour(), time.getMinute(),
+                    time.getSecond());
+        } else if (targetType.isDateTimeV2Type()) {
+            return time;
+        }
+        return super.uncheckedCastTo(targetType);
     }
 
     @Override
