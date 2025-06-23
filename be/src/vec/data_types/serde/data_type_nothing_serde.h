@@ -120,6 +120,13 @@ public:
                                std::vector<StringRef>& buffer_list) const override {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
     }
+
+    Status write_column_to_jsonb(const IColumn& column, JsonbWriter** results,
+                                 const size_t num_rows,
+                                 const uint32_t* indexes = nullptr) const override {
+        return Status::NotSupported("Method write_column_to_jsonb not implemented for type {}",
+                                    column.get_name());
+    }
 };
 } // namespace vectorized
 } // namespace doris
