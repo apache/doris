@@ -351,8 +351,9 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
                                        const std::string& cloud_unique_id);
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id_err", [&](auto&& args) {
         std::string* err = try_any_cast<std::string*>(args[0]);
         *err = "can't find node from cache";
@@ -1183,8 +1184,9 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::condition_variable go_cv;
         bool go = false;
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
 
         std::atomic<int32_t> count_txn1 = {0};
         std::atomic<int32_t> count_txn2 = {0};
@@ -1330,8 +1332,9 @@ TEST(MetaServiceTest, BeginTxnTest) {
         std::condition_variable go_cv;
         bool go = false;
         auto sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer(
-                (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+        DORIS_CLOUD_DEFER {
+            SyncPoint::get_instance()->clear_all_call_backs();
+        };
 
         std::atomic<int32_t> count_txn1 = {0};
         std::atomic<int32_t> count_txn2 = {0};
@@ -3453,8 +3456,9 @@ TEST(MetaServiceTest, CopyJobTest) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3931,8 +3935,9 @@ TEST(MetaServiceTest, StageTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "stage_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4269,8 +4274,9 @@ TEST(MetaServiceTest, GetIamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "get_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4352,8 +4358,9 @@ TEST(MetaServiceTest, AlterRamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "alter_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -4695,10 +4702,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
 
         std::string instance_id = "test_get_delete_bitmap_update_lock_normal";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4745,10 +4752,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal1";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4788,10 +4795,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {
         // the reading of tablet stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal2";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4831,10 +4838,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         // 2.3 abnormal path, meeting error when reading tablets' stats
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal3";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -4871,10 +4878,10 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsError) {
         // this should not fail if lock is not expired
         std::string instance_id = "test_get_delete_bitmap_update_lock_abnormal4";
         [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-        std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
+        DORIS_CLOUD_DEFER {
             SyncPoint::get_instance()->disable_processing();
             SyncPoint::get_instance()->clear_all_call_backs();
-        });
+        };
         sp->set_call_back("get_instance_id", [&](auto&& args) {
             auto* ret = try_any_cast_ret<std::string>(args);
             ret->first = instance_id;
@@ -6443,8 +6450,9 @@ TEST(MetaServiceTest, BatchGetVersionFallback) {
     constexpr size_t N = 100;
     size_t i = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("batch_get_version_err", [&](auto&& args) {
         if (i++ == N / 10) {
             *try_any_cast<TxnErrorCode*>(args) = TxnErrorCode::TXN_TOO_OLD;
@@ -6489,8 +6497,9 @@ TEST(MetaServiceTest, IsDroppedTablet) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IsDroppedTablet";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -6570,8 +6579,9 @@ TEST(MetaServiceTest, IndexRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "IndexRequest";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -6813,8 +6823,9 @@ TEST(MetaServiceTest, PartitionRequest) {
     auto meta_service = get_meta_service();
     std::string instance_id = "PartitionRequest";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -8667,8 +8678,9 @@ TEST(MetaServiceTest, UpdateTmpRowsetTest) {
 
     std::string instance_id = "update_rowset_meta_test_instance_id";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -9086,8 +9098,9 @@ TEST(MetaServiceTest, CheckJobExisted) {
 
     std::string instance_id = "check_job_existed_instance_id";
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
