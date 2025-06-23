@@ -17,11 +17,13 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
+import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
@@ -39,6 +41,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -54,8 +57,11 @@ public class IcebergExternalTableBranchAndTagTest {
     Path tempDirectory;
     Table icebergTable;
     IcebergExternalCatalog catalog;
+    IcebergExternalDatabase db;
     IcebergExternalTable dorisTable;
     HadoopCatalog icebergCatalog;
+    MockedStatic<IcebergUtils> mockedIcebergUtils;
+    MockedStatic<Env> mockedEnv;
     String dbName = "db";
     String tblName = "tbl";
 
@@ -76,11 +82,26 @@ public class IcebergExternalTableBranchAndTagTest {
             new Schema(Types.NestedField.required(1, "level", Types.StringType.get())));
 
         // init external table
-        catalog = new IcebergHadoopExternalCatalog(1L, "iceberg", null, map, null);
-        catalog.setInitialized(true);
-        IcebergExternalDatabase database = new IcebergExternalDatabase(catalog, 1L, dbName, dbName);
-        dorisTable = Mockito.spy(new IcebergExternalTable(1, tblName, tblName, catalog, database));
-        Mockito.doReturn(icebergTable).when(dorisTable).getIcebergTable();
+        catalog = Mockito.spy(new IcebergHadoopExternalCatalog(1L, "iceberg", null, map, null));
+        catalog.setInitializedForTest(true);
+        // db = new IcebergExternalDatabase(catalog, 1L, dbName, dbName);
+        db = Mockito.spy(new IcebergExternalDatabase(catalog, 1L, dbName, dbName));
+        dorisTable = Mockito.spy(new IcebergExternalTable(1, tblName, tblName, catalog, db));
+        Mockito.doReturn(db).when(catalog).getDbNullable(Mockito.any());
+        Mockito.doReturn(dorisTable).when(db).getTableNullable(Mockito.any());
+
+        // mock IcebergUtils.getIcebergTable to return our test icebergTable
+        mockedIcebergUtils = Mockito.mockStatic(IcebergUtils.class);
+        mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(icebergTable);
+
+        // mock Env.getCurrentEnv().getEditLog().logBranchOrTag(info) to do nothing
+        Env mockEnv = Mockito.mock(Env.class);
+        EditLog mockEditLog = Mockito.mock(EditLog.class);
+        mockedEnv = Mockito.mockStatic(Env.class);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
+        Mockito.when(mockEnv.getEditLog()).thenReturn(mockEditLog);
+        Mockito.doNothing().when(mockEditLog).logBranchOrTag(Mockito.any());
     }
 
     @AfterEach
@@ -90,6 +111,14 @@ public class IcebergExternalTableBranchAndTagTest {
             icebergCatalog.dropNamespace(Namespace.of("db"));
         }
         Files.deleteIfExists(tempDirectory);
+
+        // close the static mock
+        if (mockedIcebergUtils != null) {
+            mockedIcebergUtils.close();
+        }
+        if (mockedEnv != null) {
+            mockedEnv.close();
+        }
     }
 
     @Test
