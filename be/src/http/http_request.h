@@ -121,7 +121,7 @@ private:
 
     // ensure send_reply finished
     std::promise<bool> promise;
-    std::future<bool> futrue = promise.get_future();
+    std::future<bool> _futrue = promise.get_future();
 };
 
 } // namespace doris
