@@ -127,5 +127,7 @@ DECLARE_mInt32(meta_service_conflict_error_retry_times);
 
 DECLARE_Bool(enable_check_storage_vault);
 
+DECLARE_mInt64(cloud_index_change_task_timeout_second);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

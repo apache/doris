@@ -135,6 +135,8 @@ private:
 
 void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void alter_cloud_index_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
