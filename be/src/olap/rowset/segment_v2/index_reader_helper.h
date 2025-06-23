@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class IndexReaderHelper {
 public:
@@ -62,4 +63,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

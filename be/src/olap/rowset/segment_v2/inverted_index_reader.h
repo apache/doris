@@ -220,11 +220,6 @@ public:
                                         size_t& reader_size);
 
 protected:
-    Status pre_match_index_search(const IndexQueryContextPtr& context,
-                                  InvertedIndexQueryType query_type,
-                                  const InvertedIndexQueryInfo& query_info,
-                                  const FulltextIndexSearcherPtr& index_searcher);
-
     Status match_index_search(const IndexQueryContextPtr& context,
                               InvertedIndexQueryType query_type,
                               const InvertedIndexQueryInfo& query_info,
@@ -351,10 +346,10 @@ public:
                  std::shared_ptr<roaring::Roaring>& bit_map) override;
     Status try_query(const IndexQueryContextPtr& context, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
-                     uint32_t* count) override;
+                     size_t* count) override;
     Status invoke_bkd_try_query(const IndexQueryContextPtr& context, const void* query_value,
                                 InvertedIndexQueryType query_type,
-                                std::shared_ptr<lucene::util::bkd::bkd_reader> r, uint32_t* count);
+                                std::shared_ptr<lucene::util::bkd::bkd_reader> r, size_t* count);
     Status invoke_bkd_query(const IndexQueryContextPtr& context, const void* query_value,
                             InvertedIndexQueryType query_type,
                             std::shared_ptr<lucene::util::bkd::bkd_reader> r,

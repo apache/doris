@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/config.h"
 #include "io/fs/file_system.h"
 #include "olap/rowset/segment_v2/index_file_writer.h"
@@ -56,6 +57,7 @@ public:
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
               _idx_file_info(idx_file_info) {}
+    virtual ~IndexFileReader() = default;
 
     MOCK_FUNCTION Status init(int32_t read_buffer_size = config::inverted_index_read_buffer_size,
                               const io::IOContext* io_ctx = nullptr);

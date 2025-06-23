@@ -29,7 +29,7 @@ TermQuery::~TermQuery() {
 
 TermQuery::TermQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                      const TQueryOptions& query_options, QueryInfo query_info) {
-    _iter = TermIterator::create(nullptr, searcher->getReader(), query_info.field_name,
+    _iter = TermIterator::create(nullptr, false, searcher->getReader(), query_info.field_name,
                                  query_info.terms[0]);
 }
 

@@ -20,6 +20,7 @@
 #include "similarity.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 /**
  * BM25 similarity scoring implementation for inverted index queries.
@@ -53,14 +54,15 @@ private:
 
     static std::vector<float> LENGTH_TABLE;
 
-    float _boost = 1.0;
-    float _k1 = 1.2;
-    float _b = 0.75;
-    float _idf = 0.0;
-    float _avgdl = 0.0;
-    float _weight = 1.0;
+    float _boost = 1.0F;
+    float _k1 = 1.2F;
+    float _b = 0.75F;
+    float _idf = 0.0F;
+    float _avgdl = 0.0F;
+    float _weight = 1.0F;
 
     std::vector<float> _cache;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

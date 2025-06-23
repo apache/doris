@@ -49,8 +49,6 @@ public:
         return _virtual_column_expr->evaluate_inverted_index(context, segment_num_rows);
     }
 
-    bool is_score_expr() const;
-
 private:
     int _column_id;
     int _slot_id;

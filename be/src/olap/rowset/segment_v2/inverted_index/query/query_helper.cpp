@@ -18,6 +18,7 @@
 #include "query_helper.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 void QueryHelper::collect(const IndexQueryContextPtr& context,
                           const std::vector<SimilarityPtr>& similarities,
@@ -25,7 +26,7 @@ void QueryHelper::collect(const IndexQueryContextPtr& context,
     for (size_t i = 0; i < iterators.size(); i++) {
         auto freq = iterators[i]->freq();
         auto doc_length = iterators[i]->norm();
-        auto score = similarities[i]->score(freq, doc_length);
+        auto score = similarities[i]->score(static_cast<float>(freq), doc_length);
         context->collection_similarity->collect(doc, score);
     }
 }
@@ -39,7 +40,7 @@ void QueryHelper::collect(const IndexQueryContextPtr& context,
             const auto& term_iter = std::get<TermPositionsIterPtr>(iter);
             auto freq = term_iter->freq();
             auto norm = term_iter->norm();
-            auto score = similarities[i]->score(freq, norm);
+            auto score = similarities[i]->score(static_cast<float>(freq), norm);
             context->collection_similarity->collect(doc, score);
         }
     }
@@ -51,7 +52,7 @@ void QueryHelper::collect_many(const IndexQueryContextPtr& context, const Simila
         rowid_t row_id = (*doc_range.doc_many)[j];
         auto freq = (*doc_range.freq_many)[j];
         auto norm = (*doc_range.norm_many)[j];
-        auto score = similarity->score(freq, norm);
+        auto score = similarity->score(static_cast<float>(freq), norm);
         context->collection_similarity->collect(row_id, score);
     }
 }
@@ -63,9 +64,10 @@ void QueryHelper::collect_range(const IndexQueryContextPtr& context,
         segment_v2::rowid_t row_id = doc_range.doc_range.first + j;
         auto freq = (*doc_range.freq_many)[j];
         auto norm = (*doc_range.norm_many)[j];
-        auto score = similarity->score(freq, norm);
+        auto score = similarity->score(static_cast<float>(freq), norm);
         context->collection_similarity->collect(row_id, score);
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

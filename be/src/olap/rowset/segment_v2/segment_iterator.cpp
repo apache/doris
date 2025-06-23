@@ -2876,8 +2876,7 @@ void SegmentIterator::_prepare_score_column_materialization() {
                 &_row_bitmap, result_column, result_row_ids, order_type,
                 _score_runtime->get_limit());
     } else {
-        _index_query_context->collection_similarity->get_bm25_scores(&_row_bitmap, result_column,
-                                                                     result_row_ids);
+        throw Exception(ErrorCode::INDEX_INVALID_PARAMETERS, "Score runtime is not supported");
     }
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();

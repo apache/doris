@@ -38,6 +38,8 @@
 
 namespace doris {
 
+namespace collection_statistics {
+
 class MockVExpr : public vectorized::VExpr {
 public:
     MockVExpr(TExprNodeType::type node_type) : _mock_node_type(node_type) {}
@@ -77,7 +79,7 @@ class MockVSlotRef : public vectorized::VSlotRef {
 public:
     MockVSlotRef(const std::string& column_name) : _column_name(column_name) {}
 
-    std::string column_name() const override { return _column_name; }
+    const std::string& column_name() const override { return _column_name; }
     const std::string& expr_name() const override { return _column_name; }
     std::string debug_string() const override { return "MockVSlotRef: " + _column_name; }
 
@@ -220,6 +222,8 @@ private:
     std::shared_ptr<MockRowset> _rowset;
 };
 
+} // namespace collection_statistics
+
 class CollectionStatisticsTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -260,9 +264,10 @@ protected:
             const std::string& search_term = "search term") {
         vectorized::VExprContextSPtrs contexts;
 
-        auto match_expr = std::make_shared<MockVExpr>(TExprNodeType::MATCH_PRED);
-        auto slot_ref = std::make_shared<MockVSlotRef>("content");
-        auto literal = std::make_shared<MockVLiteral>(search_term);
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content");
+        auto literal = std::make_shared<collection_statistics::MockVLiteral>(search_term);
 
         match_expr->_children.push_back(slot_ref);
         match_expr->_children.push_back(literal);
@@ -275,16 +280,16 @@ protected:
     std::vector<RowSetSplits> create_mock_rowset_splits(int num_segments = 1) {
         std::vector<RowSetSplits> splits;
 
-        auto rowset_meta = std::make_shared<MockRowsetMeta>();
-        auto rowset = std::make_shared<MockRowset>(create_tablet_schema_with_inverted_index(),
-                                                   rowset_meta);
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset = std::make_shared<collection_statistics::MockRowset>(
+                create_tablet_schema_with_inverted_index(), rowset_meta);
         rowset->set_num_segments(num_segments);
 
         for (int i = 0; i < num_segments; ++i) {
             rowset->set_segment_path(i, test_dir_ + "/segment_" + std::to_string(i) + ".dat");
         }
 
-        auto reader = std::make_shared<MockRowsetReader>(rowset);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
 
         RowSetSplits split(reader);
         splits.push_back(split);
@@ -320,7 +325,8 @@ TEST_F(CollectionStatisticsTest, CollectWithNonMatchExpression) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
     vectorized::VExprContextSPtrs contexts;
-    auto non_match_expr = std::make_shared<MockVExpr>(TExprNodeType::BINARY_PRED);
+    auto non_match_expr =
+            std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::BINARY_PRED);
     auto context = std::make_shared<vectorized::VExprContext>(non_match_expr);
     contexts.push_back(context);
 
@@ -335,16 +341,18 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleMatchExpressions) {
 
     vectorized::VExprContextSPtrs contexts;
 
-    auto match_expr1 = std::make_shared<MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref1 = std::make_shared<MockVSlotRef>("content");
-    auto literal1 = std::make_shared<MockVLiteral>("term1");
+    auto match_expr1 =
+            std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref1 = std::make_shared<collection_statistics::MockVSlotRef>("content");
+    auto literal1 = std::make_shared<collection_statistics::MockVLiteral>("term1");
     match_expr1->_children.push_back(slot_ref1);
     match_expr1->_children.push_back(literal1);
     contexts.push_back(std::make_shared<vectorized::VExprContext>(match_expr1));
 
-    auto match_expr2 = std::make_shared<MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref2 = std::make_shared<MockVSlotRef>("content");
-    auto literal2 = std::make_shared<MockVLiteral>("term2");
+    auto match_expr2 =
+            std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref2 = std::make_shared<collection_statistics::MockVSlotRef>("content");
+    auto literal2 = std::make_shared<collection_statistics::MockVLiteral>("term2");
     match_expr2->_children.push_back(slot_ref2);
     match_expr2->_children.push_back(literal2);
     contexts.push_back(std::make_shared<vectorized::VExprContext>(match_expr2));
@@ -360,15 +368,16 @@ TEST_F(CollectionStatisticsTest, CollectWithNestedExpressions) {
 
     vectorized::VExprContextSPtrs contexts;
 
-    auto and_expr = std::make_shared<MockVExpr>(TExprNodeType::BINARY_PRED);
+    auto and_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::BINARY_PRED);
 
-    auto match_expr = std::make_shared<MockVExpr>(TExprNodeType::MATCH_PRED);
-    auto slot_ref = std::make_shared<MockVSlotRef>("content");
-    auto literal = std::make_shared<MockVLiteral>("nested term");
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("content");
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("nested term");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
 
-    auto other_expr = std::make_shared<MockVExpr>(TExprNodeType::BINARY_PRED);
+    auto other_expr =
+            std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::BINARY_PRED);
 
     and_expr->_children.push_back(match_expr);
     and_expr->_children.push_back(other_expr);
@@ -382,8 +391,6 @@ TEST_F(CollectionStatisticsTest, CollectWithNestedExpressions) {
 }
 
 TEST_F(CollectionStatisticsTest, CollectWithMockRowsetSplits) {
-    getchar();
-
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     auto expr_contexts = create_match_expr_contexts();
 
@@ -411,11 +418,12 @@ TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
     std::vector<RowSetSplits> splits;
 
     for (int i = 0; i < 3; ++i) {
-        auto rowset_meta = std::make_shared<MockRowsetMeta>();
-        auto rowset = std::make_shared<MockRowset>(tablet_schema, rowset_meta);
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset =
+                std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
         rowset->set_num_segments(0);
 
-        auto reader = std::make_shared<MockRowsetReader>(rowset);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
 
         RowSetSplits split(reader);
         splits.push_back(split);

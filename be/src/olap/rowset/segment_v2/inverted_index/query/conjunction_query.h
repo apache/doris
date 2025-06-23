@@ -24,6 +24,7 @@ namespace doris::segment_v2 {
 
 class ConjunctionQuery : public Query {
 public:
+    ConjunctionQuery() = default;
     ConjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~ConjunctionQuery() override = default;
 
@@ -36,7 +37,6 @@ private:
 
     int32_t do_next(int32_t doc);
 
-public:
     SearcherPtr _searcher;
     IndexQueryContextPtr _context;
 
@@ -52,6 +52,8 @@ public:
     std::vector<TermIterPtr> _iterators;
 
     std::vector<SimilarityPtr> _similarities;
+
+    friend class ConjunctionQueryTest;
 };
 
 } // namespace doris::segment_v2

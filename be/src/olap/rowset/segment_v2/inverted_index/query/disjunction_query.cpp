@@ -29,24 +29,40 @@ void DisjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
+
     _field_name = query_info.field_name;
     _iterators.resize(query_info.term_infos.size());
     for (size_t i = 0; i < query_info.term_infos.size(); i++) {
         const auto& term_info = query_info.term_infos[i];
         if (term_info.is_single_term()) {
-            auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
-                                             query_info.field_name, term_info.get_single_term());
-            _iterators[i].emplace_back(iter);
+            if (query_info.use_mock_iter) {
+                auto iter = std::make_shared<MockIterator>();
+                iter->set_postings({{0, {0}}, {1, {0}}, {3, {0}}, {5, {0}}});
+                _iterators[i].emplace_back(iter);
+            } else {
+                auto iter = TermIterator::create(_context->io_ctx, is_similarity,
+                                                 _searcher->getReader(), query_info.field_name,
+                                                 term_info.get_single_term());
+                _iterators[i].emplace_back(iter);
+            }
         } else {
             for (const auto& term : term_info.get_multi_terms()) {
-                auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
-                                                 query_info.field_name, term);
-                _iterators[i].emplace_back(iter);
+                if (query_info.use_mock_iter) {
+                    auto iter = std::make_shared<MockIterator>();
+                    iter->set_postings({{0, {0}}, {1, {0}}, {3, {0}}, {5, {0}}});
+                    _iterators[i].emplace_back(iter);
+                } else {
+                    auto iter = TermIterator::create(_context->io_ctx, is_similarity,
+                                                     _searcher->getReader(), query_info.field_name,
+                                                     term);
+                    _iterators[i].emplace_back(iter);
+                }
             }
         }
     }
 
-    if (_context->collection_similarity && query_info.is_similarity_score) {
+    if (is_similarity) {
         for (const auto& iters : _iterators) {
             if (iters.size() > 1) {
                 throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,

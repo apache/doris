@@ -94,7 +94,7 @@ Status _create_column_writer(uint32_t cid, const TabletColumn& column,
     // init inverted index
     // parent_index denotes the index of the entire variant column
     // while subcolumn_index denotes the current subcolumn's index
-    if (segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(column)) {
+    if (segment_v2::IndexColumnWriter::check_support_inverted_index(column)) {
         auto init_opt_inverted_index = [&]() {
             DCHECK(!subcolumn_indexes.empty());
             // TODO(lihangyu) multi indexes

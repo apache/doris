@@ -308,7 +308,9 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
                 && Objects.equals(manuallySpecifiedTabletIds, that.manuallySpecifiedTabletIds)
                 && Objects.equals(selectedPartitionIds, that.selectedPartitionIds)
                 && Objects.equals(hints, that.hints)
-                && Objects.equals(tableSample, that.tableSample);
+                && Objects.equals(tableSample, that.tableSample)
+                && Objects.equals(scoreOrderKeys, that.scoreOrderKeys)
+                && Objects.equals(scoreLimit, that.scoreLimit);
     }
 
     @Override

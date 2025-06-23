@@ -21,40 +21,16 @@
 #include "vec/columns/column_vector.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void CollectionSimilarity::collect(segment_v2::rowid_t row_id, float score) {
     _bm25_scores[row_id] += score;
 }
 
-void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
-                                           vectorized::IColumn::MutablePtr& scores,
-                                           std::unique_ptr<std::vector<uint64_t>>& row_ids) const {
-    size_t num_results = row_bitmap->cardinality();
-    auto score_column = vectorized::ColumnFloat32::create(num_results);
-    auto& score_data = score_column->get_data();
-
-    row_ids->resize(num_results);
-
-    int32_t i = 0;
-    for (uint32_t row_id : *row_bitmap) {
-        (*row_ids)[i] = row_id;
-        auto it = _bm25_scores.find(row_id);
-        if (it != _bm25_scores.end()) {
-            score_data[i] = it->second;
-        } else {
-            score_data[i] = 0.0;
-        }
-        i++;
-    }
-
-    scores = std::move(score_column);
-}
-
 void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
                                                 vectorized::IColumn::MutablePtr& scores,
                                                 std::unique_ptr<std::vector<uint64_t>>& row_ids,
-                                                OrderType order_type, int32_t top_k) const {
-    using ScoreMapIterator = ScoreMap::const_iterator;
+                                                OrderType order_type, size_t top_k) const {
     std::vector<std::pair<uint32_t, float>> top_k_results;
 
     if (order_type == OrderType::DESC) {
@@ -102,12 +78,13 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
     }
 
     *row_bitmap = std::move(new_bitmap);
-    scores = std::move(score_column);
+    auto null_map = vectorized::ColumnUInt8::create(num_results, 0);
+    scores = vectorized::ColumnNullable::create(std::move(score_column), std::move(null_map));
 }
 
 template <typename Compare>
 void CollectionSimilarity::find_top_k_scores(
-        const ScoreMap& all_scores, int32_t top_k, Compare comp,
+        const ScoreMap& all_scores, size_t top_k, Compare comp,
         std::vector<std::pair<uint32_t, float>>& top_k_results) const {
     if (top_k <= 0) {
         return;
@@ -134,4 +111,5 @@ void CollectionSimilarity::find_top_k_scores(
     std::reverse(top_k_results.begin(), top_k_results.end());
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

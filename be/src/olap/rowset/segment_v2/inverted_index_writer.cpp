@@ -17,10 +17,12 @@
 
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 
+#include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
+#include "olap/types.h"
 #include "util/faststring.h"
 
 namespace doris::segment_v2 {
@@ -31,10 +33,11 @@ const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
 
-InvertedIndexColumnWriterImpl::InvertedIndexColumnWriterImpl(const std::string& field_name,
-                                                             IndexFileWriter* index_file_writer,
-                                                             const TabletIndex* index_meta,
-                                                             const bool single_field = true)
+template <FieldType field_type>
+InvertedIndexColumnWriter<field_type>::InvertedIndexColumnWriter(const std::string& field_name,
+                                                                 IndexFileWriter* index_file_writer,
+                                                                 const TabletIndex* index_meta,
+                                                                 const bool single_field)
         : _single_field(single_field),
           _index_meta(index_meta),
           _index_file_writer(index_file_writer) {
@@ -44,13 +47,15 @@ InvertedIndexColumnWriterImpl::InvertedIndexColumnWriterImpl(const std::string& 
     _field_name = StringUtil::string_to_wstring(field_name);
 }
 
-InvertedIndexColumnWriterImpl::~InvertedIndexColumnWriterImpl() override {
+template <FieldType field_type>
+InvertedIndexColumnWriter<field_type>::~InvertedIndexColumnWriter() {
     if (_index_writer != nullptr) {
         close_on_error();
     }
 }
 
-Status InvertedIndexColumnWriterImpl::init() override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::init() {
     try {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::init_field_type_not_supported", {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
@@ -72,7 +77,8 @@ Status InvertedIndexColumnWriterImpl::init() override {
     }
 }
 
-void InvertedIndexColumnWriterImpl::close_on_error() override {
+template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::close_on_error() {
     try {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::close_on_error_throw_exception",
                         { _CLTHROWA(CL_ERR_IO, "debug point: close on error"); })
@@ -89,7 +95,8 @@ void InvertedIndexColumnWriterImpl::close_on_error() override {
     }
 }
 
-Status InvertedIndexColumnWriterImpl::init_bkd_index() {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::init_bkd_index() {
     size_t value_length = sizeof(CppType);
     // NOTE: initialize with 0, set to max_row_id when finished.
     int32_t max_doc = 0;
@@ -102,8 +109,9 @@ Status InvertedIndexColumnWriterImpl::init_bkd_index() {
     return open_index_directory();
 }
 
+template <FieldType field_type>
 Result<std::unique_ptr<lucene::util::Reader>>
-InvertedIndexColumnWriterImpl::create_char_string_reader(CharFilterMap& char_filter_map) {
+InvertedIndexColumnWriter<field_type>::create_char_string_reader(CharFilterMap& char_filter_map) {
     try {
         return inverted_index::InvertedIndexAnalyzer::create_reader(char_filter_map);
     } catch (CLuceneError& e) {
@@ -112,7 +120,8 @@ InvertedIndexColumnWriterImpl::create_char_string_reader(CharFilterMap& char_fil
     }
 }
 
-Status InvertedIndexColumnWriterImpl::open_index_directory() {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::open_index_directory() {
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::open_index_directory_error", {
         return Status::Error<ErrorCode::INTERNAL_ERROR>("debug point: open_index_directory_error");
     })
@@ -120,7 +129,9 @@ Status InvertedIndexColumnWriterImpl::open_index_directory() {
     return Status::OK();
 }
 
-std::unique_ptr<lucene::index::IndexWriter> InvertedIndexColumnWriterImpl::create_index_writer() {
+template <FieldType field_type>
+std::unique_ptr<lucene::index::IndexWriter>
+InvertedIndexColumnWriter<field_type>::create_index_writer() {
     bool create_index = true;
     bool close_dir_on_shutdown = true;
     auto index_writer = std::make_unique<lucene::index::IndexWriter>(
@@ -137,11 +148,13 @@ std::unique_ptr<lucene::index::IndexWriter> InvertedIndexColumnWriterImpl::creat
     index_writer->setMergeFactor(MERGE_FACTOR);
     index_writer->setUseCompoundFile(false);
     index_writer->setEnableCorrectTermWrite(config::enable_inverted_index_correct_term_write);
+    index_writer->setSimilarity(_similarity.get());
 
     return index_writer;
 }
 
-Status InvertedIndexColumnWriterImpl::create_field(lucene::document::Field** field) {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Field** field) {
     int field_config =
             int(lucene::document::Field::STORE_NO) | int(lucene::document::Field::INDEX_NONORMS);
     field_config |= _should_analyzer ? int32_t(lucene::document::Field::INDEX_TOKENIZED)
@@ -150,10 +163,11 @@ Status InvertedIndexColumnWriterImpl::create_field(lucene::document::Field** fie
     (*field)->setOmitTermFreqAndPositions(
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_v3", {
+    (*field)->setOmitNorms(false);
+    DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_field_v3", {
         if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "debug point: InvertedIndexColumnWriterImpl::create_field_v3 error");
+                    "debug point: InvertedIndexColumnWriter::create_field_v3 error");
         }
     })
     if (_index_file_writer->get_storage_format() >= InvertedIndexStorageFormatPB::V3) {
@@ -161,11 +175,11 @@ Status InvertedIndexColumnWriterImpl::create_field(lucene::document::Field** fie
         // Only effective in v3
         std::string dict_compression =
                 get_parser_dict_compression_from_properties(_index_meta->properties());
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::create_field_dic_compression", {
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_field_dic_compression", {
             if (dict_compression != INVERTED_INDEX_PARSER_TRUE) {
                 return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "debug point: "
-                        "InvertedIndexColumnWriterImpl::create_field_dic_compression error");
+                        "InvertedIndexColumnWriter::create_field_dic_compression error");
             }
         })
         if (dict_compression == INVERTED_INDEX_PARSER_TRUE) {
@@ -175,7 +189,9 @@ Status InvertedIndexColumnWriterImpl::create_field(lucene::document::Field** fie
     return Status::OK();
 }
 
-Result<std::shared_ptr<lucene::analysis::Analyzer>> InvertedIndexColumnWriterImpl::create_analyzer(
+template <FieldType field_type>
+Result<std::shared_ptr<lucene::analysis::Analyzer>>
+InvertedIndexColumnWriter<field_type>::create_analyzer(
         std::shared_ptr<InvertedIndexCtx>& inverted_index_ctx) {
     try {
         return inverted_index::InvertedIndexAnalyzer::create_analyzer(inverted_index_ctx.get());
@@ -188,7 +204,8 @@ Result<std::shared_ptr<lucene::analysis::Analyzer>> InvertedIndexColumnWriterImp
     }
 }
 
-Status InvertedIndexColumnWriterImpl::init_fulltext_index() {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::init_fulltext_index() {
     _inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
             get_custom_analyzer_string_from_properties(_index_meta->properties()),
             get_inverted_index_parser_type_from_string(
@@ -202,6 +219,7 @@ Status InvertedIndexColumnWriterImpl::init_fulltext_index() {
     _char_string_reader =
             DORIS_TRY(create_char_string_reader(_inverted_index_ctx->char_filter_map));
     _analyzer = DORIS_TRY(create_analyzer(_inverted_index_ctx));
+    _similarity = std::make_unique<lucene::search::LengthSimilarity>();
     _index_writer = create_index_writer();
     _doc = std::make_unique<lucene::document::Document>();
     if (_single_field) {
@@ -217,12 +235,13 @@ Status InvertedIndexColumnWriterImpl::init_fulltext_index() {
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_document() {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_document() {
     DBUG_EXECUTE_IF("inverted_index_writer.add_document", { return Status::OK(); });
 
     try {
         _index_writer->addDocument(_doc.get());
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_document_throw_error",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_document_throw_error",
                         { _CLTHROWA(CL_ERR_IO, "debug point: add_document io error"); })
     } catch (const CLuceneError& e) {
         close_on_error();
@@ -232,10 +251,11 @@ Status InvertedIndexColumnWriterImpl::add_document() {
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_null_document() {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_null_document() {
     try {
         _index_writer->addNullDocument(_doc.get());
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_null_document_throw_error",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_null_document_throw_error",
                         { _CLTHROWA(CL_ERR_IO, "debug point: add_null_document io error"); })
     } catch (const CLuceneError& e) {
         close_on_error();
@@ -245,13 +265,13 @@ Status InvertedIndexColumnWriterImpl::add_null_document() {
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_nulls(uint32_t count) override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_nulls(uint32_t count) {
     _null_bitmap.addRange(_rid, _rid + count);
     _rid += count;
     if constexpr (field_is_slice_type(field_type)) {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_nulls_field_nullptr",
-                        { _field = nullptr; })
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_nulls_index_writer_nullptr",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_nulls_field_nullptr", { _field = nullptr; })
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_nulls_index_writer_nullptr",
                         { _index_writer = nullptr; })
         if (_field == nullptr || _index_writer == nullptr) {
             LOG(ERROR) << "field or index writer is null in inverted index writer.";
@@ -265,8 +285,9 @@ Status InvertedIndexColumnWriterImpl::add_nulls(uint32_t count) override {
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_array_nulls(const uint8_t* null_map,
-                                                      size_t num_rows) override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_array_nulls(const uint8_t* null_map,
+                                                              size_t num_rows) {
     DCHECK(_rid >= num_rows);
     if (num_rows == 0 || null_map == nullptr) {
         return Status::OK();
@@ -289,8 +310,9 @@ Status InvertedIndexColumnWriterImpl::add_array_nulls(const uint8_t* null_map,
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::new_inverted_index_field(const char* field_value_data,
-                                                               size_t field_value_size) {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::new_inverted_index_field(const char* field_value_data,
+                                                                       size_t field_value_size) {
     try {
         if (_should_analyzer) {
             new_char_token_stream(field_value_data, field_value_size, _field);
@@ -304,11 +326,12 @@ Status InvertedIndexColumnWriterImpl::new_inverted_index_field(const char* field
     return Status::OK();
 }
 
-void InvertedIndexColumnWriterImpl::new_char_token_stream(const char* s, size_t len,
-                                                          lucene::document::Field* field) {
+template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::new_char_token_stream(const char* s, size_t len,
+                                                                  lucene::document::Field* field) {
     _char_string_reader->init(s, cast_set<int32_t>(len), false);
     DBUG_EXECUTE_IF(
-            "InvertedIndexColumnWriterImpl::new_char_token_stream__char_string_reader_init_"
+            "InvertedIndexColumnWriter::new_char_token_stream__char_string_reader_init_"
             "error",
             {
                 _CLTHROWA(CL_ERR_UnsupportedOperation,
@@ -318,25 +341,28 @@ void InvertedIndexColumnWriterImpl::new_char_token_stream(const char* s, size_t 
     field->setValue(stream);
 }
 
-void InvertedIndexColumnWriterImpl::new_field_value(const char* s, size_t len,
-                                                    lucene::document::Field* field) {
+template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::new_field_value(const char* s, size_t len,
+                                                            lucene::document::Field* field) {
     auto* field_value = lucene::util::Misc::_charToWide(s, len);
     field->setValue(field_value, false);
     // setValue did not duplicate value, so we don't have to delete
     //_CLDELETE_ARRAY(field_value)
 }
 
-void InvertedIndexColumnWriterImpl::new_field_char_value(const char* s, size_t len,
-                                                         lucene::document::Field* field) {
+template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, size_t len,
+                                                                 lucene::document::Field* field) {
     field->setValue((char*)s, len);
 }
 
-Status InvertedIndexColumnWriterImpl::add_values(const std::string fn, const void* values,
-                                                 size_t count) override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, const void* values,
+                                                         size_t count) {
     if constexpr (field_is_slice_type(field_type)) {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_values_field_is_nullptr",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_field_is_nullptr",
                         { _field = nullptr; })
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_values_index_writer_is_nullptr",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_index_writer_is_nullptr",
                         { _index_writer = nullptr; })
         if (_field == nullptr || _index_writer == nullptr) {
             LOG(ERROR) << "field or index writer is null in inverted index writer.";
@@ -361,17 +387,19 @@ Status InvertedIndexColumnWriterImpl::add_values(const std::string fn, const voi
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_array_values(size_t field_size, const void* value_ptr,
-                                                       const uint8_t* nested_null_map,
-                                                       const uint8_t* offsets_ptr,
-                                                       size_t count) override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size,
+                                                               const void* value_ptr,
+                                                               const uint8_t* nested_null_map,
+                                                               const uint8_t* offsets_ptr,
+                                                               size_t count) {
     if (count == 0) {
         // no values to add inverted index
         return Status::OK();
     }
     const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
     if constexpr (field_is_slice_type(field_type)) {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_nullptr",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_index_writer_is_nullptr",
                         { _index_writer = nullptr; })
         if (_index_writer == nullptr) {
             LOG(ERROR) << "index writer is null in inverted index writer.";
@@ -401,7 +429,7 @@ Status InvertedIndexColumnWriterImpl::add_array_values(size_t field_size, const 
                     Status st = create_field(&tmp_field);
                     new_field.reset(tmp_field);
                     DBUG_EXECUTE_IF(
-                            "InvertedIndexColumnWriterImpl::add_array_values_create_field_"
+                            "InvertedIndexColumnWriter::add_array_values_create_field_"
                             "error",
                             {
                                 st = Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -461,11 +489,11 @@ Status InvertedIndexColumnWriterImpl::add_array_values(size_t field_size, const 
                 lucene::document::Field* tmp_field = nullptr;
                 Status st = create_field(&tmp_field);
                 new_field.reset(tmp_field);
-                DBUG_EXECUTE_IF(
-                        "InvertedIndexColumnWriterImpl::add_array_values_create_field_error_2", {
-                            st = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                    "debug point: add_array_values_create_field_error_2");
-                        })
+                DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_create_field_error_2",
+                                {
+                                    st = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                            "debug point: add_array_values_create_field_error_2");
+                                })
                 if (st != Status::OK()) {
                     LOG(ERROR) << "create field "
                                << std::string(_field_name.begin(), _field_name.end())
@@ -497,14 +525,15 @@ Status InvertedIndexColumnWriterImpl::add_array_values(size_t field_size, const 
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_array_values(size_t field_size,
-                                                       const CollectionValue* values,
-                                                       size_t count) override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size,
+                                                               const CollectionValue* values,
+                                                               size_t count) {
     if constexpr (field_is_slice_type(field_type)) {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriterImpl::add_array_values_field_is_nullptr",
+        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_field_is_nullptr",
                         { _field = nullptr; })
         DBUG_EXECUTE_IF(
-                "InvertedIndexColumnWriterImpl::add_array_values_index_writer_is_"
+                "InvertedIndexColumnWriter::add_array_values_index_writer_is_"
                 "nullptr",
                 { _index_writer = nullptr; })
         if (_field == nullptr || _index_writer == nullptr) {
@@ -550,7 +579,8 @@ Status InvertedIndexColumnWriterImpl::add_array_values(size_t field_size,
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_numeric_values(const void* values, size_t count) {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_numeric_values(const void* values, size_t count) {
     auto p = reinterpret_cast<const CppType*>(values);
     for (size_t i = 0; i < count; ++i) {
         RETURN_IF_ERROR(add_value(*p));
@@ -561,13 +591,14 @@ Status InvertedIndexColumnWriterImpl::add_numeric_values(const void* values, siz
     return Status::OK();
 }
 
-Status InvertedIndexColumnWriterImpl::add_value(const CppType& value) {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::add_value(const CppType& value) {
     try {
         std::string new_value;
         uint32_t value_length = sizeof(CppType);
 
         DBUG_EXECUTE_IF(
-                "InvertedIndexColumnWriterImpl::add_value_bkd_writer_add_throw_"
+                "InvertedIndexColumnWriter::add_value_bkd_writer_add_throw_"
                 "error",
                 { _CLTHROWA(CL_ERR_IllegalArgument, ("packedValue should be length=xxx")); });
 
@@ -580,12 +611,15 @@ Status InvertedIndexColumnWriterImpl::add_value(const CppType& value) {
     return Status::OK();
 }
 
-int64_t InvertedIndexColumnWriterImpl::size() const override {
+template <FieldType field_type>
+int64_t InvertedIndexColumnWriter<field_type>::size() const {
     //TODO: get memory size of inverted index
     return 0;
 }
 
-void InvertedIndexColumnWriterImpl::write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out) {
+template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::write_null_bitmap(
+        lucene::store::IndexOutput* null_bitmap_out) {
     // write null_bitmap file
     _null_bitmap.runOptimize();
     size_t size = _null_bitmap.getSizeInBytes(false);
@@ -597,7 +631,8 @@ void InvertedIndexColumnWriterImpl::write_null_bitmap(lucene::store::IndexOutput
     }
 }
 
-Status InvertedIndexColumnWriterImpl::finish() override {
+template <FieldType field_type>
+Status InvertedIndexColumnWriter<field_type>::finish() {
     if (_dir != nullptr) {
         std::unique_ptr<lucene::store::IndexOutput> null_bitmap_out = nullptr;
         std::unique_ptr<lucene::store::IndexOutput> data_out = nullptr;
@@ -669,5 +704,28 @@ Status InvertedIndexColumnWriterImpl::finish() override {
     return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
             "Inverted index writer finish error occurred: dir is nullptr");
 }
+
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_CHAR>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_STRING>;
+
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_TINYINT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_SMALLINT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_INT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BIGINT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_LARGEINT>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATE>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIME>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATEV2>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL32>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL64>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_DECIMAL256>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_BOOL>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV4>;
+template class InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_IPV6>;
 
 } // namespace doris::segment_v2

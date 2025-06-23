@@ -19,6 +19,7 @@
 
 #include "olap/collection_statistics.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_helper.h"
+#include "olap/rowset/segment_v2/inverted_index/util/mock_iterator.h"
 #include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
 
 namespace doris::segment_v2 {
@@ -43,14 +44,23 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         return;
     }
 
+    bool is_similarity = _context->collection_similarity && query_info.is_similarity_score;
+
     for (const auto& term_info : query_info.term_infos) {
         if (term_info.is_multi_terms()) {
             throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
         }
 
-        auto iter = TermIterator::create(_context->io_ctx, _searcher->getReader(),
+        if (query_info.use_mock_iter) {
+            auto iter = std::make_shared<MockIterator>();
+            iter->set_postings({{0, {0}}, {1, {0}}, {3, {0}}, {5, {0}}});
+            _iterators.emplace_back(iter);
+        } else {
+            auto iter =
+                    TermIterator::create(_context->io_ctx, is_similarity, _searcher->getReader(),
                                          query_info.field_name, term_info.get_single_term());
-        _iterators.emplace_back(std::move(iter));
+            _iterators.emplace_back(std::move(iter));
+        }
     }
 
     std::sort(_iterators.begin(), _iterators.end(), [](const TermIterPtr& a, const TermIterPtr& b) {
@@ -67,7 +77,7 @@ void ConjunctionQuery::add(const InvertedIndexQueryInfo& query_info) {
         }
     }
 
-    if (_context->collection_similarity && query_info.is_similarity_score) {
+    if (is_similarity) {
         _use_skip = true;
         for (const auto& iter : _iterators) {
             auto similarity = std::make_unique<BM25Similarity>();

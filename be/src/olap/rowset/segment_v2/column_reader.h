@@ -166,11 +166,6 @@ public:
                               const TabletIndex* index_meta,
                               std::unique_ptr<IndexIterator>* iterator);
 
-    Status new_inverted_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
-                                       const TabletIndex* index_meta,
-                                       const StorageReadOptions& read_options,
-                                       std::unique_ptr<InvertedIndexIterator>* iterator);
-
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
 

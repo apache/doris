@@ -41,21 +41,21 @@ public:
     }
     ~TermPositionsIterator() override = default;
 
-    int32_t next_position() const { return term_poss_->nextPosition(); }
+    MOCK_FUNCTION int32_t next_position() const { return term_poss_->nextPosition(); }
 
-    static TermPositionsIterPtr create(const io::IOContext* io_ctx,
+    static TermPositionsIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
                                        lucene::index::IndexReader* reader,
                                        const std::wstring& field_name, const std::string& term) {
-        return create(io_ctx, reader, field_name, StringUtil::string_to_wstring(term));
+        return create(io_ctx, is_similarity, reader, field_name,
+                      StringUtil::string_to_wstring(term));
     }
 
-    static TermPositionsIterPtr create(const io::IOContext* io_ctx,
+    static TermPositionsIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
                                        lucene::index::IndexReader* reader,
                                        const std::wstring& field_name,
                                        const std::wstring& ws_term) {
-        auto* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
-        auto* term_pos = reader->termPositions(t, true, io_ctx);
-        _CLDECDELETE(t);
+        auto t = make_term(field_name, ws_term);
+        auto* term_pos = reader->termPositions(t.get(), is_similarity, io_ctx);
         return std::make_shared<TermPositionsIterator>(
                 ws_term, TermPositionsPtr(term_pos, CLuceneDeleter {}));
     }

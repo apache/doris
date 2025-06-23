@@ -31,6 +31,7 @@
 #include "vec/exprs/vslot_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 Status CollectionStatistics::collect(
         const std::vector<RowSetSplits>& rs_splits, const TabletSchemaSPtr& tablet_schema,
@@ -52,15 +53,17 @@ Status CollectionStatistics::collect(
         }
     }
 
-    LOG(ERROR) << "term_num_docs: " << _total_num_docs;
+#ifndef NDEBUG
+    LOG(INFO) << "term_num_docs: " << _total_num_docs;
     for (const auto& [ws_field_name, num_tokens] : _total_num_tokens) {
-        LOG(ERROR) << "field_name: " << StringHelper::to_string(ws_field_name)
-                   << ", num_tokens: " << num_tokens;
+        LOG(INFO) << "field_name: " << StringHelper::to_string(ws_field_name)
+                  << ", num_tokens: " << num_tokens;
         for (const auto& [term, doc_freq] : _term_doc_freqs.at(ws_field_name)) {
-            LOG(ERROR) << "term: " << StringHelper::to_string(term) << ", doc_freq: " << doc_freq;
+            LOG(INFO) << "term: " << StringHelper::to_string(term) << ", doc_freq: " << doc_freq;
         }
     }
-    LOG(ERROR) << "--------------------------------";
+    LOG(INFO) << "--------------------------------";
+#endif
 
     return Status::OK();
 }
@@ -107,7 +110,7 @@ Status CollectionStatistics::extract_collect_info(
             }
 
             const auto& children = expr->children();
-            for (int32_t i = children.size() - 1; i >= 0; --i) {
+            for (int32_t i = static_cast<int32_t>(children.size()) - 1; i >= 0; --i) {
                 if (!children[i]->children().empty()) {
                     stack.emplace(children[i]);
                 }
@@ -143,7 +146,7 @@ Status CollectionStatistics::process_segment(
             auto compound_reader =
                     DORIS_TRY(idx_file_reader->open(collect_info.index_meta, nullptr));
             auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-            int32_t reader_size = reader->getTermInfosRAMUsed();
+            size_t reader_size = reader->getTermInfosRAMUsed();
             auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, true);
             auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
                     std::move(index_searcher), reader_size, UnixMillis());
@@ -161,7 +164,7 @@ Status CollectionStatistics::process_segment(
                 index_reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
 
         for (const auto& term_info : collect_info.term_infos) {
-            auto iter = TermIterator::create(nullptr, index_reader, ws_field_name,
+            auto iter = TermIterator::create(nullptr, false, index_reader, ws_field_name,
                                              term_info.get_single_term());
             _term_doc_freqs[ws_field_name][iter->term()] += iter->doc_freq();
         }
@@ -211,7 +214,7 @@ float CollectionStatistics::get_or_calculate_avg_dl(const std::wstring& lucene_c
 
     const uint64_t total_term_cnt = get_total_term_cnt_by_col(lucene_col_name);
     const uint64_t total_doc_cnt = get_doc_num();
-    float avg_dl = total_doc_cnt > 0 ? (1.0 * total_term_cnt / total_doc_cnt) : 0;
+    float avg_dl = total_doc_cnt > 0 ? float((double)total_term_cnt / (double)total_doc_cnt) : 0.0F;
     _avg_dl_by_col[lucene_col_name] = avg_dl;
     return avg_dl;
 }
@@ -228,9 +231,11 @@ float CollectionStatistics::get_or_calculate_idf(const std::wstring& lucene_col_
 
     const uint64_t doc_num = get_doc_num();
     const uint64_t doc_freq = get_term_doc_freq_by_col(lucene_col_name, term);
-    float idf = std::log(1 + (doc_num - doc_freq + (double)0.5) / (doc_freq + (double)0.5));
+    auto idf = (float)std::log(1 + ((double)doc_num - (double)doc_freq + (double)0.5) /
+                                           ((double)doc_freq + (double)0.5));
     _idf_by_col_term[lucene_col_name][term] = idf;
     return idf;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

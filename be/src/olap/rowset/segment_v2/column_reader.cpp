@@ -383,23 +383,6 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
     return Status::OK();
 }
 
-Status ColumnReader::new_inverted_index_iterator(std::shared_ptr<IndexFileReader> index_file_reader,
-                                                 const TabletIndex* index_meta,
-                                                 const StorageReadOptions& read_options,
-                                                 std::unique_ptr<InvertedIndexIterator>* iterator) {
-    RETURN_IF_ERROR(_load_index(index_file_reader, index_meta));
-    {
-        std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
-        if (_index_reader) {
-            std::unique_ptr<IndexIterator> index_iterator;
-            RETURN_IF_ERROR(_index_reader->new_iterator(&index_iterator));
-            *iterator = std::unique_ptr<InvertedIndexIterator>(
-                    static_cast<InvertedIndexIterator*>(index_iterator.release()));
-        }
-    }
-    return Status::OK();
-}
-
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
                                BlockCompressionCodec* codec) const {

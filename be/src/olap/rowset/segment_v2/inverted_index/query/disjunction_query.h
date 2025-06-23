@@ -23,6 +23,7 @@ namespace doris::segment_v2 {
 
 class DisjunctionQuery : public Query {
 public:
+    DisjunctionQuery() = default;
     DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~DisjunctionQuery() override = default;
 

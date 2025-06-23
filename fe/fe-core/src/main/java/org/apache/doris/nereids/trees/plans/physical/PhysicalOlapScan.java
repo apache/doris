@@ -21,6 +21,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -213,10 +214,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             operativeCol = " operativeSlots(" + operativeSlots + ")";
         }
         return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + operativeCol + "]"
-                        + getGroupIdWithPrefix(),
+                + getGroupIdWithPrefix(),
                 "stats", statistics, "JRFs", jrfBuilder,
-                "RFV2", rfV2
-        );
+                "RFV2", rfV2);
     }
 
     @Override
@@ -239,7 +239,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 && Objects.equals(baseOutputs, olapScan.baseOutputs)
                 && Objects.equals(tableSample, olapScan.tableSample)
                 && Objects.equals(operativeSlots, olapScan.operativeSlots)
-                && Objects.equals(virtualColumns, olapScan.virtualColumns);
+                && Objects.equals(virtualColumns, olapScan.virtualColumns)
+                && Objects.equals(scoreOrderKeys, olapScan.scoreOrderKeys)
+                && Objects.equals(scoreLimit, olapScan.scoreLimit);
     }
 
     @Override
