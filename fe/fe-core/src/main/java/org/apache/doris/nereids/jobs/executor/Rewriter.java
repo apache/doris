@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionNormalizationAndOptim
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
@@ -426,6 +427,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PushDownFilterIntoSchemaScan()
                         )
                 ),
+                topic("Eliminate sort",
+                        // SORT_PRUNING should be applied after mergeLimit
+                        custom(RuleType.ELIMINATE_SORT, EliminateSort::new)
+                ),
                 topic("MV optimization",
                         topDown(
                                 new SelectMaterializedIndexWithAggregate(),
@@ -445,8 +450,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("Point query short circuit",
                         topDown(new LogicalResultSinkToShortCircuitPointQuery())),
                 topic("eliminate",
-                        // SORT_PRUNING should be applied after mergeLimit
-                        custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                         bottomUp(
                                 new EliminateEmptyRelation(),
                                 // after eliminate empty relation under union, we could get
@@ -512,7 +515,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new CheckMatchExpression(),
                                 new CheckMultiDistinct(),
                                 new CheckRestorePartition(),
-                                new CheckAfterRewrite()
+                                new CheckAfterRewrite(),
+                                new ExpressionRewrite(CheckCast.INSTANCE)
                         )
                 ),
                 topDown(new CollectCteConsumerOutput()),

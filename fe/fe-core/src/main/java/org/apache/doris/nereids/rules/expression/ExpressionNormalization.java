@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.expression;
 
-import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.DigitalMaskingConvert;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -58,8 +57,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
                 MedianConvert.INSTANCE,
                 SimplifyArithmeticComparisonRule.INSTANCE,
                 ConvertAggStateCast.INSTANCE,
-                MergeDateTrunc.INSTANCE,
-                CheckCast.INSTANCE
+                MergeDateTrunc.INSTANCE
             )
     );
 

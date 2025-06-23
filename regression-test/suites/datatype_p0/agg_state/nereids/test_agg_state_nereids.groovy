@@ -18,6 +18,7 @@
 suite("test_agg_state_nereids") {
     sql "set enable_agg_state=true"
     sql "set enable_nereids_planner=true;"
+    sql "set disable_nereids_rules='prune_empty_partition';"
 
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """
@@ -74,4 +75,9 @@ suite("test_agg_state_nereids") {
     
     qt_union """ select max_by_merge(kstate) from (select k1,max_by_union(k2) kstate from a_table group by k1 order by k1) t; """
     qt_max_by_null """ select max_by_merge(max_by_state(k1,null)),min_by_merge(min_by_state(null,k3)) from d_table; """
+
+    sql """CREATE TABLE `a_table_300` (`market_place_id` tinyint NOT NULL COMMENT "ID", `na_exposure` agg_state<group_concat(text null)> GENERIC NOT NULL, ) ENGINE=OLAP 
+        AGGREGATE KEY(`market_place_id`) DISTRIBUTED BY HASH(`market_place_id`) BUCKETS 3
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1" );"""
+    sql "INSERT INTO a_table_300 SELECT market_place_id, group_concat_state(DATE_FORMAT(sync_time, '%y')) na_exposure FROM amz_asin_info_day ORDER BY sync_time"
 }
