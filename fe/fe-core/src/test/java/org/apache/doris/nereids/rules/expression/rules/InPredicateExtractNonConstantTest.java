@@ -31,8 +31,8 @@ class InPredicateExtractNonConstantTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalFilter().when(f -> f.getPredicate().shapeInfo().equals(
-                                "OR[(T1.id = T1.score),(T1.id = (T1.score + 100))]"
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "OR[(id = score),(id = (score + 100))]"
                         )));
 
         sql = "select * from T1 where id in (score,  score + 10, score + score, score, 10, 20, 30, 100 + 200)";
@@ -40,8 +40,8 @@ class InPredicateExtractNonConstantTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .matches(
-                        logicalFilter().when(f -> f.getPredicate().shapeInfo().equals(
-                                "OR[id IN (10, 20, 30, 300),(T1.id = T1.score),(T1.id = (T1.score + 10)),(T1.id = (T1.score + T1.score))]"
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "OR[id IN (10, 20, 30, 300),(id = score),(id = (score + 10)),(id = (score + score))]"
                 )));
     }
 }
