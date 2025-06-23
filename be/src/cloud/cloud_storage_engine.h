@@ -172,8 +172,6 @@ private:
     void _lease_compaction_thread_callback();
     void _check_tablet_delete_bitmap_score_callback();
 
-    bool _enable_check_storage_vault() { return config::enable_check_storage_vault; };
-
     std::atomic_bool _stopped {false};
 
     std::unique_ptr<cloud::CloudMetaMgr> _meta_mgr;

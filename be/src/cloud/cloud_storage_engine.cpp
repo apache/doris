@@ -134,7 +134,7 @@ struct VaultCreateFSVisitor {
             if (!st.ok()) {
                 LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
                            << "s3_conf: " << s3_conf.to_string()
-                           << "set enable_check_storage_vault=false to skip this check";
+                           << "add enable_check_storage_vault=false to be.conf to skip the check";
             }
         }
 
@@ -190,7 +190,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    sync_storage_vault(_enable_check_storage_vault());
+    sync_storage_vault(config::enable_check_storage_vault);
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
@@ -351,8 +351,10 @@ void CloudStorageEngine::sync_storage_vault(bool check_storage_vault) {
             return;
         }
 
-        LOG(WARNING) << "failed to get storage vault info. err=" << st << " sleep 5s and retry";
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        LOG(WARNING) << "failed to get storage vault info from ms, err=" << st
+                     << " sleep 200ms retry or add enable_check_storage_vault=false to be.conf"
+                     << " to skip the check.";
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
     if (vault_infos.empty()) {
