@@ -652,7 +652,7 @@ public class FederationBackendPolicyTest {
 
             float moveRatio = changed * 1.0f / assignment.values().size();
             System.out.printf("Remove a node: move ratio = %.2f\n", moveRatio);
-            Assertions.assertEquals(0.25, moveRatio);
+            Assertions.assertEquals(0.375, moveRatio);
             }
 
             // add a node
@@ -688,7 +688,7 @@ public class FederationBackendPolicyTest {
 
             float moveRatio = changed * 1.0f / assignment.values().size();
             System.out.printf("Add a node, move ratio = %.2f\n", moveRatio);
-            Assertions.assertEquals(0.5, moveRatio);
+            Assertions.assertEquals(0.25, moveRatio);
             }
     }
 
@@ -756,9 +756,9 @@ public class FederationBackendPolicyTest {
         Map<Backend, List<Split>> backendListMap = mergeAssignment(assignment);
         backendListMap.forEach((k, v) -> {
             if (k.getId() == 1) {
-                Assert.assertEquals(1800000, v.stream().mapToLong(Split::getLength).sum());
+                Assert.assertEquals(800000, v.stream().mapToLong(Split::getLength).sum());
             } else if (k.getId() == 2) {
-                Assert.assertEquals(200000, v.stream().mapToLong(Split::getLength).sum());
+                Assert.assertEquals(1600000, v.stream().mapToLong(Split::getLength).sum());
             }
         });
 

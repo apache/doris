@@ -193,7 +193,7 @@ public class PaimonScanNodeTest {
                 .rawConvertible(true)
                 .withPartition(binaryRow1)
                 .withBucket(1)
-                .withBucketPath("b1")
+                .withBucketPath("file://b1")
                 .withDataFiles(Collections.singletonList(dfm1))
                 .build();
 
@@ -204,7 +204,7 @@ public class PaimonScanNodeTest {
                 .rawConvertible(true)
                 .withPartition(binaryRow2)
                 .withBucket(1)
-                .withBucketPath("b1")
+                .withBucketPath("file://b1")
                 .withDataFiles(Collections.singletonList(dfm2))
                 .build();
 
