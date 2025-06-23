@@ -510,16 +510,12 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         // case orc::TypeKind::CHAR:
         //     [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
-<<<<<<< HEAD
-            StringRef* string_value = (StringRef*)value;
-            return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
-=======
             if (primitive_type == TYPE_STRING || primitive_type == TYPE_CHAR ||
                 primitive_type == TYPE_VARCHAR) {
-                return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
+                StringRef* string_value = (StringRef*)value;
+                return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
             }
             return std::make_tuple(false, orc::Literal(false));
->>>>>>> 3f85ad6d75c ([enchement](schema change)Standardize the behavior after a table schema change. (#47471))
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
