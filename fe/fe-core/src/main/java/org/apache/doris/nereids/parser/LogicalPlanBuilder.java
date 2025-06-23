@@ -597,8 +597,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public String visitCommentSpec(DorisParser.CommentSpecContext ctx) {
         String commentSpec = ctx == null ? "''" : ctx.STRING_LITERAL().getText();
-        return
-                LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+        return LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
     }
 
     @Override
@@ -940,11 +939,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
         String comment = ctx.commentSpec() == null ? null : visitCommentSpec(ctx.commentSpec());
         AlterViewInfo info;
-        if (comment != null) {
+        if (ctx.query() == null) {
             info = new AlterViewInfo(new TableNameInfo(nameParts), comment);
         } else {
             String querySql = getOriginSql(ctx.query());
-            info = new AlterViewInfo(new TableNameInfo(nameParts), querySql,
+            info = new AlterViewInfo(new TableNameInfo(nameParts), comment, querySql,
                     ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         }
         return new AlterViewCommand(info);

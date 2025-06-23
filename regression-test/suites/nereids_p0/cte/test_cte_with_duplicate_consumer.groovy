@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.junit.Assert;
 suite("test_cte_with_duplicate_consumer") {
     test {
         sql """
@@ -21,5 +22,13 @@ suite("test_cte_with_duplicate_consumer") {
         """
 
         result([[1, 1]])
+    }
+
+    test {
+        sql """
+            WITH cte1(col1) AS (SELECT 1), cte2(col2_1) AS (SELECT col1 FROM cte1) SELECT * FROM cte2
+        """
+
+        result([[1]])
     }
 }
