@@ -21,7 +21,7 @@ import org.apache.doris.nereids.parser.Origin;
 
 /**
  * This class is used to extend some thread local fields for Thread,
- * so we can access the thread fields faster then ThreadLocal
+ * so we can access the thread fields faster than ThreadLocal
  */
 public class MoreFieldsThread extends Thread {
     private Origin origin;
@@ -57,12 +57,12 @@ public class MoreFieldsThread extends Thread {
         super(group, target, name, stackSize);
     }
 
-    public final void setOrigin(Origin scopeValue) {
+    public final void setOrigin(Origin origin) {
         // Thread thread = Thread.currentThread();
         // if (thread != this) {
         //     throw new IllegalStateException("Can not change origin by another thread");
         // }
-        this.origin = scopeValue;
+        this.origin = origin;
     }
 
     public final Origin getOrigin() {
