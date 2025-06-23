@@ -33,7 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadExprTransformUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.planner.FileLoadScanNode;
 import org.apache.doris.task.LoadTaskInfo;
@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -94,9 +93,6 @@ public class LoadScanProvider {
         params.setStrictMode(fileGroupInfo.isStrictMode());
         if (fileGroupInfo.getSequenceMapCol() != null) {
             params.setSequenceMapCol(fileGroupInfo.getSequenceMapCol());
-        }
-        if (fileFormatProperties.getFormatName().equals("hive_text")) {
-            params.setTextSerdeType(TTextSerdeType.HIVE_TEXT_SERDE);
         }
         params.setProperties(fileGroupInfo.getBrokerDesc().getBackendConfigProperties());
         if (fileGroupInfo.getBrokerDesc().getFileType() == TFileType.FILE_HDFS) {
@@ -207,7 +203,8 @@ public class LoadScanProvider {
             }
         }
         List<Integer> srcSlotIds = Lists.newArrayList();
-        Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
+        LoadExprTransformUtils.initColumns(fileGroupInfo.getTargetTable(), columnDescs,
+                context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 context.fileGroup.getFileFormatProperties().getFileFormatType(), fileGroupInfo.getHiddenColumns(),
                 fileGroupInfo.getUniqueKeyUpdateMode());

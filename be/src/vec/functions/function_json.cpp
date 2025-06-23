@@ -40,10 +40,9 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/exception.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "util/jsonb_parser_simd.h"
+#include "runtime/jsonb_value.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -51,7 +50,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -413,19 +411,19 @@ struct GetJsonNumberType {
 struct JsonNumberTypeDouble {
     using T = Float64;
     using ReturnType = DataTypeFloat64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnFloat64;
 };
 
 struct JsonNumberTypeInt {
     using T = int32_t;
     using ReturnType = DataTypeInt32;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt32;
 };
 
 struct JsonNumberTypeBigInt {
     using T = int64_t;
     using ReturnType = DataTypeInt64;
-    using ColumnType = ColumnVector<T>;
+    using ColumnType = ColumnInt64;
 };
 
 struct GetJsonDouble : public GetJsonNumberType<JsonNumberTypeDouble> {
@@ -1097,13 +1095,13 @@ public:
                                         col_from.get_name());
         }
 
-        auto col_to = ColumnVector<vectorized::Int32>::create();
+        auto col_to = ColumnInt32::create();
         auto& vec_to = col_to->get_data();
         size_t size = col_from.size();
         vec_to.resize(size);
 
         // parser can be reused for performance
-        JsonbParser parser;
+        JsonBinaryValue jsonb_value;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
                 null_map->get_data()[i] = 1;
@@ -1112,7 +1110,7 @@ public:
             }
 
             const auto& val = col_from_string->get_data_at(i);
-            if (parser.parse(val.data, cast_set<unsigned int>(val.size))) {
+            if (jsonb_value.from_json_string(val.data, cast_set<unsigned int>(val.size)).ok()) {
                 vec_to[i] = 1;
             } else {
                 vec_to[i] = 0;
@@ -1215,7 +1213,7 @@ public:
             return Status::RuntimeError("Illegal column should be ColumnString");
         }
 
-        auto col_to = ColumnVector<vectorized::UInt8>::create();
+        auto col_to = ColumnUInt8::create();
         auto& vec_to = col_to->get_data();
         size_t size = col_json.size();
         vec_to.resize(size);

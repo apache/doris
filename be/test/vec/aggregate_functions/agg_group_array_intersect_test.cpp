@@ -61,7 +61,7 @@ void sort_string_array(Array& array) {
 template <PrimitiveType T>
 void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Prepare test data.
-    auto nested_column = ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>::create();
+    auto nested_column = ColumnVector<T>::create();
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)1);
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)2);
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)3);
@@ -131,7 +131,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
 template <PrimitiveType T>
 void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     // Prepare test data.
-    auto nested_column = ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>::create();
+    auto nested_column = ColumnVector<T>::create();
 
     auto nullable_nested_column =
             ColumnNullable::create(std::move(nested_column), ColumnUInt8::create());

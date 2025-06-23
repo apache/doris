@@ -231,6 +231,7 @@ public class KafkaUtil {
         InternalService.PProxyResult result = null;
         Set<Long> failedBeIds = new HashSet<>();
         TStatusCode code = null;
+        String errorMsg = null;
 
         try {
             while (retryTimes < 3) {
@@ -257,7 +258,10 @@ public class KafkaUtil {
                 }
                 if (backendIds.isEmpty()) {
                     MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
-                    throw new LoadException("Failed to get info. No alive backends");
+                    if (failedBeIds.isEmpty()) {
+                        errorMsg = "no alive backends";
+                    }
+                    throw new LoadException("failed to get info: " + errorMsg + ",");
                 }
                 Collections.shuffle(backendIds);
                 Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
@@ -268,6 +272,7 @@ public class KafkaUtil {
                     future = BackendServiceProxy.getInstance().getInfo(address, request);
                     result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
                 } catch (Exception e) {
+                    errorMsg = e.getMessage();
                     LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
                     failedBeIds.add(beId);
                     retryTimes++;
@@ -275,6 +280,7 @@ public class KafkaUtil {
                 }
                 code = TStatusCode.findByValue(result.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
+                    errorMsg = result.getStatus().getErrorMsgsList().toString();
                     LOG.warn("failed to get info request to "
                             + address + " err " + result.getStatus().getErrorMsgsList());
                     failedBeIds.add(beId);
@@ -285,7 +291,7 @@ public class KafkaUtil {
             }
 
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
-            throw new LoadException("Failed to get info");
+            throw new LoadException("failed to get info: " + errorMsg + ",");
         } finally {
             // Ensure that not all BE added to the blacklist.
             // For single request:

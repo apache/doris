@@ -101,7 +101,7 @@ suite("test_delete_publish_skip_read", "nonConcurrent") {
         disable_block_in_publish()
         t1.join()
         t2.join()
-
+        Thread.sleep(12000)
         order_qt_sql "select k1,c1,c2,c3,c4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__ from ${table1};"
 
         sql "set skip_delete_sign=true;"

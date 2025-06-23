@@ -88,7 +88,7 @@ public class CreateRepositoryCommandTest extends TestWithFeService {
         Assertions.assertTrue(logicalPlan1 instanceof CreateRepositoryCommand);
         Assertions.assertEquals(((CreateRepositoryCommand) logicalPlan1).getProperties().size(), 3);
         Repository repositoryNew = getRepository((CreateRepositoryCommand) logicalPlan1, "s3_repo_new_command");
-        Assertions.assertEquals(repositoryNew.getRemoteFileSystem().getProperties().size(), 3);
+        Assertions.assertEquals(3, repositoryNew.getRemoteFileSystem().getProperties().size());
     }
 
     @Disabled("not support")

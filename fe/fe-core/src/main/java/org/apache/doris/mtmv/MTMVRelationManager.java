@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -45,6 +44,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +85,7 @@ public class MTMVRelationManager implements MTMVHookService {
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
         Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                ctx.getStatementContext());
+                ctx.getStatementContext(), new BitSet());
         for (MTMV mtmv : candidateMTMVs) {
             if (predicate.test(ctx, mtmv)) {
                 continue;
@@ -198,16 +198,6 @@ public class MTMVRelationManager implements MTMVHookService {
         }
     }
 
-    @Override
-    public void createMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
-    @Override
-    public void dropMTMV(MTMV mtmv) throws DdlException {
-
-    }
-
     /**
      * modify `tableMTMVs` by MTMVRelation
      *
@@ -227,11 +217,6 @@ public class MTMVRelationManager implements MTMVHookService {
     @Override
     public void unregisterMTMV(MTMV mtmv) {
         removeMTMV(new BaseTableInfo(mtmv));
-    }
-
-    @Override
-    public void alterMTMV(MTMV mtmv, AlterMTMV alterMTMV) throws DdlException {
-
     }
 
     @Override
@@ -285,6 +270,11 @@ public class MTMVRelationManager implements MTMVHookService {
 
     @Override
     public void resumeMTMV(ResumeMTMVInfo info) throws MetaNotFoundException, DdlException, JobException {
+
+    }
+
+    @Override
+    public void postCreateMTMV(MTMV mtmv) {
 
     }
 

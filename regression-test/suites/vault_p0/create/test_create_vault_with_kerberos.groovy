@@ -84,7 +84,7 @@ suite("test_create_vault_with_kerberos", "nonConcurrent") {
                 "hadoop.security.authentication" = "kerberos"
             );
         """
-    }, "hadoop.kerberos.principal is required for kerberos")
+    }, "HDFS authentication type is kerberos, but principal or keytab is not set")
 
 
     sql """

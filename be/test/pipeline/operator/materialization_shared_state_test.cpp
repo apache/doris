@@ -126,8 +126,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     {
         vectorized::Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
-        auto* value_col_data1 =
-                reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col1.get());
+        auto* value_col_data1 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col1.get());
         value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
         value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(101));
         resp_block1.insert(
@@ -151,8 +150,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     {
         vectorized::Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
-        auto* value_col_data2 =
-                reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col2.get());
+        auto* value_col_data2 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col2.get());
         value_col_data2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(200));
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value"});
@@ -231,8 +229,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     {
         vectorized::Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
-        auto* value_col_data1 =
-                reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col1.get());
+        auto* value_col_data1 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col1.get());
         value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value1"});
@@ -254,8 +251,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     {
         vectorized::Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
-        auto* value_col_data2 =
-                reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col2.get());
+        auto* value_col_data2 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col2.get());
         value_col_data2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(102));
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value1"});
@@ -276,8 +272,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     {
         vectorized::Block resp_block1;
         auto resp_value_col1 = _int_type->create_column();
-        auto* value_col_data1 =
-                reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col1.get());
+        auto* value_col_data1 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col1.get());
         value_col_data1->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(200));
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value2"});
@@ -296,8 +291,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     {
         vectorized::Block resp_block2;
         auto resp_value_col2 = _int_type->create_column();
-        auto* value_col_data2 =
-                reinterpret_cast<vectorized::ColumnVector<int32_t>*>(resp_value_col2.get());
+        auto* value_col_data2 = reinterpret_cast<vectorized::ColumnInt32*>(resp_value_col2.get());
         value_col_data2->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(201));
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value2"});

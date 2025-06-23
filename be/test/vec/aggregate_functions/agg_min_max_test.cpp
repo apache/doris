@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -50,7 +49,7 @@ class AggMinMaxTest : public ::testing::TestWithParam<std::string> {};
 TEST_P(AggMinMaxTest, min_max_test) {
     std::string min_max_type = GetParam();
     // Prepare test data.
-    auto column_vector_int32 = ColumnVector<Int32>::create();
+    auto column_vector_int32 = ColumnInt32::create();
     for (int i = 0; i < agg_test_batch_size; i++) {
         column_vector_int32->insert(Field::create_field<TYPE_INT>(cast_to_nearest_field_type(i)));
     }
@@ -79,7 +78,7 @@ TEST_P(AggMinMaxTest, min_max_test) {
 
 TEST_P(AggMinMaxTest, min_max_decimal_test) {
     std::string min_max_type = GetParam();
-    auto data_type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
+    auto data_type = std::make_shared<DataTypeDecimalV2>();
     // Prepare test data.
     auto column_vector_decimal128 = data_type->create_column();
     for (int i = 0; i < agg_test_batch_size; i++) {

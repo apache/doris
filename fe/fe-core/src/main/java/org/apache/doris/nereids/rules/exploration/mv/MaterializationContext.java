@@ -367,13 +367,14 @@ public abstract class MaterializationContext {
     }
 
     /**
-     * ToSummaryString, this contains only summary info.
+     * get qualifiers for all mvs rewrite success and chosen by current query.
+     *
+     * @param materializationContexts all mv candidates context for current query
+     * @param physicalPlan the chosen plan for current query
+     * @return chosen mvs' qualifier set
      */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            Plan physicalPlan) {
-        if (materializationContexts.isEmpty()) {
-            return "";
-        }
+    public static Set<List<String>> getChosenMvsQualifiers(
+            List<MaterializationContext> materializationContexts, Plan physicalPlan) {
         Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
@@ -389,6 +390,19 @@ public abstract class MaterializationContext {
                 return null;
             }
         }, null);
+        return chosenMaterializationQualifiers;
+    }
+
+    /**
+     * ToSummaryString, this contains only summary info.
+     */
+    public static String toSummaryString(List<MaterializationContext> materializationContexts,
+            Plan physicalPlan) {
+        if (materializationContexts.isEmpty()) {
+            return "";
+        }
+        Set<List<String>> chosenMaterializationQualifiers = getChosenMvsQualifiers(
+                materializationContexts, physicalPlan);
 
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
@@ -403,7 +417,8 @@ public abstract class MaterializationContext {
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
+        Set<List<String>> rewriteSuccessButNotChoseQualifiers = materializationContexts.stream()
+                .filter(MaterializationContext::isSuccess)
                 .map(MaterializationContext::generateMaterializationIdentifier)
                 .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());

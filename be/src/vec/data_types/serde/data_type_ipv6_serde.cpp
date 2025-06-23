@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <string>
 
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
@@ -34,7 +35,7 @@ Status DataTypeIPv6SerDe::_write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<is_binary_format>& result,
                                                  int64_t row_idx, bool col_const,
                                                  const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnVector<IPv6>&>(column).get_data();
+    auto& data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv6Value ipv6_val(data[col_index]);
     // _nesting_level >= 2 means this datetimev2 is in complex type
@@ -70,7 +71,7 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
 }
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* str_value = static_cast<const JsonbBinaryVal*>(arg);
+    const auto* str_value = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(str_value->getBlob());
 }
 

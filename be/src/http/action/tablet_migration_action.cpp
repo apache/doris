@@ -49,8 +49,8 @@ void TabletMigrationAction::_init_migration_action() {
 void TabletMigrationAction::handle(HttpRequest* req) {
     int64_t tablet_id = 0;
     int32_t schema_hash = 0;
-    string dest_disk = "";
-    string goal = "";
+    std::string dest_disk = "";
+    std::string goal = "";
     Status status = _check_param(req, tablet_id, schema_hash, dest_disk, goal);
     if (status.ok()) {
         if (goal == "run") {
@@ -166,7 +166,8 @@ void TabletMigrationAction::handle(HttpRequest* req) {
 }
 
 Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
-                                           int32_t& schema_hash, string& dest_disk, string& goal) {
+                                           int32_t& schema_hash, std::string& dest_disk,
+                                           std::string& goal) {
     const std::string& req_tablet_id = req->param("tablet_id");
     const std::string& req_schema_hash = req->param("schema_hash");
     try {
@@ -186,7 +187,7 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
 }
 
 Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t schema_hash,
-                                                     string dest_disk, TabletSharedPtr& tablet,
+                                                     std::string dest_disk, TabletSharedPtr& tablet,
                                                      DataDir** dest_store) {
     tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -223,7 +224,7 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
                                                         DataDir* dest_store) {
     int64_t tablet_id = tablet->tablet_id();
     int32_t schema_hash = tablet->schema_hash();
-    string dest_disk = dest_store->path();
+    std::string dest_disk = dest_store->path();
     EngineStorageMigrationTask engine_task(_engine, tablet, dest_store);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     Status res = engine_task.execute();
