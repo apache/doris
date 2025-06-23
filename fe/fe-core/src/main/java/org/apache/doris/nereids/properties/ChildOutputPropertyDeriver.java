@@ -370,7 +370,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 for (int i = 1; i < groupingSets.size() && !intersectGroupingKeys.isEmpty(); i++) {
                     intersectGroupingKeys = Sets.intersection(
                             intersectGroupingKeys, Utils.fastToImmutableSet(groupingSets.get(i))
-                    );
+                    ).immutableCopy();
                 }
                 List<ExprId> orderedShuffledColumns = distributionSpecHash.getOrderedShuffledColumns();
                 Set<ExprId> intersectGroupingKeysId = new HashSet<>();
