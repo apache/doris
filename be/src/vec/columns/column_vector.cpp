@@ -284,9 +284,8 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
     auto res = this->create();
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
-        new_col.data.resize(size);
-
         size_t count = std::min(this->size(), size);
+        new_col.data.resize(count);
         memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
 
         if (size > count) {
