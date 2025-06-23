@@ -365,7 +365,7 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
                 txn->put(key, val);
             } else {
                 std::string val(1000, 'A');
-                cloud::put(txn, key, val, 0, 300);
+                cloud::blob_put(txn, key, val, 0, 300);
             }
         }
     }
@@ -2970,7 +2970,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
                 std::string delete_bitmap_val(1000, 'A');
-                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
             }
         }
         if (is_last_tablet) {
@@ -3077,7 +3077,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
                 std::string delete_bitmap_val(1000, 'A');
-                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
             }
         }
     }
