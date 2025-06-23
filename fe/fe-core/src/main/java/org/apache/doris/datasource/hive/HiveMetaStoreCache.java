@@ -46,7 +46,6 @@ import org.apache.doris.fs.FileSystemIOException;
 import org.apache.doris.fs.RemoteIterator;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
@@ -70,7 +69,6 @@ import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -116,7 +114,7 @@ public class HiveMetaStoreCache {
             = new AtomicReference<>();
 
     public HiveMetaStoreCache(HMSExternalCatalog catalog,
-                              ExecutorService refreshExecutor, ExecutorService fileListingExecutor) {
+            ExecutorService refreshExecutor, ExecutorService fileListingExecutor) {
         this.catalog = catalog;
         this.refreshExecutor = refreshExecutor;
         this.fileListingExecutor = fileListingExecutor;
@@ -397,8 +395,6 @@ public class HiveMetaStoreCache {
             LocationPath finalLocation = LocationPath.of(key.getLocation(), catalog.getCatalogProperty()
                     .getStoragePropertiesMap());
             // NOTICE: the setInputPaths has 2 overloads, the 2nd arg should be Path not String
-            // todo how to resolve this problem?
-            //FileInputFormat.setInputPaths(jobConf, finalLocation.getNormalizedLocation());
             try {
                 FileCacheValue result = getFileCache(finalLocation, key.inputFormat,
                         key.getPartitionValues(), directoryLister, table);
@@ -419,29 +415,6 @@ public class HiveMetaStoreCache {
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
-    }
-
-    //fixme to be care ful
-    private synchronized void setJobConf() {
-        Configuration configuration = DFSFileSystem.getHdfsConf(catalog.ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
-            configuration.set(entry.getKey(), entry.getValue());
-        }
-        jobConf = new JobConf(configuration);
-        // For Tez engine, it may generate subdirectories for "union" query.
-        // So there may be files and directories in the table directory at the same time. eg:
-        //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
-        //      /user/hive/warehouse/region_tmp_union_all2/1
-        //      /user/hive/warehouse/region_tmp_union_all2/2
-        // So we need to set this config to support visit dir recursively.
-        // Otherwise, getSplits() may throw exception: "Not a file xxx"
-        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
-        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
-        // disable FileSystem's cache
-    }
-
-    private synchronized void updateJobConf(String key, String value) {
-        jobConf.set(key, value);
     }
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {
@@ -517,17 +490,17 @@ public class HiveMetaStoreCache {
     }
 
     public List<HivePartition> getAllPartitionsWithCache(String dbName, String name,
-                                                         List<List<String>> partitionValuesList) {
+            List<List<String>> partitionValuesList) {
         return getAllPartitions(dbName, name, partitionValuesList, true);
     }
 
     public List<HivePartition> getAllPartitionsWithoutCache(String dbName, String name,
-                                                            List<List<String>> partitionValuesList) {
+            List<List<String>> partitionValuesList) {
         return getAllPartitions(dbName, name, partitionValuesList, false);
     }
 
     private List<HivePartition> getAllPartitions(String dbName, String name, List<List<String>> partitionValuesList,
-                                                 boolean withCache) {
+            boolean withCache) {
         long start = System.currentTimeMillis();
         List<PartitionCacheKey> keys = partitionValuesList.stream()
                 .map(p -> new PartitionCacheKey(dbName, name, p))
@@ -605,7 +578,7 @@ public class HiveMetaStoreCache {
 
     // partition name format: nation=cn/city=beijing
     public void addPartitionsCache(String dbName, String tblName, List<String> partitionNames,
-                                   List<Type> partitionColumnTypes) {
+            List<Type> partitionColumnTypes) {
         PartitionValueCacheKey key = new PartitionValueCacheKey(dbName, tblName, partitionColumnTypes);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
@@ -885,7 +858,7 @@ public class HiveMetaStoreCache {
                 return dummyKey.equals(((FileCacheKey) obj).dummyKey);
             }
             return location.equals(((FileCacheKey) obj).location)
-                    && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
+                && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
         boolean isSameTable(long id) {
@@ -1007,13 +980,13 @@ public class HiveMetaStoreCache {
         }
 
         public HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
-                                   Map<UniqueId, Range<PartitionKey>> uidToPartitionRange,
-                                   Map<Range<PartitionKey>, UniqueId> rangeToId,
-                                   RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
-                                   BiMap<String, Long> partitionNameToIdMap,
-                                   Map<Long, List<UniqueId>> idToUniqueIdsMap,
-                                   Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap,
-                                   Map<Long, List<String>> partitionValuesMap) {
+                Map<UniqueId, Range<PartitionKey>> uidToPartitionRange,
+                Map<Range<PartitionKey>, UniqueId> rangeToId,
+                RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
+                BiMap<String, Long> partitionNameToIdMap,
+                Map<Long, List<UniqueId>> idToUniqueIdsMap,
+                Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap,
+                Map<Long, List<String>> partitionValuesMap) {
             this.idToPartitionItem = idToPartitionItem;
             this.uidToPartitionRange = uidToPartitionRange;
             this.rangeToId = rangeToId;
@@ -1045,7 +1018,6 @@ public class HiveMetaStoreCache {
 
     /**
      * get cache stats
-     *
      * @return <cache name -> <metric name -> metric value>>
      */
     public Map<String, Map<String, String>> getStats() {
