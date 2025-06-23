@@ -409,7 +409,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
 
             // 3 check total sum
-            if (sumOfAllMemLimit > 100.0 + 1e-6) {
+            if (Config.enable_wg_memory_sum_limit && sumOfAllMemLimit > 100.0 + 1e-6) {
                 throw new DdlException(
                         "The sum of all workload group " + WorkloadGroup.MEMORY_LIMIT + " within tag " + (
                                 newWgTag.isPresent() ? newWgTag.get() : "")
