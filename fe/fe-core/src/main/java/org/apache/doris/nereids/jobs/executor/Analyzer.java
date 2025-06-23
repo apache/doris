@@ -142,8 +142,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
             bottomUp(new CheckAnalysis()),
             topDown(new SimplifyAggGroupBy()),
-            bottomUp(new CompressedMaterialize()),
             topDown(new NormalizeAggregate()),
+            bottomUp(new CompressedMaterialize()),
             topDown(new HavingToFilter()),
             topDown(new QualifyToFilter()),
             bottomUp(new SemiJoinCommute()),
