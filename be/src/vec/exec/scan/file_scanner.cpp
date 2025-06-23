@@ -1541,6 +1541,13 @@ void FileScanner::_collect_profile_before_close() {
     if (_cur_reader != nullptr) {
         _cur_reader->collect_profile_before_close();
     }
+
+    if (_file_cache_statistics != nullptr) {
+        IOContext* io_ctx = _state->get_query_ctx()->resource_ctx()->io_context();
+        io_ctx->update_scan_bytes_from_local_storage(_file_cache_statistics->bytes_read_from_local);
+        io_ctx->update_scan_bytes_from_remote_storage(
+                _file_cache_statistics->bytes_read_from_remote);
+    }
 }
 
 } // namespace doris::vectorized
