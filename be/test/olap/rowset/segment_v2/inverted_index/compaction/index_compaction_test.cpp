@@ -1678,6 +1678,8 @@ TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable) {
 }
 
 TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable_with_debug_point) {
+    bool original_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
     bool original_ram_dir_enable = config::inverted_index_ram_dir_enable;
     config::inverted_index_ram_dir_enable = false;
 
@@ -1718,5 +1720,6 @@ TEST_F(IndexCompactionTest, test_inverted_index_ram_dir_disable_with_debug_point
     DebugPoints::instance()->remove("compact_column_delete_tmp_path_error");
 
     config::inverted_index_ram_dir_enable = original_ram_dir_enable;
+    config::enable_debug_points = original_enable_debug_points;
 }
 } // namespace doris
