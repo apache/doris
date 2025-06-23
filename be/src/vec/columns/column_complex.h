@@ -261,7 +261,7 @@ MutableColumnPtr ColumnComplexType<T>::clone_resized(size_t size) const {
 
     if (size > 0) {
         auto& new_col = assert_cast<Self&>(*res);
-        new_col.data = this->data;
+        new_col.insert_range_from(*this, 0, size);
     }
 
     return res;
