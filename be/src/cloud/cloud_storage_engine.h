@@ -22,6 +22,7 @@
 //#include "cloud/cloud_cumulative_compaction.h"
 //#include "cloud/cloud_base_compaction.h"
 //#include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_compaction_cv_mgr.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/schema_cloud_dictionary_cache.h"
@@ -71,6 +72,8 @@ public:
     cloud::CloudMetaMgr& meta_mgr() const { return *_meta_mgr; }
 
     CloudTabletMgr& tablet_mgr() const { return *_tablet_mgr; }
+
+    CloudCompactionCVMgr& cloud_compaction_cv_mgr() { return *_cloud_compaction_cv_mgr; }
 
     CloudTxnDeleteBitmapCache& txn_delete_bitmap_cache() const { return *_txn_delete_bitmap_cache; }
     SchemaCloudDictionaryCache& get_schema_cloud_dictionary_cache() {
@@ -218,6 +221,8 @@ private:
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
     CumuPolices _cumulative_compaction_policies;
+
+    std::unique_ptr<CloudCompactionCVMgr> _cloud_compaction_cv_mgr;
 };
 
 } // namespace doris

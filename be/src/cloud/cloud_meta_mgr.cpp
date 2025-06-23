@@ -1419,6 +1419,10 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     Status st;
     std::default_random_engine rng = make_random_engine();
     std::uniform_int_distribution<uint32_t> u(500, 2000);
+
+    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    auto& cloud_compaction_cv_mgr = engine.cloud_compaction_cv_mgr();
+
     do {
         bool test_conflict = false;
         st = retry_rpc("get delete bitmap update lock", req, &res,
@@ -1433,7 +1437,7 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
         LOG(WARNING) << "get delete bitmap lock conflict. " << debug_info(req)
                      << " retry_times=" << retry_times << " sleep=" << duration_ms
                      << "ms : " << res.status().msg();
-        bthread_usleep(duration_ms * 1000);
+        cloud_compaction_cv_mgr.wait_for(tablet.table_id(), duration_ms);
     } while (++retry_times <= config::get_delete_bitmap_lock_max_retry_times);
     DBUG_EXECUTE_IF("CloudMetaMgr.get_delete_bitmap_update_lock.inject_sleep", {
         auto p = dp->param("percent", 0.01);
@@ -1457,6 +1461,10 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                 "lock conflict when get delete bitmap update lock, table_id {}, lock_id {}, "
                 "initiator {}",
                 tablet.table_id(), lock_id, initiator);
+    }
+
+    if (res.status().code() == MetaServiceCode::OK) {
+        cloud_compaction_cv_mgr.notify_all(tablet.tablet_id());
     }
     return st;
 }

@@ -92,7 +92,8 @@ int get_base_thread_num() {
 CloudStorageEngine::CloudStorageEngine(const UniqueId& backend_uid)
         : BaseStorageEngine(Type::CLOUD, backend_uid),
           _meta_mgr(std::make_unique<cloud::CloudMetaMgr>()),
-          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)) {
+          _tablet_mgr(std::make_unique<CloudTabletMgr>(*this)),
+          _cloud_compaction_cv_mgr(std::make_unique<CloudCompactionCVMgr>()) {
     _cumulative_compaction_policies[CUMULATIVE_SIZE_BASED_POLICY] =
             std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
     _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
