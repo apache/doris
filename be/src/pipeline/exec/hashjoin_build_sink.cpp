@@ -349,6 +349,14 @@ Status HashJoinBuildSinkLocalState::_finalize_build_block(
 
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
         converted_columns = _convert_block_to_null(block);
+        // first row is mocked and filled with nulls
+        for (int i = 0; i < block.columns(); i++) {
+            auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+            assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+                    ->get_null_map_column()
+                    .get_data()
+                    .data()[0] = 1;
+        }
     }
 
     _set_build_side_has_external_nullmap(block, _build_col_ids);
