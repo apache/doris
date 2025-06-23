@@ -51,7 +51,7 @@ public class InferTest extends SqlTestBase {
                     innerLogicalJoin(
                         logicalOlapScan(),
                         logicalFilter().when(
-                                f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))"))
+                                f -> f.getPredicate().toString().equals("OR[(id#0 = 4),(id#0 > 4)]"))
                     )
 
                 );
@@ -69,11 +69,11 @@ public class InferTest extends SqlTestBase {
                         logicalFilter(
                             leftOuterLogicalJoin(
                                 logicalFilter().when(
-                                        f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
+                                        f -> f.getPredicate().toString().equals("OR[(id#0 = 4),(id#0 > 4)]")),
                                 logicalOlapScan()
                             )
                         ).when(f -> f.getPredicate().toString()
-                                .equals("((id#0 = 4) OR ((id#0 > 4) AND score#3 IS NULL))"))
+                                .equals("OR[(id#0 = 4),AND[(id#0 > 4),score#3 IS NULL]]"))
                 );
     }
 

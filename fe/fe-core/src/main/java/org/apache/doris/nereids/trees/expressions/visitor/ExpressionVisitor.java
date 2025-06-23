@@ -334,7 +334,7 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
-        return visitBinaryOperator(compoundPredicate, context);
+        return visit(compoundPredicate, context);
     }
 
     public R visitAnd(And and, C context) {

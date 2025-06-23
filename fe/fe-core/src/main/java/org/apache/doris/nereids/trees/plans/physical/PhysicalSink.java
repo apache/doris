@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -57,5 +58,25 @@ public abstract class PhysicalSink<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     public List<NamedExpression> getOutputExprs() {
         return outputExprs;
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        // should not be invoked
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        // should not be invoked
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        // should not be invoked
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        // should not be invoked
     }
 }

@@ -26,10 +26,13 @@ import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -115,5 +118,11 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
+    }
+
+    // For prepare statement only, used to get the result set metadata in prepare stage.
+    // Subclass need to override this to return correct metadata.
+    public ResultSetMetaData getResultSetMetaData() {
+        return new CommonResultSetMetaData(Lists.newArrayList());
     }
 }

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Rewrite rule of NOT expression.
@@ -76,9 +77,7 @@ public class SimplifyNotExprRule implements ExpressionPatternRuleFactory {
             }
         } else if (child instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) child;
-            Not left = new Not(cp.left());
-            Not right = new Not(cp.right());
-            return cp.flip(left, right);
+            return cp.flip(cp.children().stream().map(c -> new Not(c)).collect(Collectors.toList()));
         } else if (child instanceof Not) {
             return child.child(0);
         }
