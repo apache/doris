@@ -38,7 +38,7 @@ public:
     void do_lease();
 
 protected:
-    Status pick_rowsets_to_compact();
+    virtual Status pick_rowsets_to_compact();
 
     std::string_view compaction_name() const override { return "CloudFullCompaction"; }
 
@@ -55,6 +55,7 @@ private:
 
     int64_t _input_segments = 0;
     // Snapshot values when pick input rowsets
+protected:
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
 };

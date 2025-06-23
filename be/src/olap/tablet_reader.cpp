@@ -359,7 +359,8 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
-                read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
+                read_params.reader_type == ReaderType::READER_ALTER_TABLE ||
+                read_params.reader_type == ReaderType::READER_INDEX_CHANGE_COMPACTION) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {

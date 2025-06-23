@@ -876,6 +876,29 @@ void CloudTablet::set_cumulative_layer_point(int64_t new_point) {
                  << ", origin: " << _cumulative_point.load();
 }
 
+RowsetSharedPtr CloudTablet::pick_a_rowset_for_index_change(
+        const std::set<int64_t>& alter_index_uids, bool is_drop_op) {
+    std::shared_lock rlock(_meta_lock);
+    for (const auto& [version, rs] : _rs_version_map) {
+        if (version.first == 0) {
+            continue;
+        }
+        if (rs->num_rows() == 0) {
+            LOG(WARNING) << "[log0630] find empty rs, index change may failed, id="
+                         << rs->rowset_id().to_string();
+        }
+        for (const auto& index_id : alter_index_uids) {
+            if (is_drop_op && rs->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
+                return rs;
+            }
+            if (!is_drop_op && !rs->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
+                return rs;
+            }
+        }
+    }
+    return nullptr;
+}
+
 std::vector<RowsetSharedPtr> CloudTablet::pick_candidate_rowsets_to_base_compaction() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     {

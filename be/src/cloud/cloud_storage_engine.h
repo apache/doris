@@ -47,6 +47,7 @@ class CloudFullCompaction;
 class TabletHotspot;
 class CloudWarmUpManager;
 class CloudCompactionStopToken;
+class CloudIndexChangeCompaction;
 
 class CloudStorageEngine final : public BaseStorageEngine {
 public:
@@ -154,6 +155,11 @@ public:
 
     Status unregister_compaction_stop_token(CloudTabletSPtr tablet, bool clear_ms);
 
+    bool register_index_change_compaction(std::shared_ptr<CloudIndexChangeCompaction> compact,
+                                            int64_t tablet_id);
+
+    void unregister_index_change_compaction(int64_t tablet_id);
+
 private:
     void _refresh_storage_vault_info_thread_callback();
     void _vacuum_stale_rowsets_thread_callback();
@@ -161,6 +167,7 @@ private:
     void _compaction_tasks_producer_callback();
     std::vector<CloudTabletSPtr> _generate_cloud_compaction_tasks(CompactionType compaction_type,
                                                                   bool check_score);
+
     Status _adjust_compaction_thread_num();
     Status _submit_base_compaction_task(const CloudTabletSPtr& tablet);
     Status _submit_cumulative_compaction_task(const CloudTabletSPtr& tablet);
@@ -214,6 +221,10 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> _executing_base_compactions;
     // tablet_id -> executing full compactions, guarded by `_compaction_mtx`
     std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> _executing_full_compactions;
+
+    // for index change compaction
+    std::unordered_map<int64_t, std::shared_ptr<CloudIndexChangeCompaction>>
+            _submitted_index_change_compaction;
 
     using CumuPolices =
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;

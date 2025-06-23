@@ -66,6 +66,8 @@ public:
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
 
+    virtual TabletSchemaSPtr get_output_schema() { return _cur_tablet_schema; }
+
 protected:
     Status merge_input_rowsets();
 

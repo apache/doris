@@ -211,6 +211,8 @@ public:
     int64_t base_size() const { return _base_size; }
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
+    RowsetSharedPtr pick_a_rowset_for_index_change(const std::set<int64_t>& alter_index_uids,
+                                                       bool is_drop_op);
 
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
     std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }

@@ -67,6 +67,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -2106,9 +2107,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode() && index.getIndexType() == IndexDef.IndexType.INVERTED) {
-                        throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
-                    }
 
                     if (indexDef.getPartitionNames().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
@@ -2142,6 +2140,14 @@ public class SchemaChangeHandler extends AlterHandler {
                         isDropIndex = true;
                         lightIndexChange = true;
                     }
+
+                    if (Config.isCloudMode() && found != null && found.getIndexType() == IndexDef.IndexType.INVERTED) {
+                        alterIndexes.add(found);
+                        isDropIndex = true;
+                        for (Index index : alterIndexes) {
+                            indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
+                        }
+                    }
                 } else {
                     Preconditions.checkState(false);
                 }
@@ -2161,9 +2167,12 @@ public class SchemaChangeHandler extends AlterHandler {
                                              null, isDropIndex, jobId, false, propertyMap);
             } else if (Config.enable_light_index_change && lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
-                //for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
+                // for schema change add/drop inverted index and ngram_bf optimize, direct modify table meta firstly.
                 modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
-                                             alterIndexes, isDropIndex, jobId, false, propertyMap);
+                        alterIndexes, isDropIndex, jobId, false, propertyMap);
+            } else if (Config.isCloudMode() && (buildIndexChange || isDropIndex)) {
+                buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                        alterIndexes, indexOnPartitions, isDropIndex);
             } else if (buildIndexChange) {
                 if (alterIndexes.isEmpty()) {
                     throw new DdlException("Altered index is empty. please check your alter stmt.");
@@ -3260,6 +3269,25 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
+    private String getCloudClusterName() throws UserException {
+        String clusterName = "";
+        if (Config.isCloudMode()) {
+            ConnectContext context = ConnectContext.get();
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+                throw new UserException("Get cluster failed when submit build index job.");
+            }
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                return clusterName;
+            } else {
+                throw new UserException("It should specify a cluster when submit build index job.");
+            }
+        }
+        return clusterName;
+    }
+
     public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
             Map<Long, Set<String>> invertedIndexOnPartitions, boolean isDropOp) throws UserException {
@@ -3282,6 +3310,8 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
+        String cloudClusterName = getCloudClusterName();
+
         try {
             long timeoutSecond = Config.alter_table_timeout_second;
             for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
@@ -3293,6 +3323,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             jobId, db.getId(), olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
                     indexChangeJob.setOriginIndexId(originIndexId);
                     indexChangeJob.setAlterInvertedIndexInfo(isDropOp, alterIndexes);
+                    indexChangeJob.setCloudClusterName(cloudClusterName);
                     long partitionId = partition.getId();
                     String partitionName = partition.getName();
                     boolean found = false;

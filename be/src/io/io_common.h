@@ -30,7 +30,8 @@ enum class ReaderType : uint8_t {
     READER_COLD_DATA_COMPACTION = 5,
     READER_SEGMENT_COMPACTION = 6,
     READER_FULL_COMPACTION = 7,
-    UNKNOWN = 8
+    UNKNOWN = 8,
+    READER_INDEX_CHANGE_COMPACTION = 9
 };
 
 namespace io {

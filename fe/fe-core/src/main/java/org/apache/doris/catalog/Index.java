@@ -175,10 +175,11 @@ public class Index implements Writable {
     // the rest of the index types do not support light change
     public boolean isLightIndexChangeSupported() {
         if (Config.isCloudMode()) {
-            return indexType == IndexDef.IndexType.NGRAM_BF;
+            return indexType == IndexDef.IndexType.NGRAM_BF
+                    || indexType == IndexDef.IndexType.INVERTED;
         } else {
             return indexType == IndexDef.IndexType.INVERTED
-                || indexType == IndexDef.IndexType.NGRAM_BF;
+                    || indexType == IndexDef.IndexType.NGRAM_BF;
         }
     }
 
