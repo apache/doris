@@ -68,6 +68,18 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         metadataOps = ops;
     }
 
+    /**
+     * Returns the underlying {@link Catalog} instance used by this external catalog.
+     *
+     * <p><strong>Warning:</strong> This method does not handle any authentication logic. If the
+     * returned catalog implementation relies on external systems
+     * that require authentication — especially in environments where Kerberos is enabled — the caller is
+     * fully responsible for ensuring the appropriate authentication has been performed <em>before</em>
+     * invoking this method.
+     * <p>Failing to authenticate beforehand may result in authorization errors or IO failures.
+     *
+     * @return the underlying catalog instance
+     */
     public Catalog getCatalog() {
         makeSureInitialized();
         return ((IcebergMetadataOps) metadataOps).getCatalog();
