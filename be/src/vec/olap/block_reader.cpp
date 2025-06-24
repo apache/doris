@@ -227,7 +227,6 @@ Status BlockReader::init(const ReaderParams& read_params) {
     /*
     where abs()
     */
-    LOG_INFO("Direct_mode: {}, key type: {}", _direct_mode, tablet()->keys_type());
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {

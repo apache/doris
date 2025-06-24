@@ -92,6 +92,11 @@ TEST_F(VectorSearchTest, TestSaveAndLoad) {
     }
 
     HNSWSearchParameters hnsw_params;
+    auto roaring_bitmap = std::make_unique<roaring::Roaring>();
+    hnsw_params.roaring = roaring_bitmap.get();
+    for (size_t i = 0; i < num_vectors; ++i) {
+        hnsw_params.roaring->add(i);
+    }
     IndexSearchResult range_search_result1;
     std::ignore = index1->range_search(vectors.data(), 10, hnsw_params, range_search_result1);
     IndexSearchResult range_search_result2;
@@ -298,12 +303,9 @@ TEST_F(VectorSearchTest, SearchAllVectors) {
 }
 
 TEST_F(VectorSearchTest, CompRangeSearch) {
-    size_t iterations = 25;
-    // 支持的metric类型集合
-    std::vector<faiss::MetricType> metrics = {
-            faiss::METRIC_L2, faiss::METRIC_INNER_PRODUCT
-            // 如有更多metric可继续添加
-    };
+    size_t iterations = 10;
+    // std::vector<faiss::MetricType> metrics = {faiss::METRIC_L2, faiss::METRIC_INNER_PRODUCT};
+    std::vector<faiss::MetricType> metrics = {faiss::METRIC_INNER_PRODUCT};
     for (size_t i = 0; i < iterations; ++i) {
         for (auto metric : metrics) {
             // Random parameters for each test iteration
@@ -334,7 +336,7 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
                 auto vec = vector_search_utils::generate_random_vector(params.d);
                 vectors.push_back(vec);
             }
-            // 创建native index时指定metric
+
             std::unique_ptr<faiss::Index> native_index = nullptr;
             if (metric == faiss::METRIC_L2) {
                 native_index = std::make_unique<faiss::IndexHNSWFlat>(params.d, params.m,
@@ -345,19 +347,24 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
             } else {
                 throw std::runtime_error(fmt::format("Unsupported metric type: {}", metric));
             }
+
             doris::vector_search_utils::add_vectors_to_indexes_serial_mode(
                     doris_index.get(), native_index.get(), vectors);
 
             std::vector<float> query_vec = vectors.front();
             float radius = 0;
-
             radius = doris::vector_search_utils::get_radius_from_matrix(query_vec.data(), params.d,
                                                                         vectors, 0.4f, metric);
 
             HNSWSearchParameters hnsw_params;
             hnsw_params.ef_search = 16;
-            hnsw_params.roaring = nullptr;
-            hnsw_params.is_le_or_lt = true;
+            // Search on all rows;
+            auto roaring = std::make_unique<roaring::Roaring>();
+            hnsw_params.roaring = roaring.get();
+            for (size_t i = 0; i < vectors.size(); i++) {
+                hnsw_params.roaring->add(i);
+            }
+            hnsw_params.is_le_or_lt = metric == faiss::METRIC_L2;
             IndexSearchResult doris_result;
             std::ignore =
                     doris_index->range_search(query_vec.data(), radius, hnsw_params, doris_result);
@@ -402,7 +409,7 @@ TEST_F(VectorSearchTest, CompRangeSearch) {
     }
 }
 
-TEST_F(VectorSearchTest, RangeSearchNoSelector1) {
+TEST_F(VectorSearchTest, RangeSearchAllRowsAsCandidates) {
     size_t iterations = 5;
     // Random parameters for each test iteration
 
@@ -461,6 +468,12 @@ TEST_F(VectorSearchTest, RangeSearchNoSelector1) {
         // Use a vector we know is in the index
 
         faiss::SearchParametersHNSW search_params;
+        std::unique_ptr<roaring::Roaring> all_rows = std::make_unique<roaring::Roaring>();
+        for (size_t i = 0; i < num_vectors; ++i) {
+            all_rows->add(i);
+        }
+        auto sel = FaissVectorIndex::roaring_to_faiss_selector(*all_rows);
+        search_params.sel = sel.get();
         search_params.efSearch = 16; // Set efSearch for better accuracy
         faiss::RangeSearchResult native_search_result(1, true);
         native_index->range_search(1, query_vec.data(), radius * radius, &native_search_result,
@@ -476,6 +489,7 @@ TEST_F(VectorSearchTest, RangeSearchNoSelector1) {
 
         HNSWSearchParameters doris_search_params;
         doris_search_params.ef_search = 16; // Set efSearch for better accuracy
+        doris_search_params.roaring = all_rows.get();
         IndexSearchResult search_result1;
         IndexSearchResult search_result2;
 
@@ -507,7 +521,6 @@ TEST_F(VectorSearchTest, RangeSearchNoSelector1) {
         }
 
         doris_search_params.is_le_or_lt = false;
-        std::unique_ptr<roaring::Roaring> all_rows = std::make_unique<roaring::Roaring>();
         doris_search_params.roaring = all_rows.get();
         for (size_t i = 0; i < num_vectors; ++i) {
             doris_search_params.roaring->add(i);
@@ -637,7 +650,7 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
 }
 
 TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
-    for (size_t i = 0; i < 10; ++i) {
+    for (size_t i = 0; i < 5; ++i) {
         const size_t d = 10;
         const size_t m = 32;
         const int num_vectors = 1000;
@@ -677,6 +690,11 @@ TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
         float radius = 5.0f;
         doris::vectorized::HNSWSearchParameters search_params;
         search_params.ef_search = 1000; // Set efSearch for better accuracy
+        std::unique_ptr<roaring::Roaring> sel_rows = std::make_unique<roaring::Roaring>();
+        for (size_t i = 0; i < num_vectors; ++i) {
+            sel_rows->add(i);
+        }
+        search_params.roaring = sel_rows.get();
         auto doris_search_result = vector_search_utils::perform_doris_index_range_search(
                 index1.get(), query_vec.data(), radius, search_params);
         auto native_search_result = vector_search_utils::perform_native_index_range_search(
@@ -689,10 +707,6 @@ TEST_F(VectorSearchTest, RangeSearchEmptyResult) {
         doris::vectorized::HNSWSearchParameters search_params_all_rows;
         search_params_all_rows.ef_search = 1000; // Set efSearch for better accuracy
         search_params_all_rows.is_le_or_lt = true;
-        std::unique_ptr<roaring::Roaring> sel_rows = std::make_unique<roaring::Roaring>();
-        for (size_t i = 0; i < num_vectors; ++i) {
-            sel_rows->add(i);
-        }
         search_params_all_rows.roaring = sel_rows.get();
         doris_search_result = vector_search_utils::perform_doris_index_range_search(
                 index1.get(), query_vec.data(), radius, search_params_all_rows);

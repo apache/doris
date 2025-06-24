@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 #include "vector_index.h"
 // Add CLucene RAM Directory header
 #include <CLucene/store/RAMDirectory.h>
@@ -90,7 +91,7 @@ float get_radius_from_flatten(const float* vector, int dim,
                               const std::vector<float>& flatten_vectors, float percentile);
 float get_radius_from_matrix(const float* vector, int dim,
                              const std::vector<std::vector<float>>& matrix_vectors,
-                             float percentile);
+                             float percentile, faiss::MetricType metric_type = faiss::METRIC_L2);
 // Helper function to compare search results between Doris and native Faiss
 void compare_search_results(const vectorized::IndexSearchResult& doris_results,
                             const std::vector<float>& native_distances,

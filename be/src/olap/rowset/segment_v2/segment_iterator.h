@@ -489,6 +489,7 @@ private:
 
     std::shared_ptr<vectorized::AnnTopNRuntime> _ann_topn_runtime;
 
+    // cid to virtual column expr
     std::map<ColumnId, vectorized::VExprContextSPtr> _virtual_column_exprs;
     std::map<ColumnId, size_t> _vir_cid_to_idx_in_block;
 };

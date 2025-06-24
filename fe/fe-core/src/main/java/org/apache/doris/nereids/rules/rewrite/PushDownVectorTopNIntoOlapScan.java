@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.InnerProductApproximate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2DistanceApproximate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -91,17 +92,38 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
         if (orderKeyExpr == null) {
             return null;
         }
-        if (!(orderKeyExpr instanceof L2DistanceApproximate)) {
+
+        boolean l2Dist;
+        boolean innerProduct;
+        l2Dist = orderKeyExpr instanceof L2DistanceApproximate;
+        innerProduct = orderKeyExpr instanceof InnerProductApproximate;
+        if (!(l2Dist) && !(innerProduct)) {
             return null;
         }
-        L2DistanceApproximate l2DistanceApproximate = (L2DistanceApproximate) orderKeyExpr;
-        Expression left = l2DistanceApproximate.left();
+
+        Expression left = null;
+        if (l2Dist) {
+            L2DistanceApproximate l2DistanceApproximate = (L2DistanceApproximate) orderKeyExpr;
+            left = l2DistanceApproximate.left();
+        } else {
+            InnerProductApproximate innerProductApproximate = (InnerProductApproximate) orderKeyExpr;
+            left = innerProductApproximate.left();
+        }
+
         while (left instanceof Cast) {
             left = ((Cast) left).child();
         }
-        if (!(left instanceof SlotReference && ((L2DistanceApproximate) orderKeyExpr).right().isConstant())) {
-            return null;
+
+        if (l2Dist) {
+            if (!(left instanceof SlotReference && ((L2DistanceApproximate) orderKeyExpr).right().isConstant())) {
+                return null;
+            }
+        } else {
+            if (!(left instanceof SlotReference && ((InnerProductApproximate) orderKeyExpr).right().isConstant())) {
+                return null;
+            }
         }
+
         SlotReference leftInput = (SlotReference) left;
         if (!leftInput.getOriginalColumn().isPresent() || !leftInput.getOriginalTable().isPresent()) {
             return null;

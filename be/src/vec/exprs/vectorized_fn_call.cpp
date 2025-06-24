@@ -459,7 +459,7 @@ Status VectorizedFnCall::prepare_ann_range_search(const doris::VectorSearchUserP
     }
     range_search_runtime.is_ann_range_search = true;
     range_search_runtime.user_params = user_params;
-    LOG_INFO("Ann range search params: {}", range_search_runtime.to_string());
+    VLOG_DEBUG << fmt::format("Ann range search params: {}", range_search_runtime.to_string());
     return Status::OK();
 }
 

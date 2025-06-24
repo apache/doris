@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -36,7 +37,7 @@ import java.util.List;
  * inner_product function
  */
 public class InnerProductApproximate extends ScalarFunction implements ExplicitlyCastableSignature,
-        ComputePrecisionForArrayItemAgg, UnaryExpression, AlwaysNullable {
+        ComputePrecisionForArrayItemAgg, BinaryExpression, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE)

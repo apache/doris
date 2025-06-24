@@ -27,6 +27,8 @@
 #include <memory>
 
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "runtime/primitive_type.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/exprs/ann_topn_runtime.h"
 #include "vec/exprs/virtual_slot_ref.h"
 #include "vector_search_utils.h"
@@ -164,13 +166,15 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluateTopN) {
                 return Status::OK();
             }));
 
-    _result_column = ColumnFloat64::create(0, 0);
+    _result_column = ColumnNullable::create(ColumnFloat64::create(0, 0), ColumnUInt8::create(0, 0));
     std::unique_ptr<std::vector<uint64_t>> row_ids = std::make_unique<std::vector<uint64_t>>();
 
     roaring::Roaring roaring;
     st = predicate->evaluate_vector_ann_search(_ann_index_iterator.get(), roaring, _result_column,
                                                row_ids);
-    ColumnFloat64* result_column_float = assert_cast<ColumnFloat64*>(_result_column.get());
+    ColumnNullable* result_column_null = assert_cast<ColumnNullable*>(_result_column.get());
+    ColumnFloat64* result_column_float =
+            assert_cast<ColumnFloat64*>(result_column_null->get_nested_column_ptr().get());
     for (size_t i = 0; i < query_vector->size(); ++i) {
         EXPECT_EQ(result_column_float->get_data()[i], (*query_vector)[i]);
     }
