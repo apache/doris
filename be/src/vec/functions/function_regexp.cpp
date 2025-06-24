@@ -53,32 +53,26 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 struct RegexpCountImpl {
     static void execute_impl(FunctionContext* context, ColumnPtr argument_columns[],
-                             size_t input_rows_count, ColumnInt32::Container& result_data,
-                             NullMap& null_map) {
+                             size_t input_rows_count, ColumnInt32::Container& result_data) {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         for (int i = 0; i < input_rows_count; ++i) {
-            if (null_map[i]) {
-                result_data[i] = 0;
-                continue;
-            }
-            result_data[i] = _execute_inner_loop(context, str_col, pattern_col, null_map, i);
+            result_data[i] = _execute_inner_loop(context, str_col, pattern_col, i);
         }
     }
     static int _execute_inner_loop(FunctionContext* context, const ColumnString* str_col,
-                                   const ColumnString* pattern_col, NullMap& null_map,
-                                   const size_t index_now) {
+                                   const ColumnString* pattern_col, const size_t index_now) {
         re2::RE2* re = reinterpret_cast<re2::RE2*>(
                 context->get_function_state(FunctionContext::THREAD_LOCAL));
         std::unique_ptr<re2::RE2> scoped_re;
         if (re == nullptr) {
             std::string error_str;
+            DCHECK(pattern_col);
             const auto& pattern = pattern_col->get_data_at(index_check_const(index_now, false));
             bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), StringRef(),
                                                      scoped_re);
             if (!st) {
                 context->add_warning(error_str.c_str());
-                null_map[index_now] = 1;
                 throw Exception(Status::InvalidArgument(error_str));
                 return 0;
             }
@@ -160,8 +154,7 @@ public:
 
         argument_columns[0] = block.get_by_position(arguments[0]).column;
         argument_columns[1] = block.get_by_position(arguments[1]).column;
-        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                      result_null_map->get_data());
+        RegexpCountImpl::execute_impl(context, argument_columns, input_rows_count, result_data);
 
         block.get_by_position(result).column = std::move(result_data_column);
         return Status::OK();
