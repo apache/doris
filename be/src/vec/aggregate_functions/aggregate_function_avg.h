@@ -141,19 +141,34 @@ public:
         }
     }
 
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+    template <bool is_add>
+    void update_value(AggregateDataPtr __restrict place, const IColumn** columns,
+                      ssize_t row_num) const {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        if constexpr (is_decimal(T)) {
-            this->data(place).sum += (DataType)column.get_data()[row_num].value;
+        if constexpr (is_add) {
+            if constexpr (is_decimal(T)) {
+                this->data(place).sum += (DataType)column.get_data()[row_num].value;
+            } else {
+                this->data(place).sum += (DataType)column.get_data()[row_num];
+            }
+            ++this->data(place).count;
         } else {
-            this->data(place).sum += (DataType)column.get_data()[row_num];
+            if constexpr (is_decimal(T)) {
+                this->data(place).sum -= (DataType)column.get_data()[row_num].value;
+            } else {
+                this->data(place).sum -= (DataType)column.get_data()[row_num];
+            }
+            --this->data(place).count;
         }
-        ++this->data(place).count;
+    }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena*) const override {
+        update_value<true>(place, columns, row_num);
     }
 
     void reset(AggregateDataPtr place) const override {
@@ -276,6 +291,39 @@ public:
 
     DataTypePtr get_serialized_type() const override {
         return std::make_shared<DataTypeFixedLengthObject>();
+    }
+
+    bool supported_incremental_mode() const override { return true; }
+
+    void execute_function_with_incremental(AggregateDataPtr place, const IColumn** columns,
+                                           Arena* arena, int64_t current_row_position,
+                                           int64_t rows_start_offset, int64_t rows_end_offset,
+                                           int64_t partition_start, int64_t partition_end,
+                                           bool ignore_subtraction, bool ignore_addition,
+                                           bool has_null, UInt8* current_window_empty,
+                                           UInt8* current_window_has_inited) const override {
+        int64_t current_frame_start = current_row_position + rows_start_offset;
+        int64_t current_frame_end = current_row_position + rows_end_offset + 1;
+
+        if (*current_window_has_inited) {
+            auto outcoming_pos = current_frame_start - 1;
+            auto incoming_pos = current_frame_end - 1;
+            if (!ignore_subtraction && outcoming_pos >= partition_start &&
+                outcoming_pos < partition_end) {
+                update_value<false>(place, columns, outcoming_pos);
+            }
+            if (!ignore_addition && incoming_pos >= partition_start &&
+                incoming_pos < partition_end) {
+                update_value<true>(place, columns, incoming_pos);
+            }
+        } else {
+            this->add_range_single_place(partition_start, partition_end, current_frame_start,
+                                         current_frame_end, place, columns, arena,
+                                         current_window_empty);
+            if (!*current_window_empty) {
+                *current_window_has_inited = true;
+            }
+        }
     }
 
 private:

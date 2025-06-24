@@ -114,6 +114,8 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     _result_column_nullable_flags.resize(_agg_functions_size);
     _result_column_could_resize.resize(_agg_functions_size);
+    _current_window_emptys.resize(_agg_functions_size, 0);
+    _current_window_has_inited.resize(_agg_functions_size, 0);
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         _agg_functions[i] = p._agg_functions[i]->clone(state, state->obj_pool());
@@ -385,7 +387,7 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
         _agg_functions[i]->function()->add_range_single_place(
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
-                _agg_arena_pool.get(), &_current_window_empty);
+                _agg_arena_pool.get(), &(_current_window_emptys[i]));
     }
 }
 
@@ -403,7 +405,8 @@ void AnalyticSinkLocalState::_execute_for_support_incremental_function(int64_t c
         _agg_functions[i]->function()->execute_function_with_incremental(
                 _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
                 _agg_arena_pool.get(), current_row_position, rows_start_offset, rows_end_offset,
-                partition_start, partition_end, false, false, false, &_current_window_empty);
+                partition_start, partition_end, false, false, false, &_current_window_emptys[i],
+                &_current_window_has_inited[i]);
     }
 }
 
@@ -411,7 +414,7 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
     // here is the core function, should not add timer
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         if (_result_column_nullable_flags[i]) {
-            if (_current_window_empty) {
+            if (_current_window_emptys[i]) {
                 _result_window_columns[i]->insert_many_defaults(end - start);
             } else {
                 auto* dst =
@@ -487,6 +490,8 @@ void AnalyticSinkLocalState::_reset_state_for_next_partition() {
     _partition_by_pose.start = _partition_by_pose.end;
     _current_row_position = _partition_by_pose.start;
     _reset_agg_status();
+    _current_window_emptys.assign(_agg_functions_size, 0);
+    _current_window_has_inited.assign(_agg_functions_size, 0);
 }
 
 void AnalyticSinkLocalState::_update_order_by_range() {

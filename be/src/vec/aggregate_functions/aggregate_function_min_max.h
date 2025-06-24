@@ -31,6 +31,7 @@
 
 #include "common/cast_set.h"
 #include "common/logging.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_fixed_length_object.h"
@@ -163,6 +164,15 @@ public:
         } else {
             return false;
         }
+    }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                           TypeCheckOnRelease::DISABLE>(column)
+                       .get_data()[row_num] == value;
     }
 
     bool change_if_greater(const Self& to, Arena*) {
@@ -302,6 +312,15 @@ public:
         } else {
             return false;
         }
+    }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                           TypeCheckOnRelease::DISABLE>(column)
+                       .get_data()[row_num] == value;
     }
 
     void change_first_time(const IColumn& column, size_t row_num, Arena*) {
@@ -472,6 +491,14 @@ public:
         }
     }
 
+    bool check_if_equal(const IColumn& column, size_t row_num) const {
+        if (!has()) {
+            return false;
+        }
+        return assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                       row_num) == get_string_ref();
+    }
+
     void change_first_time(const IColumn& column, size_t row_num, Arena*) {
         if (UNLIKELY(!has())) {
             change(column, row_num, nullptr);
@@ -632,6 +659,8 @@ struct SingleValueDataComplexType {
     }
 
     void change_if_better(const Self& to, Arena* arena) { this->change_first_time(to, nullptr); }
+
+    bool check_if_equal(const IColumn& column, size_t row_num) const { return false; }
 
 private:
     bool has_value = false;
@@ -823,6 +852,57 @@ public:
             return std::make_shared<DataTypeFixedLengthObject>();
         } else {
             return std::make_shared<DataTypeString>();
+        }
+    }
+
+    bool supported_incremental_mode() const override { return !(Data::IS_ANY); }
+
+    void execute_function_with_incremental(AggregateDataPtr place, const IColumn** columns,
+                                           Arena* arena, int64_t current_row_position,
+                                           int64_t rows_start_offset, int64_t rows_end_offset,
+                                           int64_t partition_start, int64_t partition_end,
+                                           bool ignore_subtraction, bool ignore_addition,
+                                           bool has_null, UInt8* current_window_empty,
+                                           UInt8* current_window_has_inited) const override {
+        int64_t current_frame_start = current_row_position + rows_start_offset;
+        int64_t current_frame_end = current_row_position + rows_end_offset + 1;
+
+        if (*current_window_has_inited) {
+            auto outcoming_pos = current_frame_start - 1;
+            auto incoming_pos = current_frame_end - 1;
+            if (!ignore_subtraction && outcoming_pos >= partition_start &&
+                outcoming_pos < partition_end) {
+                if (this->data(place).check_if_equal(*columns[0], outcoming_pos)) {
+                    this->data(place).reset();
+                    if (has_null) {
+                        const auto& null_map_data =
+                                assert_cast<const ColumnUInt8*>(columns[1])->get_data();
+                        for (size_t i = current_frame_start; i < current_frame_end; ++i) {
+                            if (null_map_data[i] == 0) {
+                                this->data(place).change_if_better(*columns[0], incoming_pos,
+                                                                   arena);
+                            }
+                        }
+                    } else {
+                        this->add_range_single_place(partition_start, partition_end,
+                                                     current_frame_start, current_frame_end, place,
+                                                     columns, arena, current_window_empty);
+                    }
+                    return;
+                }
+            }
+            if (!ignore_addition && incoming_pos >= partition_start &&
+                incoming_pos < partition_end) {
+                this->data(place).change_if_better(*columns[0], incoming_pos, arena);
+            }
+
+        } else {
+            this->add_range_single_place(partition_start, partition_end, current_frame_start,
+                                         current_frame_end, place, columns, arena,
+                                         current_window_empty);
+            if (!*current_window_empty) {
+                *current_window_has_inited = true;
+            }
         }
     }
 };

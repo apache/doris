@@ -148,7 +148,8 @@ private:
     };
     executor _executor;
 
-    bool _current_window_empty = false;
+    std::vector<uint8_t> _current_window_emptys;
+    std::vector<uint8_t> _current_window_has_inited;
     bool _streaming_mode = false;
     bool _support_incremental_calculate = true;
     bool _need_more_data = false;

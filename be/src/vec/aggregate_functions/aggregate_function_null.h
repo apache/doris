@@ -28,6 +28,7 @@
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/io/io_helper.h"
 
@@ -39,7 +40,6 @@ class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived>
 protected:
     std::unique_ptr<NestFunction> nested_function;
     size_t prefix_size;
-    mutable bool is_frame_init = false;
     mutable int64_t null_count = 0;
 
     /** In addition to data for nested aggregate function, we keep a flag
@@ -112,7 +112,6 @@ public:
     void reset(AggregateDataPtr place) const override {
         init_flag(place);
         nested_function->reset(nested_place(place));
-        is_frame_init = false;
         null_count = 0;
     }
 
@@ -295,8 +294,8 @@ public:
                                            int64_t rows_start_offset, int64_t rows_end_offset,
                                            int64_t partition_start, int64_t partition_end,
                                            bool ignore_subtraction, bool ignore_addition,
-                                           bool has_null,
-                                           bool* current_window_empty) const override {
+                                           bool has_null, UInt8* current_window_empty,
+                                           UInt8* current_window_has_inited) const override {
         const auto frame_start = std::min(
                 std::max(current_row_position + rows_start_offset, partition_start), partition_end);
         const auto frame_end =
@@ -306,76 +305,63 @@ public:
 
         if (frame_size <= 0) {
             *current_window_empty = true;
+            this->init_flag(place);
+            return;
+        }
+        DCHECK(columns[0]->is_nullable()) << columns[0]->get_name();
+
+        const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
+        const IColumn* nested_column = &column->get_nested_column();
+        if (!column->has_null()) {
+            if (*current_window_has_inited) {
+                this->nested_function->execute_function_with_incremental(
+                        this->nested_place(place), &nested_column, arena, current_row_position,
+                        rows_start_offset, rows_end_offset, partition_start, partition_end,
+                        ignore_subtraction, ignore_addition, false, current_window_empty,
+                        current_window_has_inited);
+            } else {
+                this->nested_function->add_range_single_place(
+                        partition_start, partition_end, frame_start, frame_end,
+                        this->nested_place(place), &nested_column, arena, current_window_empty);
+                if (!*current_window_empty) {
+                    *current_window_has_inited = true;
+                }
+            }
+            this->set_flag(place);
             return;
         }
 
-        if (columns[0]->is_nullable()) {
-            const auto* column = assert_cast<const ColumnNullable*>(columns[0]);
-            const IColumn* nested_column = &column->get_nested_column();
-            if (!column->has_null()) {
-                this->set_flag(place);
-                if (this->is_frame_init) {
-                    this->nested_function->execute_function_with_incremental(
-                            this->nested_place(place), &nested_column, arena, current_row_position,
-                            rows_start_offset, rows_end_offset, partition_start, partition_end,
-                            ignore_subtraction, ignore_addition, false, current_window_empty);
-                } else {
-                    this->nested_function->add_range_single_place(
-                            partition_start, partition_end, frame_start, frame_end,
-                            this->nested_place(place), &nested_column, arena, current_window_empty);
-                    this->is_frame_init = true;
-                }
-                return;
+        const auto* __restrict null_map_data = column->get_null_map_data().data();
+        if (*current_window_has_inited) {
+            const int64_t outcoming_pos = current_row_position - 1 + rows_start_offset;
+            const int64_t incoming_pos = current_row_position + rows_end_offset;
+            bool is_previous_frame_start_null = false;
+            if (outcoming_pos >= partition_start && outcoming_pos < partition_end &&
+                null_map_data[outcoming_pos] == 1) {
+                is_previous_frame_start_null = true;
+                this->null_count--;
             }
-
-            const auto* __restrict null_map_data = column->get_null_map_data().data();
-            if (this->is_frame_init) {
-                const int64_t previous_frame_first_position =
-                        current_row_position - 1 + rows_start_offset;
-                const int64_t current_frame_last_position = current_row_position + rows_end_offset;
-                bool is_previous_frame_start_null = false;
-                if (previous_frame_first_position >= partition_start &&
-                    previous_frame_first_position < partition_end &&
-                    null_map_data[previous_frame_first_position] == 1) {
-                    is_previous_frame_start_null = true;
-                    this->null_count--;
-                }
-                bool is_current_frame_end_null = false;
-                if (current_frame_last_position >= partition_start &&
-                    current_frame_last_position < partition_end &&
-                    null_map_data[current_frame_last_position] == 1) {
-                    is_current_frame_end_null = true;
-                    this->null_count++;
-                }
-                const IColumn* columns_tmp[2] {nested_column,
-                                               &(*column->get_null_map_column_ptr())};
-                this->nested_function->execute_function_with_incremental(
-                        this->nested_place(place), columns_tmp, arena, current_row_position,
-                        rows_start_offset, rows_end_offset, partition_start, partition_end,
-                        is_previous_frame_start_null, is_current_frame_end_null, true,
-                        current_window_empty);
-                if (frame_size != this->null_count) {
-                    this->set_flag(place);
-                }
-            } else {
-                for (size_t i = frame_start; i < frame_end; ++i) {
-                    if (null_map_data[i] == 0) {
-                        this->set_flag(place);
-                        this->nested_function->add_range_single_place(
-                                partition_start, partition_end, i, i + 1, this->nested_place(place),
-                                &nested_column, arena, current_window_empty);
-                    } else {
-                        this->null_count++;
-                    }
-                }
-                this->is_frame_init = true;
+            bool is_current_frame_end_null = false;
+            if (incoming_pos >= partition_start && incoming_pos < partition_end &&
+                null_map_data[incoming_pos] == 1) {
+                is_current_frame_end_null = true;
+                this->null_count++;
+            }
+            const IColumn* columns_tmp[2] {nested_column, &(*column->get_null_map_column_ptr())};
+            this->nested_function->execute_function_with_incremental(
+                    this->nested_place(place), columns_tmp, arena, current_row_position,
+                    rows_start_offset, rows_end_offset, partition_start, partition_end,
+                    is_previous_frame_start_null, is_current_frame_end_null, true,
+                    current_window_empty, current_window_has_inited);
+            if (frame_size != this->null_count) {
+                this->set_flag(place);
             }
         } else {
-            this->set_flag(place);
-            this->nested_function->execute_function_with_incremental(
-                    this->nested_place(place), columns, arena, current_row_position,
-                    rows_start_offset, rows_end_offset, partition_start, partition_end,
-                    ignore_subtraction, ignore_addition, false, current_window_empty);
+            this->add_range_single_place(partition_start, partition_end, frame_start, frame_end,
+                                         place, columns, arena, current_window_empty);
+            if (!*current_window_empty) {
+                *current_window_has_inited = true;
+            }
         }
     }
 };
