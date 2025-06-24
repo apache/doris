@@ -59,6 +59,22 @@ suite("test_backup_restore_mv_write", "backup_restore") {
             vin
     """
 
+    def alter_finished = false
+    for (int i = 0; i < 60 && !alter_finished; i++) {
+        def result = sql_return_maparray "SHOW ALTER TABLE MATERIALIZED VIEW FROM ${dbName}"
+        logger.info("result: ${result}")
+        for (int j = 0; j < result.size(); j++) {
+            if (result[j]['TableName'] == "${tableNamePrefix}" &&
+                result[j]['RollupIndexName'] == "${viewName}" &&
+                result[j]['State'] == 'FINISHED') {
+                alter_finished = true
+                break
+            }
+        }
+        Thread.sleep(3000)
+    }
+    assertTrue(alter_finished);
+
     sql """
         BACKUP SNAPSHOT ${snapshotName}
         TO `${repoName}`
