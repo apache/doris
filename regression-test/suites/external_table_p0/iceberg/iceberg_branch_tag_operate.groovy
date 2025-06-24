@@ -48,7 +48,7 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     test {
         sql """ alter table test_branch_tag_operate create tag b1 """
-        exception "Exception"
+        exception "main has no snapshot"
     }
 
     sql """ alter table test_branch_tag_operate create branch b1 """
@@ -56,12 +56,12 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     test {
         sql """ alter table test_branch_tag_operate create or replace branch b1 """
-        exception "Exception"
+        exception "main has no snapshot"
     }
 
     test {
         sql """ alter table test_branch_tag_operate create branch b1 """
-        exception "Exception"
+        exception "Ref b1 already exists"
     }
 
     qt_q1 """ select * from test_branch_tag_operate@branch(b1) """ // empty table
@@ -129,12 +129,12 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     test {
         sql """ alter table test_branch_tag_operate create branch b7 as of version ${s3} """
-        exception "Exception"
+        exception "Ref b7 already exists"
     }
 
     test {
-        sql """ alter table test_branch_tag_operate create branch b8 as of version 11223344} """
-        exception "Exception"
+        sql """ alter table test_branch_tag_operate create branch b8 as of version 11223344 """
+        exception "Cannot set b8 to unknown snapshot: 11223344"
     }
 
 
@@ -168,12 +168,27 @@ suite("iceberg_branch_tag_operate", "p0,external,doris,external_docker,external_
 
     test {
         sql """ alter table test_branch_tag_operate create tag t6 as of version ${s3} """
-        exception "Exception"
+        exception "Ref t6 already exists"
     }
 
     test {
-        sql """ alter table test_branch_tag_operate create branch t7 as of version 11223344} """
-        exception "Exception"
+        sql """ alter table test_branch_tag_operate create branch t7 as of version 11223344 """
+        exception "Cannot set t7 to unknown snapshot: 11223344"
     }
 
+    // test branch/tag with schema change
+    qt_sc01 """select * from tmp_schema_change_branch order by id;"""
+    /// select by branch will use table schema
+    qt_sc02 """select * from tmp_schema_change_branch@branch(test_branch);"""
+    qt_sc03 """select * from tmp_schema_change_branch for version as of "test_branch";"""
+    List<List<Object>> refs = sql """select * from tmp_schema_change_branch\$refs order by name"""
+    String s_main = refs.get(0)[2]
+    String s_test_branch = refs.get(1)[2]
+    
+    /// select by version will use branch schema
+    qt_sc04 """SELECT * FROM tmp_schema_change_branch for VERSION AS OF ${s_test_branch} order by id;"""
+    qt_sc05 """SELECT * FROM tmp_schema_change_branch for VERSION AS OF ${s_main} order by id;"""
+
+    /// select by tag will use tag schema
+    qt_sc06 """SELECT * FROM tmp_schema_change_branch@tag(test_tag) order by id;"""
 }
