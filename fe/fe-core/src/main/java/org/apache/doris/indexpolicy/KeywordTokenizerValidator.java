@@ -15,8 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.indexpolicy;
 
-public class TransactionCommitStmt extends TransactionStmt implements NotFallbackInParser {
+import org.apache.doris.common.DdlException;
 
+import com.google.common.collect.ImmutableSet;
+
+import java.util.Map;
+import java.util.Set;
+
+public class KeywordTokenizerValidator extends BasePolicyValidator {
+    private static final Set<String> ALLOWED_PROPS = ImmutableSet.of("type");
+
+    public KeywordTokenizerValidator() {
+        super(ALLOWED_PROPS);
+    }
+
+    @Override
+    protected String getTypeName() {
+        return "keyword tokenizer";
+    }
+
+    @Override
+    protected void validateSpecific(Map<String, String> props) throws DdlException {
+        // No parameters to validate
+    }
 }

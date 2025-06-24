@@ -41,8 +41,14 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     public String getLocation() {
-        Map<String, String> props = ((SupportsNamespaces) ((IcebergExternalCatalog) getCatalog()).getCatalog())
-                .loadNamespaceMetadata(Namespace.of(name));
-        return props.getOrDefault("location", "");
+        try {
+            return extCatalog.getPreExecutionAuthenticator().execute(() -> {
+                Map<String, String> props = ((SupportsNamespaces) ((IcebergExternalCatalog) getCatalog()).getCatalog())
+                        .loadNamespaceMetadata(Namespace.of(name));
+                return props.getOrDefault("location", "");
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get location for Iceberg database: " + name, e);
+        }
     }
 }
