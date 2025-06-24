@@ -112,6 +112,8 @@ public:
     void reset(AggregateDataPtr place) const override {
         init_flag(place);
         nested_function->reset(nested_place(place));
+        is_frame_init = false;
+        null_count = 0;
     }
 
     bool has_trivial_destructor() const override {
@@ -293,7 +295,8 @@ public:
                                            int64_t rows_start_offset, int64_t rows_end_offset,
                                            int64_t partition_start, int64_t partition_end,
                                            bool ignore_subtraction, bool ignore_addition,
-                                           bool has_null) const override {
+                                           bool has_null,
+                                           bool* current_window_empty) const override {
         const auto frame_start = std::min(
                 std::max(current_row_position + rows_start_offset, partition_start), partition_end);
         const auto frame_end =
@@ -302,6 +305,7 @@ public:
         const auto frame_size = frame_end - frame_start;
 
         if (frame_size <= 0) {
+            *current_window_empty = true;
             return;
         }
 
@@ -314,11 +318,11 @@ public:
                     this->nested_function->execute_function_with_incremental(
                             this->nested_place(place), &nested_column, arena, current_row_position,
                             rows_start_offset, rows_end_offset, partition_start, partition_end,
-                            ignore_subtraction, ignore_addition, false);
+                            ignore_subtraction, ignore_addition, false, current_window_empty);
                 } else {
                     this->nested_function->add_range_single_place(
                             partition_start, partition_end, frame_start, frame_end,
-                            this->nested_place(place), &nested_column, arena);
+                            this->nested_place(place), &nested_column, arena, current_window_empty);
                     this->is_frame_init = true;
                 }
                 return;
@@ -348,7 +352,8 @@ public:
                 this->nested_function->execute_function_with_incremental(
                         this->nested_place(place), columns_tmp, arena, current_row_position,
                         rows_start_offset, rows_end_offset, partition_start, partition_end,
-                        is_previous_frame_start_null, is_current_frame_end_null, true);
+                        is_previous_frame_start_null, is_current_frame_end_null, true,
+                        current_window_empty);
                 if (frame_size != this->null_count) {
                     this->set_flag(place);
                 }
@@ -358,7 +363,7 @@ public:
                         this->set_flag(place);
                         this->nested_function->add_range_single_place(
                                 partition_start, partition_end, i, i + 1, this->nested_place(place),
-                                &nested_column, arena);
+                                &nested_column, arena, current_window_empty);
                     } else {
                         this->null_count++;
                     }
@@ -370,7 +375,7 @@ public:
             this->nested_function->execute_function_with_incremental(
                     this->nested_place(place), columns, arena, current_row_position,
                     rows_start_offset, rows_end_offset, partition_start, partition_end,
-                    ignore_subtraction, ignore_addition, false);
+                    ignore_subtraction, ignore_addition, false, current_window_empty);
         }
     }
 };

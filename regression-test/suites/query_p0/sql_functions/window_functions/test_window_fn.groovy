@@ -399,7 +399,39 @@ suite("test_window_fn") {
     sql """set enable_nereids_planner=true;"""
     sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
 
-    sql "DROP TABLE IF EXISTS test_window_in_agg;"
+    sql "DROP TABLE IF EXISTS test2;"
+
+    sql """ DROP TABLE IF EXISTS test2; """
+
+    sql """ CREATE TABLE IF NOT EXISTS test2 (
+                    `pk` int NULL, 
+                    `col_datetime_3__undef_signed_not_null` datetime(3) not null
+                    )
+    DUPLICATE KEY(pk) 
+    DISTRIBUTED BY HASH(pk) BUCKETS 3 
+    PROPERTIES ( 
+        "replication_num" = "1"
+    ); 
+    """
+
+    sql """ INSERT into test2 (pk, col_datetime_3__undef_signed_not_null) values 
+                                                    ('0', '2005-01-11 03:43:25.000'),
+                                                    ('1', '2000-05-27 10:52:55.000'),
+                                                    ('2', '2003-07-22 04:04:57.000'),
+                                                    ('3', '2024-07-01 00:00:00.000'),
+                                                    ('4', '9999-12-31 00:00:00.000'),
+                                                    ('5', '2022-03-13 01:30:00'),
+                                                    ('6', '2022-03-13 04:45:00'),
+                                                    ('7', '2022-03-13 07:15:00'),
+                                                    ('8', '2022-03-13 10:05:00'),
+                                                    ('9', '2022-03-13 12:50:00'); 
+
+    """
+
+    qt_sql_window_null """
+        select col_datetime_3__undef_signed_not_null,pk, max(col_datetime_3__undef_signed_not_null) over (order by pk rows between 4 preceding and 2 preceding) as res from test2 order by pk;
+    """
+
 }
 
 

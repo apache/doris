@@ -211,7 +211,8 @@ public:
     virtual void add_range_single_place(int64_t partition_start, int64_t partition_end,
                                         int64_t frame_start, int64_t frame_end,
                                         AggregateDataPtr place, const IColumn** columns,
-                                        Arena*) const = 0;
+                                        Arena* arena,
+                                        [[maybe_unused]] bool* current_window_empty) const = 0;
 
     virtual void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
                                          const size_t num_rows, Arena*) const = 0;
@@ -251,12 +252,12 @@ public:
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
 
-    virtual void execute_function_with_incremental(AggregateDataPtr place, const IColumn** columns,
-                                                   Arena* arena, int64_t current_row_position,
-                                                   int64_t rows_start_offset,
-                                                   int64_t rows_end_offset, int64_t partition_start,
-                                                   int64_t partition_end, bool ignore_subtraction,
-                                                   bool ignore_addition, bool has_null) const {
+    virtual void execute_function_with_incremental(
+            AggregateDataPtr place, const IColumn** columns, Arena* arena,
+            int64_t current_row_position, int64_t rows_start_offset, int64_t rows_end_offset,
+            int64_t partition_start, int64_t partition_end, bool ignore_subtraction,
+            bool ignore_addition, bool has_null,
+            [[maybe_unused]] bool* current_window_empty) const {
         throw doris::Exception(Status::FatalError(
                 "Aggregate function " + get_name() +
                 " does not support cumulative mode, but it is called in cumulative mode"));
@@ -338,13 +339,15 @@ public:
     //stddev_pop/stddev_samp/variance_pop/variance_samp/hll_union_agg/group_concat
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena* arena,
+                                [[maybe_unused]] bool* current_window_empty) const override {
         const Derived* derived = assert_cast<const Derived*>(this);
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         for (int64_t i = frame_start; i < frame_end; ++i) {
             derived->add(place, columns, i, arena);
         }
+        *current_window_empty = (frame_start >= frame_end);
     }
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,

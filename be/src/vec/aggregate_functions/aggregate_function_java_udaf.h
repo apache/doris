@@ -354,7 +354,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena*) const override {
+                                Arena*, bool*) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         int64_t places_address = reinterpret_cast<int64_t>(place);
