@@ -1900,8 +1900,7 @@ TEST(MetaServiceJobTest, SchemaChangeJobWithMoWTest) {
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
         ASSERT_EQ(res_code, MetaServiceCode::OK);
-        res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
-        ASSERT_EQ(res_code, MetaServiceCode::OK);
+        remove_delete_bitmap_lock(meta_service.get(), table_id);
         res.Clear();
     }
 }
