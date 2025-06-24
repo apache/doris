@@ -7499,13 +7499,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitDropResource(DorisParser.DropResourceContext ctx) {
-        boolean ifExist = ctx.EXISTS() != null;
-        String resouceName = visitIdentifierOrText(ctx.identifierOrText());
-        return new DropResourceCommand(ifExist, resouceName);
-    }
-
-    @Override
     public LogicalPlan visitCancelAlterTable(DorisParser.CancelAlterTableContext ctx) {
         TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
 
