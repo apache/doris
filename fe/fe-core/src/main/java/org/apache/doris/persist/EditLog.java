@@ -1284,7 +1284,7 @@ public class EditLog {
                     TableBranchOrTagInfo info = (TableBranchOrTagInfo) journal.getData();
                     CatalogIf ctl = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.getCtlName());
                     if (ctl != null) {
-                        ctl.replayCreateOrReplaceBranch(info.getDbName(), info.getTblName());
+                        ctl.replayCreateOrReplaceBranchOrTag(info.getDbName(), info.getTblName());
                     }
                     break;
                 }

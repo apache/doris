@@ -1374,9 +1374,9 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void replayCreateOrReplaceBranch(String dbName, String tblName) {
+    public void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
         if (metadataOps != null) {
-            metadataOps.afterCreateOrReplaceBranch(dbName, tblName, null /* TODO: Currently not used */);
+            metadataOps.afterCreateOrReplaceBranchOrTag(dbName, tblName);
         }
     }
 }

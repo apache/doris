@@ -234,7 +234,7 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UserException("Not support create or replace tag operation");
     }
 
-    default void replayCreateOrReplaceBranch(String dbName, String tblName) {
+    default void replayCreateOrReplaceBranchOrTag(String dbName, String tblName) {
 
     }
 }

@@ -159,13 +159,13 @@ public interface ExternalMetadataOps {
     default void createOrReplaceBranch(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
             throws UserException {
         createOrReplaceBranchImpl(dbName, tblName, branchInfo);
-        afterCreateOrReplaceBranch(dbName, tblName, branchInfo);
+        afterCreateOrReplaceBranchOrTag(dbName, tblName);
     }
 
     void createOrReplaceBranchImpl(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo)
             throws UserException;
 
-    default void afterCreateOrReplaceBranch(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo) {
+    default void afterCreateOrReplaceBranchOrTag(String dbName, String tblName) {
     }
 
     /**
@@ -179,14 +179,11 @@ public interface ExternalMetadataOps {
     default void createOrReplaceTag(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
             throws UserException {
         createOrReplaceTagImpl(dbName, tblName, tagInfo);
-        afterCreateOrReplaceTag(dbName, tblName, tagInfo);
+        afterCreateOrReplaceBranchOrTag(dbName, tblName);
     }
 
     void createOrReplaceTagImpl(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo)
             throws UserException;
-
-    default void afterCreateOrReplaceTag(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo) {
-    }
 
     /**
      *

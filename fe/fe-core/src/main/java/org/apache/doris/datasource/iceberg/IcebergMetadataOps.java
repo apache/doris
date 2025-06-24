@@ -449,7 +449,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public void afterCreateOrReplaceBranch(String dbName, String tblName, CreateOrReplaceBranchInfo branchInfo) {
+    public void afterCreateOrReplaceBranchOrTag(String dbName, String tblName) {
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db != null) {
             ExternalTable tbl = db.getTableNullable(tblName);
@@ -500,17 +500,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
                             + ", error message is: " + e.getMessage(), e);
-        }
-    }
-
-    @Override
-    public void afterCreateOrReplaceTag(String dbName, String tblName, CreateOrReplaceTagInfo tagInfo) {
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db != null) {
-            ExternalTable tbl = db.getTableNullable(tblName);
-            if (tbl != null) {
-                tbl.unsetObjectCreated();
-            }
         }
     }
 

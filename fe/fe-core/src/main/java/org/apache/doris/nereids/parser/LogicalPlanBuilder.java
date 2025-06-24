@@ -8328,7 +8328,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-<<<<<<< HEAD
     public LogicalPlan visitCreateIndexAnalyzer(CreateIndexAnalyzerContext ctx) {
         boolean ifNotExists = ctx.IF() != null;
         String policyName = ctx.name.getText();
