@@ -47,7 +47,8 @@ public class IndexDefinitionTest {
                                         null, "comment");
         try {
             def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE, true,
-                                                 null, "comment"), KeysType.UNIQUE_KEYS, true, TInvertedIndexFileStorageFormat.V1);
+                                                 null, "comment"), KeysType.UNIQUE_KEYS, true,
+                                                        TInvertedIndexFileStorageFormat.V1);
             Assertions.fail("No exception throws.");
         } catch (AnalysisException e) {
             org.junit.jupiter.api.Assertions.assertInstanceOf(
