@@ -65,8 +65,6 @@ public class BranchOptions {
 
     /**
      * Generates the SQL representation of the branch options.
-     *
-     * @return
      */
     public String toSql() {
         StringBuilder sb = new StringBuilder();

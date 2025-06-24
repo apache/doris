@@ -65,8 +65,6 @@ public class CreateOrReplaceBranchInfo {
 
     /**
      * Generates the SQL representation of the create or replace branch command.
-     *
-     * @return
      */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
