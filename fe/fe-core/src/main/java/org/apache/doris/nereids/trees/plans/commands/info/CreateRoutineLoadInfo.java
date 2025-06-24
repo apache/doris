@@ -97,8 +97,6 @@ public class CreateRoutineLoadInfo {
 
     public static final String STRICT_MODE = "strict_mode";
     public static final String TIMEZONE = "timezone";
-    public static final String KEY_ENCLOSE = "enclose";
-    public static final String KEY_ESCAPE = "escape";
     public static final java.util.function.Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final java.util.function.Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final java.util.function.Predicate<Double> MAX_FILTER_RATIO_PRED = (v) -> v >= 0 && v <= 1;
@@ -127,8 +125,6 @@ public class CreateRoutineLoadInfo {
             .add(LOAD_TO_SINGLE_TABLET)
             .add(PARTIAL_COLUMNS)
             .add(WORKLOAD_GROUP)
-            .add(KEY_ENCLOSE)
-            .add(KEY_ESCAPE)
             .add(FileFormatProperties.PROP_FORMAT)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)

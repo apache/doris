@@ -27,6 +27,8 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -69,8 +71,13 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
             .add(CreateRoutineLoadInfo.WORKLOAD_GROUP)
-            .add(CreateRoutineLoadInfo.KEY_ENCLOSE)
-            .add(CreateRoutineLoadInfo.KEY_ESCAPE)
+            .add(JsonFileFormatProperties.PROP_JSON_PATHS)
+            .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
+            .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
+            .add(JsonFileFormatProperties.PROP_FUZZY_PARSE)
+            .add(JsonFileFormatProperties.PROP_JSON_ROOT)
+            .add(CsvFileFormatProperties.PROP_ENCLOSE)
+            .add(CsvFileFormatProperties.PROP_ESCAPE)
             .build();
 
     private final LabelNameInfo labelNameInfo;
@@ -218,6 +225,32 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             analyzedJobProperties.put(CreateRoutineLoadInfo.TIMEZONE, timezone);
         }
 
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_JSON_PATHS)) {
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_JSON_PATHS,
+                    jobProperties.get(JsonFileFormatProperties.PROP_JSON_PATHS));
+        }
+
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_JSON_ROOT)) {
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_JSON_ROOT,
+                    jobProperties.get(JsonFileFormatProperties.PROP_JSON_ROOT));
+        }
+
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)) {
+            boolean stripOuterArray = Boolean.parseBoolean(
+                    jobProperties.get(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY));
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, String.valueOf(stripOuterArray));
+        }
+
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_NUM_AS_STRING)) {
+            boolean numAsString = Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_NUM_AS_STRING));
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, String.valueOf(numAsString));
+        }
+
+        if (jobProperties.containsKey(JsonFileFormatProperties.PROP_FUZZY_PARSE)) {
+            boolean fuzzyParse = Boolean.parseBoolean(jobProperties.get(JsonFileFormatProperties.PROP_FUZZY_PARSE));
+            analyzedJobProperties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, String.valueOf(fuzzyParse));
+        }
+
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
             analyzedJobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS,
                     String.valueOf(isPartialUpdate));
@@ -233,14 +266,14 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             }
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.KEY_ENCLOSE)) {
-            analyzedJobProperties.put(CreateRoutineLoadInfo.KEY_ENCLOSE,
-                    jobProperties.get(CreateRoutineLoadInfo.KEY_ENCLOSE));
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.KEY_ESCAPE)) {
-            analyzedJobProperties.put(CreateRoutineLoadInfo.KEY_ESCAPE,
-                    jobProperties.get(CreateRoutineLoadInfo.KEY_ESCAPE));
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
         }
     }
 
