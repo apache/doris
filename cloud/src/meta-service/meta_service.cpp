@@ -1067,7 +1067,6 @@ bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg
 * @param txn_id The transaction ID to check.
 * @param code Reference to the error code to be set in case of failure.
 * @param msg Reference to the error message to be set in case of failure.
-* @param stats count rpc kv read write num
 * @return true if the transaction status matches the expected status, false otherwise.  
  */
 static bool check_transaction_status(TxnStatusPB expect_status, Transaction* txn,
