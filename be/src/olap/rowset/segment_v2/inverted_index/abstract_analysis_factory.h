@@ -15,25 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#pragma once
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
+#include "olap/rowset/segment_v2/inverted_index/setting.h"
 
-public class TransactionStmt extends StatementBase implements NotFallbackInParser {
+namespace doris::segment_v2::inverted_index {
 
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
-    }
+class AbstractAnalysisFactory {
+public:
+    virtual ~AbstractAnalysisFactory() = default;
+    virtual void initialize(const Settings& params) = 0;
+};
+using AbstractAnalysisFactoryPtr = std::shared_ptr<AbstractAnalysisFactory>;
 
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.TRANSACTION;
-    }
-}
+} // namespace doris::segment_v2::inverted_index

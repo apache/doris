@@ -17,24 +17,30 @@
 
 #include "prefix_query.h"
 
+#include "CLucene/config/repl_wchar.h"
+
 namespace doris::segment_v2 {
 
 PrefixQuery::PrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
                          const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher), _io_ctx(io_ctx) {}
 
-void PrefixQuery::add(const std::wstring& field_name, const std::vector<std::wstring>& terms) {
-    if (terms.empty()) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "PhraseQuery::add: terms empty");
+void PrefixQuery::add(const InvertedIndexQueryInfo& query_info) {
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    std::vector<TermPositionIterator> subs;
-    for (const auto& ws_term : terms) {
-        auto* term_doc = TermPositionIterator::ensure_term_position(_io_ctx, _searcher->getReader(),
-                                                                    field_name, ws_term);
-        subs.emplace_back(term_doc);
+    if (std::holds_alternative<std::string>(query_info.term_infos[0].term)) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Not supported yet.");
+    } else {
+        std::vector<TermPositionsIterPtr> subs;
+        for (const auto& ws_term : query_info.term_infos[0].get_multi_terms()) {
+            auto iter = TermPositionsIterator::create(_io_ctx, _searcher->getReader(),
+                                                      query_info.field_name, ws_term);
+            subs.emplace_back(std::move(iter));
+        }
+        _lead1 = std::make_shared<UnionTermIterator<TermPositionsIterator>>(subs);
     }
-    _lead1 = std::make_shared<UnionTermIterator<TermPositionIterator>>(subs);
 }
 
 void PrefixQuery::search(roaring::Roaring& roaring) {
@@ -45,8 +51,7 @@ void PrefixQuery::search(roaring::Roaring& roaring) {
 
 void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
                                    const std::string& prefix,
-                                   std::vector<std::wstring>& prefix_terms,
-                                   int32_t max_expansions) {
+                                   std::vector<std::string>& prefix_terms, int32_t max_expansions) {
     std::wstring ws_prefix = StringUtil::string_to_wstring(prefix);
 
     Term* prefix_term = _CLNEW Term(field_name.c_str(), ws_prefix.c_str());
@@ -84,7 +89,8 @@ void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& fiel
                     break;
                 }
 
-                prefix_terms.emplace_back(tmp, termLen);
+                std::string term = lucene_wcstoutf8string(tmp, termLen);
+                prefix_terms.emplace_back(std::move(term));
 
                 count++;
             } else {

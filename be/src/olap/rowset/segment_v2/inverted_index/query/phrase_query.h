@@ -42,7 +42,6 @@ public:
     ~PhraseQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
-    void add(const std::wstring& field_name, const std::vector<std::vector<std::wstring>>& terms);
     void search(roaring::Roaring& roaring) override;
 
 private:
@@ -55,17 +54,14 @@ private:
     bool matches(int32_t doc);
 
     void init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info);
-    void init_exact_phrase_matcher(const std::wstring& field_name,
-                                   const std::vector<std::vector<std::wstring>>& terms);
     void init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info);
     void init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info);
 
 public:
     static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
-    static void parser_info(std::string& query, const std::string& field_name,
-                            InvertedIndexQueryType query_type,
+    static void parser_info(std::string& query,
                             const std::map<std::string, std::string>& properties,
-                            InvertedIndexQueryInfo& query_info, bool sequential_opt);
+                            InvertedIndexQueryInfo& query_info);
 
 private:
     std::shared_ptr<lucene::search::IndexSearcher> _searcher;
@@ -76,7 +72,6 @@ private:
     std::vector<DISI*> _others;
     std::vector<DISI> _iterators;
 
-    std::vector<std::vector<std::string>> _additional_terms;
     std::vector<Matcher> _matchers;
 };
 
