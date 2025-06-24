@@ -283,7 +283,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         }                                                                                     \
     });
 
-
 #define RPC_RATE_LIMIT(func_name)                                                            \
     if (config::enable_rate_limit && config::use_detailed_metrics && !instance_id.empty()) { \
         auto rate_limiter = rate_limiter_->get_rpc_rate_limiter(#func_name);                 \
