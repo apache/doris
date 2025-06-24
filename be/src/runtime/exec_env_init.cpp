@@ -93,6 +93,7 @@
 #include "util/metrics.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/s3_util.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
@@ -308,6 +309,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     _s_ready = true;
 
+    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
+    S3ClientFactory::instance();
     return Status::OK();
 }
 
