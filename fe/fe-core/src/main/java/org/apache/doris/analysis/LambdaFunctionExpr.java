@@ -143,7 +143,7 @@ public class LambdaFunctionExpr extends Expr {
     protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
             TableIf table) {
         String nameStr = "";
-        Expr lambdaExpr = slotExprs.get(0);
+        Expr lambdaExpr = slotExpr.get(0);
         int exprSize = names.size();
         for (int i = 0; i < exprSize; ++i) {
             nameStr = nameStr + names.get(i);
