@@ -376,6 +376,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
+    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
+    S3ClientFactory::instance();
     return Status::OK();
 }
 
