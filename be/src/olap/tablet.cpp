@@ -847,6 +847,7 @@ void Tablet::delete_expired_stale_rowset() {
                 }
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
+            Version version(start_version, end_version);
             to_delete_iter++;
             if (!remove_rowset_ids.empty()) {
                 deleted_stale_rowsets.emplace_back(version, remove_rowset_ids);
