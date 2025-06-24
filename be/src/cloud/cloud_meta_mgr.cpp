@@ -1414,8 +1414,8 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
     int retry_times = 0;
     Status st;
-    std::default_random_engine rng = make_random_engine();
-    std::uniform_int_distribution<uint32_t> u(500, 2000);
+    // std::default_random_engine rng = make_random_engine();
+    // std::uniform_int_distribution<uint32_t> u(500, 2000);
     do {
         bool test_conflict = false;
         st = retry_rpc("get delete bitmap update lock", req, &res,
@@ -1426,7 +1426,7 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
             break;
         }
 
-        uint32_t duration_ms = u(rng);
+        uint32_t duration_ms = config::get_delete_bitmap_lock_backoff_time_ms;
         LOG(WARNING) << "get delete bitmap lock conflict. " << debug_info(req)
                      << " retry_times=" << retry_times << " sleep=" << duration_ms
                      << "ms : " << res.status().msg();
