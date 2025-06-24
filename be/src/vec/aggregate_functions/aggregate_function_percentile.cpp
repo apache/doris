@@ -32,12 +32,14 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
         return nullptr;
     }
     if (argument_types.size() == 2) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams>(
-                argument_types, result_is_nullable);
+        return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams,
+                                            ArgReturnJudge::MultiArguments>(argument_types,
+                                                                            result_is_nullable);
     }
     if (argument_types.size() == 3) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams>(
-                argument_types, result_is_nullable);
+        return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams,
+                                            ArgReturnJudge::MultiArguments>(argument_types,
+                                                                            result_is_nullable);
     }
     return nullptr;
 }
@@ -50,23 +52,26 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
         return nullptr;
     }
     if (argument_types.size() == 3) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams>(
-                argument_types, result_is_nullable);
+        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams,
+                                            ArgReturnJudge::MultiArguments>(argument_types,
+                                                                            result_is_nullable);
     }
     if (argument_types.size() == 4) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams>(
-                argument_types, result_is_nullable);
+        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams,
+                                            ArgReturnJudge::MultiArguments>(argument_types,
+                                                                            result_is_nullable);
     }
     return nullptr;
 }
 
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("percentile",
-                                   creator_with_numeric_type::creator<AggregateFunctionPercentile>);
+    factory.register_function_both(
+            "percentile", creator_with_numeric_type::creator<AggregateFunctionPercentile,
+                                                             ArgReturnJudge::MultiArguments>);
     factory.register_alias("percentile", "percentile_cont");
     factory.register_function_both(
-            "percentile_array",
-            creator_with_numeric_type::creator<AggregateFunctionPercentileArray>);
+            "percentile_array", creator_with_numeric_type::creator<AggregateFunctionPercentileArray,
+                                                                   ArgReturnJudge::MultiArguments>);
 }
 
 void register_percentile_approx_old_function(AggregateFunctionSimpleFactory& factory) {

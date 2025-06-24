@@ -63,20 +63,21 @@ public:
 
         if (arguments.size() == 1) {
             AggregateFunctionPtr res(
-                    creator_with_numeric_type::create<AggregateFunctionDistinctNumeric>(
+                    creator_with_numeric_type::create<AggregateFunctionDistinctNumeric,
+                                                      ArgReturnJudge::UnaryArguments>(
                             arguments, result_is_nullable, nested_function));
             if (res) {
                 return res;
             }
 
             res = creator_without_type::create<
-                    AggregateFunctionDistinct<AggregateFunctionDistinctSingleGenericData>>(
-                    arguments, result_is_nullable, nested_function);
+                    AggregateFunctionDistinct<AggregateFunctionDistinctSingleGenericData>,
+                    ArgReturnJudge::UnaryArguments>(arguments, result_is_nullable, nested_function);
             return res;
         }
         return creator_without_type::create<
-                AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                arguments, result_is_nullable, nested_function);
+                AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>,
+                ArgReturnJudge::MultiArguments>(arguments, result_is_nullable, nested_function);
     }
 };
 

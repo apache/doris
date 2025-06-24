@@ -41,15 +41,19 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
         factory.register_function_both(name + AGG_LOAD_SUFFIX, creator);
     };
 
-    register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimpleReader>);
+    register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimpleReader,
+                                                             ArgReturnJudge::UnaryArguments>);
     register_function_both("max", create_aggregate_function_single_value<AggregateFunctionMaxData>);
     register_function_both("min", create_aggregate_function_single_value<AggregateFunctionMinData>);
-    register_function_both("bitmap_union",
-                           creator_without_type::creator<
-                                   AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>);
-    register_function_both("hll_union",
-                           creator_without_type::creator<AggregateFunctionHLLUnion<
-                                   AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData>>>);
+    register_function_both(
+            "bitmap_union",
+            creator_without_type::creator<AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>,
+                                          ArgReturnJudge::UnaryArgumentsResultNotNullable>);
+    register_function_both(
+            "hll_union",
+            creator_without_type::creator<AggregateFunctionHLLUnion<AggregateFunctionHLLUnionImpl<
+                                                  AggregateFunctionHLLData>>,
+                                          ArgReturnJudge::UnaryArgumentsResultNotNullable>);
     register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
 }
 

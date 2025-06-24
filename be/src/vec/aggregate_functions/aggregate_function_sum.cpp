@@ -31,18 +31,22 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
                                            const bool result_is_nullable,
                                            const AggregateFunctionAttr& attr) {
         if (attr.enable_decimal256) {
-            return creator_with_type::creator<AggregateFunctionSumSimpleDecimal256>(
+            return creator_with_type::creator<AggregateFunctionSumSimpleDecimal256,
+                                              ArgReturnJudge::UnaryArguments>(
                     name, types, result_is_nullable, attr);
         } else {
-            return creator_with_type::creator<AggregateFunctionSumSimple>(name, types,
-                                                                          result_is_nullable, attr);
+            return creator_with_type::creator<AggregateFunctionSumSimple,
+                                              ArgReturnJudge::UnaryArguments>(
+                    name, types, result_is_nullable, attr);
         }
     };
     factory.register_function_both("sum", creator);
 }
 
 void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("sum0", creator_with_type::creator<AggregateFunctionSumSimple>);
+    factory.register_function_both(
+            "sum0", creator_with_type::creator<AggregateFunctionSumSimple,
+                                               ArgReturnJudge::UnaryArgumentsResultNotNullable>);
 }
 
 } // namespace doris::vectorized
