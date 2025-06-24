@@ -61,6 +61,11 @@ public class CreateOrReplaceTagInfo {
         return ifNotExists;
     }
 
+    /**
+     * Generates the SQL representation of the create or replace tag command.
+     *
+     * @return SQL string for creating or replacing a tag
+     */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (create && replace) {

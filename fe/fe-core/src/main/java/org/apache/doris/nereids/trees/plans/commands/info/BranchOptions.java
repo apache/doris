@@ -63,6 +63,11 @@ public class BranchOptions {
         return retention;
     }
 
+    /**
+     * Generates the SQL representation of the branch options.
+     *
+     * @return
+     */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (snapshotId.isPresent()) {

@@ -47,6 +47,11 @@ public class TagOptions {
         return retain;
     }
 
+    /**
+     * Generates the SQL representation of the tag options.
+     *
+     * @return
+     */
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (snapshotId.isPresent()) {
