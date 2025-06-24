@@ -56,7 +56,8 @@ TEST_F(FunctionCastTest, strict_test_from_string_to_datetime) {
 
             // Various timezone offsets
             {{std::string("2020-12-12 13:12:12-03:00")}, std::string("2020-12-13 00:12:12")},
-            {{std::string("0023-01-01T00:00Z")}, std::string("0023-01-01 08:00:00")},
+            // CST of shanghai before 1900 is not +080000 but +080543
+            {{std::string("0023-01-01T00:00Z")}, std::string("0023-01-01 08:05:43")},
 
             // Year cutoff cases
             {{std::string("69-12-31")}, std::string("2069-12-31")},
