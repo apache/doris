@@ -2822,8 +2822,8 @@ private:
             copy_file_keys_.clear();
             batch_count_++;
 
-        LOG_WARNING("begin to delete {} internal stage objects in batch {}", paths_.size(),
-                    batch_count_);
+            LOG_WARNING("begin to delete {} internal stage objects in batch {}", paths_.size(),
+                        batch_count_);
         };
 
         StopWatch sw;
@@ -3233,7 +3233,6 @@ int InstanceRecycler::recycle_expired_stage_objects() {
                 duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_WARNING("recycle expired stage objects, cost={}s", cost)
                 .tag("instance_id", instance_id_);
-
     };
 
     int ret = 0;
