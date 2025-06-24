@@ -39,9 +39,11 @@ public class AlterRoutineLoadCommandTest {
 
     @Test
     public void testValidateNormal() throws MetaNotFoundException, IOException {
+        Database dataBase = new Database(0, "db1");
+        Env.getCurrentInternalCatalog().unprotectCreateDb(dataBase);
         new Expectations() {
             {
-                Env.getCurrentEnv().getRoutineLoadManager().getJob(anyString, anyString);
+                Env.getCurrentEnv().getRoutineLoadManager().getJob("db1", null);
                 minTimes = 0;
                 result = new KafkaRoutineLoadJob();
             }
@@ -55,10 +57,7 @@ public class AlterRoutineLoadCommandTest {
         dataSourceProperties.put("property.group.id", "mygroup");
         dataSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "1,2,3");
         dataSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "10000, 20000, 30000");
-
-        LabelNameInfo labelNameInfo = new LabelNameInfo("db1", "label1");
-        Database dataBase = new Database(0, "db1");
-        Env.getCurrentInternalCatalog().unprotectCreateDb(dataBase);
+        LabelNameInfo labelNameInfo = new LabelNameInfo("db1", null);
 
         AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(labelNameInfo, jobProperties, dataSourceProperties);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
