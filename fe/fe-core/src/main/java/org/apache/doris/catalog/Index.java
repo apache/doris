@@ -170,12 +170,19 @@ public class Index implements Writable {
     }
 
     // Whether the index can be changed in light mode
-    // cloud mode only supports light change for ngram_bf index
+    // cloud mode supports light change for ngram_bf index and non-tokenized inverted index (parser="none")
     // local mode supports light change for both inverted index and ngram_bf index
     // the rest of the index types do not support light change
     public boolean isLightIndexChangeSupported() {
         if (Config.isCloudMode()) {
-            return indexType == IndexDef.IndexType.NGRAM_BF;
+            if (indexType == IndexDef.IndexType.NGRAM_BF) {
+                return true;
+            } else if (indexType == IndexDef.IndexType.INVERTED) {
+                // Only support non-tokenized inverted index (parser="none") in cloud mode
+                String parser = getInvertedIndexParser();
+                return "none".equals(parser);
+            }
+            return false;
         } else {
             return indexType == IndexDef.IndexType.INVERTED
                 || indexType == IndexDef.IndexType.NGRAM_BF;

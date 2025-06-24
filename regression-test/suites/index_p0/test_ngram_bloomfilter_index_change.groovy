@@ -54,71 +54,52 @@ suite("test_ngram_bloomfilter_index_change") {
         sql "sync"
     }
 
-    // Test setup
-    // 1. Create table
-    // 2. Insert test data
-    // 3. Add NGRAM Bloom Filter index
-    // 4. Build index
-    // 5. Insert more data
-    // 6. Drop index
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql """
-    CREATE TABLE ${tableName} (
-    `sale_id` int NULL,
-    `sale_date` datetime NULL,
-    `product_name` varchar(100) NULL,
-    `customer_name` varchar(100) NULL,
-    `amount` decimal(10,2) NULL,
-    `region` char(50) NULL
-    ) ENGINE=OLAP
-    DUPLICATE KEY(`sale_id`)
-    PARTITION BY RANGE(`sale_date`) (
-    PARTITION p202310 VALUES [('2023-10-01 00:00:00'), ('2023-11-01 00:00:00')),
-    PARTITION p202311 VALUES [('2023-11-01 00:00:00'), ('2023-12-01 00:00:00')),
-    PARTITION p202312 VALUES [('2023-12-01 00:00:00'), ('2024-01-01 00:00:00'))
-    )
-    DISTRIBUTED BY HASH(`sale_id`) BUCKETS 1
-    PROPERTIES (
-    "replication_allocation" = "tag.location.default: 1",
-    "storage_format" = "V2",
-    "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
-    );
-    """
-    
-    // Insert first batch of data
-    insertTestData()
-
     // Test settings
     sql "set enable_function_pushdown=true"
     sql "set enable_profile=true"
     sql "set profile_level=2"
 
-    // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
-
     // Define test query
     def query = "SELECT /*+SET_VAR(enable_function_pushdown = true, enable_profile = true, profile_level = 2)*/  * FROM ${tableName} WHERE customer_name LIKE '%xxxx%' ORDER BY sale_id"
+    // Test Case 1: Test with enable_light_add_index = true (default, lightweight mode)
+    logger.info("=== Test Case 1: enable_light_add_index = true ===")
+    // Set enable_light_add_index = true
+    sql "set enable_light_add_index = true"
+    // Create table
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+    CREATE TABLE ${tableName} (
+    `sale_id` int NULL,
+    `sale_date` datetime NULL,
+    `product_name` varchar(100) NULL,
+    `customer_name` varchar(100) NULL,
+    `amount` decimal(10,2) NULL,
+    `region` char(50) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`sale_id`)
+    PARTITION BY RANGE(`sale_date`) (
+    PARTITION p202310 VALUES [('2023-10-01 00:00:00'), ('2023-11-01 00:00:00')),
+    PARTITION p202311 VALUES [('2023-11-01 00:00:00'), ('2023-12-01 00:00:00')),
+    PARTITION p202312 VALUES [('2023-12-01 00:00:00'), ('2024-01-01 00:00:00'))
+    )
+    DISTRIBUTED BY HASH(`sale_id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false"
+    );
+    """
     
-    // Test 1: without NGRAM Bloom Filter index
-    profile("sql_select_like_without_ngram_index") {
-        run {
-            sql "/* sql_select_like_without_ngram_index */ ${query}"
-            sleep(1000) // sleep 1s wait for the profile collection to be completed
-        }
+    // Insert test data
+    insertTestData()
+    // Verify data loaded correctly
+    qt_select_light_mode_init "SELECT * FROM ${tableName} ORDER BY sale_id"
 
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
-        }
-    }
-
-    // Test 2: After adding NGRAM Bloom Filter index
-    sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    profile("sql_select_like_with_ngram_index_added") {
+    // Test without NGRAM Bloom Filter index
+    profile("sql_select_like_without_ngram_index_light_mode") {
         run {
-            sql "/* sql_select_like_with_ngram_index_added */ ${query}"
+            sql "/* sql_select_like_without_ngram_index_light_mode */ ${query}"
             sleep(1000)
         }
 
@@ -128,12 +109,17 @@ suite("test_ngram_bloomfilter_index_change") {
         }
     }
 
-    // Test 3: After building the index
-    sql "BUILD INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    profile("sql_select_like_with_ngram_index_built") {
+    // Add NGRAM Bloom Filter index (should be immediate in light mode)
+    sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
+
+    // In light mode, the index should be effective immediately, no need to wait for alter job
+    // But let's give it a moment to ensure metadata is updated
+    sleep(2000)
+
+    // Test after adding NGRAM Bloom Filter index (should filter data immediately in light mode)
+    profile("sql_select_like_with_ngram_index_light_mode_added") {
         run {
-            sql "/* sql_select_like_with_ngram_index_built */ ${query}"
+            sql "/* sql_select_like_with_ngram_index_light_mode_added */ ${query}"
             sleep(1000)
         }
 
@@ -142,16 +128,15 @@ suite("test_ngram_bloomfilter_index_change") {
             assertTrue(profileString.contains("RowsBloomFilterFiltered:  10"))
         }
     }
-
-    // Insert second batch of data 
+    // Insert more data after index added
     insertTestData()
-    // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
+    // Verify more data loaded correctly
+    qt_select_light_mode_more_data "SELECT * FROM ${tableName} ORDER BY sale_id"
 
-    // Test 4: Verify filtering with more data
-    profile("sql_select_like_with_ngram_index_more_data") {
+    // Test with more data (should still filter correctly)
+    profile("sql_select_like_with_ngram_index_light_mode_more_data") {
         run {
-            sql "/* sql_select_like_with_ngram_index_more_data */ ${query}"
+            sql "/* sql_select_like_with_ngram_index_light_mode_more_data */ ${query}"
             sleep(1000)
         }
 
@@ -161,12 +146,14 @@ suite("test_ngram_bloomfilter_index_change") {
         }
     }
 
-    // Test 5: After dropping the index
+    // Drop index
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-    profile("sql_select_like_with_ngram_index_dropped") {
+    sleep(2000)
+
+    // Test after dropping index
+    profile("sql_select_like_with_ngram_index_light_mode_dropped") {
         run {
-            sql "/* sql_select_like_with_ngram_index_dropped */ ${query}"
+            sql "/* sql_select_like_with_ngram_index_light_mode_dropped */ ${query}"
             sleep(1000)
         }
 
@@ -176,13 +163,110 @@ suite("test_ngram_bloomfilter_index_change") {
         }
     }
 
-    // recreate table
-    // 1. Create table
-    // 2. Add NGRAM Bloom Filter index
-    // 3. Insert data
-    // 4. Insert more data
-    // 5. Build index
-    // 6. Drop index
+    // Test Case 2: Test with enable_light_add_index = false (schema change mode)
+    logger.info("=== Test Case 2: enable_light_add_index = false ===")
+    // Set enable_light_add_index = false
+    sql "set enable_light_add_index = false"
+    // Create new table
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+    CREATE TABLE ${tableName} (
+    `sale_id` int NULL,
+    `sale_date` datetime NULL,
+    `product_name` varchar(100) NULL,
+    `customer_name` varchar(100) NULL,
+    `amount` decimal(10,2) NULL,
+    `region` char(50) NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`sale_id`)
+    PARTITION BY RANGE(`sale_date`) (
+    PARTITION p202310 VALUES [('2023-10-01 00:00:00'), ('2023-11-01 00:00:00')),
+    PARTITION p202311 VALUES [('2023-11-01 00:00:00'), ('2023-12-01 00:00:00')),
+    PARTITION p202312 VALUES [('2023-12-01 00:00:00'), ('2024-01-01 00:00:00'))
+    )
+    DISTRIBUTED BY HASH(`sale_id`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false"
+    );
+    """
+    // Insert test data
+    insertTestData()
+    // Verify data loaded correctly
+    qt_select_schema_change_mode_init "SELECT * FROM ${tableName} ORDER BY sale_id"
+
+    // Test without NGRAM Bloom Filter index
+    profile("sql_select_like_without_ngram_index_schema_change_mode") {
+        run {
+            sql "/* sql_select_like_without_ngram_index_schema_change_mode */ ${query}"
+            sleep(1000)
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
+        }
+    }
+
+    // Add NGRAM Bloom Filter index (will trigger schema change in this mode)
+    sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+
+    // Test after adding NGRAM Bloom Filter index (should filter existing data)
+    profile("sql_select_like_with_ngram_index_schema_change_mode_added") {
+        run {
+            sql "/* sql_select_like_with_ngram_index_schema_change_mode_added */ ${query}"
+            sleep(1000)
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("RowsBloomFilterFiltered:  10"))
+        }
+    }
+
+    // Insert more data after index is built
+    insertTestData()
+    // Verify more data loaded correctly
+    qt_select_schema_change_mode_more_data "SELECT * FROM ${tableName} ORDER BY sale_id"
+
+    // Test with more data (should filter all data)
+    profile("sql_select_like_with_ngram_index_schema_change_mode_more_data") {
+        run {
+            sql "/* sql_select_like_with_ngram_index_schema_change_mode_more_data */ ${query}"
+            sleep(1000)
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("RowsBloomFilterFiltered:  20"))
+        }
+    }
+
+    // Drop index
+    sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
+    wait_for_latest_op_on_table_finish(tableName, timeout)
+
+    // Test after dropping index
+    profile("sql_select_like_with_ngram_index_schema_change_mode_dropped") {
+        run {
+            sql "/* sql_select_like_with_ngram_index_schema_change_mode_dropped */ ${query}"
+            sleep(1000)
+        }
+
+        check { profileString, exception ->
+            log.info(profileString)
+            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
+        }
+    }
+
+    // Test Case 3: Test different scenarios for index lifecycle
+    logger.info("=== Test Case 3: Index lifecycle with light mode ===")
+    // Set back to light mode for additional tests
+    sql "set enable_light_add_index = true"
+    // Create table and add index before inserting data
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
     CREATE TABLE ${tableName} (
@@ -208,20 +292,19 @@ suite("test_ngram_bloomfilter_index_change") {
     );
     """
 
-    // add ngram bf index 
+    // Add ngram bf index before data insertion
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    sleep(2000)
 
-    // insert data
+    // Insert data after index creation
     insertTestData()
-
     // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
+    qt_select_lifecycle_after_data "SELECT * FROM ${tableName} ORDER BY sale_id"
 
-    // Test 6: Verify filtering with index added
-    profile("sql_select_like_with_ngram_index_recreated") {
+    // Test filtering with index added before data insertion
+    profile("sql_select_like_with_ngram_index_lifecycle_test") {
         run {
-            sql "/* sql_select_like_with_ngram_index_recreated */ ${query}"
+            sql "/* sql_select_like_with_ngram_index_lifecycle_test */ ${query}"
             sleep(1000)
         }
 
@@ -231,16 +314,15 @@ suite("test_ngram_bloomfilter_index_change") {
         }
     }
 
-    // insert more data
+    // Insert more data
     insertTestData()
-    
-    // Verify data loaded correctly
-    qt_select "SELECT * FROM ${tableName} ORDER BY sale_id"
+    // Verify more data loaded correctly
+    qt_select_lifecycle_final "SELECT * FROM ${tableName} ORDER BY sale_id"
 
-    // Test 7: Verify filtering with more data
-    profile("sql_select_like_with_ngram_index_recreated_more_data") {
+    // Test filtering with more data
+    profile("sql_select_like_with_ngram_index_lifecycle_final") {
         run {
-            sql "/* sql_select_like_with_ngram_index_recreated_more_data */ ${query}"
+            sql "/* sql_select_like_with_ngram_index_lifecycle_final */ ${query}"
             sleep(1000)
         }
 
@@ -250,37 +332,7 @@ suite("test_ngram_bloomfilter_index_change") {
         }
     }
 
-    // build index
-    sql "BUILD INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-
-    // Test 8: Verify filtering with index built
-    profile("sql_select_like_with_ngram_index_recreated_built") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_recreated_built */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  20"))
-        }
-    }
-
-    // drop index
+    // Final cleanup
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
-    wait_for_latest_op_on_table_finish(tableName, timeout)
-
-    // Test 9: Verify filtering with index dropped
-    profile("sql_select_like_with_ngram_index_recreated_dropped") {
-        run {
-            sql "/* sql_select_like_with_ngram_index_recreated_dropped */ ${query}"
-            sleep(1000)
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("RowsBloomFilterFiltered:  0"))
-        }
-    }
+    sleep(2000)
 }

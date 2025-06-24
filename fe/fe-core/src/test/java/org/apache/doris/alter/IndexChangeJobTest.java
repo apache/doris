@@ -44,6 +44,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStatusCode;
@@ -86,6 +87,7 @@ public class IndexChangeJobTest {
     private static DropIndexClause dropIndexClause;
     private static TableName tableName;
     private static String indexName;
+    private static ConnectContext ctx;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -113,6 +115,15 @@ public class IndexChangeJobTest {
             @Mock
             public Env getCurrentEnv() {
                 return masterEnv;
+            }
+        };
+
+        // Initialize ConnectContext
+        ctx = new ConnectContext();
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
             }
         };
 
@@ -587,25 +598,45 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
+
+        // Test with enable_light_index_change = true (default)
+        ConnectContext context = ConnectContext.get();
+        context.getSessionVariable().setEnableLightAddIndex(true);
         schemaChangeHandler.process(alterClauses, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(1, table.getIndexes().size());
         Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
 
-        long jobId = indexChangeJobMap.values().stream().findAny().get().jobId;
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .findFirst()
+                .orElse(null);
+        Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
 
-        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
-        alterClauses.clear();
-        alterClauses.add(buildIndexClause);
+        // Clean up for next test
+        table.setIndexes(Lists.newArrayList());
+        indexChangeJobMap.clear();
+        AgentTaskQueue.clearAllTasks();
 
-        schemaChangeHandler.process(alterClauses, db, table);
-        Assert.assertEquals(2, indexChangeJobMap.size());
+        // Test with enable_light_index_change = false
+        context.getSessionVariable().setEnableLightAddIndex(false);
+        String indexName2 = "ngram_bf_index2";
+        IndexDef indexDef2 = new IndexDef(indexName2, false,
+                Lists.newArrayList(table.getBaseSchema().get(3).getName()),
+                org.apache.doris.analysis.IndexDef.IndexType.NGRAM_BF,
+                Maps.newHashMap(), "ngram bf index2");
+
+        createIndexClause = new CreateIndexClause(tableName, indexDef2, false);
+        createIndexClause.analyze(analyzer);
+        ArrayList<AlterClause> alterClauses2 = new ArrayList<>();
+        alterClauses2.add(createIndexClause);
+        schemaChangeHandler.process(alterClauses2, db, table);
+        indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
 
-        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
-                .filter(job -> job.jobId != jobId)
+        jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
                 .findFirst()
                 .orElse(null);
         Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
@@ -630,6 +661,8 @@ public class IndexChangeJobTest {
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.FINISHED, jobV2.getJobState());
+        Assert.assertEquals(1, table.getIndexes().size());
+        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
     }
 
     @Test
@@ -651,25 +684,15 @@ public class IndexChangeJobTest {
         SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(createIndexClause);
+
+        //cancel test can only with enable_light_index_change = false
+        ctx.getSessionVariable().setEnableLightAddIndex(false);
         schemaChangeHandler.process(alterClauses, db, table);
         Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, indexChangeJobMap.size());
-        Assert.assertEquals(1, table.getIndexes().size());
-        Assert.assertEquals("ngram_bf_index", table.getIndexes().get(0).getIndexName());
-
-        long jobId = indexChangeJobMap.values().stream().findAny().get().jobId;
-
-        buildIndexClause = new BuildIndexClause(tableName, indexName, null, false);
-        buildIndexClause.analyze(analyzer);
-        alterClauses.clear();
-        alterClauses.add(buildIndexClause);
-
-        schemaChangeHandler.process(alterClauses, db, table);
-        Assert.assertEquals(2, indexChangeJobMap.size());
         Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
 
         SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
-                .filter(job -> job.jobId != jobId)
                 .findFirst()
                 .orElse(null);
         Assert.assertEquals(0, jobV2.schemaChangeBatchTask.getTaskNum());
@@ -685,5 +708,12 @@ public class IndexChangeJobTest {
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(AlterJobV2.JobState.RUNNING, jobV2.getJobState());
         Assert.assertEquals(1, jobV2.schemaChangeBatchTask.getTaskNum());
+
+        cancelAlterTableStmt = new CancelAlterTableStmt(ShowAlterStmt.AlterType.COLUMN, tableName);
+        cancelAlterTableStmt.analyze(analyzer);
+        schemaChangeHandler.cancel(cancelAlterTableStmt);
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.CANCELLED, jobV2.getJobState());
     }
 }

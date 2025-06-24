@@ -1258,12 +1258,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-                           Map<String, String> propertyMap, List<Index> indexes,
-                           boolean isBuildIndex) throws UserException {
-        if (isBuildIndex) {
-            // remove the index which is not the base index, only base index can be built index
-            indexSchemaMap.entrySet().removeIf(entry -> !entry.getKey().equals(olapTable.getBaseIndexId()));
-        }
+                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
         checkReplicaCount(olapTable);
 
         // process properties first
@@ -1299,7 +1294,7 @@ public class SchemaChangeHandler extends AlterHandler {
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
         Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
-        if (!newSet.equals(oriSet) || isBuildIndex) {
+        if (!newSet.equals(oriSet)) {
             hasIndexChange = true;
         }
 
@@ -2092,9 +2087,21 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     lightSchemaChange = false;
 
+                    // Check if the index supports light index change and session variable is enabled
+                    boolean enableLightAddIndex = true;
+                    try {
+                        ConnectContext context = ConnectContext.get();
+                        if (context != null && context.getSessionVariable() != null) {
+                            enableLightAddIndex = context.getSessionVariable().isEnableLightAddIndex();
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("Failed to get session variable enable_light_index_change, "
+                                + "using default value: true", e);
+                    }
+
                     // ngram_bf index can do light_schema_change in both local and cloud mode
                     // inverted index can only do light_schema_change in local mode
-                    if (index.isLightIndexChangeSupported()) {
+                    if (index.isLightIndexChangeSupported() && enableLightAddIndex) {
                         alterIndexes.add(index);
                         isDropIndex = false;
                         lightIndexChange = true;
@@ -2103,7 +2110,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (Config.isCloudMode() && index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    if (Config.isCloudMode()) {
                         throw new DdlException("BUILD INDEX operation failed: No need to do it in cloud mode.");
                     }
 
@@ -2165,17 +2172,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (alterIndexes.isEmpty()) {
                     throw new DdlException("Altered index is empty. please check your alter stmt.");
                 }
-                IndexDef.IndexType indexType = alterIndexes.get(0).getIndexType();
                 if (Config.enable_light_index_change) {
-                    if (indexType == IndexDef.IndexType.INVERTED) {
-                        buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
-                                alterIndexes, indexOnPartitions, false);
-                    } else {
-                        createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, true);
-                    }
+                    buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
+                            alterIndexes, indexOnPartitions, false);
                 }
             } else {
-                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes, false);
+                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
             }
         } finally {
             olapTable.writeUnlock();
@@ -2644,6 +2646,65 @@ public class SchemaChangeHandler extends AlterHandler {
             if (command.getAlterJobIdList() != null
                     && command.getAlterJobIdList().size() > 0) {
                 for (Long jobId : command.getAlterJobIdList()) {
+                    IndexChangeJob job = indexChangeJobs.get(jobId);
+                    if (job == null) {
+                        continue;
+                    }
+                    jobList.add(job);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("add build index job {} on table {} for specific id", jobId, tableName);
+                    }
+                }
+            } else {
+                for (IndexChangeJob job : indexChangeJobs.values()) {
+                    if (!job.isDone() && job.getTableId() == olapTable.getId()) {
+                        jobList.add(job);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add build index job {} on table {} for all", job.getJobId(), tableName);
+                        }
+                    }
+                }
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        // alter job v2's cancel must be called outside the table lock
+        if (jobList.size() > 0) {
+            for (IndexChangeJob job : jobList) {
+                long jobId = job.getJobId();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("cancel build index job {} on table {}", jobId, tableName);
+                }
+                if (!job.cancel("user cancelled")) {
+                    LOG.warn("cancel build index job {} on table {} failed", jobId, tableName);
+                    throw new DdlException("Job can not be cancelled. State: " + job.getJobState());
+                } else {
+                    LOG.info("cancel build index job {} on table {} success", jobId, tableName);
+                }
+            }
+        } else {
+            throw new DdlException("No job to cancel for Table[" + tableName + "]");
+        }
+    }
+
+    private void cancelIndexJob(CancelAlterTableStmt cancelAlterTableStmt) throws DdlException {
+        String dbName = cancelAlterTableStmt.getDbName();
+        String tableName = cancelAlterTableStmt.getTableName();
+        Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
+        Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+        List<IndexChangeJob> jobList = new ArrayList<>();
+
+        Table olapTable = db.getTableOrDdlException(tableName, Table.TableType.OLAP);
+        olapTable.writeLock();
+        try {
+            // find from index change jobs first
+            if (cancelAlterTableStmt.getAlterJobIdList() != null
+                    && cancelAlterTableStmt.getAlterJobIdList().size() > 0) {
+                for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
                     IndexChangeJob job = indexChangeJobs.get(jobId);
                     if (job == null) {
                         continue;
