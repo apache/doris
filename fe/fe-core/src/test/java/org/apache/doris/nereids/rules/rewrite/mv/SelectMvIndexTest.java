@@ -70,8 +70,6 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     protected void beforeCreatingConnectContext() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
-        
-        
     }
 
     @Override
