@@ -1083,25 +1083,6 @@ public class IcebergUtils {
         }
     }
 
-    // load table schema from iceberg API to external schema cache.
-    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
-            ExternalCatalog catalog, String dbName, String tbName, long schemaId) {
-        Table table = IcebergUtils.getIcebergTable(catalog, dbName, tbName);
-        List<Column> schema = IcebergUtils.getSchema(catalog, dbName, tbName, schemaId);
-        List<Column> tmpColumns = Lists.newArrayList();
-        PartitionSpec spec = table.spec();
-        for (PartitionField field : spec.fields()) {
-            Types.NestedField col = table.schema().findField(field.sourceId());
-            for (Column c : schema) {
-                if (c.getName().equalsIgnoreCase(col.name())) {
-                    tmpColumns.add(c);
-                    break;
-                }
-            }
-        }
-        return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
-    }
-
     public static List<Column> getIcebergSchema(
             TableIf tableIf,
             ExternalCatalog catalog,
