@@ -17,15 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class MysqlLoadCommandTest {
     private static final String internalCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -56,7 +56,7 @@ public class MysqlLoadCommandTest {
                 result = true;
 
                 accessControllerManager.checkTblPriv(connectContext, internalCtl, CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME,
-                    PrivPredicate.LOAD);
+                        PrivPredicate.LOAD);
                 minTimes = 0;
                 result = true;
             }
@@ -65,6 +65,5 @@ public class MysqlLoadCommandTest {
 
     public void testValidateNormal() throws Exception {
         runBefore();
-
     }
 }
