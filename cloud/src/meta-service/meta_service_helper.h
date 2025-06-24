@@ -281,7 +281,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
             stats.put_counter += txn->num_put_keys();                                         \
             stats.del_counter += txn->num_del_keys();                                         \
         }                                                                                     \
-    });
+    };
 
 #define RPC_RATE_LIMIT(func_name)                                                            \
     if (config::enable_rate_limit && config::use_detailed_metrics && !instance_id.empty()) { \
