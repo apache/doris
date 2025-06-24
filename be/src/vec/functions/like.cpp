@@ -660,31 +660,6 @@ VPatternSearchStateSPtr FunctionLikeBase::pattern_type_recognition(const ColumnS
     }
 }
 
-std::string replace_pattern_by_escape(const StringRef& pattern, char escape_char) {
-    std::string result;
-    result.reserve(pattern.size);
-    for (size_t i = 0; i < pattern.size; ++i) {
-        if (i + 1 < pattern.size && pattern.data[i] == escape_char &&
-            (pattern.data[i + 1] == escape_char || pattern.data[i + 1] == '%' ||
-             pattern.data[i + 1] == '_')) {
-            // "^^" -> "^"
-            // "^%" -> "\%"
-            // "^_" -> "\_"
-            if ((pattern.data[i + 1] == '%' || pattern.data[i + 1] == '_')) {
-                result.push_back('\\');
-            }
-            result.push_back(pattern.data[i + 1]);
-            ++i; // skip next char
-        } else if (pattern.data[i] == '\\') {
-            // "\" -> "\\"
-            result.append("\\\\");
-        } else {
-            result.push_back(pattern.data[i]);
-        }
-    }
-    return result;
-}
-
 Status FunctionLikeBase::vector_non_const(const ColumnString& values, const ColumnString& patterns,
                                           ColumnUInt8::Container& result, LikeState* state,
                                           size_t input_rows_count) const {

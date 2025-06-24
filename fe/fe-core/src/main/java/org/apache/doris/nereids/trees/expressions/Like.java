@@ -98,8 +98,9 @@ public class Like extends StringRegexPredicate {
         if (arity() == 3) {
             if (child(2) instanceof StringLikeLiteral) {
                 String escapeChar = ((StringLikeLiteral) child(2)).getStringValue();
-                if (escapeChar.length() != 1) {
-                    throw new AnalysisException("like escape character must be a single character: " + escapeChar);
+                if (escapeChar.getBytes().length != 1) {
+                    throw new AnalysisException(
+                            "like escape character must be a single ascii character: " + escapeChar);
                 }
             } else {
                 throw new AnalysisException("like escape character must be a string literal: " + this.toSql());

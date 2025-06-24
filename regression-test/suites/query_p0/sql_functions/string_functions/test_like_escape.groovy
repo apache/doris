@@ -40,4 +40,32 @@ suite("test_like_escapes") {
     qt_test """
     select "%_" like "a%a_" ESCAPE "a";
     """
+
+    test {
+        sql """select "啊啊" like "啊啊" ESCAPE "啊";"""
+        exception "like escape character must be a single ascii character"
+    }
+    test {
+        sql """select "a" like "aa" ESCAPE "aa";"""
+        exception "like escape character must be a single ascii character"
+    }
+    test {
+        sql """select "a" like "aa" ESCAPE 1;"""
+        exception "like escape character must be a string literal"
+    }
+    qt_test """
+    select "啊%a" like "啊a%_" ESCAPE "a";
+    """
+    qt_test """
+    select "%a" like "a%_" ESCAPE "A";
+    """
+    qt_test """
+    select "\\\\" like "\\\\%" ESCAPE "A";
+    """
+    qt_test """
+    select "\\\\" like "\\\\A%" ESCAPE "A";
+    """
+    qt_test """
+    select "\\\\%" like "\\\\A%" ESCAPE "A";
+    """
 }
