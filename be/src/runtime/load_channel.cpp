@@ -59,10 +59,10 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
         _resource_ctx->memory_context()->set_mem_tracker(mem_tracker);
         WorkloadGroupPtr wg_ptr = nullptr;
         if (wg_id > 0) {
-            wg_ptr = ExecEnv::GetInstance()->workload_group_mgr()->get_group(wg_id);
-            if (wg_ptr != nullptr) {
-                _resource_ctx->set_workload_group(wg_ptr);
-            }
+            std::vector<uint64_t> id_set;
+            id_set.push_back(wg_id);
+            wg_ptr = ExecEnv::GetInstance()->workload_group_mgr()->get_group(id_set);
+            _resource_ctx->set_workload_group(wg_ptr);
         }
     }
 

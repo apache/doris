@@ -211,7 +211,7 @@ public:
 
     ColumnPtr replicate(const Offsets& offsets) const override;
 
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override;
@@ -267,7 +267,7 @@ public:
     template <typename T>
     T get_value() const {
         // Here the cast is correct, relevant code is rather tricky.
-        return static_cast<T>(get_field().safe_get<NearestFieldType<T>>());
+        return static_cast<T>(get_field().get<NearestFieldType<T>>());
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {

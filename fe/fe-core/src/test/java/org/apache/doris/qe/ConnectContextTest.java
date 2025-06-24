@@ -102,7 +102,7 @@ public class ConnectContextTest {
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
         List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.empty());
-        Assert.assertEquals(14, row.size());
+        Assert.assertEquals(15, row.size());
         Assert.assertEquals("Yes", row.get(0));
         Assert.assertEquals("101", row.get(1));
         Assert.assertEquals("testUser", row.get(2));
@@ -178,13 +178,13 @@ public class ConnectContextTest {
         // sleep no time out
         Assert.assertFalse(ctx.isKilled());
         ctx.setExecutor(executor);
-        long now = ctx.getExecTimeout() * 1000L - 1;
+        long now = ctx.getExecTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
         // Timeout
         ctx.setExecutor(executor);
-        now = ctx.getExecTimeout() * 1000L + 1;
+        now = ctx.getExecTimeoutS() * 1000L + 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 

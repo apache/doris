@@ -145,7 +145,7 @@ Status IcebergTableReader::_equality_delete_base(
         const std::vector<TIcebergDeleteFileDesc>& delete_files) {
     bool init_schema = false;
     std::vector<std::string> equality_delete_col_names;
-    std::vector<TypeDescriptor> equality_delete_col_types;
+    std::vector<DataTypePtr> equality_delete_col_types;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -161,6 +161,7 @@ Status IcebergTableReader::_equality_delete_base(
         delete_desc.file_size = -1;
         std::unique_ptr<GenericReader> delete_reader = _create_equality_reader(delete_desc);
         if (!init_schema) {
+            RETURN_IF_ERROR(delete_reader->init_schema_reader());
             RETURN_IF_ERROR(delete_reader->get_parsed_schema(&equality_delete_col_names,
                                                              &equality_delete_col_types));
             _generate_equality_delete_block(&_equality_delete_block, equality_delete_col_names,
@@ -168,7 +169,6 @@ Status IcebergTableReader::_equality_delete_base(
             init_schema = true;
         }
         if (auto* parquet_reader = typeid_cast<ParquetReader*>(delete_reader.get())) {
-            RETURN_IF_ERROR(parquet_reader->open());
             RETURN_IF_ERROR(parquet_reader->init_reader(equality_delete_col_names,
                                                         not_in_file_col_names, nullptr, {}, nullptr,
                                                         nullptr, nullptr, nullptr, nullptr, false));
@@ -200,8 +200,7 @@ Status IcebergTableReader::_equality_delete_base(
         if (std::find(_all_required_col_names.begin(), _all_required_col_names.end(), delete_col) ==
             _all_required_col_names.end()) {
             _expand_col_names.emplace_back(delete_col);
-            DataTypePtr data_type = DataTypeFactory::instance().create_data_type(
-                    equality_delete_col_types[i], true);
+            DataTypePtr data_type = make_nullable(equality_delete_col_types[i]);
             MutableColumnPtr data_column = data_type->create_column();
             _expand_columns.emplace_back(std::move(data_column), data_type, delete_col);
         }
@@ -215,10 +214,9 @@ Status IcebergTableReader::_equality_delete_base(
 
 void IcebergTableReader::_generate_equality_delete_block(
         Block* block, const std::vector<std::string>& equality_delete_col_names,
-        const std::vector<TypeDescriptor>& equality_delete_col_types) {
+        const std::vector<DataTypePtr>& equality_delete_col_types) {
     for (int i = 0; i < equality_delete_col_names.size(); ++i) {
-        DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(equality_delete_col_types[i], true);
+        DataTypePtr data_type = make_nullable(equality_delete_col_types[i]);
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
                                             equality_delete_col_names[i]));
@@ -446,8 +444,6 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
     ParquetReader parquet_delete_reader(
             _profile, _params, *delete_range, READ_DELETE_FILE_BATCH_SIZE,
             const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
-
-    RETURN_IF_ERROR(parquet_delete_reader.open());
     RETURN_IF_ERROR(parquet_delete_reader.init_reader(delete_file_col_names, {}, nullptr, {},
                                                       nullptr, nullptr, nullptr, nullptr, nullptr,
                                                       false));
@@ -542,6 +538,7 @@ Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete
 Status IcebergParquetReader::get_file_col_id_to_name(
         bool& exist_schema, std::map<int32_t, std::string>& file_col_id_to_name) {
     auto* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+    RETURN_IF_ERROR(parquet_reader->init_schema_reader());
     FieldDescriptor field_desc = parquet_reader->get_file_metadata_schema();
 
     if (field_desc.has_parquet_field_id()) {
@@ -561,6 +558,7 @@ Status IcebergOrcReader::get_file_col_id_to_name(
 
     std::vector<std::string> col_names;
     std::vector<int32_t> col_ids;
+    RETURN_IF_ERROR(orc_reader->init_schema_reader());
     RETURN_IF_ERROR(orc_reader->get_schema_col_name_attribute(
             &col_names, &col_ids, ICEBERG_ORC_ATTRIBUTE, &exist_schema));
     if (!exist_schema) {

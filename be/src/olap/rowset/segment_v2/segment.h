@@ -41,7 +41,9 @@
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
+#include "runtime/primitive_type.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -204,14 +206,13 @@ public:
             // Default column iterator
             return true;
         }
-        if (vectorized::WhichDataType(vectorized::remove_nullable(storage_column_type))
-                    .is_variant_type()) {
-            // Predicate should nerver apply on variant type
+        PrimitiveType type = storage_column_type->get_primitive_type();
+        if (type == TYPE_VARIANT || is_complex_type(type)) {
+            // Predicate should nerver apply on variant/complex type
             return false;
         }
-        bool safe =
-                pred->can_do_apply_safely(storage_column_type->get_type_as_type_descriptor().type,
-                                          storage_column_type->is_nullable());
+        bool safe = pred->can_do_apply_safely(storage_column_type->get_primitive_type(),
+                                              storage_column_type->is_nullable());
         // Currently only variant column can lead to unsafe
         CHECK(safe || col->type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
         return safe;

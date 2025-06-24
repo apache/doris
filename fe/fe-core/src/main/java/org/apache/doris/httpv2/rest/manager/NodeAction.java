@@ -18,6 +18,8 @@
 package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -41,10 +43,12 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
@@ -62,11 +66,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -108,7 +114,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/frontends", method = RequestMethod.GET)
     public Object frontends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
 
         return fetchNodeInfo(request, response, "/frontends");
     }
@@ -117,7 +123,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/backends", method = RequestMethod.GET)
     public Object backends_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
 
         return fetchNodeInfo(request, response, "/backends");
     }
@@ -126,7 +132,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/brokers", method = RequestMethod.GET)
     public Object brokers_info(HttpServletRequest request, HttpServletResponse response) throws Exception {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
 
         return fetchNodeInfo(request, response, "/brokers");
     }
@@ -185,7 +191,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/configuration_name", method = RequestMethod.GET)
     public Object configurationName(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
 
         Map<String, List<String>> result = Maps.newHashMap();
         try {
@@ -224,7 +230,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/node_list", method = RequestMethod.GET)
     public Object nodeList(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
 
         Map<String, List<String>> result = Maps.newHashMap();
         result.put("frontend", getFeList());
@@ -251,7 +257,7 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/config", method = RequestMethod.GET)
     public Object config(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
 
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
@@ -312,7 +318,7 @@ public class NodeAction extends RestBaseController {
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN_OR_NODE);
 
         initHttpExecutor();
 
@@ -683,6 +689,41 @@ public class NodeAction extends RestBaseController {
         return ResponseEntityBuilder.ok();
     }
 
+    @PostMapping("/{action}/broker")
+    public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
+                                @PathVariable String action, @RequestBody BrokerReqInfo reqInfo) {
+        try {
+            if (!Env.getCurrentEnv().isMaster()) {
+                return redirectToMasterOrException(request, response);
+            }
+            String brokerName = reqInfo.getBrokerName();
+            if ("ADD".equals(action)) {
+                Env.getCurrentEnv().getBrokerMgr().addBrokers(
+                        brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
+            } else if ("DROP".equals(action)) {
+                Env.getCurrentEnv().getBrokerMgr().dropBrokers(
+                        brokerName, parseBrokerHostPort(reqInfo.getHostPortList()));
+            } else if ("DROP_ALL".equals(action)) {
+                Env.getCurrentEnv().getBrokerMgr().dropAllBroker(brokerName);
+            } else {
+                throw new Exception("Unsupported broker operation type: " + action);
+            }
+        } catch (Exception e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+        }
+        return ResponseEntityBuilder.ok();
+    }
+
+    private Collection<Pair<String, Integer>> parseBrokerHostPort(List<String> hostPortList) throws AnalysisException {
+        Set<Pair<String, Integer>> hostPortPairs = Sets.newHashSet();
+        for (String hostPort : hostPortList) {
+            Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);
+            hostPortPairs.add(pair);
+        }
+        Preconditions.checkState(!hostPortPairs.isEmpty());
+        return hostPortPairs;
+    }
+
     @Data
     private static class BackendReqInfo {
 
@@ -697,6 +738,14 @@ public class NodeAction extends RestBaseController {
         private String role;
 
         private String hostPort;
+    }
+
+    @Data
+    private static class BrokerReqInfo {
+
+        private String brokerName;
+
+        private List<String> hostPortList;
     }
 
     // Parsing request body into List<NodeConfigs>

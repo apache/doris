@@ -27,7 +27,6 @@
 namespace doris {
 
 class CgroupCpuCtl;
-class DummyWorkloadGroup;
 
 namespace vectorized {
 class Block;
@@ -75,17 +74,11 @@ public:
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_group(uint64_t wg_id);
+    WorkloadGroupPtr get_group(std::vector<uint64_t>& id_list);
 
     void do_sweep();
 
     void stop();
-
-    std::atomic<bool> _enable_cpu_hard_limit = false;
-
-    bool enable_cpu_soft_limit() const { return !_enable_cpu_hard_limit.load(); }
-
-    bool enable_cpu_hard_limit() const { return _enable_cpu_hard_limit.load(); }
 
     void refresh_wg_weighted_memory_limit();
 
@@ -98,11 +91,12 @@ public:
 
     void handle_paused_queries();
 
-    std::shared_ptr<WorkloadGroup> dummy_workload_group() { return _dummy_workload_group; }
-
     friend class WorkloadGroupListener;
+    friend class ExecEnv;
 
 private:
+    Status create_internal_wg();
+
     WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
 
     int64_t flush_memtable_from_group_(WorkloadGroupPtr wg);
@@ -121,8 +115,6 @@ private:
     // workload group, because we need do some coordinate work globally.
     std::mutex _paused_queries_lock;
     std::map<WorkloadGroupPtr, std::set<PausedQuery>> _paused_queries_list;
-
-    std::shared_ptr<WorkloadGroup> _dummy_workload_group {nullptr};
 };
 
 } // namespace doris

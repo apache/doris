@@ -60,7 +60,7 @@ suite("test_hive_star_qualifier", "p0,external,hive,external_docker,external_doc
             qt_test10 test10
             qt_test11 test11
             qt_test12 test12
-            sql """drop catalog if exists ${catalog_name};"""
+            // sql """drop catalog if exists ${catalog_name};"""
         }
     }
 }

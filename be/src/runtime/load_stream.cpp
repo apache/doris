@@ -34,7 +34,6 @@
 #include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
@@ -73,7 +72,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
-    ostr << "load_id=" << tablet_stream._load_id << ", txn_id=" << tablet_stream._txn_id
+    ostr << "load_id=" << print_id(tablet_stream._load_id) << ", txn_id=" << tablet_stream._txn_id
          << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status.status();
     return ostr;
 }

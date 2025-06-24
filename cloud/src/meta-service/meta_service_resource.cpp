@@ -51,13 +51,6 @@ bool is_valid_storage_vault_name(const std::string& str) {
 
 namespace doris::cloud {
 
-static void* run_bthread_work(void* arg) {
-    auto f = reinterpret_cast<std::function<void()>*>(arg);
-    (*f)();
-    delete f;
-    return nullptr;
-}
-
 static std::string_view print_cluster_status(const ClusterStatus& status) {
     switch (status) {
     case ClusterStatus::UNKNOWN:
@@ -421,25 +414,37 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
     std::string external_endpoint = obj->has_external_endpoint() ? obj->external_endpoint() : "";
     std::string region = obj->has_region() ? obj->region() : "";
 
-    // ATTN: prefix may be empty
-    if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-        region.empty() || !obj->has_provider() || external_endpoint.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 conf info err, please check it";
-        return;
-    }
-    EncryptionInfoPB encryption_info;
-    AkSkPair cipher_ak_sk_pair;
-    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                    msg);
-    TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
-    if (ret != 0) {
-        return;
+    if (obj->has_role_arn()) {
+        if (obj->role_arn().empty() || !obj->has_cred_provider_type() ||
+            obj->cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
+            !obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() ||
+            endpoint.empty() || region.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf info err with role_arn, please check it";
+            return;
+        }
+    } else {
+        // ATTN: prefix may be empty
+        if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
+            region.empty() || !obj->has_provider() || external_endpoint.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 conf info err, please check it";
+            return;
+        }
+
+        EncryptionInfoPB encryption_info;
+        AkSkPair cipher_ak_sk_pair;
+        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                        code, msg);
+        TEST_SYNC_POINT_CALLBACK("create_object_info_with_encrypt", &ret, &code, &msg);
+        if (ret != 0) {
+            return;
+        }
+        obj->set_ak(std::move(cipher_ak_sk_pair.first));
+        obj->set_sk(std::move(cipher_ak_sk_pair.second));
+        obj->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
-    obj->set_ak(std::move(cipher_ak_sk_pair.first));
-    obj->set_sk(std::move(cipher_ak_sk_pair.second));
-    obj->mutable_encryption_info()->CopyFrom(encryption_info);
     obj->set_bucket(bucket);
     obj->set_prefix(prefix);
     obj->set_endpoint(endpoint);
@@ -665,14 +670,6 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         return -1;
     }
 
-    if (obj_info.has_ak() ^ obj_info.has_sk()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        std::stringstream ss;
-        ss << "Accesskey and secretkey must be alter together";
-        msg = ss.str();
-        return -1;
-    }
-
     const auto& name = vault.name();
     // Here we try to get mutable iter since we might need to alter the vault name
     auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
@@ -711,6 +708,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         return -1;
     }
 
+    auto origin_vault_info = new_vault.DebugString();
+
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -730,13 +729,26 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         new_vault.set_name(vault.alter_name());
         *name_itr = vault.alter_name();
     }
-    auto origin_vault_info = new_vault.DebugString();
 
-    // For ak or sk is not altered.
-    EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
-    AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+    if (obj_info.has_role_arn() && (obj_info.has_ak() || obj_info.has_sk())) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+        LOG(WARNING) << msg;
+        return -1;
+    }
+
+    if (obj_info.has_ak() ^ obj_info.has_sk()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "Accesskey and secretkey must be alter together";
+        msg = ss.str();
+        return -1;
+    }
 
     if (obj_info.has_ak()) {
+        EncryptionInfoPB encryption_info = new_vault.obj_info().encryption_info();
+        AkSkPair new_ak_sk_pair {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+
         // ak and sk must be altered together, there is check before.
         auto ret = encrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(), &encryption_info,
                                         &new_ak_sk_pair, code, msg);
@@ -746,14 +758,35 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
             LOG(WARNING) << msg;
             return -1;
         }
+        new_vault.mutable_obj_info()->clear_role_arn();
+        new_vault.mutable_obj_info()->clear_external_id();
+        new_vault.mutable_obj_info()->clear_cred_provider_type();
+
+        new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
+        new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
+        new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
     }
 
-    new_vault.mutable_obj_info()->set_ak(new_ak_sk_pair.first);
-    new_vault.mutable_obj_info()->set_sk(new_ak_sk_pair.second);
-    new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_role_arn()) {
+        new_vault.mutable_obj_info()->clear_ak();
+        new_vault.mutable_obj_info()->clear_sk();
+        new_vault.mutable_obj_info()->clear_encryption_info();
+
+        new_vault.mutable_obj_info()->set_role_arn(obj_info.role_arn());
+        new_vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+        if (obj_info.has_external_id()) {
+            new_vault.mutable_obj_info()->set_external_id(obj_info.external_id());
+        }
+    }
+
     if (obj_info.has_use_path_style()) {
         new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
     }
+
+    auto now_time = std::chrono::system_clock::now();
+    uint64_t time =
+            std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
+    new_vault.mutable_obj_info()->set_mtime(time);
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
@@ -781,6 +814,9 @@ struct ObjectStorageDesc {
     std::string& external_endpoint;
     std::string& region;
     bool& use_path_style;
+
+    std::string& role_arn;
+    std::string& external_id;
 };
 
 static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
@@ -793,39 +829,54 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
         msg = "s3 obj info err " + proto_to_json(*request);
         return -1;
     }
-    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style] = obj_desc;
+
     const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
-    // Prepare data
-    if (!obj.has_ak() || !obj.has_sk()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 obj info err " + proto_to_json(*request);
-        return -1;
-    }
 
-    std::string plain_ak = obj.has_ak() ? obj.ak() : "";
-    std::string plain_sk = obj.has_sk() ? obj.sk() : "";
-
-    auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair, code,
-                                    msg);
-    if (ret != 0) {
-        return -1;
-    }
-    TEST_SYNC_POINT_CALLBACK("extract_object_storage_info:get_aksk_pair", &cipher_ak_sk_pair);
-
-    ak = cipher_ak_sk_pair.first;
-    sk = cipher_ak_sk_pair.second;
-    bucket = obj.has_bucket() ? obj.bucket() : "";
-    prefix = obj.has_prefix() ? obj.prefix() : "";
-    endpoint = obj.has_endpoint() ? obj.endpoint() : "";
-    external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
-    region = obj.has_region() ? obj.region() : "";
-    use_path_style = obj.use_path_style();
     //  obj size > 1k, refuse
     if (obj.ByteSizeLong() > 1024) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "s3 obj info greater than 1k " + proto_to_json(*request);
         return -1;
     };
+
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
+           external_id] = obj_desc;
+
+    if (!obj.has_role_arn()) {
+        if (!obj.has_ak() || !obj.has_sk()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "s3 obj info err " + proto_to_json(*request);
+            LOG(INFO) << msg;
+            return -1;
+        }
+
+        std::string plain_ak = obj.has_ak() ? obj.ak() : "";
+        std::string plain_sk = obj.has_sk() ? obj.sk() : "";
+        auto ret = encrypt_ak_sk_helper(plain_ak, plain_sk, &encryption_info, &cipher_ak_sk_pair,
+                                        code, msg);
+        if (ret != 0) {
+            return -1;
+        }
+
+        ak = cipher_ak_sk_pair.first;
+        sk = cipher_ak_sk_pair.second;
+    } else {
+        if (obj.has_ak() || obj.has_sk()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+            return -1;
+        }
+
+        role_arn = obj.has_role_arn() ? obj.role_arn() : "";
+        external_id = obj.has_external_id() ? obj.external_id() : "";
+    }
+    TEST_SYNC_POINT_CALLBACK("extract_object_storage_info:get_aksk_pair", &cipher_ak_sk_pair);
+    bucket = obj.has_bucket() ? obj.bucket() : "";
+    prefix = obj.has_prefix() ? obj.prefix() : "";
+    endpoint = obj.has_endpoint() ? obj.endpoint() : "";
+    external_endpoint = obj.has_external_endpoint() ? obj.external_endpoint() : "";
+    region = obj.has_region() ? obj.region() : "";
+    use_path_style = obj.use_path_style();
     return 0;
 }
 
@@ -835,7 +886,8 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
                                                 EncryptionInfoPB& encryption_info,
                                                 AkSkPair& cipher_ak_sk_pair) {
     ObjectStoreInfoPB last_item;
-    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style] = obj_desc;
+    auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
+           external_id] = obj_desc;
     auto now_time = std::chrono::system_clock::now();
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
@@ -845,9 +897,16 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     if (obj.has_user_id()) {
         last_item.set_user_id(obj.user_id());
     }
-    last_item.set_ak(std::move(cipher_ak_sk_pair.first));
-    last_item.set_sk(std::move(cipher_ak_sk_pair.second));
-    last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+
+    if (!obj.has_role_arn()) {
+        last_item.set_ak(std::move(cipher_ak_sk_pair.first));
+        last_item.set_sk(std::move(cipher_ak_sk_pair.second));
+        last_item.mutable_encryption_info()->CopyFrom(encryption_info);
+    } else {
+        last_item.set_role_arn(role_arn);
+        last_item.set_external_id(external_id);
+        last_item.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+    }
     last_item.set_bucket(bucket);
     // format prefix, such as `/aa/bb/`, `aa/bb//`, `//aa/bb`, `  /aa/bb` -> `aa/bb`
     trim(prefix);
@@ -858,6 +917,7 @@ static ObjectStoreInfoPB object_info_pb_factory(ObjectStorageDesc& obj_desc,
     last_item.set_provider(obj.provider());
     last_item.set_sse_enabled(instance.sse_enabled());
     last_item.set_use_path_style(use_path_style);
+
     return last_item;
 }
 
@@ -865,7 +925,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                                           const AlterObjStoreInfoRequest* request,
                                           AlterObjStoreInfoResponse* response,
                                           ::google::protobuf::Closure* done) {
-    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region, role_arn, external_id;
     bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
@@ -873,8 +933,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_S3_VAULT:
     case AlterObjStoreInfoRequest::DROP_S3_VAULT: {
-        auto tmp_desc = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_desc = ObjectStorageDesc {ak,       sk,
+                                           bucket,   prefix,
+                                           endpoint, external_endpoint,
+                                           region,   use_path_style,
+                                           role_arn, external_id};
         if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
                                              cipher_ak_sk_pair)) {
             return;
@@ -995,10 +1058,21 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         // ATTN: prefix may be empty
-        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty()) {
+        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
+            endpoint.empty() || region.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
+        }
+
+        if (!role_arn.empty()) {
+            if (!obj.has_cred_provider_type() ||
+                obj.cred_provider_type() != CredProviderTypePB::INSTANCE_PROFILE ||
+                !obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "s3 conf info err with role_arn, please check it";
+                return;
+            }
         }
 
         auto& objs = instance.obj_info();
@@ -1013,8 +1087,11 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             }
         }
         // calc id
-        auto tmp_tuple = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_tuple = ObjectStorageDesc {ak,       sk,
+                                            bucket,   prefix,
+                                            endpoint, external_endpoint,
+                                            region,   use_path_style,
+                                            role_arn, external_id};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
         if (instance.storage_vault_names().end() !=
@@ -1156,7 +1233,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                                            const AlterObjStoreInfoRequest* request,
                                            AlterObjStoreInfoResponse* response,
                                            ::google::protobuf::Closure* done) {
-    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region;
+    std::string ak, sk, bucket, prefix, endpoint, external_endpoint, region, role_arn, external_id;
     bool use_path_style;
     EncryptionInfoPB encryption_info;
     AkSkPair cipher_ak_sk_pair;
@@ -1164,9 +1241,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     switch (request->op()) {
     case AlterObjStoreInfoRequest::ADD_OBJ_INFO:
     case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
+    case AlterObjStoreInfoRequest::ALTER_OBJ_INFO:
     case AlterObjStoreInfoRequest::UPDATE_AK_SK: {
-        auto tmp_desc = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_desc = ObjectStorageDesc {ak,       sk,
+                                           bucket,   prefix,
+                                           endpoint, external_endpoint,
+                                           region,   use_path_style,
+                                           role_arn, external_id};
         if (0 != extract_object_storage_info(request, code, msg, tmp_desc, encryption_info,
                                              cipher_ak_sk_pair)) {
             return;
@@ -1238,7 +1319,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     }
 
     switch (request->op()) {
-    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK: {
+    case AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK:
+    case AlterObjStoreInfoRequest::ALTER_OBJ_INFO: {
         // get id
         std::string id = request->obj().has_id() ? request->obj().id() : "0";
         int idx = std::stoi(id);
@@ -1252,20 +1334,55 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
                 const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
         for (auto& it : obj_info) {
             if (std::stoi(it.id()) == idx) {
-                if (it.ak() == ak && it.sk() == sk) {
-                    // not change, just return ok
-                    code = MetaServiceCode::OK;
-                    msg = "";
-                    return;
+                if (role_arn.empty()) {
+                    if (it.ak() == ak && it.sk() == sk) {
+                        // not change, just return ok
+                        code = MetaServiceCode::OK;
+                        msg = "ak/sk not changed";
+                        return;
+                    }
+                    it.clear_role_arn();
+                    it.clear_external_id();
+                    it.clear_cred_provider_type();
+
+                    it.set_ak(ak);
+                    it.set_sk(sk);
+                    it.mutable_encryption_info()->CopyFrom(encryption_info);
+                } else {
+                    if (!ak.empty() || !sk.empty()) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = "invaild argument, both set ak/sk and role_arn is not allowed";
+                        LOG(INFO) << msg;
+                        return;
+                    }
+
+                    if (it.provider() != ObjectStoreInfoPB::S3) {
+                        code = MetaServiceCode::INVALID_ARGUMENT;
+                        msg = "role_arn is only supported for s3 provider";
+                        LOG(INFO) << msg << " provider=" << it.provider();
+                        return;
+                    }
+
+                    if (it.role_arn() == role_arn && it.external_id() == external_id) {
+                        // not change, just return ok
+                        code = MetaServiceCode::OK;
+                        msg = "ak/sk not changed";
+                        return;
+                    }
+                    it.clear_ak();
+                    it.clear_sk();
+                    it.clear_encryption_info();
+
+                    it.set_role_arn(role_arn);
+                    it.set_external_id(external_id);
+                    it.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
                 }
+
                 auto now_time = std::chrono::system_clock::now();
                 uint64_t time = std::chrono::duration_cast<std::chrono::seconds>(
                                         now_time.time_since_epoch())
                                         .count();
                 it.set_mtime(time);
-                it.set_ak(ak);
-                it.set_sk(sk);
-                it.mutable_encryption_info()->CopyFrom(encryption_info);
             }
         }
     } break;
@@ -1287,8 +1404,8 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             return;
         }
         // ATTN: prefix may be empty
-        if (ak.empty() || sk.empty() || bucket.empty() || endpoint.empty() || region.empty() ||
-            prefix.empty()) {
+        if (((ak.empty() || sk.empty()) && role_arn.empty()) || bucket.empty() ||
+            endpoint.empty() || region.empty() || prefix.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "s3 conf info err, please check it";
             return;
@@ -1306,8 +1423,11 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             }
         }
         // calc id
-        auto tmp_tuple = ObjectStorageDesc {
-                ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style};
+        auto tmp_tuple = ObjectStorageDesc {ak,       sk,
+                                            bucket,   prefix,
+                                            endpoint, external_endpoint,
+                                            region,   use_path_style,
+                                            role_arn, external_id};
         ObjectStoreInfoPB last_item = object_info_pb_factory(tmp_tuple, obj, instance,
                                                              encryption_info, cipher_ak_sk_pair);
         instance.add_obj_info()->CopyFrom(last_item);
@@ -1660,17 +1780,16 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     std::string msg = "OK";
     [[maybe_unused]] std::stringstream ss;
     std::string instance_id = request->has_instance_id() ? request->instance_id() : "";
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&code, &msg, &response, &ctrl, &closure_guard, &sw, &instance_id](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
-                          << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
-                closure_guard.reset(nullptr);
-                if (config::use_detailed_metrics && !instance_id.empty()) {
-                    g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ")
+                  << __PRETTY_FUNCTION__ << " " << ctrl->remote_side() << " " << msg;
+        closure_guard.reset(nullptr);
+        if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_ms_alter_instance.put(instance_id, sw.elapsed_us());
+        }
+    };
 
     std::pair<MetaServiceCode, std::string> ret;
     switch (request->op()) {
@@ -2919,18 +3038,16 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     std::string msg = "OK";
     std::string instance_id;
     bool drop_request = false;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status(
-            (int*)0x01, [&ret, &code, &msg, &response, &ctrl, &closure_guard, &sw, &instance_id,
-                         &drop_request](int*) {
-                response->mutable_status()->set_code(code);
-                response->mutable_status()->set_msg(msg);
-                LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
-                          << ctrl->remote_side() << " " << msg;
-                closure_guard.reset(nullptr);
-                if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
-                    g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        response->mutable_status()->set_code(code);
+        response->mutable_status()->set_msg(msg);
+        LOG(INFO) << (ret == 0 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
+                  << ctrl->remote_side() << " " << msg;
+        closure_guard.reset(nullptr);
+        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {
+            g_bvar_ms_drop_stage.put(instance_id, sw.elapsed_us());
+        }
+    };
 
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {

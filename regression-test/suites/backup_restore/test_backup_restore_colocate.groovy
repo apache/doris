@@ -35,7 +35,7 @@ suite("test_backup_restore_colocate", "backup_restore") {
     }
 
     def checkColocateTabletHealth = { db_name ->
-        result = showTabletHealth.call(db_name)
+        def result = showTabletHealth.call(db_name)
         log.info(result as String)
         assertNotNull(result)
         assertTrue(result.ColocateMismatchNum as int == 0)
@@ -370,7 +370,7 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     }
 
     def checkColocateTabletHealth = { db_name ->
-        result = showTabletHealth.call(db_name)
+        def result = showTabletHealth.call(db_name)
         log.info(result as String)
         assertNotNull(result)
         assertTrue(result.ColocateMismatchNum as int == 0)

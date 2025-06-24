@@ -18,8 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -47,7 +45,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     protected String icebergCatalogType;
     protected Catalog catalog;
-    private static final int ICEBERG_CATALOG_EXECUTOR_THREAD_NUM = 16;
 
     public IcebergExternalCatalog(long catalogId, String name, String comment) {
         super(catalogId, name, InitCatalogLog.Type.ICEBERG, comment);
@@ -57,13 +54,15 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected abstract void initCatalog();
 
     @Override
+    protected synchronized void initPreExecutionAuthenticator() {
+        if (preExecutionAuthenticator == null) {
+            preExecutionAuthenticator = new PreExecutionAuthenticator(getConfiguration());
+        }
+    }
+
+    @Override
     protected void initLocalObjectsImpl() {
-        preExecutionAuthenticator = new PreExecutionAuthenticator();
-        // TODO If the storage environment does not support Kerberos (such as s3),
-        //      there is no need to generate a simple authentication information anymore.
-        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-        HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-        preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+        initPreExecutionAuthenticator();
         initCatalog();
         IcebergMetadataOps ops = ExternalMetadataOperations.newIcebergMetadataOps(this, catalog);
         transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
@@ -95,7 +94,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
-        return metadataOps.listTableNames(dbName);
+        // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
+        // so the combined set of tables and views is used here.
+        List<String> tableNames = metadataOps.listTableNames(dbName);
+        List<String> viewNames = metadataOps.listViewNames(dbName);
+        tableNames.addAll(viewNames);
+        return tableNames;
     }
 
     @Override
@@ -109,5 +113,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     protected void initS3Param(Configuration conf) {
         Map<String, String> properties = catalogProperty.getHadoopProperties();
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, PropertyConverter.getAWSCredentialsProviders(properties));
+    }
+
+    @Override
+    public boolean viewExists(String dbName, String viewName) {
+        return metadataOps.viewExists(dbName, viewName);
     }
 }

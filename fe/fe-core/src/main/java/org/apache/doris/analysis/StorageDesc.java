@@ -17,7 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
 
 import java.util.Map;
 
@@ -32,8 +36,13 @@ import java.util.Map;
  *  The broker's StorageBackend.StorageType desc
  */
 public class StorageDesc extends ResourceDesc {
+
+    @Deprecated
     @SerializedName("st")
     protected StorageBackend.StorageType storageType;
+
+    @Getter
+    protected StorageProperties storageProperties;
 
     public StorageDesc() {
     }
@@ -42,6 +51,15 @@ public class StorageDesc extends ResourceDesc {
         this.name = name;
         this.storageType = storageType;
         this.properties = properties;
+        initStorageProperties();
+    }
+
+    private void initStorageProperties() {
+        if (null != storageType && storageType.equals(StorageBackend.StorageType.BROKER)) {
+            this.storageProperties = BrokerProperties.of(name, properties);
+        } else {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+        }
     }
 
     public void setName(String name) {
@@ -66,5 +84,16 @@ public class StorageDesc extends ResourceDesc {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public Map<String, String> getBackendConfigProperties() {
+        if (null == storageProperties) {
+            return properties;
+        }
+        return storageProperties.getBackendConfigProperties();
+    }
+
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
     }
 }

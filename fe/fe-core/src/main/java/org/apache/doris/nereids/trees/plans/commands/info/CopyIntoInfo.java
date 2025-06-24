@@ -47,6 +47,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -203,7 +204,7 @@ public class CopyIntoInfo {
         List<String> nameParts = Lists.newArrayList();
         nameParts.add(db);
         nameParts.add(tableName.getTbl());
-        Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
+        Plan unboundRelation = new UnboundRelation(null, StatementScopeIdGenerator.newRelationId(), nameParts);
         CascadesContext cascadesContext = CascadesContext.initContext(ConnectContext.get().getStatementContext(),
                 unboundRelation, PhysicalProperties.ANY);
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
@@ -242,11 +243,11 @@ public class CopyIntoInfo {
                     analyzer, context, cascadesContext);
         }
 
+        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
         dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
             legacyColumnMappingList, legacyFileFilterExpr, null, LoadTask.MergeType.APPEND, null,
             null, dataDescProperties);
-        dataDescription.setCompressType(StageUtil.parseCompressType(copyIntoProperties.getCompression()));
         if (!(copyFromDesc.getColumnMappingList() == null
                 || copyFromDesc.getColumnMappingList().isEmpty())) {
             dataDescription.setIgnoreCsvRedundantCol(true);

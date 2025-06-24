@@ -200,7 +200,7 @@ public class Statistics {
         boolean allUnknown = true;
         for (Slot slot : slots) {
             if (slot instanceof SlotReference) {
-                Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+                Optional<Column> colOpt = ((SlotReference) slot).getOriginalColumn();
                 if (colOpt.isPresent() && colOpt.get().isVisible()) {
                     ColumnStatistic colStats = expressionToColumnStats.get(slot);
                     if (colStats != null && !colStats.isUnKnown) {

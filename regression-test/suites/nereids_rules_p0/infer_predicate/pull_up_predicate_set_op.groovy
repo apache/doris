@@ -83,7 +83,7 @@ suite("pull_up_predicate_set_op") {
     """
 
     sql "drop table if exists test_pull_up_predicate_set_op4"
-    sql "create table test_pull_up_predicate_set_op4(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(10),d_datetimev2 datetimev2, d_datev2 datev2) properties('replication_num'='1');"
+    sql "create table test_pull_up_predicate_set_op4(d_int int, d_char100 char(100), d_smallint smallint, d_tinyint tinyint, d_char10 char(32),d_datetimev2 datetimev2, d_datev2 datev2) properties('replication_num'='1');"
     sql """insert into test_pull_up_predicate_set_op4 values(1,'01234567890123456789', 3,3,'0123456789','2020-01-09 10:00:00.99','2020-01-09'),(14,'01234567890123456789', 33,23,'0123456789','2020-01-11 10:00:00.99','2020-01-11')
             ,(14,'01234567890123456789', 33,23,'2024-01-04','2020-01-11 10:00:00.99','2020-01-11'),
             (14,'01234567890123456789', 33,23,'2024-01-03 10:00:00','2020-01-11 10:00:00.99','2020-01-11');"""
@@ -163,7 +163,7 @@ suite("pull_up_predicate_set_op") {
     select t.a,t3.b from      (select 3 as a,'aa' as b union all select 2,'dd' ) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b;"""
 
-    qt_union_all_const_empty_relation """ explain shape plan select t.a,t3.b from (select 3 as a,'aa' as b from test_pull_up_predicate_set_op3 limit 0 offset 0 union all select 2,'dd' ) t 
+    qt_union_all_const_empty_relation """ explain shape plan select t.a,t3.b from ((select 3 as a,'aa' as b from test_pull_up_predicate_set_op3 limit 0 offset 0) union all select 2,'dd' ) t 
     inner join test_pull_up_predicate_set_op3 t3 on t3.a=t.a and t3.b=t.b;"""
 
     qt_union_all_const2_has_cast_to_null_different_type """ explain shape plan
@@ -360,7 +360,7 @@ suite("pull_up_predicate_set_op") {
     qt_union_all_const_tinyint_int_res """select t.a,t3.b from      (select 3 as a,'aa' as b union all select 2,'dd' ) t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b order by 1,2;"""
 
-    qt_union_all_const_empty_relation_res """ select t.a,t3.b from (select 3 as a,'aa' as b from test_pull_up_predicate_set_op3 limit 0 offset 0 union all select 2,'dd' ) t 
+    qt_union_all_const_empty_relation_res """ select t.a,t3.b from ((select 3 as a,'aa' as b from test_pull_up_predicate_set_op3 limit 0 offset 0) union all select 2,'dd' ) t 
     inner join test_pull_up_predicate_set_op3 t3 on t3.a=t.a and t3.b=t.b order by 1,2;"""
 
     qt_union_all_const2_has_cast_to_null_different_type_res """ select t.a,t3.b from (select 3 as a,'aa' as b union all select 'abc','dd' ) t inner join test_pull_up_predicate_set_op3 t3

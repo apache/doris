@@ -32,6 +32,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
@@ -190,7 +191,7 @@ public class InsertUtils {
         }
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        long timeoutSecond = ctx.getExecTimeout();
+        long timeoutSecond = ctx.getExecTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbName, s -> new AnalysisException("database is invalid for dbName: " + s));
@@ -528,16 +529,16 @@ public class InsertUtils {
         optimizedRowConstructor.add(value);
     }
 
-    private static Expression castValue(Expression value, DataType targetType) {
+    private static Alias castValue(Expression value, DataType targetType) {
         if (value instanceof Alias) {
             Expression oldChild = value.child(0);
             Expression newChild = TypeCoercionUtils.castUnbound(oldChild, targetType);
-            return oldChild == newChild ? value : value.withChildren(newChild);
+            return (Alias) (oldChild == newChild ? value : value.withChildren(newChild));
         } else if (value instanceof UnboundAlias) {
             UnboundAlias unboundAlias = (UnboundAlias) value;
             return new Alias(TypeCoercionUtils.castUnbound(unboundAlias.child(), targetType));
         } else {
-            return TypeCoercionUtils.castUnbound(value, targetType);
+            return new Alias(TypeCoercionUtils.castUnbound(value, targetType));
         }
     }
 
@@ -546,7 +547,7 @@ public class InsertUtils {
      */
     public static TableIf getTargetTable(Plan plan, ConnectContext ctx) {
         List<String> tableQualifier = getTargetTableQualified(plan, ctx);
-        return RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        return RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
     }
 
     /**
@@ -562,10 +563,12 @@ public class InsertUtils {
             unboundTableSink = (UnboundIcebergTableSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundJdbcTableSink) {
             unboundTableSink = (UnboundJdbcTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundDictionarySink) {
+            unboundTableSink = (UnboundDictionarySink<? extends Plan>) plan;
         } else {
-            throw new AnalysisException("the root of plan should be"
-                    + " [UnboundTableSink, UnboundHiveTableSink, UnboundIcebergTableSink],"
-                    + " but it is " + plan.getType());
+            throw new AnalysisException(
+                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
+                            + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());
     }

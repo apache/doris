@@ -104,7 +104,7 @@ public class CloudLoadManager extends LoadManager {
                     stmt.getObjectInfo(), stmt.isForce(), stmt.getUserName());
             loadJob.setJobProperties(stmt.getProperties());
             loadJob.checkAndSetDataSourceInfo(database, stmt.getDataDescriptions());
-            loadJob.setTimeout(ConnectContext.get().getExecTimeout());
+            loadJob.setTimeout(ConnectContext.get().getExecTimeoutS());
             createLoadJob(loadJob);
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());

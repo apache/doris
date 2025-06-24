@@ -232,9 +232,9 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
-    // create sync job
+    @Deprecated
     public static final short OP_CREATE_SYNC_JOB = 234;
-    // update sync job state
+    @Deprecated
     public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
@@ -414,6 +414,12 @@ public class OperationType {
     public static final short OP_DROP_PLSQL_PACKAGE = 474;
 
     public static final short OP_ALTER_ROLE = 475;
+
+    // dictionary 480~489
+    public static final short OP_CREATE_DICTIONARY = 480;
+    public static final short OP_DROP_DICTIONARY = 481;
+    public static final short OP_DICTIONARY_INC_VERSION = 482;
+    public static final short OP_DICTIONARY_DEC_VERSION = 483;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;

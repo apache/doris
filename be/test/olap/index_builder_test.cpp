@@ -2167,9 +2167,9 @@ TEST_F(IndexBuilderTest, ArrayTypeIndexTest) {
             // Add string elements to the array
             for (int j = 0; j < array_size; j++) {
                 std::string val = "item_" + std::to_string(i) + "_" + std::to_string(j);
-                arr.push_back(vectorized::Field(val));
+                arr.push_back(vectorized::Field::create_field<TYPE_STRING>(val));
             }
-            array_col.insert(arr);
+            array_col.insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
         }
 
         // Add block to rowset

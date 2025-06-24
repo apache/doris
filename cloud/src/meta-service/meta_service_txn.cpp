@@ -817,12 +817,10 @@ void scan_tmp_rowset(
     meta_rowset_tmp_key(rs_tmp_key_info1, &rs_tmp_key1);
 
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [rs_tmp_key0, rs_tmp_key1, &num_rowsets, &txn_id](int*) {
-                LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id
-                          << " num_rowsets=" << num_rowsets << " range=[" << hex(rs_tmp_key0) << ","
-                          << hex(rs_tmp_key1) << ")";
-            });
+    DORIS_CLOUD_DEFER_COPY(rs_tmp_key0, rs_tmp_key1) {
+        LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id << " num_rowsets=" << num_rowsets
+                  << " range=[" << hex(rs_tmp_key0) << "," << hex(rs_tmp_key1) << ")";
+    };
 
     std::unique_ptr<RangeGetIterator> it;
     do {
@@ -1391,6 +1389,9 @@ void commit_txn_immediately(
         // Finally we are done...
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
@@ -1570,11 +1571,11 @@ void commit_txn_eventually(
         MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
     StopWatch sw;
-    std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (config::use_detailed_metrics && !instance_id.empty()) {
             g_bvar_ms_commit_txn_eventually.put(instance_id, sw.elapsed_us());
         }
-    });
+    };
 
     std::stringstream ss;
     TxnErrorCode err = TxnErrorCode::TXN_OK;
@@ -1855,6 +1856,9 @@ void commit_txn_eventually(
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
+            if (err == TxnErrorCode::TXN_CONFLICT) {
+                g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+            }
             code = cast_as<ErrCategory::COMMIT>(err);
             ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
             msg = ss.str();
@@ -1994,12 +1998,11 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> tmp_rowsets_meta;
 
         int num_rowsets = 0;
-        std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-                (int*)0x01, [rs_tmp_key0, rs_tmp_key1, &num_rowsets, &txn_id, &sub_txn_id](int*) {
-                    LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id
-                              << ", sub_txn_id=" << sub_txn_id << " num_rowsets=" << num_rowsets
-                              << " range=[" << hex(rs_tmp_key0) << "," << hex(rs_tmp_key1) << ")";
-                });
+        DORIS_CLOUD_DEFER_COPY(rs_tmp_key_info0, rs_tmp_key_info1) {
+            LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id << ", sub_txn_id=" << sub_txn_id
+                      << " num_rowsets=" << num_rowsets << " range=[" << hex(rs_tmp_key0) << ","
+                      << hex(rs_tmp_key1) << ")";
+        };
 
         std::unique_ptr<RangeGetIterator> it;
         do {
@@ -2450,6 +2453,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
     // Finally we are done...
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            g_bvar_delete_bitmap_lock_txn_remove_conflict_by_load_counter << 1;
+        }
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE || err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
             size_t max_size = 0, max_num_segments = 0,
                    min_num_segments = std::numeric_limits<size_t>::max(), avg_num_segments = 0;
@@ -3158,6 +3164,7 @@ void MetaServiceImpl::begin_sub_txn(::google::protobuf::RpcController* controlle
     std::string index_val;
     TxnIndexPB index_pb;
     index_pb.mutable_tablet_index()->set_db_id(db_id);
+    index_pb.set_parent_txn_id(txn_id);
     if (!index_pb.SerializeToString(&index_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize txn_index_pb "

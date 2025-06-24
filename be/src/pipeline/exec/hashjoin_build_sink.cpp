@@ -248,7 +248,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
                 "blocked_by_shared_hash_table_signal: "
                 "{}",
                 e.to_string(), _terminated, _should_build_hash_table,
-                _finish_dependency->debug_string(), blocked_by_shared_hash_table_signal);
+                _finish_dependency ? _finish_dependency->debug_string() : "null",
+                blocked_by_shared_hash_table_signal);
     }
     if (_runtime_filter_producer_helper) {
         _runtime_filter_producer_helper->collect_realtime_profile(profile());
@@ -543,7 +544,8 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
                 output_slot_flags.emplace_back(
                         std::find(_hash_output_slot_ids.begin(), _hash_output_slot_ids.end(),
                                   slot_desc->id()) != _hash_output_slot_ids.end());
-                if (output_slot_flags.back() && slot_desc->type().is_variant_type()) {
+                if (output_slot_flags.back() &&
+                    slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
                     _need_finalize_variant_column = true;
                 }
             }

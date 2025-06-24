@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -143,6 +145,26 @@ public class LambdaFunctionExpr extends Expr {
             nameStr = "(" + nameStr + ")";
         }
         String res = String.format("%s -> %s", nameStr, lambdaExpr.toSql());
+        return res;
+    }
+
+    @Override
+    protected String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        String nameStr = "";
+        Expr lambdaExpr = slotExprs.get(0);
+        int exprSize = names.size();
+        for (int i = 0; i < exprSize; ++i) {
+            nameStr = nameStr + names.get(i);
+            if (i != exprSize - 1) {
+                nameStr = nameStr + ",";
+            }
+        }
+        if (exprSize > 1) {
+            nameStr = "(" + nameStr + ")";
+        }
+        String res = String.format("%s -> %s", nameStr,
+                lambdaExpr.toSql(disableTableName, needExternalSql, tableType, table));
         return res;
     }
 

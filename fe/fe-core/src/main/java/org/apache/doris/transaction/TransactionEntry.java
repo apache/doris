@@ -206,7 +206,7 @@ public class TransactionEntry {
         }
         DatabaseIf database = table.getDatabase();
         if (!isTransactionBegan) {
-            long timeoutSecond = ConnectContext.get().getExecTimeout();
+            long timeoutSecond = ConnectContext.get().getExecTimeoutS();
             this.timeoutTimestamp = System.currentTimeMillis() + timeoutSecond * 1000;
             if (Env.getCurrentEnv().isMaster() || Config.isCloudMode()) {
                 this.transactionId = Env.getCurrentGlobalTransactionMgr().beginTransaction(

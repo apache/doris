@@ -22,17 +22,14 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.RecoverInfo;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -61,7 +58,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPostProcessable {
+public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
     private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
     // erase meta at least after minEraseLatency milliseconds
@@ -1354,81 +1351,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
     }
 
     public static CatalogRecycleBin read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            CatalogRecycleBin bin = new CatalogRecycleBin();
-            bin.readFields(in);
-            return bin;
-        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_139) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), CatalogRecycleBin.class);
-        } else {
-            CatalogRecycleBin bin = new CatalogRecycleBin();
-            bin.readFieldsWithGson(in);
-            return bin;
-        }
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        updateDbInfoForLowerVersion();
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            long id = in.readLong();
-            RecycleDatabaseInfo dbInfo = new RecycleDatabaseInfo();
-            dbInfo.readFields(in);
-            idToDatabase.put(id, dbInfo);
-        }
-
-        count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            long id = in.readLong();
-            RecycleTableInfo tableInfo = new RecycleTableInfo();
-            tableInfo.readFields(in);
-            idToTable.put(id, tableInfo);
-        }
-
-        count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            long id = in.readLong();
-            RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo();
-            partitionInfo.readFields(in);
-            idToPartition.put(id, partitionInfo);
-        }
-
-        count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            long id = in.readLong();
-            long time = in.readLong();
-            idToRecycleTime.put(id, time);
-        }
-        updateDbInfoForLowerVersion();
-    }
-
-    private void updateDbInfoForLowerVersion() {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_114) {
-            Iterator<Map.Entry<Long, RecycleDatabaseInfo>> dbIterator = idToDatabase.entrySet().iterator();
-            while (dbIterator.hasNext()) {
-                Map.Entry<Long, RecycleDatabaseInfo> dbEntry = dbIterator.next();
-                RecycleDatabaseInfo dbInfo = dbEntry.getValue();
-                Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
-                Set<Long> tableIds = Sets.newHashSet();
-                Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-                    RecycleTableInfo tableInfo = entry.getValue();
-                    if (tableInfo.getDbId() != dbEntry.getKey()
-                            || !tableNames.contains(tableInfo.getTable().getName())) {
-                        continue;
-                    }
-
-                    tableIds.add(entry.getKey());
-                }
-                dbInfo.setTableIds(tableIds);
-            }
-        }
+        CatalogRecycleBin bin = new CatalogRecycleBin();
+        bin.readFieldsWithGson(in);
+        return bin;
     }
 
     public class RecycleDatabaseInfo {
@@ -1487,16 +1412,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
                 String tableName = Text.readString(in);
                 tableNames.add(tableName);
             }
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
-                count = in.readInt();
-                for (int i = 0; i < count; i++) {
-                    long tableId = in.readLong();
-                    tableIds.add(tableId);
-                }
+            count = in.readInt();
+            for (int i = 0; i < count; i++) {
+                long tableId = in.readLong();
+                tableIds.add(tableId);
             }
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_139) {
-                GsonUtils.GSON.fromJson(Text.readString(in), RecycleDatabaseInfo.class);
-            }
+            GsonUtils.GSON.fromJson(Text.readString(in), RecycleDatabaseInfo.class);
         }
     }
 
@@ -1529,12 +1450,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
 
         public RecycleTableInfo read(DataInput in) throws IOException {
             return GsonUtils.GSON.fromJson(Text.readString(in), RecycleTableInfo.class);
-        }
-
-        @Deprecated
-        public void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            table = Table.read(in);
         }
     }
 
@@ -1619,33 +1534,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable, GsonPos
 
         public RecyclePartitionInfo read(DataInput in) throws IOException {
             return GsonUtils.GSON.fromJson(Text.readString(in), RecyclePartitionInfo.class);
-        }
-
-        public void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            tableId = in.readLong();
-            partition = Partition.read(in);
-            range = RangeUtils.readRange(in);
-            listPartitionItem = ListPartitionItem.read(in);
-            dataProperty = DataProperty.read(in);
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-                short replicationNum = in.readShort();
-                replicaAlloc = new ReplicaAllocation(replicationNum);
-            } else {
-                replicaAlloc = ReplicaAllocation.read(in);
-            }
-            isInMemory = in.readBoolean();
-            if (Config.isCloudMode()) {
-                // HACK: the origin implementation of the cloud mode has code likes:
-                //
-                //     isPersistent = in.readBoolean();
-                //
-                // keep the compatibility here.
-                in.readBoolean();
-            }
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
-                isMutable = in.readBoolean();
-            }
         }
     }
 

@@ -24,7 +24,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
-template <typename T>
+template <PrimitiveType T>
 AggregateFunctionPtr do_create_agg_function_collect(const DataTypes& argument_types,
                                                     const bool result_is_nullable) {
     if (argument_types[0]->is_nullable()) {
@@ -42,27 +42,54 @@ AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name
                                                          const DataTypes& argument_types,
                                                          const bool result_is_nullable,
                                                          const AggregateFunctionAttr& attr) {
-    WhichDataType which(remove_nullable(argument_types[0]));
-#define DISPATCH(TYPE)                \
-    if (which.idx == TypeIndex::TYPE) \
-        return do_create_agg_function_collect<TYPE>(argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-    FOR_DECIMAL_TYPES(DISPATCH)
-#undef DISPATCH
-    if (which.is_date_or_datetime()) {
-        return do_create_agg_function_collect<Int64>(argument_types, result_is_nullable);
-    } else if (which.is_date_v2()) {
-        return do_create_agg_function_collect<UInt32>(argument_types, result_is_nullable);
-    } else if (which.is_date_time_v2()) {
-        return do_create_agg_function_collect<UInt64>(argument_types, result_is_nullable);
-    } else if (which.is_ipv6()) {
-        return do_create_agg_function_collect<IPv6>(argument_types, result_is_nullable);
-    } else if (which.is_ipv4()) {
-        return do_create_agg_function_collect<IPv4>(argument_types, result_is_nullable);
-    } else if (which.is_string()) {
-        return do_create_agg_function_collect<StringRef>(argument_types, result_is_nullable);
-    } else {
-        return do_create_agg_function_collect<void>(argument_types, result_is_nullable);
+    switch (argument_types[0]->get_primitive_type()) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return do_create_agg_function_collect<TYPE_BOOLEAN>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_TINYINT:
+        return do_create_agg_function_collect<TYPE_TINYINT>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_SMALLINT:
+        return do_create_agg_function_collect<TYPE_SMALLINT>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_INT:
+        return do_create_agg_function_collect<TYPE_INT>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_BIGINT:
+        return do_create_agg_function_collect<TYPE_BIGINT>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_LARGEINT:
+        return do_create_agg_function_collect<TYPE_LARGEINT>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_FLOAT:
+        return do_create_agg_function_collect<TYPE_FLOAT>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DOUBLE:
+        return do_create_agg_function_collect<TYPE_DOUBLE>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL32:
+        return do_create_agg_function_collect<TYPE_DECIMAL32>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return do_create_agg_function_collect<TYPE_DECIMAL64>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return do_create_agg_function_collect<TYPE_DECIMAL128I>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return do_create_agg_function_collect<TYPE_DECIMALV2>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return do_create_agg_function_collect<TYPE_DECIMAL256>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATE:
+        return do_create_agg_function_collect<TYPE_DATE>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATETIME:
+        return do_create_agg_function_collect<TYPE_DATETIME>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATEV2:
+        return do_create_agg_function_collect<TYPE_DATEV2>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return do_create_agg_function_collect<TYPE_DATETIMEV2>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_IPV4:
+        return do_create_agg_function_collect<TYPE_IPV4>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_IPV6:
+        return do_create_agg_function_collect<TYPE_IPV6>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_STRING:
+        return do_create_agg_function_collect<TYPE_STRING>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_CHAR:
+        return do_create_agg_function_collect<TYPE_CHAR>(argument_types, result_is_nullable);
+    case PrimitiveType::TYPE_VARCHAR:
+        return do_create_agg_function_collect<TYPE_VARCHAR>(argument_types, result_is_nullable);
+    default:
+        // We do not care what the real type is.
+        return do_create_agg_function_collect<INVALID_TYPE>(argument_types, result_is_nullable);
     }
 }
 

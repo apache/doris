@@ -67,7 +67,7 @@ Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnN
         return Status::InternalError("call to rpc function {} failed: {}", _signature,
                                      response.status().DebugString());
     }
-    _convert_to_block(block, response.result(0), result);
+    RETURN_IF_ERROR(_convert_to_block(block, response.result(0), result));
     return Status::OK();
 }
 
@@ -84,12 +84,13 @@ Status RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arg
     return Status::OK();
 }
 
-void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
+Status RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
     auto data_type = block.get_data_type(pos);
     auto col = data_type->create_column();
     auto serde = data_type->get_serde();
-    static_cast<void>(serde->read_column_from_pb(*col, result));
+    RETURN_IF_ERROR(serde->read_column_from_pb(*col, result));
     block.replace_by_position(pos, std::move(col));
+    return Status::OK();
 }
 
 FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,

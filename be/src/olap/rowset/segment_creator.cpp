@@ -40,8 +40,8 @@
 #include "util/pretty_printer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
@@ -93,7 +93,7 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
     std::vector<int> variant_column_pos;
     for (int i = 0; i < block.columns(); ++i) {
         const auto& entry = block.get_by_position(i);
-        if (vectorized::is_variant_type(remove_nullable(entry.type))) {
+        if (entry.type->get_primitive_type() == TYPE_VARIANT) {
             variant_column_pos.push_back(i);
         }
     }

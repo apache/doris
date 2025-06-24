@@ -34,7 +34,7 @@ TEST(HashFunctionTest, murmur_hash_3_test) {
     std::string func_name = "murmur_hash3_32";
 
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{Null()}, Null()}, {{std::string("hello")}, (int32_t)1321743225}};
 
@@ -42,7 +42,7 @@ TEST(HashFunctionTest, murmur_hash_3_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("hello"), std::string("world")}, (int32_t)984713481},
                             {{std::string("hello"), Null()}, Null()}};
@@ -51,7 +51,8 @@ TEST(HashFunctionTest, murmur_hash_3_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
                              (int32_t)-666935433},
@@ -65,7 +66,7 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
     std::string func_name = "murmur_hash3_64";
 
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{Null()}, Null()},
                             {{std::string("hello")}, (int64_t)-3215607508166160593}};
@@ -74,7 +75,7 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("hello"), std::string("world")}, (int64_t)3583109472027628045},
@@ -84,7 +85,8 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
                              (int64_t)1887828212617890932},
@@ -98,7 +100,7 @@ TEST(HashFunctionTest, xxhash_32_test) {
     std::string func_name = "xxhash_32";
 
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{Null()}, Null()}, {{std::string("hello")}, (int32_t)-83855367}};
 
@@ -106,7 +108,7 @@ TEST(HashFunctionTest, xxhash_32_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("hello"), std::string("world")}, (int32_t)-920844969},
                             {{std::string("hello"), Null()}, Null()}};
@@ -115,7 +117,8 @@ TEST(HashFunctionTest, xxhash_32_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
                              (int32_t)352087701},
@@ -129,7 +132,7 @@ TEST(HashFunctionTest, xxhash_64_test) {
     std::string func_name = "xxhash_64";
 
     {
-        InputTypeSet input_types = {TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{Null()}, Null()},
                             {{std::string("hello")}, (int64_t)-7685981735718036227}};
@@ -138,7 +141,7 @@ TEST(HashFunctionTest, xxhash_64_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {
                 {{std::string("hello"), std::string("world")}, (int64_t)7001965798170371843},
@@ -148,7 +151,8 @@ TEST(HashFunctionTest, xxhash_64_test) {
     };
 
     {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR,
+                                    PrimitiveType::TYPE_VARCHAR};
 
         DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
                              (int64_t)6796829678999971400},

@@ -21,6 +21,7 @@
 
 #include <cstddef>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -105,12 +106,12 @@ public:
     }
 
     Field operator[](size_t n) const override {
-        return Field(
+        return Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     void get(size_t n, Field& res) const override {
-        res = Field(
+        res = Field::create_field<TYPE_STRING>(
                 String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
@@ -216,7 +217,7 @@ public:
         return pos;
     }
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         if (limit == 0) {
             limit = size();
         } else {

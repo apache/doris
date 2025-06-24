@@ -61,8 +61,9 @@ public:
         DCHECK(arguments.size() > 0)
                 << "function: " << get_name() << ", arguments should not be empty";
         for (const auto& arg : arguments) {
-            DCHECK(is_array(arg)) << "argument for function array_concat should be DataTypeArray"
-                                  << " and argument is " << arg->get_name();
+            DCHECK(arg->get_primitive_type() == TYPE_ARRAY)
+                    << "argument for function array_concat should be DataTypeArray"
+                    << " and argument is " << arg->get_name();
         }
         return arguments[0];
     }

@@ -50,6 +50,7 @@ class VDataStreamMgr;
 class ScannerScheduler;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
+class DictionaryFactory;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -115,6 +116,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class IdManager;
 class ProcessProfile;
 class HeapProfiler;
 class WalManager;
@@ -153,7 +155,8 @@ public:
 
     // Requires ExenEnv ready
     static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id,
-                                             SyncRowsetStats* sync_stats = nullptr);
+                                             SyncRowsetStats* sync_stats = nullptr,
+                                             bool force_use_cache = false);
 
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     static bool tracking_memory() { return _s_tracking_memory.load(std::memory_order_acquire); }
@@ -166,7 +169,6 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
-    pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
     RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
@@ -231,7 +233,6 @@ public:
     ThreadPool* non_block_close_thread_pool();
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
 
-    Status init_pipeline_task_scheduler();
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
@@ -333,6 +334,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    IdManager* get_id_manager() { return _id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
@@ -346,6 +348,8 @@ public:
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
         return _runtime_filter_timer_queue;
     }
+
+    vectorized::DictionaryFactory* dict_factory() { return _dict_factory; }
 
     pipeline::PipelineTracerContext* pipeline_tracer_context() {
         return _pipeline_tracer_ctx.get();
@@ -372,8 +376,8 @@ private:
     Status _init_mem_env();
     Status _check_deploy_mode();
 
-    void _register_metrics();
-    void _deregister_metrics();
+    Status _create_internal_workload_group();
+    void _init_runtime_filter_timer_queue();
 
     inline static std::atomic_bool _s_ready {false};
     inline static std::atomic_bool _s_tracking_memory {false};
@@ -433,7 +437,6 @@ private:
     std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
-    pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
     WorkloadGroupMgr* _workload_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
@@ -482,6 +485,7 @@ private:
     LookupConnectionCache* _lookup_connection_cache = nullptr;
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
+    IdManager* _id_manager = nullptr;
     ProcessProfile* _process_profile = nullptr;
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
@@ -490,6 +494,7 @@ private:
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 
     pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    vectorized::DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 

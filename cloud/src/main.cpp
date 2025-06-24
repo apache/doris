@@ -236,6 +236,8 @@ int main(int argc, char** argv) {
         std::cout << "try to start meta_service, recycler" << std::endl;
     }
 
+    google::SetCommandLineOption("bvar_max_dump_multi_dimension_metric_number", "2000");
+
     brpc::Server server;
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
     brpc::FLAGS_socket_max_unwritten_bytes = config::brpc_socket_max_unwritten_bytes;
@@ -310,6 +312,7 @@ int main(int argc, char** argv) {
             }
         };
         periodiccally_log_thread = std::thread {periodiccally_log};
+        pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
     // start service
     brpc::ServerOptions options;

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -26,14 +25,11 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Map;
 
 public class CsvFileFormatProperties extends FileFormatProperties {
@@ -41,7 +37,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
     public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-    public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -53,36 +48,24 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
     public static final String PROP_ENCLOSE = "enclose";
+    public static final String PROP_ESCAPE = "escape";
 
     private String headerType = "";
-    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private boolean trimDoubleQuotes;
     private int skipLines;
     private byte enclose;
+    private byte escape;
 
-    // used by tvf
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-
-    String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
-
-    public CsvFileFormatProperties() {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
     }
 
-    public CsvFileFormatProperties(String defaultColumnSeparator, TTextSerdeType textSerdeType) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
-        this.defaultColumnSeparator = defaultColumnSeparator;
-        this.textSerdeType = textSerdeType;
-    }
-
-    public CsvFileFormatProperties(String headerType) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN);
+    public CsvFileFormatProperties(String headerType, String formatName) {
+        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
         this.headerType = headerType;
     }
-
 
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
@@ -90,7 +73,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         try {
             // analyze properties specified by user
             columnSeparator = getOrDefault(formatProperties, PROP_COLUMN_SEPARATOR,
-                    defaultColumnSeparator, isRemoveOriginProperty);
+                    DEFAULT_COLUMN_SEPARATOR, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
@@ -110,8 +93,15 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     throw new AnalysisException("enclose should not be longer than one byte.");
                 }
                 enclose = (byte) enclosedString.charAt(0);
-                if (enclose == 0) {
-                    throw new AnalysisException("enclose should not be byte [0].");
+            }
+
+            String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
+                    "", isRemoveOriginProperty);
+            if (!Strings.isNullOrEmpty(escapeStr)) {
+                if (escapeStr.length() != 1) {
+                    throw new AnalysisException("escape must be single-char");
+                } else {
+                    escape = escapeStr.getBytes()[0];
                 }
             }
 
@@ -134,8 +124,9 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     }
 
     @Override
-    public TResultFileSinkOptions toTResultFileSinkOptions() {
-        return null;
+    public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
+        sinkOptions.setColumnSeparator(columnSeparator);
+        sinkOptions.setLineDelimiter(lineDelimiter);
     }
 
     // The method `analyzeFileFormatProperties` must have been called once before this method
@@ -145,9 +136,8 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (this.enclose != 0) {
-            fileTextScanRangeParams.setEnclose(this.enclose);
-        }
+        fileTextScanRangeParams.setEnclose(this.enclose);
+        fileTextScanRangeParams.setEscape(this.escape);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
@@ -159,10 +149,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
 
     public String getHeaderType() {
         return headerType;
-    }
-
-    public TTextSerdeType getTextSerdeType() {
-        return textSerdeType;
     }
 
     public String getColumnSeparator() {
@@ -185,7 +171,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         return enclose;
     }
 
-    public List<Column> getCsvSchema() {
-        return csvSchema;
+    public byte getEscape() {
+        return escape;
     }
 }

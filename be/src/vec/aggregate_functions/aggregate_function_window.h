@@ -32,7 +32,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -403,6 +402,20 @@ public:
     void set_is_null() { this->_data_value.reset(); }
 };
 
+template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable>
+struct NthValueData : public FirstLastData<ColVecType, result_is_nullable, arg_is_nullable> {
+public:
+    void reset() {
+        this->_data_value.reset();
+        this->_has_value = false;
+        this->_frame_start_pose = 0;
+        this->_frame_total_rows = 0;
+    }
+
+    int64_t _frame_start_pose = 0;
+    int64_t _frame_total_rows = 0;
+};
+
 template <typename ColVecType, bool arg_is_nullable>
 struct BaseValue : public Value<ColVecType, arg_is_nullable> {
 public:
@@ -557,7 +570,13 @@ struct WindowFunctionLastImpl : Data {
         DCHECK_LE(frame_start, frame_end);
         if ((frame_end <= partition_start) ||
             (frame_start >= partition_end)) { //beyond or under partition, set null
-            this->set_is_null();
+            if ((this->has_set_value()) &&
+                (!arg_ignore_null || (arg_ignore_null && !this->is_null()))) {
+                // have set value, do nothing, because like rows unbouned preceding and M following
+                // it's caculated as the cumulative mode, so it's could reuse the previous
+            } else {
+                this->set_is_null();
+            }
             return;
         }
         frame_end = std::min<int64_t>(frame_end, partition_end);
@@ -590,6 +609,30 @@ struct WindowFunctionLastImpl : Data {
     }
 
     static const char* name() { return "last_value"; }
+};
+
+template <typename Data, bool = false>
+struct WindowFunctionNthValueImpl : Data {
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, const IColumn** columns) {
+        DCHECK_LE(frame_start, frame_end);
+        int64_t real_frame_start = std::max<int64_t>(frame_start, partition_start);
+        int64_t real_frame_end = std::min<int64_t>(frame_end, partition_end);
+        this->_frame_start_pose =
+                this->_frame_total_rows ? this->_frame_start_pose : real_frame_start;
+        this->_frame_total_rows += real_frame_end - real_frame_start;
+        int64_t offset = assert_cast<const ColumnInt64&, TypeCheckOnRelease::DISABLE>(*columns[1])
+                                 .get_data()[0] -
+                         1;
+        if (offset >= this->_frame_total_rows) {
+            // offset is beyond the frame, so set null
+            this->set_is_null();
+            return;
+        }
+        this->set_value(columns, offset + this->_frame_start_pose);
+    }
+
+    static const char* name() { return "nth_value"; }
 };
 
 template <typename Data>

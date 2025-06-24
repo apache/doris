@@ -23,7 +23,6 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -56,38 +55,11 @@ public class EnvOperationTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Env.getCurrentEnv().createDb(createDbStmt);
-        Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.renameTest\n"
                 + "(k1 int,k2 int)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
-
-        createResource("CREATE EXTERNAL RESOURCE \"mysql_resource\"\n"
-                + "PROPERTIES\n"
-                + "(\n"
-                + "  \"type\" = \"odbc_catalog\",\n"
-                + "  \"user\" = \"mysql_user\",\n"
-                + "  \"password\" = \"mysql_passwd\",\n"
-                + "  \"host\" = \"127.0.0.1\",\n"
-                + "   \"port\" = \"8239\"\n"
-                + ");");
-
-        createTable("CREATE EXTERNAL TABLE test.mysqlRenameTest\n"
-                + "(\n"
-                + "k1 DATE,\n"
-                + "k2 INT,\n"
-                + "k3 SMALLINT,\n"
-                + "k4 VARCHAR(2048),\n"
-                + "k5 DATETIME\n"
-                + ")\n"
-                + "ENGINE=mysql\n"
-                + "PROPERTIES\n"
-                + "(\n"
-                + "\"odbc_catalog_resource\" = \"mysql_resource\",\n"
-                + "\"database\" = \"mysql_db_test\",\n"
-                + "\"table\" = \"mysql_table_test\"\n"
-                + ");");
     }
 
     @AfterClass
@@ -150,14 +122,5 @@ public class EnvOperationTest {
         Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         Assert.assertNull(db.getTableNullable("newNewTest"));
         Assert.assertNotNull(db.getTableNullable("goodName"));
-
-        // rename external table
-        renameTblStmt = "alter table test.mysqlRenameTest rename newMysqlRenameTest";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
-        Assert.assertNotNull(db.getTableNullable("mysqlRenameTest"));
-
-        Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTableNullable("mysqlRenameTest"));
-        Assert.assertNotNull(db.getTableNullable("newMysqlRenameTest"));
     }
 }

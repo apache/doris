@@ -35,8 +35,8 @@ namespace doris {
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
-                               const std::set<string>& partial_update_cols, bool is_strict_mode,
-                               int64_t timestamp_ms, int32_t nano_seconds,
+                               const std::set<std::string>& partial_update_cols,
+                               bool is_strict_mode, int64_t timestamp_ms, int32_t nano_seconds,
                                const std::string& timezone,
                                const std::string& auto_increment_column,
                                int32_t sequence_map_col_uid, int64_t cur_max_version) {
@@ -266,7 +266,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
                 default_value = dv.debug_string();
-            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_OBJECT &&
+            } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
                                 to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
                                         std::string::npos)) {
                 BitmapValue v = BitmapValue {};
@@ -399,9 +399,9 @@ Status FixedReadPlan::fill_missing_columns(
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
                             assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    auto_inc_column->insert(
-                            (assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
-                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get()))->get_element(idx));
+                    auto_inc_column->insert(vectorized::Field::create_field<TYPE_BIGINT>(
+assert_cast<const vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(
+block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL).column.get())->get_element(idx)));
                 } else {
                     // If the control flow reaches this branch, the column neither has default value
                     // nor is nullable. It means that the row's delete sign is marked, and the value

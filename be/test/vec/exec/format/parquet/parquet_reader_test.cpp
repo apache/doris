@@ -148,7 +148,6 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(column_names, missing_column_names, nullptr, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -157,15 +156,15 @@ TEST_F(ParquetReaderTest, normal) {
     static_cast<void>(p_reader->set_fill_columns(partition_columns, missing_columns));
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
-        auto data_type =
-                vectorized::DataTypeFactory::instance().create_data_type(slot_desc->type(), true);
+        auto data_type = make_nullable(slot_desc->type());
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     bool eof = false;
     size_t read_row = 0;
-    static_cast<void>(p_reader->get_next_block(block.get(), &read_row, &eof));
+    auto st = p_reader->get_next_block(block.get(), &read_row, &eof);
+    EXPECT_TRUE(st.ok()) << st;
     for (auto& col : block->get_columns_with_type_and_name()) {
         ASSERT_EQ(col.column->size(), 10);
     }
@@ -227,7 +226,6 @@ TEST_F(ParquetReaderTest, use_column_name) {
     colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
     colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
 
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(table_column_names, {}, &colname_to_value_range, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr, false,
                                             use_column_name));
@@ -267,7 +265,6 @@ TEST_F(ParquetReaderTest, use_column_name2) {
     colname_to_value_range.emplace("smallint_col", ColumnValueRange<TYPE_SMALLINT>("smallint_col"));
     colname_to_value_range.emplace("int_col", ColumnValueRange<TYPE_INT>("int_col"));
 
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(table_column_names, {"boolean_col"},
                                             &colname_to_value_range, {}, nullptr, nullptr, nullptr,
                                             nullptr, nullptr, false, use_column_name));
@@ -310,7 +307,6 @@ TEST_F(ParquetReaderTest, use_column_idx) {
     colname_to_value_range.emplace("col3", ColumnValueRange<TYPE_SMALLINT>("col3"));
     colname_to_value_range.emplace("col102", ColumnValueRange<TYPE_SMALLINT>("col102"));
 
-    static_cast<void>(p_reader->open());
     static_cast<void>(p_reader->init_reader(table_column_names, {}, &colname_to_value_range, {},
                                             nullptr, nullptr, nullptr, nullptr, nullptr, false,
                                             use_column_name));

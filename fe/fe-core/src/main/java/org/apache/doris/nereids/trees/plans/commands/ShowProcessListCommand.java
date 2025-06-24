@@ -17,10 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
@@ -47,21 +46,14 @@ import java.util.Optional;
  */
 public class ShowProcessListCommand extends ShowCommand {
     private static final Logger LOG = LogManager.getLogger(ShowProcessListCommand.class);
-    private static final ShowResultSetMetaData PROCESSLIST_META_DATA = ShowResultSetMetaData.builder()
-            .addColumn(new Column("CurrentConnected", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
-            .addColumn(new Column("User", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Host", ScalarType.createVarchar(16)))
-            .addColumn(new Column("LoginTime", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Catalog", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Db", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Command", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
-            .addColumn(new Column("State", ScalarType.createVarchar(64)))
-            .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
-            .addColumn(new Column("Info", ScalarType.STRING))
-            .addColumn(new Column("FE", ScalarType.createVarchar(16)))
-            .addColumn(new Column("CloudCluster", ScalarType.createVarchar(16))).build();
+    private static final ShowResultSetMetaData PROCESSLIST_META_DATA;
+
+    static {
+        Table tbl = SchemaTable.TABLE_MAP.get("processlist");
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        tbl.getBaseSchema().stream().forEach(column -> builder.addColumn(column));
+        PROCESSLIST_META_DATA = builder.build();
+    }
 
     private final boolean isFull;
 

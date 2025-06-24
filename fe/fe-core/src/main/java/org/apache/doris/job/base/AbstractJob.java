@@ -192,6 +192,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
     }
 
+    /**
+     * for show command to display all tasks of this job.
+     */
     public List<T> queryAllTasks() {
         List<T> tasks = new ArrayList<>();
         if (CollectionUtils.isEmpty(runningTasks)) {
@@ -260,6 +263,15 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         });
         getRunningTasks().addAll(tasks);
         this.startTimeMs = System.currentTimeMillis();
+    }
+
+    /**
+     * Some of the logic does not satisfy idempotency—each job can only be called once.
+     */
+    public void initParams() {
+        if (jobConfig != null) {
+            jobConfig.initParams();
+        }
     }
 
     public void checkJobParams() {
@@ -460,5 +472,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
+    }
+
+    public boolean needPersist() {
+        return true;
     }
 }

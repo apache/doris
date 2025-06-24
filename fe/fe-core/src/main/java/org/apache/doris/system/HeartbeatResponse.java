@@ -17,8 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -47,8 +45,6 @@ public class HeartbeatResponse implements Writable {
     protected Type type;
     @SerializedName(value = "status")
     protected HbStatus status;
-    @Deprecated
-    protected boolean isTypeRead = false;
 
     /**
      * msg no need to be synchronized to other Frontends,
@@ -79,46 +75,13 @@ public class HeartbeatResponse implements Writable {
         return hbTime;
     }
 
-    public void setTypeRead(boolean isTypeRead) {
-        this.isTypeRead = isTypeRead;
-    }
-
     public static HeartbeatResponse read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_121) {
-            HeartbeatResponse result = null;
-            Type type = Type.valueOf(Text.readString(in));
-            if (type == Type.FRONTEND) {
-                result = new FrontendHbResponse();
-            } else if (type == Type.BACKEND) {
-                result = new BackendHbResponse();
-            } else if (type == Type.BROKER) {
-                result = new BrokerHbResponse();
-            } else {
-                throw new IOException("Unknown job type: " + type.name());
-            }
-
-            result.setTypeRead(true);
-            result.readFields(in);
-            return result;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), HeartbeatResponse.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), HeartbeatResponse.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    protected void readFields(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_121) {
-            if (!isTypeRead) {
-                type = Type.valueOf(Text.readString(in));
-                isTypeRead = true;
-            }
-            status = HbStatus.valueOf(Text.readString(in));
-        }
     }
 
     @Override

@@ -499,7 +499,8 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
 }
 
 TxnLazyCommitter::TxnLazyCommitter(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(txn_kv) {
-    worker_pool_ = std::make_unique<SimpleThreadPool>(config::txn_lazy_commit_num_threads);
+    worker_pool_ = std::make_unique<SimpleThreadPool>(config::txn_lazy_commit_num_threads,
+                                                      "txn_lazy_commiter");
     worker_pool_->start();
 }
 

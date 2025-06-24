@@ -70,9 +70,8 @@ Status SchemaBackendActiveTasksScanner::get_next_block_internal(vectorized::Bloc
         _task_stats_block = vectorized::Block::create_unique();
 
         for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-            TypeDescriptor descriptor(_s_tbls_columns[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    _s_tbls_columns[i].type, true);
             _task_stats_block->insert(vectorized::ColumnWithTypeAndName(
                     data_type->create_column(), data_type, _s_tbls_columns[i].name));
         }

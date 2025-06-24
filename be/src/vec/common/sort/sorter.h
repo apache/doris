@@ -52,8 +52,7 @@ class MergeSorterState {
     ENABLE_FACTORY_CREATOR(MergeSorterState);
 
 public:
-    MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
-                     RuntimeState* state, RuntimeProfile* profile)
+    MergeSorterState(const RowDescriptor& row_desc, int64_t offset)
             // create_empty_block should ignore invalid slots, unsorted_block
             // should be same structure with arrival block from child node
             // since block from child node may ignored these slots
@@ -140,7 +139,7 @@ public:
 
     // for topn runtime predicate
     const SortDescription& get_sort_description() const { return _sort_description; }
-    virtual Field get_top_value() { return Field {Field::Types::Null}; }
+    virtual Field get_top_value() { return Field {PrimitiveType::TYPE_NULL}; }
 
     virtual Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                              int batch_size, bool* eos);
@@ -152,7 +151,7 @@ public:
     void set_enable_spill() { _enable_spill = true; }
 
 protected:
-    Status partial_sort(Block& src_block, Block& dest_block);
+    Status partial_sort(Block& src_block, Block& dest_block, bool reversed = false);
 
     bool _enable_spill = false;
     SortDescription _sort_description;

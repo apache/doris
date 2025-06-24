@@ -36,7 +36,6 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertOverwriteTableStmt;
 import org.apache.doris.analysis.InsertStmt;
-import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LoadType;
@@ -67,17 +66,12 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TransactionBeginStmt;
-import org.apache.doris.analysis.TransactionCommitStmt;
-import org.apache.doris.analysis.TransactionRollbackStmt;
-import org.apache.doris.analysis.TransactionStmt;
 import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsetVariableStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.analysis.WarmUpClusterStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -175,7 +169,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
@@ -190,7 +183,6 @@ import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -244,7 +236,6 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -307,6 +298,9 @@ public class StmtExecutor {
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         Preconditions.checkState(context.getConnectType().equals(ConnectType.MYSQL));
         this.context = context;
+        if (context != null) {
+            context.setExecutor(this);
+        }
         this.originStmt = originStmt;
         this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
@@ -416,7 +410,7 @@ public class StmtExecutor {
                         .collect(Collectors.joining(",")));
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
-        builder.isNereids(context.getState().isNereids ? "Yes" : "No");
+        builder.isNereids(context.getState().isNereids() ? "Yes" : "No");
         return builder.build();
     }
 
@@ -493,14 +487,14 @@ public class StmtExecutor {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.ordinal();
         }
-        return masterOpExecutor.getProxyStatusCode();
+        return masterOpExecutor.getStatusCode();
     }
 
     public String getProxyErrMsg() {
         if (masterOpExecutor == null) {
             return MysqlStateType.UNKNOWN.name();
         }
-        return masterOpExecutor.getProxyErrMsg();
+        return masterOpExecutor.getErrMsg();
     }
 
     public boolean isSyncLoadKindStmt() {
@@ -546,6 +540,10 @@ public class StmtExecutor {
 
     public boolean isHandleQueryInFe() {
         return isHandleQueryInFe;
+    }
+
+    public boolean isCached() {
+        return isCached;
     }
 
     // query with a random sql
@@ -709,7 +707,8 @@ public class StmtExecutor {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
             if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
-                throw new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName());
+                throw new NereidsException(
+                        new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName()));
             }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
@@ -870,7 +869,9 @@ public class StmtExecutor {
         }
         List<StatementBase> statements;
         try {
+            getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
+            getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -908,6 +909,7 @@ public class StmtExecutor {
                     AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
                             DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                     context.setQueryId(newQueryId);
+                    context.setNeedRegenerateInstanceId(newQueryId);
                     if (Config.isCloudMode()) {
                         // sleep random millis [1000, 1500] ms
                         // in the begining of retryTime/2
@@ -939,11 +941,12 @@ public class StmtExecutor {
                 if (this.coord != null && (this.coord.isQueryCancelled() || this.coord.isTimeout())) {
                     throw e;
                 }
-                // cloud mode retry
-                LOG.debug("due to exception {} retry {} rpc {} user {}",
+                LOG.warn("due to exception {} retry {} rpc {} user {}",
                         e.getMessage(), i, e instanceof RpcException, e instanceof UserException);
+
                 boolean isNeedRetry = false;
                 if (Config.isCloudMode()) {
+                    // cloud mode retry
                     isNeedRetry = false;
                     // errCode = 2, detailMessage = No backend available as scan node,
                     // please check the status of your backends. [10003: not alive]
@@ -1014,8 +1017,7 @@ public class StmtExecutor {
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
             checkSqlBlocked(parsedStmt.getClass());
-            if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
-                    && !(parsedStmt instanceof TransactionStmt)) {
+            if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)) {
                 throw new TException("This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.");
             }
@@ -1083,8 +1085,6 @@ public class StmtExecutor {
             }  else if (parsedStmt instanceof UseCloudClusterStmt) {
                 // jdbc client use
                 handleUseCloudClusterStmt();
-            } else if (parsedStmt instanceof TransactionStmt) {
-                handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 handleCtasStmt();
             } else if (parsedStmt instanceof InsertOverwriteTableStmt) {
@@ -1125,16 +1125,12 @@ public class StmtExecutor {
                 }
             } else if (parsedStmt instanceof ShowStmt) {
                 handleShow();
-            } else if (parsedStmt instanceof KillStmt) {
-                handleKill();
             } else if (parsedStmt instanceof ExportStmt) {
                 handleExportStmt();
             } else if (parsedStmt instanceof UnlockTablesStmt) {
                 handleUnlockTablesStmt();
             } else if (parsedStmt instanceof LockTablesStmt) {
                 handleLockTablesStmt();
-            } else if (parsedStmt instanceof WarmUpClusterStmt) {
-                handleWarmUpStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
             } else if (parsedStmt instanceof AnalyzeStmt) {
@@ -1165,10 +1161,6 @@ public class StmtExecutor {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseWithSuppressedMessage(e));
-            if (parsedStmt instanceof KillStmt) {
-                // ignore kill stmt execute err(not monitor it)
-                context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-            }
         } finally {
             if (!context.isTxnModel() && parsedStmt instanceof InsertStmt) {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
@@ -1199,8 +1191,6 @@ public class StmtExecutor {
 
     /**
      * get variables in stmt.
-     *
-     * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
         analyzeVariablesInStmt(parsedStmt);
@@ -1605,11 +1595,6 @@ public class StmtExecutor {
                 }
             }
         }
-        profile.getSummaryProfile().setQueryAnalysisFinishTime();
-        planner = new OriginalPlanner(analyzer);
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
-            planner.plan(parsedStmt, tQueryOptions);
-        }
         profile.getSummaryProfile().setQueryPlanFinishTime();
     }
 
@@ -1680,62 +1665,6 @@ public class StmtExecutor {
             }
         }
         return Optional.empty();
-    }
-
-    // Handle kill statement.
-    private void handleKill() throws UserException {
-        KillStmt killStmt = (KillStmt) parsedStmt;
-        ConnectContext killCtx = null;
-        int id = killStmt.getConnectionId();
-        String queryId = killStmt.getQueryId();
-        if (id == -1) {
-            // when killCtx == null, this means the query not in FE,
-            // then we just send kill signal to BE
-            killCtx = context.getConnectScheduler().getContextWithQueryId(queryId);
-        } else {
-            killCtx = context.getConnectScheduler().getContext(id);
-            if (killCtx == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
-            }
-        }
-
-        if (killCtx == null) {
-            TUniqueId tQueryId = null;
-            try {
-                tQueryId = DebugUtil.parseTUniqueIdFromString(queryId);
-            } catch (NumberFormatException e) {
-                throw new UserException(e.getMessage());
-            }
-            LOG.info("kill query {}", queryId);
-            Collection<Backend> nodesToPublish = Env.getCurrentSystemInfo()
-                    .getAllBackendsByAllCluster().values();
-            for (Backend be : nodesToPublish) {
-                if (be.isAlive()) {
-                    try {
-                        Status cancelReason = new Status(TStatusCode.CANCELLED, "user kill query");
-                        BackendServiceProxy.getInstance()
-                                .cancelPipelineXPlanFragmentAsync(be.getBrpcAddress(), tQueryId,
-                                        cancelReason);
-                    } catch (Throwable t) {
-                        LOG.info("send kill query {} rpc to be {} failed", queryId, be);
-                    }
-                }
-            }
-        } else if (context == killCtx) {
-            // Suicide
-            context.setKilled();
-        } else {
-            // Check auth
-            // Only user itself and user with admin priv can kill connection
-            if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
-                    PrivPredicate.ADMIN)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
-            }
-
-            killCtx.kill(killStmt.isConnectionKill());
-        }
-        context.getState().setOk();
     }
 
     // Process set statement.
@@ -1852,7 +1781,6 @@ public class StmtExecutor {
             }
         }
 
-        CacheMode mode = cacheAnalyzer.getCacheMode();
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
         if (cacheResult != null) {
@@ -1860,23 +1788,6 @@ public class StmtExecutor {
             if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
                 sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
                 return;
-            }
-            // rewrite sql
-            if (mode == CacheMode.Partition) {
-                if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
-                    isSendFields = sendCachedValues(channel, cacheResult.getValuesList(),
-                            queryStmt, isSendFields, false);
-                }
-                StatementBase newSelectStmt = cacheAnalyzer.getRewriteStmt();
-                newSelectStmt.reset();
-                analyzer = new Analyzer(context.getEnv(), context);
-                newSelectStmt.analyze(analyzer);
-                if (parsedStmt instanceof LogicalPlanAdapter) {
-                    planner = new NereidsPlanner(statementContext);
-                } else {
-                    planner = new OriginalPlanner(analyzer);
-                }
-                planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
             }
         }
         executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
@@ -2182,77 +2093,6 @@ public class StmtExecutor {
         }
     }
 
-    private void handleTransactionStmt() throws Exception {
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            // Every time set no send flag and clean all data in buffer
-            context.getMysqlChannel().reset();
-        }
-        context.getState().setOk(0, 0, "");
-        // create plan
-        if (context.getTxnEntry() != null && context.getTxnEntry().getRowsInTransaction() == 0
-                && !context.getTxnEntry().isTransactionBegan()
-                && (parsedStmt instanceof TransactionCommitStmt || parsedStmt instanceof TransactionRollbackStmt)) {
-            context.setTxnEntry(null);
-        } else if (parsedStmt instanceof TransactionBeginStmt) {
-            if (context.isTxnModel()) {
-                LOG.info("A transaction has already begin");
-                return;
-            }
-            if (context.getTxnEntry() == null) {
-                context.setTxnEntry(new TransactionEntry());
-            }
-            context.getTxnEntry()
-                    .setTxnConf(new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("")
-                            .setTbl("").setMaxFilterRatio(context.getSessionVariable().getEnableInsertStrict() ? 0
-                                    : context.getSessionVariable().getInsertMaxFilterRatio()));
-            context.getTxnEntry().setFirstTxnInsert(true);
-            StringBuilder sb = new StringBuilder();
-            sb.append("{'label':'").append(context.getTxnEntry().getLabel()).append("', 'status':'")
-                    .append(TransactionStatus.PREPARE.name());
-            sb.append("', 'txnId':'").append("'").append("}");
-            context.getState().setOk(0, 0, sb.toString());
-        } else if (parsedStmt instanceof TransactionCommitStmt) {
-            if (!context.isTxnModel()) {
-                LOG.info("No transaction to commit");
-                return;
-            }
-            try {
-                TransactionEntry txnEntry = context.getTxnEntry();
-                TransactionStatus txnStatus = txnEntry.commitTransaction();
-                StringBuilder sb = new StringBuilder();
-                sb.append("{'label':'").append(txnEntry.getLabel()).append("', 'status':'")
-                        .append(txnStatus.name()).append("', 'txnId':'")
-                        .append(txnEntry.getTransactionId()).append("'").append("}");
-                context.getState().setOk(0, 0, sb.toString());
-            } catch (Exception e) {
-                LOG.warn("Txn commit failed", e);
-                throw new AnalysisException(e.getMessage());
-            } finally {
-                context.setTxnEntry(null);
-            }
-        } else if (parsedStmt instanceof TransactionRollbackStmt) {
-            if (!context.isTxnModel()) {
-                LOG.info("No transaction to rollback");
-                return;
-            }
-            try {
-                TransactionEntry txnEntry = context.getTxnEntry();
-                long txnId = txnEntry.abortTransaction();
-                StringBuilder sb = new StringBuilder();
-                sb.append("{'label':'").append(txnEntry.getLabel()).append("', 'status':'")
-                        .append(TransactionStatus.ABORTED.name()).append("', 'txnId':'")
-                        .append(txnId).append("'").append("}");
-                context.getState().setOk(0, 0, sb.toString());
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
-            } finally {
-                context.setTxnEntry(null);
-            }
-        } else {
-            throw new TException("parsedStmt type is not TransactionStmt");
-        }
-    }
-
     private int executeForTxn(InsertStmt insertStmt)
             throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
         if (context.isInsertValuesTxnIniting()) { // first time, begin txn
@@ -2321,7 +2161,7 @@ public class StmtExecutor {
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
         SessionVariable sessionVariable = context.getSessionVariable();
-        long timeoutSecond = context.getExecTimeout();
+        long timeoutSecond = context.getExecTimeoutS();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -2499,9 +2339,9 @@ public class StmtExecutor {
                     coord.getQueryOptions().setEnableMemtableOnSinkNode(isEnableMemtableOnSinkNode);
                 }
                 coord.exec();
-                int execTimeout = context.getExecTimeout();
+                int execTimeout = context.getExecTimeoutS();
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Insert {} execution timeout:{}", DebugUtil.printId(context.queryId()), execTimeout);
+                    LOG.debug("Insert {} execution timeout:{}ms", DebugUtil.printId(context.queryId()), execTimeout);
                 }
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
@@ -2797,34 +2637,6 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
-    private void handleWarmUpStmt() throws IOException, AnalysisException {
-        WarmUpClusterStmt stmt = (WarmUpClusterStmt) parsedStmt;
-        long jobId = -1;
-        try {
-            jobId = ((CloudEnv) context.getEnv()).getCacheHotspotMgr().createJob(stmt);
-            ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-            builder.addColumn(new Column("JobId", ScalarType.createVarchar(30)));
-            List<List<String>> infos = Lists.newArrayList();
-            List<String> info = Lists.newArrayList();
-            info.add(String.valueOf(jobId));
-            infos.add(info);
-            ShowResultSet resultSet = new ShowResultSet(builder.build(), infos);
-            if (resultSet == null) {
-                // state changed in execute
-                return;
-            }
-            if (isProxy) {
-                proxyShowResultSet = resultSet;
-                return;
-            }
-
-            sendResultSet(resultSet);
-        } catch (AnalysisException e) {
-            LOG.info("failed to create a warm up job, error: {}", e.getMessage());
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-        }
-    }
-
     private void sendMetaData(ResultSetMetaData metaData) throws IOException {
         sendMetaData(metaData, null);
     }
@@ -2907,11 +2719,11 @@ public class StmtExecutor {
             for (Slot slot : output) {
                 serializer.reset();
                 if (slot instanceof SlotReference
-                        && ((SlotReference) slot).getColumn().isPresent()
-                        && ((SlotReference) slot).getTable().isPresent()) {
+                        && ((SlotReference) slot).getOriginalColumn().isPresent()
+                        && ((SlotReference) slot).getOriginalTable().isPresent()) {
                     SlotReference slotReference = (SlotReference) slot;
-                    TableIf table = slotReference.getTable().get();
-                    Column column = slotReference.getColumn().get();
+                    TableIf table = slotReference.getOriginalTable().get();
+                    Column column = slotReference.getOriginalColumn().get();
                     DatabaseIf database = table.getDatabase();
                     String dbName = database == null ? "" : database.getFullName();
                     serializer.writeField(dbName, table.getName(), column, false);
@@ -3129,10 +2941,6 @@ public class StmtExecutor {
             EtlJobType jobType = loadStmt.getEtlJobType();
             if (jobType == EtlJobType.UNKNOWN) {
                 throw new DdlException("Unknown load job type");
-            }
-            if (jobType == EtlJobType.HADOOP) {
-                throw new DdlException("Load job by hadoop cluster is disabled."
-                        + " Try using broker load. See 'help broker load;'");
             }
             LoadManager loadManager = context.getEnv().getLoadManager();
             if (jobType == EtlJobType.LOCAL_FILE) {
@@ -3525,6 +3333,7 @@ public class StmtExecutor {
                                 + " but parsedStmt is " + parsedStmt.getClass().getName());
                 context.getState().setNereids(true);
                 context.getState().setIsQuery(true);
+                context.getState().setInternal(true);
                 planner = new NereidsPlanner(statementContext);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {

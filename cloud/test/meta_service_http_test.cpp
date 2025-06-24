@@ -41,6 +41,7 @@
 
 #include "common/config.h"
 #include "common/configbase.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
@@ -1004,8 +1005,9 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "alter_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -1523,8 +1525,9 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
 TEST(MetaServiceHttpTest, get_stage_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                          [&](...) { sp->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
 
     GetStageResponse res;
     auto* stage = res.add_stage();
@@ -1557,8 +1560,9 @@ TEST(MetaServiceHttpTest, get_stage_response_sk) {
 TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
-                                                          [&](...) { sp->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
 
     GetObjStoreInfoResponse res;
     auto* obj_info = res.add_obj_info();
@@ -1770,6 +1774,101 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
             }
         }
         {
+            auto [status_code, content] =
+                    ctx.query<std::string>("update_config",
+                                           "configs=delete_bitmap_lock_v2_white_list="
+                                           "warehouse2;warehouse3&persist=true");
+
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "warehouse2;warehouse3");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse1";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse2";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse2;warehouse3");
+                instance_id = "warehouse1";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse2";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
+        }
+        //resend config will rewrite it
+        {
+            auto [status_code, content] = ctx.query<std::string>(
+                    "update_config", "configs=delete_bitmap_lock_v2_white_list=''&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "''");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse1";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse2";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+        }
+        {
+            auto [status_code, content] =
+                    ctx.query<std::string>("update_config",
+                                           "configs=delete_bitmap_lock_v2_white_list="
+                                           "warehouse4;warehouse5&persist=true");
+            ASSERT_EQ(status_code, 200);
+            ASSERT_EQ(config::delete_bitmap_lock_v2_white_list, "warehouse4;warehouse5");
+            auto& meta_service = ctx.meta_service_;
+            std::string use_version = "";
+            std::string instance_id = "warehouse3";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v1");
+            instance_id = "warehouse4";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            instance_id = "warehouse5";
+            meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+            ASSERT_EQ(use_version, "v2");
+            config::Properties props;
+            ASSERT_TRUE(props.load(config::custom_conf_path.c_str(), true));
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse4;warehouse5");
+                instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse4";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse5";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+            }
+        }
+        {
             auto [status_code, content] = ctx.query<std::string>(
                     "update_config", "configs=enable_s3_rate_limiter=false&persist=true");
             ASSERT_EQ(status_code, 200);
@@ -1800,6 +1899,25 @@ TEST(MetaServiceHttpTest, UpdateConfig) {
                                                  enable_s3_rate_limiter, &new_val_set));
                 ASSERT_TRUE(new_val_set);
                 ASSERT_FALSE(enable_s3_rate_limiter);
+            }
+            {
+                bool new_val_set = false;
+                std::string white_list = "";
+                ASSERT_TRUE(props.get_or_default("delete_bitmap_lock_v2_white_list", nullptr,
+                                                 white_list, &new_val_set));
+                ASSERT_TRUE(new_val_set);
+                ASSERT_EQ(white_list, "warehouse4;warehouse5");
+                auto& meta_service = ctx.meta_service_;
+                std::string use_version = "";
+                std::string instance_id = "warehouse3";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v1");
+                instance_id = "warehouse4";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
+                instance_id = "warehouse5";
+                meta_service->get_delete_bitmap_lock_version(use_version, instance_id);
+                ASSERT_EQ(use_version, "v2");
             }
         }
         std::filesystem::remove(config::custom_conf_path);
@@ -1876,6 +1994,95 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
     EXPECT_EQ(updated_rowset_meta.tablet_id(), 67890);
     EXPECT_EQ(updated_rowset_meta.num_rows(), 200);
     EXPECT_EQ(updated_rowset_meta.data_disk_size(), 2048);
+}
+
+TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    HttpContext ctx;
+
+    brpc::Controller cntl;
+    std::string instance_id = "iam_role_test_instance_id";
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_prefix("/test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+
+        // create instance without ram user
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    {
+        ObjectStoreInfoPB obj;
+        obj.set_endpoint("s3.us-east-1.amazonaws.com");
+        obj.set_region("us-east-1");
+        obj.set_bucket("test-bucket");
+        obj.set_prefix("test-prefix");
+        obj.set_provider(ObjectStoreInfoPB::S3);
+        obj.set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        obj.set_external_id("test-external-id");
+        obj.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        CreateInstanceRequest create_instance_req;
+        create_instance_req.set_instance_id(instance_id);
+        create_instance_req.set_user_id("test_user");
+        create_instance_req.set_name("test_name");
+        create_instance_req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse create_instance_res;
+        ctx.meta_service_->create_instance(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &create_instance_req,
+                &create_instance_res, nullptr);
+        LOG(INFO) << create_instance_res.DebugString();
+        ASSERT_EQ(create_instance_res.status().code(), MetaServiceCode::OK);
+
+        InstanceInfoPB instance = ctx.get_instance_info(instance_id);
+        LOG(INFO) << instance.DebugString();
+
+        ASSERT_EQ(instance.obj_info().Get(0).endpoint(), "s3.us-east-1.amazonaws.com");
+        ASSERT_EQ(instance.obj_info().Get(0).region(), "us-east-1");
+        ASSERT_EQ(instance.obj_info().Get(0).bucket(), "test-bucket");
+        ASSERT_EQ(instance.obj_info().Get(0).prefix(), "test-prefix");
+        ASSERT_EQ(instance.obj_info().Get(0).provider(), ObjectStoreInfoPB::S3);
+        ASSERT_EQ(instance.obj_info().Get(0).role_arn(),
+                  "arn:aws:iam::123456789012:role/test-role");
+        ASSERT_EQ(instance.obj_info().Get(0).external_id(), "test-external-id");
+        ASSERT_EQ(instance.obj_info().Get(0).cred_provider_type(),
+                  CredProviderTypePB::INSTANCE_PROFILE);
+        ASSERT_EQ(instance.obj_info().Get(0).has_ak(), false);
+        ASSERT_EQ(instance.obj_info().Get(0).has_sk(), false);
+    }
 }
 
 } // namespace doris::cloud

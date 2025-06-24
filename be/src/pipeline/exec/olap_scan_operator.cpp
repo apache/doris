@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <memory>
+#include <numeric>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -68,12 +69,22 @@ Status OlapScanLocalState::_init_profile() {
     if (config::is_cloud_mode()) {
         static const char* sync_rowset_timer_name = "SyncRowsetTime";
         _sync_rowset_timer = ADD_TIMER(_scanner_profile, sync_rowset_timer_name);
+        _sync_rowset_tablet_meta_cache_hit =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletMetaCacheHitCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_tablet_meta_cache_miss =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletMetaCacheMissCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
+        _sync_rowset_get_remote_tablet_meta_rpc_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetGetRemoteTabletMetaRpcTime", sync_rowset_timer_name);
+        _sync_rowset_tablets_rowsets_total_num =
+                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetTabletsRowsetsTotatCount",
+                                  TUnit::UNIT, sync_rowset_timer_name);
         _sync_rowset_get_remote_rowsets_num =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsCount", TUnit::UNIT,
                                   sync_rowset_timer_name);
-        _sync_rowset_get_remote_rowsets_rpc_timer =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteRowsetsRpcMs",
-                                  TUnit::TIME_MS, sync_rowset_timer_name);
+        _sync_rowset_get_remote_rowsets_rpc_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetGetRemoteRowsetsRpcTime", sync_rowset_timer_name);
         _sync_rowset_get_local_delete_bitmap_rowsets_num =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetLocalDeleteBitmapRowsetsCount",
                                   TUnit::UNIT, sync_rowset_timer_name);
@@ -86,9 +97,8 @@ Status OlapScanLocalState::_init_profile() {
         _sync_rowset_get_remote_delete_bitmap_bytes =
                 ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapBytes",
                                   TUnit::BYTES, sync_rowset_timer_name);
-        _sync_rowset_get_remote_delete_bitmap_rpc_timer =
-                ADD_CHILD_COUNTER(_scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcMs",
-                                  TUnit::TIME_MS, sync_rowset_timer_name);
+        _sync_rowset_get_remote_delete_bitmap_rpc_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcTime", sync_rowset_timer_name);
     }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -276,7 +286,7 @@ Status OlapScanLocalState::_should_push_down_function_filter(vectorized::Vectori
             pdt = PushDownType::UNACCEPTABLE;
             return Status::OK();
         } else {
-            DCHECK(children[1 - i]->type().is_string_type());
+            DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
             std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
             if (const auto* const_column = check_and_get_column<vectorized::ColumnConst>(
@@ -362,9 +372,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
         // If the `max_scanners_count` was not set,
-        // use `config::doris_scanner_thread_pool_thread_num` as the default value.
+        // use `CpuInfo::num_cores()` as the default value.
         if (max_scanners_count <= 0) {
-            max_scanners_count = config::doris_scanner_thread_pool_thread_num;
+            max_scanners_count = CpuInfo::num_cores();
         }
 
         // Too small value of `min_rows_per_scanner` is meaningless.
@@ -474,13 +484,24 @@ Status OlapScanLocalState::hold_tablets() {
                     return Status::OK();
                 });
             }
-            RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+            RETURN_IF_ERROR(
+                    cloud::bthread_fork_join(tasks, config::init_scanner_sync_rowsets_parallelism));
         }
         COUNTER_UPDATE(_sync_rowset_timer, duration_ns);
+        auto total_rowsets = std::accumulate(
+                _tablets.cbegin(), _tablets.cend(), 0LL,
+                [](long long acc, const auto& tabletWithVersion) {
+                    return acc + tabletWithVersion.tablet->tablet_meta()->all_rs_metas().size();
+                });
+        COUNTER_UPDATE(_sync_rowset_tablets_rowsets_total_num, total_rowsets);
         for (const auto& sync_stats : sync_statistics) {
+            COUNTER_UPDATE(_sync_rowset_tablet_meta_cache_hit, sync_stats.tablet_meta_cache_hit);
+            COUNTER_UPDATE(_sync_rowset_tablet_meta_cache_miss, sync_stats.tablet_meta_cache_miss);
+            COUNTER_UPDATE(_sync_rowset_get_remote_tablet_meta_rpc_timer,
+                           sync_stats.get_remote_tablet_meta_rpc_ns);
             COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_num, sync_stats.get_remote_rowsets_num);
             COUNTER_UPDATE(_sync_rowset_get_remote_rowsets_rpc_timer,
-                           sync_stats.get_remote_rowsets_rpc_ms);
+                           sync_stats.get_remote_rowsets_rpc_ns);
             COUNTER_UPDATE(_sync_rowset_get_local_delete_bitmap_rowsets_num,
                            sync_stats.get_local_delete_bitmap_rowsets_num);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rowsets_num,
@@ -490,8 +511,42 @@ Status OlapScanLocalState::hold_tablets() {
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_bytes,
                            sync_stats.get_remote_delete_bitmap_bytes);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
-                           sync_stats.get_remote_delete_bitmap_rpc_ms);
+                           sync_stats.get_remote_delete_bitmap_rpc_ns);
         }
+        auto time_ms = duration_ns / 1000 / 1000;
+        if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
+            DorisMetrics::instance()->get_remote_tablet_slow_time_ms->increment(time_ms);
+            DorisMetrics::instance()->get_remote_tablet_slow_cnt->increment(1);
+            LOG_WARNING("get tablet takes too long")
+                    .tag("query_id", print_id(PipelineXLocalState<>::_state->query_id()))
+                    .tag("node_id", _parent->node_id())
+                    .tag("total_time", PrettyPrinter::print(duration_ns, TUnit::TIME_NS))
+                    .tag("num_tablets", _tablets.size())
+                    .tag("tablet_meta_cache_hit", _sync_rowset_tablet_meta_cache_hit->value())
+                    .tag("tablet_meta_cache_miss", _sync_rowset_tablet_meta_cache_miss->value())
+                    .tag("get_remote_tablet_meta_rpc_time",
+                         PrettyPrinter::print(
+                                 _sync_rowset_get_remote_tablet_meta_rpc_timer->value(),
+                                 TUnit::TIME_NS))
+                    .tag("remote_rowsets_num", _sync_rowset_get_remote_rowsets_num->value())
+                    .tag("get_remote_rowsets_rpc_time",
+                         PrettyPrinter::print(_sync_rowset_get_remote_rowsets_rpc_timer->value(),
+                                              TUnit::TIME_NS))
+                    .tag("local_delete_bitmap_rowsets_num",
+                         _sync_rowset_get_local_delete_bitmap_rowsets_num->value())
+                    .tag("remote_delete_bitmap_rowsets_num",
+                         _sync_rowset_get_remote_delete_bitmap_rowsets_num->value())
+                    .tag("remote_delete_bitmap_key_count",
+                         _sync_rowset_get_remote_delete_bitmap_key_count->value())
+                    .tag("remote_delete_bitmap_bytes",
+                         PrettyPrinter::print(_sync_rowset_get_remote_delete_bitmap_bytes->value(),
+                                              TUnit::BYTES))
+                    .tag("get_remote_delete_bitmap_rpc_time",
+                         PrettyPrinter::print(
+                                 _sync_rowset_get_remote_delete_bitmap_rpc_timer->value(),
+                                 TUnit::TIME_NS));
+        }
+
     } else {
         for (size_t i = 0; i < _scan_ranges.size(); i++) {
             int64_t version = 0;

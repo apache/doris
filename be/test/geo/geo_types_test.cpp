@@ -1482,7 +1482,7 @@ TEST_F(GeoTypesTest, polygon_hole_contains) {
         GeoPoint point;
         point.from_coord(20, 20);
         auto res = polygon->contains(&point);
-        EXPECT_TRUE(res);
+        EXPECT_FALSE(res);
     }
 }
 

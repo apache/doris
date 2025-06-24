@@ -39,20 +39,20 @@ const i32 INVALID_PLAN_NODE_ID = -1
 const i64 DEFAULT_PARTITION_ID = -1;
 
 enum TQueryType {
-    SELECT,
-    LOAD,
-    EXTERNAL
+    SELECT = 0,
+    LOAD = 1,
+    EXTERNAL = 2
 }
 
 enum TErrorHubType {
-    MYSQL,
-    BROKER,
-    NULL_TYPE
+    MYSQL = 0,
+    BROKER = 1,
+    NULL_TYPE = 2
 }
 
 enum TPrefetchMode {
-    NONE,
-    HT_BUCKET
+    NONE = 0,
+    HT_BUCKET = 1
 }
 
 struct TMysqlErrorHubInfo {
@@ -393,6 +393,7 @@ struct TQueryOptions {
   162: optional bool dump_heap_profile_when_mem_limit_exceeded = false
   163: optional bool inverted_index_compatible_read = false
   164: optional bool check_orc_init_sargs_success = false
+  165: optional i32 exchange_multi_blocks_byte_size = 262144 
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -502,7 +503,7 @@ struct TQueryGlobals {
 // Service Protocol Details
 
 enum PaloInternalServiceVersion {
-  V1
+  V1 = 0
 }
 
 struct TTxnParams {

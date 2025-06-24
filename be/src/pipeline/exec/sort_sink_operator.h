@@ -48,7 +48,7 @@ private:
     RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     // topn top value
-    vectorized::Field old_top {vectorized::Field::Types::Null};
+    vectorized::Field old_top {PrimitiveType::TYPE_NULL};
     RuntimeProfile::Counter* _append_blocks_timer = nullptr;
     RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 };

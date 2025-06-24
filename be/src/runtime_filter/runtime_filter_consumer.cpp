@@ -107,10 +107,10 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         // create min filter
         vectorized::VExprSPtr min_pred;
         TExprNode min_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::GE, min_pred,
-                                              &min_pred_node, null_aware));
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->data_type(), TExprOpcode::GE,
+                                              min_pred, &min_pred_node, null_aware));
         vectorized::VExprSPtr min_literal;
-        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_min(), min_literal));
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
@@ -124,10 +124,10 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         vectorized::VExprSPtr max_pred;
         // create max filter
         TExprNode max_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
-                                              &max_pred_node, null_aware));
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->data_type(), TExprOpcode::LE,
+                                              max_pred, &max_pred_node, null_aware));
         vectorized::VExprSPtr max_literal;
-        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_max(), max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
@@ -141,10 +141,10 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         vectorized::VExprSPtr max_pred;
         // create max filter
         TExprNode max_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->type(), TExprOpcode::LE, max_pred,
-                                              &max_pred_node, null_aware));
+        RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->data_type(), TExprOpcode::LE,
+                                              max_pred, &max_pred_node, null_aware));
         vectorized::VExprSPtr max_literal;
-        RETURN_IF_ERROR(create_literal(probe_ctx->root()->type(),
+        RETURN_IF_ERROR(create_literal(probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_max(), max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
@@ -158,10 +158,10 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         // create min filter
         vectorized::VExprSPtr min_pred;
         TExprNode min_pred_node;
-        RETURN_IF_ERROR(create_vbin_predicate(new_probe_ctx->root()->type(), TExprOpcode::GE,
+        RETURN_IF_ERROR(create_vbin_predicate(new_probe_ctx->root()->data_type(), TExprOpcode::GE,
                                               min_pred, &min_pred_node, null_aware));
         vectorized::VExprSPtr min_literal;
-        RETURN_IF_ERROR(create_literal(new_probe_ctx->root()->type(),
+        RETURN_IF_ERROR(create_literal(new_probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_min(), min_literal));
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);

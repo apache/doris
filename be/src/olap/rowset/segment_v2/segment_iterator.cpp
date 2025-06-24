@@ -43,9 +43,9 @@
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/field.h"
+#include "olap/id_manager.h"
 #include "olap/iterators.h"
 #include "olap/like_column_predicate.h"
-#include "olap/match_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
@@ -72,10 +72,9 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
@@ -543,6 +542,29 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             }
         }
     }
+
+    DBUG_EXECUTE_IF("segment_iterator.inverted_index.filtered_rows", {
+        LOG(INFO) << "Debug Point: segment_iterator.inverted_index.filtered_rows: "
+                  << _opts.stats->rows_inverted_index_filtered;
+        auto filtered_rows = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "segment_iterator.inverted_index.filtered_rows", "filtered_rows", -1);
+        if (filtered_rows != _opts.stats->rows_inverted_index_filtered) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "filtered_rows: {} not equal to expected: {}",
+                    _opts.stats->rows_inverted_index_filtered, filtered_rows);
+        }
+    })
+
+    DBUG_EXECUTE_IF("segment_iterator.apply_inverted_index", {
+        LOG(INFO) << "Debug Point: segment_iterator.apply_inverted_index";
+        if (!_common_expr_ctxs_push_down.empty() || !_col_predicates.empty()) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "it is failed to apply inverted index, common_expr_ctxs_push_down: {}, "
+                    "col_predicates: {}",
+                    _common_expr_ctxs_push_down.size(), _col_predicates.size());
+        }
+    })
+
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
@@ -728,6 +750,7 @@ bool SegmentIterator::_is_literal_node(const TExprNodeType::type& node_type) {
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
+    case TExprNodeType::TIMEV2_LITERAL:
         return true;
     default:
         return false;
@@ -1023,6 +1046,16 @@ Status SegmentIterator::_init_return_column_iterators() {
                     new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
+
+        if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            auto& id_file_map = _opts.runtime_state->get_id_file_map();
+            uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
+                    _opts.tablet_id, _opts.rowset_id, _segment->id()));
+            _column_iterators[cid].reset(new RowIdColumnIteratorV2(
+                    IdManager::ID_VERSION, BackendOptions::get_backend_id(), file_id));
+            continue;
+        }
+
         std::set<ColumnId> del_cond_id_set;
         _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
         std::vector<bool> tmp_is_pred_column;
@@ -1480,7 +1513,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // Use variant cast dst type
         field_type = TabletColumn::get_field_type_by_type(
-                _opts.target_cast_type_for_variants[_schema->column(cid)->name()].type);
+                _opts.target_cast_type_for_variants[_schema->column(cid)->name()]);
     }
     switch (predicate->type()) {
     case PredicateType::EQ:
@@ -1618,12 +1651,6 @@ Status SegmentIterator::_init_current_block(
                 current_columns[cid]->clear();
             } else { // non-predicate column
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-
-                if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                    current_columns[cid]->set_date_type();
-                } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                    current_columns[cid]->set_datetime_type();
-                }
                 current_columns[cid]->reserve(nrows_read_limit);
             }
         }

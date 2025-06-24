@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TTableDescriptor;
 import com.google.common.base.Objects;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import lombok.Getter;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
@@ -64,7 +63,6 @@ import java.util.Set;
  * External table represent tables that are not self-managed by Doris.
  * Such as tables from hive, iceberg, es, etc.
  */
-@Getter
 public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalTable.class);
 
@@ -465,5 +463,37 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hashCode(name, db);
+    }
+
+    public long getSchemaUpdateTime() {
+        return schemaUpdateTime;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
+
+    public boolean isObjectCreated() {
+        return objectCreated;
+    }
+
+    public ExternalCatalog getCatalog() {
+        return catalog;
+    }
+
+    public ExternalDatabase getDb() {
+        return db;
+    }
+
+    public long getTimestamp() {
+        return timestamp;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public TableAttributes getTableAttributes() {
+        return tableAttributes;
     }
 }

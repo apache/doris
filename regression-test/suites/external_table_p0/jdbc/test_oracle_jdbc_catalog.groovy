@@ -136,6 +136,70 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_date6  """ select * from TEST_DATE where (T1 < '2022-01-22 00:00:00' or T1 > '2022-01-20 00:00:00') and (T1 < '2022-01-23 00:00:00' or T1 > '2022-01-19 00:00:00'); """
         order_qt_date7  """select * from TEST_TIMESTAMP where T2 < str_to_date('2020-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');"""
 
+        // Test compound predicates processing - Multiple test cases for NOT, AND, OR combinations and nesting
+        order_qt_compound1 """select * from TEST_TIMESTAMP where T1 is not null order by ID;"""
+        order_qt_compound2 """select * from TEST_TIMESTAMP where NOT (T1 is null) order by ID;"""
+        order_qt_compound3 """select * from TEST_TIMESTAMP where T1 is not null AND T1 < '2013-02-01 00:00:00' order by ID;"""
+        order_qt_compound4 """select * from TEST_TIMESTAMP where T1 is not null OR T2 is not null order by ID;"""
+        order_qt_compound5 """select * from TEST_TIMESTAMP where NOT (T1 is null OR T2 is null) order by ID;"""
+        order_qt_compound6 """select * from TEST_TIMESTAMP where (T1 is not null AND T1 < '2013-02-01 00:00:00') OR (T2 is not null AND T2 > '2019-01-01 00:00:00') order by ID;"""
+        order_qt_compound7 """select * from TEST_TIMESTAMP where NOT ((T1 is null AND T2 is null) OR (T3 is null AND T4 is null)) order by ID;"""
+
+        // Test IN operator with date/time values
+        order_qt_in_date1 """select * from TEST_TIMESTAMP where T1 IN ('2013-01-21 05:23:01', '2013-11-12 20:32:56') order by ID;"""
+        order_qt_in_date2 """select * from TEST_TIMESTAMP where T1 NOT IN ('2013-01-21 05:23:01') order by ID;"""
+        
+        // Test date/time comparisons and combinations
+        order_qt_date_complex1 """select * from TEST_TIMESTAMP where T1 < '2013-05-01 00:00:00' AND T1 > '2013-01-01 00:00:00' order by ID;"""
+        order_qt_date_complex2 """select * from TEST_TIMESTAMP where T1 BETWEEN '2013-01-01 00:00:00' AND '2013-12-31 23:59:59' order by ID;"""
+        order_qt_date_complex3 """select * from TEST_TIMESTAMP where T2 >= '2019-01-01 00:00:00' OR T3 >= '2019-01-01 00:00:00' order by ID;"""
+        order_qt_date_complex4 """select * from TEST_TIMESTAMP where NOT (T1 < '2013-01-01 00:00:00' OR T1 > '2014-01-01 00:00:00') order by ID;"""
+        
+        // Test NOT operator in date/time expressions
+        order_qt_time_not1 """select * from TEST_TIMESTAMP where NOT (T1 > '2013-06-01 00:00:00') order by ID;"""
+        order_qt_time_not2 """select * from TEST_TIMESTAMP where NOT (T1 BETWEEN '2013-05-01 00:00:00' AND '2013-12-31 23:59:59') order by ID;"""
+        order_qt_time_not3 """select * from TEST_TIMESTAMP where T1 IS NOT NULL AND NOT (T1 > '2013-10-01 00:00:00') order by ID;"""
+        
+        // Test complex date/time comparisons and multiple time field combinations
+        order_qt_time_multi1 """select * from TEST_TIMESTAMP where (T1 < '2013-06-01 00:00:00' OR T2 > '2019-01-01 00:00:00') order by ID;"""
+        order_qt_time_multi2 """select * from TEST_TIMESTAMP where (T1 IS NOT NULL AND T1 < '2013-06-01 00:00:00') OR (T2 IS NOT NULL AND T2 > '2019-01-01 00:00:00') order by ID;"""
+        order_qt_time_multi3 """select * from TEST_TIMESTAMP where NOT ((T1 IS NULL) OR (T2 IS NULL AND T3 IS NULL)) order by ID;"""
+        
+        // Test date comparisons using to_date function
+        order_qt_time_func1 """select * from TEST_TIMESTAMP where T1 > str_to_date('2013-01-01 00:00:00', '%Y-%m-%d %H:%i:%s') order by ID;"""
+        order_qt_time_func2 """select * from TEST_TIMESTAMP where T1 BETWEEN str_to_date('2013-01-01 00:00:00', '%Y-%m-%d %H:%i:%s') AND str_to_date('2013-12-31 23:59:59', '%Y-%m-%d %H:%i:%s') order by ID;"""
+        order_qt_time_func3 """select * from TEST_TIMESTAMP where NOT (T1 < str_to_date('2013-01-01 00:00:00', '%Y-%m-%d %H:%i:%s')) order by ID;"""
+        
+        // Test complex AND/OR/NOT combinations with date/time comparisons
+        order_qt_time_complex1 """select * from TEST_TIMESTAMP where (T1 > '2013-01-01 00:00:00' AND T1 < '2013-12-31 23:59:59') OR (T2 > '2018-01-01 00:00:00' AND T2 < '2020-01-01 00:00:00') order by ID;"""
+        order_qt_time_complex2 """select * from TEST_TIMESTAMP where NOT ((T1 < '2013-01-01 00:00:00' OR T1 > '2014-01-01 00:00:00') AND (T2 IS NULL OR T2 < '2018-01-01 00:00:00')) order by ID;"""
+        order_qt_time_complex3 """select * from TEST_TIMESTAMP where (T1 IN ('2013-01-21 05:23:01', '2013-11-12 20:32:56') OR T2 IS NOT NULL) AND NOT (T3 IS NULL AND T4 IS NULL) order by ID;"""
+        
+        // Test deeply nested date/time conditions
+        order_qt_nested1 """select * from TEST_TIMESTAMP where NOT (NOT (T1 > '2013-01-01 00:00:00')) order by ID;"""
+        order_qt_nested2 """select * from TEST_TIMESTAMP where NOT ((T1 IS NULL OR T1 > '2013-10-01 00:00:00') AND (T2 IS NULL OR T2 < '2019-01-01 00:00:00')) order by ID;"""
+        
+        // Test date format edge cases
+        order_qt_edge1 """select * from TEST_TIMESTAMP where T1 = '2013-01-21 05:23:01' order by ID;"""
+        order_qt_edge2 """select * from TEST_TIMESTAMP where T2 = '2019-11-12 20:33:57.999' order by ID;"""
+        order_qt_edge3 """select * from TEST_TIMESTAMP where T3 = '2019-11-12 20:33:57.999998' order by ID;"""
+        
+        // Test CURDATE() function and CAST combinations
+        order_qt_curdate1 """select * from TEST_TIMESTAMP where ID = 1 OR (T2 >= CAST(CURDATE() AS DATETIME) AND T1 >= CAST(CURDATE() AS DATETIME) AND T3 NOT IN (CAST(CURDATE() AS DATETIME))) order by ID;"""
+        order_qt_curdate2 """select * from TEST_TIMESTAMP where T1 >= CAST(CURDATE() AS DATETIME) order by ID;"""
+        order_qt_curdate3 """select * from TEST_TIMESTAMP where T1 IN (CAST(CURDATE() AS DATETIME), CAST(CURDATE() + INTERVAL 1 DAY AS DATETIME)) order by ID;"""
+        order_qt_curdate4 """select * from TEST_TIMESTAMP where T2 NOT IN (CAST(CURDATE() AS DATETIME), CAST(CURDATE() + INTERVAL 1 DAY AS DATETIME)) order by ID;"""
+        
+        // Test complex nested conditions with date functions
+        order_qt_complex1 """select * from TEST_TIMESTAMP where (T1 < CAST(CURDATE() AS DATETIME) OR T2 > CAST(CURDATE() AS DATETIME)) AND NOT (T3 = CAST(CURDATE() AS DATETIME)) order by ID;"""
+        order_qt_complex2 """select * from TEST_TIMESTAMP where NOT ((T1 < CAST(CURDATE() AS DATETIME) AND T2 IS NULL) OR (T3 > CAST(CURDATE() AS DATETIME))) order by ID;"""
+        
+        // Test CAST, CURDATE with multiple time conditions
+        order_qt_complex3 """select * from TEST_TIMESTAMP where (ID = 1 AND T1 >= CAST(CURDATE() AS DATETIME)) OR (ID = 2 AND T2 BETWEEN CAST(CURDATE() AS DATETIME) AND CAST(CURDATE() + INTERVAL 7 DAY AS DATETIME)) order by ID;"""
+        
+        // Test mixed date functions and string dates
+        order_qt_mixed """select * from TEST_TIMESTAMP where T1 >= CAST(CURDATE() AS DATETIME) AND T2 < '2023-01-01 00:00:00' order by ID;"""
+
         // test nvl
         explain {
             sql("SELECT * FROM STUDENT WHERE nvl(score, 0) < 95;")
@@ -323,7 +387,77 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_null_operator9 """ SELECT * FROM STUDENT WHERE (id IS NOT NULL AND NULL); """
         order_qt_null_operator10 """ SELECT * FROM STUDENT WHERE (name IS NULL OR age IS NOT NULL); """
 
-        sql """ drop catalog if exists oracle_null_operator; """
+        // test function rules
+        // test push down
+        sql """ drop catalog if exists oracle_function_rules"""
+        // test invalid config
+        test {
+            sql """create catalog if not exists oracle_function_rules properties(
+                "type"="jdbc",
+                "user"="doris_test",
+                "password"="123456",
+                "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+            );"""
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql """create catalog if not exists oracle_function_rules properties(
+            "type"="jdbc",
+            "user"="doris_test",
+            "password"="123456",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver",
+            "function_rules" = '{"pushdown" : {"supported" : ["abs"]}}'
+        );"""
+
+        sql "use oracle_function_rules.DORIS_TEST"
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"], "unsupported" : []}}')"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // test rewrite
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"abs" : "abs2"}}');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs2("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // reset function rules
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // test invalid config
+        test {
+            sql """alter catalog oracle_function_rules set properties("function_rules" = 'invalid_json')"""
+            exception """Failed to parse push down rules: invalid_json"""
+        }
+
+        // sql """ drop catalog if exists oracle_null_operator; """
 
     }
 }

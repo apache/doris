@@ -27,10 +27,12 @@ import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext.TableFrom;
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -139,7 +141,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             case 3:
                 // catalog.db.table
                 // Use catalog and database name from name parts.
-                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.INSERT_TARGET);
+                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.INSERT_TARGET, Optional.empty());
                 return null;
             default:
                 throw new IllegalStateException("Insert target name is invalid.");
@@ -158,7 +160,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             case 3:
                 // catalog.db.table
                 // Use catalog and database name from name parts.
-                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.QUERY);
+                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.QUERY, ctx.root.getLocation());
                 return null;
             default:
                 throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -166,7 +168,7 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private void collectFromUnboundRelation(CascadesContext cascadesContext,
-            List<String> nameParts, TableFrom tableFrom) {
+            List<String> nameParts, TableFrom tableFrom, Optional<Location> location) {
         if (nameParts.size() == 1) {
             String tableName = nameParts.get(0);
             // check if it is a CTE's name
@@ -178,9 +180,15 @@ public class CollectRelation implements AnalysisRuleFactory {
                 }
             }
         }
+
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(), nameParts);
-        TableIf table = cascadesContext.getConnectContext().getStatementContext()
-                .getAndCacheTable(tableQualifier, tableFrom);
+        TableIf table;
+        if (cascadesContext.getRewritePlan() instanceof UnboundDictionarySink) {
+            table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
+        } else {
+            table = cascadesContext.getConnectContext().getStatementContext()
+                .getAndCacheTable(tableQualifier, tableFrom, location);
+        }
         LOG.info("collect table {} from {}", nameParts, tableFrom);
         if (tableFrom == TableFrom.QUERY) {
             collectMTMVCandidates(table, cascadesContext);
@@ -208,11 +216,12 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
         if (shouldCollect) {
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
-                    .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
+                    .getCandidateMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
             }
             for (MTMV mtmv : mtmvSet) {
+                cascadesContext.getStatementContext().getCandidateMTMVs().add(mtmv);
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
                 mtmv.readMvLock();
                 try {
@@ -224,8 +233,9 @@ public class CollectRelation implements AnalysisRuleFactory {
                             LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
                         }
                         try {
+                            // Collect all base tables and lock them before querying
                             cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
-                                    TableFrom.MTMV);
+                                    TableFrom.MTMV, Optional.empty());
                         } catch (AnalysisException exception) {
                             LOG.warn("mtmv related base table get err, related table is {}",
                                     baseTableInfo.toList(), exception);

@@ -80,39 +80,40 @@ TEST_F(StringFunctionsTest, TestCompileRegex) {
 
     // Test valid pattern
     EXPECT_TRUE(StringFunctions::compile_regex(create_string_ref("abc"), &error_str,
-                                               create_string_ref(""), re));
+                                               create_string_ref(""), create_string_ref(""), re));
     EXPECT_TRUE(re != nullptr);
     EXPECT_TRUE(re->ok());
 
     // Test case insensitive
     EXPECT_TRUE(StringFunctions::compile_regex(create_string_ref("abc"), &error_str,
-                                               create_string_ref("i"), re));
+                                               create_string_ref("i"), create_string_ref(""), re));
     EXPECT_TRUE(re != nullptr);
     EXPECT_TRUE(re->ok());
     EXPECT_FALSE(re->options().case_sensitive());
 
     // Test invalid pattern
     EXPECT_FALSE(StringFunctions::compile_regex(create_string_ref("a(bc"), &error_str,
-                                                create_string_ref(""), re));
+                                                create_string_ref(""), create_string_ref(""), re));
     EXPECT_TRUE(re == nullptr);
     EXPECT_FALSE(error_str.empty());
 
     // Test empty pattern
     EXPECT_TRUE(StringFunctions::compile_regex(create_string_ref(""), &error_str,
-                                               create_string_ref(""), re));
+                                               create_string_ref(""), create_string_ref(""), re));
     EXPECT_TRUE(re != nullptr);
     EXPECT_TRUE(re->ok());
 
     re.reset();
     // Test invalid match parameter
     EXPECT_FALSE(StringFunctions::compile_regex(create_string_ref("abc"), &error_str,
-                                                create_string_ref("x"), re));
+                                                create_string_ref("x"), create_string_ref(""), re));
     EXPECT_TRUE(re == nullptr);
     EXPECT_EQ(error_str, "Illegal match parameter x");
 
     // Test combined options
     EXPECT_TRUE(StringFunctions::compile_regex(create_string_ref("abc"), &error_str,
-                                               create_string_ref("imn"), re));
+                                               create_string_ref("imn"), create_string_ref(""),
+                                               re));
     EXPECT_TRUE(re != nullptr);
     EXPECT_TRUE(re->ok());
     EXPECT_FALSE(re->options().case_sensitive());

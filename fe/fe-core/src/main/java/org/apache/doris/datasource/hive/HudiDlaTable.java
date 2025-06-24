@@ -88,6 +88,11 @@ public class HudiDlaTable extends HMSDlaTable {
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
         // return new MTMVTimestampSnapshot(getOrFetchHudiSnapshotCacheValue(snapshot).getLastUpdateTimestamp());
         return new MTMVTimestampSnapshot(0L);
     }

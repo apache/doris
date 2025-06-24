@@ -19,255 +19,236 @@
 set -eo pipefail
 shopt -s nullglob
 
-# Obtain necessary and basic information to complete initialization
+# Constant Definition
+readonly DORIS_HOME="/opt/apache-doris"
+readonly MAX_RETRY_TIMES=60
+readonly RETRY_INTERVAL=1
+readonly MYSQL_PORT=9030
 
-# logging functions
-# usage: doris_[note|warn|error] $log_meg
-#    ie: doris_warn "task may be risky!"
-#   out: 2023-01-08T19:08:16+08:00 [Warn] [Entrypoint]: task may be risky!
-doris_log() {
-    local type="$1"
+# Log Function
+log_message() {
+    local level="$1"
     shift
-    # accept argument string or stdin
-    local text="$*"
-    if [ "$#" -eq 0 ]; then text="$(cat)"; fi
-    local dt="$(date -Iseconds)"
-    printf '%s [%s] [Entrypoint]: %s\n' "$dt" "$type" "$text"
+    local message="$*"
+    if [ "$#" -eq 0 ]; then 
+        message="$(cat)"
+    fi
+    local timestamp="$(date -Iseconds)"
+    printf '%s [%s] [Entrypoint]: %s\n' "${timestamp}" "${level}" "${message}"
 }
-doris_note() {
-    doris_log Note "$@"
+
+log_info() {
+    log_message "INFO" "$@"
 }
-doris_warn() {
-    doris_log Warn "$@" >&2
+
+log_warn() {
+    log_message "WARN" "$@" >&2
 }
-doris_error() {
-    doris_log ERROR "$@" >&2
+
+log_error() {
+    log_message "ERROR" "$@" >&2
     exit 1
 }
 
-# check to see if this file is being run or sourced from another script
-_is_sourced() {
-    [ "${#FUNCNAME[@]}" -ge 2 ] &&
-        [ "${FUNCNAME[0]}" = '_is_sourced' ] &&
-        [ "${FUNCNAME[1]}" = 'source' ]
+# Check whether it is a source file call
+is_sourced() {
+    [ "${#FUNCNAME[@]}" -ge 2 ] && 
+    [ "${FUNCNAME[0]}" = 'is_sourced' ] && 
+    [ "${FUNCNAME[1]}" = 'source' ]
 }
 
-docker_setup_env() {
-    declare -g DATABASE_ALREADY_EXISTS
-    if [ -d "${DORIS_HOME}/be/storage/data" ]; then
-        DATABASE_ALREADY_EXISTS='true'
+# Verify IP address format
+validate_ip_address() {
+    local ip="$1"
+    local ipv4_regex="^[1-2]?[0-9]?[0-9](\.[1-2]?[0-9]?[0-9]){3}$"
+    local ipv6_regex="^([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)$"
+    
+    if [[ $ip =~ $ipv4_regex ]] || [[ $ip =~ $ipv6_regex ]]; then
+        return 0
     fi
+    return 1
 }
 
-# Check the variables required for startup
-docker_required_variables_env() {
-    declare -g RUN_TYPE
+# Verify port number
+validate_port() {
+    local port="$1"
+    if [[ $port =~ ^[1-6]?[0-9]{1,4}$ ]] && [ "$port" -le 65535 ]; then
+        return 0
+    fi
+    return 1
+}
+
+# Verify the necessary environment variables
+validate_environment() {
+    declare -g run_mode
+
+    # Election Mode Verification
     if [[ -n "$FE_SERVERS" && -n "$BE_ADDR" ]]; then
-        RUN_TYPE="ELECTION"
-        if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^.+:([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-            doris_warn "FE_SERVERS" $FE_SERVERS
-        else
-            doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
-        fi
-        if [[ $BE_ADDR =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}$ || $BE_ADDR =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:):[1-6]{0,1}[0-9]{1,4}$ ]]; then
-            doris_warn "BE_ADDR" $BE_ADDR
-        else
-            doris_error "BE_ADDR rule error！example: \$BE_IP:\$HEARTBEAT_SERVICE_PORT"
-        fi
-        export RUN_TYPE=${RUN_TYPE}
+        validate_election_mode
         return
     fi
 
-    if [[ -n "$FE_MASTER_IP"  && -n "$BE_IP" && -n "$BE_PORT" ]]; then
-        RUN_TYPE="ASSIGN"
-        if [[ $FE_MASTER_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $FE_MASTER_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-            doris_warn "FE_MASTER_IP" $FE_MASTER_IP
-        else
-            doris_error "FE_MASTER_IP rule error！example: \$FE_MASTER_IP"
-        fi
-        if [[ $BE_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $BE_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
-            doris_warn "BE_IP" $BE_IP
-        else
-            doris_error "BE_IP rule error！example: \$BE_IP"
-        fi
-        if [[ $BE_PORT =~ ^[1-6]{0,1}[0-9]{1,4}$ ]]; then
-            doris_warn "BE_PORT" $BE_PORT
-        else
-            doris_error "BE_PORT rule error！example: \$BE_PORT."
-        fi
-        export RUN_TYPE=${RUN_TYPE}
+    # Specifying a schema for validation
+    if [[ -n "$FE_MASTER_IP" && -n "$BE_IP" && -n "$BE_PORT" ]]; then
+        validate_assign_mode
         return
     fi
 
-    doris_error EOF "
-                 Note that you did not configure the required parameters!
-                 plan 1:
-                 FE_SERVERS & BE_ADDR
-                 plan 2:
-                 FE_MASTER_IP & FE_MASTER_PORT & BE_IP & BE_PORT"
-                EOF
+    log_error "Missing required parameters. Please check documentation."
 }
 
-get_doris_args() {
+# Verify election mode configuration
+validate_election_mode() {
+    run_mode="ELECTION"
+    
+    # Verify FE_SERVERS format
+    local fe_servers_regex="^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$"
+    if ! [[ $FE_SERVERS =~ $fe_servers_regex ]]; then
+        log_error "Invalid FE_SERVERS format. Expected: name:ip:port[,name:ip:port]..."
+    fi
+
+    # Verify BE_ADDR format
+    if ! validate_ip_address "$(echo "$BE_ADDR" | cut -d: -f1)" || \
+       ! validate_port "$(echo "$BE_ADDR" | cut -d: -f2)"; then
+        log_error "Invalid BE_ADDR format. Expected: ip:port"
+    fi
+    
+    log_info "Running in Election mode"
+}
+
+# Verify the specified mode configuration
+validate_assign_mode() {
+    run_mode="ASSIGN"
+    
+    # Verify IP Address
+    if ! validate_ip_address "$FE_MASTER_IP"; then
+        log_error "Invalid FE_MASTER_IP format"
+    fi
+    if ! validate_ip_address "$BE_IP"; then
+        log_error "Invalid BE_IP format"
+    fi
+
+    # Verify port
+    if ! validate_port "$BE_PORT"; then
+        log_error "Invalid BE_PORT"
+    fi
+    
+    log_info "Running in Assign mode"
+}
+
+# Parsing configuration parameters
+parse_config() {
     declare -g MASTER_FE_IP CURRENT_BE_IP CURRENT_BE_PORT PRIORITY_NETWORKS
-    if [ $RUN_TYPE == "ELECTION" ]; then
-        local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
-        for i in "${feServerArray[@]}"; do
-            val=${i}
-            val=${val// /}
-            tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-            tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-            tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
-            check_arg "TMP_FE_NAME" $tmpFeName
-            feIpArray[$tmpFeName]=${tmpFeIp}
-        done
 
-        FE_MASTER_IP=${feIpArray[1]}
-        check_arg "FE_MASTER_IP" $FE_MASTER_IP
-        BE_IP=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$1}')
-        check_arg "BE_IP" $BE_IP
-        BE_PORT=$(echo "${BE_ADDR}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-        check_arg "BE_PORT" $BE_PORT
-
-    elif [ $RUN_TYPE == "ASSIGN" ]; then
-        check_arg "FE_MASTER_IP" $FE_MASTER_IP
-        check_arg "BE_IP" $BE_IP
-        check_arg "BE_PORT" $BE_PORT
+    if [ "$run_mode" = "ELECTION" ]; then
+        # Analyze the main FE node information
+        MASTER_FE_IP=$(echo "$FE_SERVERS" | cut -d, -f1 | cut -d: -f2)
+        
+        # Parsing BE node information
+        CURRENT_BE_IP=$(echo "$BE_ADDR" | cut -d: -f1)
+        CURRENT_BE_PORT=$(echo "$BE_ADDR" | cut -d: -f2)
+    else
+        MASTER_FE_IP="$FE_MASTER_IP"
+        CURRENT_BE_IP="$BE_IP"
+        CURRENT_BE_PORT="$BE_PORT"
     fi
 
-    PRIORITY_NETWORKS=$(echo "${BE_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
-    check_arg "PRIORITY_NETWORKS" $PRIORITY_NETWORKS
+    # Set up a preferred network
+    PRIORITY_NETWORKS=$(echo "$CURRENT_BE_IP" | awk -F. '{print $1"."$2"."$3".0/24"}')
 
-    # export be args
-    export MASTER_FE_IP=${FE_MASTER_IP}
-    export CURRENT_BE_IP=${BE_IP}
-    export CURRENT_BE_PORT=${BE_PORT}
-    export PRIORITY_NETWORKS=${PRIORITY_NETWORKS}
-
-    doris_note "MASTER_FE_IP ${MASTER_FE_IP}"
-    doris_note "CURRENT_BE_IP ${CURRENT_BE_IP}"
-    doris_note "CURRENT_BE_PORT ${CURRENT_BE_PORT}"
-    doris_note "PRIORITY_NETWORKS ${PRIORITY_NETWORKS}"
-
-    check_be_status true
+    # Exporting environment variables
+    export MASTER_FE_IP CURRENT_BE_IP CURRENT_BE_PORT PRIORITY_NETWORKS
 }
 
-# Execute sql script, passed via stdin
-# usage: docker_process_sql [mysql-cli-args]
-#    ie: docker_process_sql --database=mydb <<<'INSERT ...'
-#    ie: docker_process_sql --database=mydb <my-file.sql
-docker_process_sql() {
-    set +e
-    mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>&1
-}
-
+# Check BE status
 check_be_status() {
-    set +e
-    for i in {1..30}; do
-        if [[ $1 == true ]]; then
-            docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
+    local retry_count=0
+    while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
+        if [ "$1" = "true" ]; then
+            # Check FE status
+            if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+                -N -e "SHOW FRONTENDS" 2>/dev/null | grep -w "${MASTER_FE_IP}" &>/dev/null; then
+                log_info "Master FE is ready"
+                return 0
+            fi
         else
-            docker_process_sql <<<"show backends" | grep "[[:space:]]${CURRENT_BE_IP}[[:space:]]" | grep "[[:space:]]${CURRENT_BE_PORT}[[:space:]]"
-        fi
-        be_join_status=$?
-        if [[ "${be_join_status}" == 0 ]]; then
-            if [[ $1 == true ]]; then
-                doris_note "MASTER FE is started!"
-            else
-                doris_note "EntryPoint Check - Verify that BE is registered to FE successfully"
-                BE_ALREADY_EXISTS=true
-            fi
-            return
-        fi
-        if [[ $(( $i % 15 )) == 1 ]]; then
-            if [[ $1 == true ]]; then
-                doris_note "MASTER FE is not started. retry."
-            else
-                doris_note "BE is not register. retry."
+            # Check BE status
+            if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+                -N -e "SHOW BACKENDS" 2>/dev/null | grep -w "${CURRENT_BE_IP}" | grep -w "${CURRENT_BE_PORT}" | grep -w "true" &>/dev/null; then
+                log_info "BE node is ready"
+                return 0
             fi
         fi
-        sleep 1
+        
+        retry_count=$((retry_count + 1))
+        if [ $((retry_count % 20)) -eq 1 ]; then
+            if [ "$1" = "true" ]; then
+                log_info "Waiting for master FE... ($retry_count/$MAX_RETRY_TIMES)"
+            else
+                log_info "Waiting for BE node... ($retry_count/$MAX_RETRY_TIMES)"
+            fi
+        fi
+        sleep "$RETRY_INTERVAL"
     done
+    
+    return 1
 }
 
-# usage: docker_process_init_files [file [file [...]]]
-#    ie: docker_process_init_files /always-initdb.d/*
-# process initializer files, based on file extensions
-docker_process_init_files() {
+# Processing initialization files
+process_init_files() {
     local f
     for f; do
         case "$f" in
-        *.sh)
-            if [ -x "$f" ]; then
-                doris_note "$0: running $f"
-                "$f"
-            else
-                doris_note "$0: sourcing $f"
-                . "$f"
-            fi
-            ;;
-        *.sql)
-            doris_note "$0: running $f"
-            docker_process_sql <"$f"
-            echo
-            ;;
-        *.sql.bz2)
-            doris_note "$0: running $f"
-            bunzip2 -c "$f" | docker_process_sql
-            echo
-            ;;
-        *.sql.gz)
-            doris_note "$0: running $f"
-            gunzip -c "$f" | docker_process_sql
-            echo
-            ;;
-        *.sql.xz)
-            doris_note "$0: running $f"
-            xzcat "$f" | docker_process_sql
-            echo
-            ;;
-        *.sql.zst)
-            doris_note "$0: running $f"
-            zstd -dc "$f" | docker_process_sql
-            echo
-            ;;
-        *) doris_warn "$0: ignoring $f" ;;
+            *.sh)
+                if [ -x "$f" ]; then
+                    log_info "Executing $f"
+                    "$f"
+                else
+                    log_info "Sourcing $f"
+                    . "$f"
+                fi
+                ;;
+            *.sql)    
+                log_info "Executing SQL file $f"
+                mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" < "$f"
+                ;;
+            *.sql.gz)  
+                log_info "Executing compressed SQL file $f"
+                gunzip -c "$f" | mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}"
+                ;;
+            *)         
+                log_warn "Ignoring $f"
+                ;;
         esac
-        echo
     done
 }
 
-# Check whether the passed parameters are empty to avoid subsequent task execution failures. At the same time,
-# enumeration checks can be added, such as checking whether a certain parameter appears repeatedly, etc.
-check_arg() {
-    if [ -z $2 ]; then
-        doris_error "$1 is null!"
-    fi
-}
+# Main Function
+main() {
+    validate_environment
+    parse_config
 
-_main() {
-    docker_required_variables_env
-    # get init args
-    get_doris_args
-    docker_setup_env
-    # Start Doris BE
+    # Start BE Node
     {
         set +e
         bash init_be.sh 2>/dev/null
     } &
-    # check BE started status
-    check_be_status
-    if [ -z ${DATABASE_ALREADY_EXISTS} ]; then
-        # run script
-        sleep 15
-        docker_process_init_files /docker-entrypoint-initdb.d/*
+
+    # Waiting for BE node to be ready
+    if ! check_be_status false; then
+        log_error "BE node failed to start"
     fi
 
-    # keep BE started status
+    # Processing initialization files
+    if [ -d "/docker-entrypoint-initdb.d" ]; then
+        sleep 15  # Wait for the system to fully boot up
+        process_init_files /docker-entrypoint-initdb.d/*
+    fi
+
+    # Waiting for BE process
     wait
-    exec "$@"
 }
 
-if ! _is_sourced; then
-    _main "$@"
+if ! is_sourced; then
+    main "$@"
 fi

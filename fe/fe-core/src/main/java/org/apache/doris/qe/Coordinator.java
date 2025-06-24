@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.DictionarySink;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -410,8 +411,8 @@ public class Coordinator implements CoordInterface {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setQueryTimeout(context.getExecTimeout());
-        this.queryOptions.setExecutionTimeout(context.getExecTimeout());
+        this.queryOptions.setQueryTimeout(context.getExecTimeoutS());
+        this.queryOptions.setExecutionTimeout(context.getExecTimeoutS());
         if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
@@ -779,7 +780,7 @@ public class Coordinator implements CoordInterface {
         sendPipelineCtx();
     }
 
-    protected void sendPipelineCtx() throws TException, RpcException, UserException {
+    protected void sendPipelineCtx() throws Exception {
         lock();
         try {
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
@@ -942,12 +943,12 @@ public class Coordinator implements CoordInterface {
 
     protected Map<TNetworkAddress, List<Long>>  waitPipelineRpc(List<Pair<Long, Triple<PipelineExecContexts,
             BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>> futures, long leftTimeMs,
-            String operation) throws RpcException, UserException {
+            String operation) throws Exception {
         if (leftTimeMs <= 0) {
             long currentTimeMillis = System.currentTimeMillis();
             long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
             String msg = String.format(
-                    "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
+                    "timeout before waiting %s rpc, query timeout:%d sec, already elapsed:%d sec, left for this:%d ms",
                     operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
             LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
             if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
@@ -959,7 +960,7 @@ public class Coordinator implements CoordInterface {
                         queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
                         timeoutDeadline, currentTimeMillis);
             }
-            throw new UserException(msg);
+            throw new Exception(msg);
         }
 
         // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
@@ -1005,7 +1006,7 @@ public class Coordinator implements CoordInterface {
             } catch (TimeoutException e) {
                 exception = e;
                 errMsg = String.format(
-                    "timeout when waiting for %s rpc, query timeout:%d, left timeout for this operation:%d",
+                    "timeout when waiting for %s rpc, query timeout:%d sec, timeout for this operation:%d sec",
                                             operation, queryOptions.getExecutionTimeout(), timeoutMs / 1000);
                 LOG.warn("Query {} {}", DebugUtil.printId(queryId), errMsg);
                 code = TStatusCode.TIMEOUT;
@@ -1029,7 +1030,7 @@ public class Coordinator implements CoordInterface {
                         SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
                         throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                     default:
-                        throw new UserException(errMsg, exception);
+                        throw new Exception(errMsg, exception);
                 }
             }
         }
@@ -1183,7 +1184,7 @@ public class Coordinator implements CoordInterface {
             } else {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
-                throw new UserException(errMsg);
+                throw new Exception(errMsg);
             }
         }
 
@@ -1723,6 +1724,34 @@ public class Coordinator implements CoordInterface {
             PlanFragment fragment = fragments.get(i);
             FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
+            // if need, we can abstract it to property function `toAllBackends()` or something.
+            if (fragment.getSink() instanceof DictionarySink) {
+                // set when assign all BE job
+                int expectedInstanceNum = fragment.getParallelExecNum();
+                int count = 0;
+                DictionarySink sink = (DictionarySink) fragment.getSink();
+
+                List<Backend> aliveBackends = sink.getPartialLoadBEs() == null
+                        // Coordinator only support this cluster backends. we need all cluster backends in dict loading.
+                        ? Env.getCurrentSystemInfo().getAllClusterBackends(true)
+                        // only load part of BEs
+                        : sink.getPartialLoadBEs();
+                for (Backend backend : aliveBackends) {
+                    TNetworkAddress execHostport = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                    Reference<Long> backendIdRef = new Reference<Long>(backend.getId());
+                    this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
+                    params.instanceExecParams.add(instanceParam);
+                    count++;
+                }
+                if (count != expectedInstanceNum) {
+                    throw new UserException("Expected " + expectedInstanceNum + " backends, but got " + count
+                            + ". partial load: " + context.getStatementContext().isPartialLoadDictionary());
+                }
+                // TODO: rethink the whole function logic. could All BE sink naturally merged into other judgements?
+                return;
+            }
+
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport;
@@ -1752,8 +1781,7 @@ public class Coordinator implements CoordInterface {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
-                        0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                 params.instanceExecParams.add(instanceParam);
 
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
@@ -1763,7 +1791,7 @@ public class Coordinator implements CoordInterface {
                 if (useSerialSource) {
                     for (int j = 1; j < expectedInstanceNum; j++) {
                         params.instanceExecParams.add(new FInstanceExecParam(
-                                null, execHostport, 0, params));
+                                null, execHostport, params));
                     }
                     params.ignoreDataDistribution = true;
                     params.parallelTasksNum = 1;
@@ -1815,7 +1843,7 @@ public class Coordinator implements CoordInterface {
                     Collections.shuffle(hosts, instanceRandom);
                     for (int index = 0; index < exchangeInstances; index++) {
                         FInstanceExecParam instanceParam = new FInstanceExecParam(null,
-                                hosts.get(index % hosts.size()), 0, params);
+                                hosts.get(index % hosts.size()), params);
                         params.instanceExecParams.add(instanceParam);
                     }
                     params.ignoreDataDistribution = useSerialSource;
@@ -1823,7 +1851,7 @@ public class Coordinator implements CoordInterface {
                 } else {
                     for (FInstanceExecParam execParams
                             : fragmentExecParamsMap.get(inputFragmentId).instanceExecParams) {
-                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, 0, params);
+                        FInstanceExecParam instanceParam = new FInstanceExecParam(null, execParams.host, params);
                         params.instanceExecParams.add(instanceParam);
                     }
                     params.ignoreDataDistribution = useSerialSource;
@@ -1905,7 +1933,7 @@ public class Coordinator implements CoordInterface {
                         for (int j = 0; j < perInstanceScanRanges.size(); j++) {
                             List<TScanRangeParams> scanRangeParams = perInstanceScanRanges.get(j);
 
-                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
+                            FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
                             params.instanceExecParams.add(instanceParam);
                         }
@@ -1938,7 +1966,7 @@ public class Coordinator implements CoordInterface {
                     // backendIdRef can be null is we call getHostByCurrentBackend() before
                     this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 }
-                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 0, params);
+                FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
                 params.instanceExecParams.add(instanceParam);
             }
         }
@@ -2764,7 +2792,7 @@ public class Coordinator implements CoordInterface {
                 for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange
                         : perInstanceScanRanges) {
                     FInstanceExecParam instanceParam = new FInstanceExecParam(
-                            null, addressScanRange.getKey(), 0, params);
+                            null, addressScanRange.getKey(), params);
 
                     if (firstInstanceParam == null) {
                         firstInstanceParam = instanceParam;
@@ -2792,13 +2820,16 @@ public class Coordinator implements CoordInterface {
                     params.instanceExecParams.add(instanceParam);
                 }
                 for (int i = perInstanceScanRanges.size(); i < parallelExecInstanceNum; i++) {
-                    params.instanceExecParams.add(new FInstanceExecParam(null, addressScanRange.getKey(), 0, params));
+                    params.instanceExecParams.add(new FInstanceExecParam(null, addressScanRange.getKey(), params));
                 }
             } else {
                 int expectedInstanceNum = 1;
                 if (parallelExecInstanceNum > 1) {
                     //the scan instance num should not larger than the tablets num
                     expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
+                }
+                if (params.fragment != null && params.fragment.queryCacheParam != null) {
+                    expectedInstanceNum = scanRange.size();
                 }
                 // 2. split how many scanRange one instance should scan
                 List<List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> perInstanceScanRanges
@@ -2808,7 +2839,7 @@ public class Coordinator implements CoordInterface {
                 for (List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>> perInstanceScanRange
                         : perInstanceScanRanges) {
                     FInstanceExecParam instanceParam = new FInstanceExecParam(
-                            null, addressScanRange.getKey(), 0, params);
+                            null, addressScanRange.getKey(), params);
 
                     for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : perInstanceScanRange) {
                         instanceParam.addBucketSeq(nodeScanRangeMap.first);
@@ -3342,8 +3373,6 @@ public class Coordinator implements CoordInterface {
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
 
-        int perFragmentInstanceIdx;
-
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
@@ -3356,11 +3385,9 @@ public class Coordinator implements CoordInterface {
             this.bucketSeqSet.add(bucketSeq);
         }
 
-        public FInstanceExecParam(TUniqueId id, TNetworkAddress host,
-                                  int perFragmentInstanceIdx, FragmentExecParams fragmentExecParams) {
+        public FInstanceExecParam(TUniqueId id, TNetworkAddress host, FragmentExecParams fragmentExecParams) {
             this.instanceId = id;
             this.host = host;
-            this.perFragmentInstanceIdx = perFragmentInstanceIdx;
             this.fragmentExecParams = fragmentExecParams;
         }
 

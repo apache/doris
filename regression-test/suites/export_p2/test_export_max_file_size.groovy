@@ -149,7 +149,29 @@ suite("test_export_max_file_size", "p2,external") {
             assertEquals("3", json.fileNumber[0][0])
             def outfile_url = json.url[0][0]
 
-            for (int j = 0; j < json.fileNumber[0][0].toInteger(); ++j ) {
+            for (int j = 0; j < json.fileNumber[0][0].toInteger(); ++j) {
+                def res = sql """ 
+                    select count(*) from hdfs(
+                        "uri" = "${outfile_url}${j}.csv",
+                        "format" = "csv",
+                        "dfs.data.transfer.protection" = "integrity",
+                        'dfs.nameservices'="${dfsNameservices}",
+                        'dfs.ha.namenodes.hdfs-cluster'="${dfsHaNamenodesHdfsCluster}",
+                        'dfs.namenode.rpc-address.hdfs-cluster.nn1'="${dfsNamenodeRpcAddress1}:${dfsNameservicesPort}",
+                        'dfs.namenode.rpc-address.hdfs-cluster.nn2'="${dfsNamenodeRpcAddress2}:${dfsNameservicesPort}",
+                        'dfs.namenode.rpc-address.hdfs-cluster.nn3'="${dfsNamenodeRpcAddress3}:${dfsNameservicesPort}",
+                        'hadoop.security.authentication'="${hadoopSecurityAuthentication}",
+                        'hadoop.kerberos.keytab'="${hadoopKerberosKeytabPath}",   
+                        'hadoop.kerberos.principal'="${hadoopKerberosPrincipal}",
+                        'hadoop.security.auth_to_local' = "${hadoopSecurityAutoToLocal}",
+                        'dfs.client.failover.proxy.provider.hdfs-cluster'="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+                    );
+                """
+                logger.info("res[0][0] = " + res[0][0]);
+                if(res[0][0] == 0) {
+                    continue;
+                }
+
                 // check data correctness
                 sql """ 
                     insert into ${table_load_name}

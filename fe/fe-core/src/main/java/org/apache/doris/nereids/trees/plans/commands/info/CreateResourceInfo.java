@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -98,15 +97,11 @@ public class CreateResourceInfo {
         }
 
         resourceType = ResourceType.fromString(type);
-        if (resourceType == ResourceType.UNKNOWN) {
+        if (resourceType == ResourceType.UNKNOWN || resourceType == ResourceType.SPARK) {
             throw new AnalysisException("Unsupported resource type: " + type);
         }
-        if (resourceType == ResourceType.SPARK && !isExternal) {
-            throw new AnalysisException("Spark is external resource");
-        }
-        if (resourceType == ResourceType.ODBC_CATALOG && !Config.enable_odbc_mysql_broker_table) {
-            throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                + "`enable_odbc_mysql_broker_table=true` in fe.conf to enable ODBC again.");
+        if (resourceType == ResourceType.ODBC_CATALOG) {
+            throw new AnalysisException("ODBC table is deprecated, use JDBC instead.");
         }
     }
 

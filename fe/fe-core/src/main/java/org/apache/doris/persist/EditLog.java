@@ -57,6 +57,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
@@ -77,7 +78,6 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -91,9 +91,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdateRowsEvent;
@@ -389,11 +387,6 @@ public class EditLog {
                 case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
                     ConsistencyCheckInfo info = (ConsistencyCheckInfo) journal.getData();
                     env.getConsistencyChecker().replayFinishConsistencyCheck(info, env);
-                    break;
-                }
-                case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
-                    env.getLoadInstance().replayClearRollupInfo(info, env);
                     break;
                 }
                 case OperationType.OP_RENAME_ROLLUP: {
@@ -778,13 +771,9 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_SYNC_JOB: {
-                    SyncJob syncJob = (SyncJob) journal.getData();
-                    env.getSyncJobManager().replayAddSyncJob(syncJob);
                     break;
                 }
                 case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                    SyncJob.SyncJobUpdateStateInfo info = (SyncJob.SyncJobUpdateStateInfo) journal.getData();
-                    env.getSyncJobManager().replayUpdateSyncJobState(info);
                     break;
                 }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
@@ -1146,10 +1135,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
-                    if (journal.getData() instanceof AnalysisJobInfo) {
-                        // For rollback compatible.
-                        break;
-                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1158,10 +1143,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
-                    if (journal.getData() instanceof AnalysisTaskInfo) {
-                        // For rollback compatible.
-                        break;
-                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1264,6 +1245,26 @@ public class EditLog {
                 case OperationType.OP_UPDATE_CLOUD_REPLICA: {
                     UpdateCloudReplicaInfo info = (UpdateCloudReplicaInfo) journal.getData();
                     ((CloudEnv) env).replayUpdateCloudReplica(info);
+                    break;
+                }
+                case OperationType.OP_CREATE_DICTIONARY: {
+                    CreateDictionaryPersistInfo info = (CreateDictionaryPersistInfo) journal.getData();
+                    env.getDictionaryManager().replayCreateDictionary(info);
+                    break;
+                }
+                case OperationType.OP_DROP_DICTIONARY: {
+                    DropDictionaryPersistInfo info = (DropDictionaryPersistInfo) journal.getData();
+                    env.getDictionaryManager().replayDropDictionary(info);
+                    break;
+                }
+                case OperationType.OP_DICTIONARY_INC_VERSION: {
+                    DictionaryIncreaseVersionInfo info = (DictionaryIncreaseVersionInfo) journal.getData();
+                    env.getDictionaryManager().replayIncreaseVersion(info);
+                    break;
+                }
+                case OperationType.OP_DICTIONARY_DEC_VERSION: {
+                    DictionaryDecreaseVersionInfo info = (DictionaryDecreaseVersionInfo) journal.getData();
+                    env.getDictionaryManager().replayDecreaseVersion(info);
                     break;
                 }
                 default: {
@@ -1844,14 +1845,6 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
-    public void logCreateSyncJob(SyncJob syncJob) {
-        logEdit(OperationType.OP_CREATE_SYNC_JOB, syncJob);
-    }
-
-    public void logUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
-        logEdit(OperationType.OP_UPDATE_SYNC_JOB_STATE, info);
-    }
-
     public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
         logEdit(OperationType.OP_FETCH_STREAM_LOAD_RECORD, fetchStreamLoadRecord);
     }
@@ -2241,5 +2234,21 @@ public class EditLog {
 
     private boolean exceedMaxJournalSize(short op, Writable writable) throws IOException {
         return journal.exceedMaxJournalSize(op, writable);
+    }
+
+    public void logCreateDictionary(Dictionary dictionary) {
+        logEdit(OperationType.OP_CREATE_DICTIONARY, new CreateDictionaryPersistInfo(dictionary));
+    }
+
+    public void logDropDictionary(String dbName, String dictionaryName) {
+        logEdit(OperationType.OP_DROP_DICTIONARY, new DropDictionaryPersistInfo(dbName, dictionaryName));
+    }
+
+    public void logDictionaryIncVersion(Dictionary dictionary) {
+        logEdit(OperationType.OP_DICTIONARY_INC_VERSION, new DictionaryIncreaseVersionInfo(dictionary));
+    }
+
+    public void logDictionaryDecVersion(Dictionary dictionary) {
+        logEdit(OperationType.OP_DICTIONARY_DEC_VERSION, new DictionaryDecreaseVersionInfo(dictionary));
     }
 }

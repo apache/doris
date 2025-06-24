@@ -24,15 +24,16 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 
+#include "runtime/primitive_type.h"
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
+#include "util/simd/vstring_function.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/memcmp_small.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
@@ -382,7 +383,7 @@ Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IC
 }
 
 template <typename T>
-ColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnStr<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
     if (limit == 0) {
@@ -723,6 +724,62 @@ void ColumnStr<T>::erase(size_t start, size_t length) {
     for (size_t i = start; i < remain_size; ++i) {
         offsets[i] -= char_length;
     }
+}
+
+template <typename T>
+Field ColumnStr<T>::operator[](size_t n) const {
+    assert(n < size());
+    sanity_check_simple();
+    return Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
+void ColumnStr<T>::get(size_t n, Field& res) const {
+    assert(n < size());
+    sanity_check_simple();
+    if (res.get_type() == PrimitiveType::TYPE_JSONB) {
+        // Handle JsonbField
+        res = Field::create_field<TYPE_JSONB>(
+                JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+        return;
+    }
+    res = Field::create_field<TYPE_STRING>(
+            String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
+}
+
+template <typename T>
+void ColumnStr<T>::insert(const Field& x) {
+    StringRef s;
+    if (x.get_type() == PrimitiveType::TYPE_JSONB) {
+        // Handle JsonbField
+        const auto& real_field = vectorized::get<const JsonbField&>(x);
+        s = StringRef(real_field.get_value(), real_field.get_size());
+    } else {
+        DCHECK(is_string_type(x.get_type()));
+        // If `x.get_type()` is not String, such as UInt64, may get the error
+        // `string column length is too large: total_length=13744632839234567870`
+        // because `<String>(x).size() = 13744632839234567870`
+        s.data = vectorized::get<const String&>(x).data();
+        s.size = vectorized::get<const String&>(x).size();
+    }
+    const size_t old_size = chars.size();
+    const size_t size_to_append = s.size;
+    const size_t new_size = old_size + size_to_append;
+
+    check_chars_length(new_size, old_size + 1);
+
+    chars.resize(new_size);
+    DCHECK(s.data != nullptr);
+    DCHECK(chars.data() != nullptr);
+    memcpy(chars.data() + old_size, s.data, size_to_append);
+    offsets.push_back(new_size);
+    sanity_check_simple();
+}
+
+template <typename T>
+bool ColumnStr<T>::is_ascii() const {
+    return simd::VStringFunctions::is_ascii(StringRef(chars.data(), chars.size()));
 }
 
 template class ColumnStr<uint32_t>;

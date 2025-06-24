@@ -230,6 +230,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 context = new ConnectContext();
                 context.setThreadLocalInfo();
             }
+            if (context.getEnv() == null) {
+                context.setEnv(Env.getCurrentEnv());
+            }
 
             String currentUser = getUserInfo().getQualifiedUser();
             // user is null or get an invalid compute group should not be normal case,
@@ -255,7 +258,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
+        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),

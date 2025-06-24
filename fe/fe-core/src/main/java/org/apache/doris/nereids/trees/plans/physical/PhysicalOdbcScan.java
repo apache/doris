@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -28,6 +29,9 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,7 +45,7 @@ public class PhysicalOdbcScan extends PhysicalCatalogRelation {
     public PhysicalOdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
         this(id, table, qualifier, groupExpression, logicalProperties,
-                null, null);
+                null, null, ImmutableList.of());
     }
 
     /**
@@ -49,9 +53,10 @@ public class PhysicalOdbcScan extends PhysicalCatalogRelation {
      */
     public PhysicalOdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_ODBC_SCAN, table, qualifier, groupExpression,
-                logicalProperties, physicalProperties, statistics);
+                logicalProperties, physicalProperties, statistics, operativeSlots);
     }
 
     @Override
@@ -83,6 +88,6 @@ public class PhysicalOdbcScan extends PhysicalCatalogRelation {
     public PhysicalOdbcScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                            Statistics statistics) {
         return new PhysicalOdbcScan(relationId, table, qualifier, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics);
+                getLogicalProperties(), physicalProperties, statistics, operativeSlots);
     }
 }

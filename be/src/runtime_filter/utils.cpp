@@ -123,9 +123,11 @@ PFilterType get_type(RuntimeFilterType type) {
     }
 }
 
-Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr) {
+Status create_literal(const vectorized::DataTypePtr& type, const void* data,
+                      vectorized::VExprSPtr& expr) {
     try {
-        TExprNode node = create_texpr_node_from(data, type.type, type.precision, type.scale);
+        TExprNode node = create_texpr_node_from(data, type->get_primitive_type(),
+                                                type->get_precision(), type->get_scale());
         expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
         return e.to_status();
@@ -134,7 +136,7 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
     return Status::OK();
 }
 
-Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcode,
+Status create_vbin_predicate(const vectorized::DataTypePtr& type, TExprOpcode::type opcode,
                              vectorized::VExprSPtr& expr, TExprNode* tnode, bool contain_null) {
     TExprNode node;
     TScalarType tscalar_type;
@@ -146,9 +148,9 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
     t_type_desc.types.push_back(ttype_node);
     node.__set_type(t_type_desc);
     node.__set_opcode(opcode);
-    node.__set_child_type(to_thrift(type.type));
+    node.__set_child_type(to_thrift(type->get_primitive_type()));
     node.__set_num_children(2);
-    node.__set_output_scale(type.scale);
+    node.__set_output_scale(type->get_scale());
     node.__set_node_type(contain_null ? TExprNodeType::NULL_AWARE_BINARY_PRED
                                       : TExprNodeType::BINARY_PRED);
     TFunction fn;
@@ -170,9 +172,9 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
     TTypeNode type_node;
     type_node.__set_type(TTypeNodeType::SCALAR);
     TScalarType scalar_type;
-    scalar_type.__set_type(to_thrift(type.type));
-    scalar_type.__set_precision(type.precision);
-    scalar_type.__set_scale(type.scale);
+    scalar_type.__set_type(to_thrift(type->get_primitive_type()));
+    scalar_type.__set_precision(type->get_precision());
+    scalar_type.__set_scale(type->get_scale());
     type_node.__set_scalar_type(scalar_type);
 
     std::vector<TTypeNode> type_nodes;

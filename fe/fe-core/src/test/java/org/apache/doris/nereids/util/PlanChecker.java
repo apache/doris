@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
@@ -49,7 +50,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -119,14 +122,19 @@ public class PlanChecker {
     }
 
     public PlanChecker analyze() {
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
-        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         return this;
     }
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRuleNames();
         Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
         disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
@@ -140,6 +148,9 @@ public class PlanChecker {
 
     public PlanChecker analyze(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.getStatementContext().addPlannerHook(InitConsistentMaterializationContextHook.INSTANCE);
+        this.cascadesContext.newTableCollector().collect();
+        this.cascadesContext.setCteContext(new CTEContext());
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         return this;
@@ -245,6 +256,8 @@ public class PlanChecker {
 
     public PlanChecker rewrite() {
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+        MaterializedViewUtils.collectTableUsedPartitions(cascadesContext.getRewritePlan(), cascadesContext);
+        InitMaterializationContextHook.INSTANCE.initMaterializationContext(this.cascadesContext);
         cascadesContext.toMemo();
         return this;
     }
@@ -564,8 +577,10 @@ public class PlanChecker {
 
     public PlanChecker checkExplain(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+                statementContext);
+        connectContext.setStatementContext(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
         nereidsPlanner.plan(adapter);
@@ -575,8 +590,9 @@ public class PlanChecker {
 
     public PlanChecker checkPlannerResult(String sql, Consumer<NereidsPlanner> consumer) {
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(
-                new StatementContext(connectContext, new OriginStatement(sql, 0)));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        connectContext.setStatementContext(statementContext);
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         consumer.accept(nereidsPlanner);
         return this;

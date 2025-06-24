@@ -36,7 +36,6 @@
 #include "beta_rowset_writer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
-#include "gutil/stringprintf.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
@@ -350,7 +349,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
         for (const auto& entry : std::filesystem::directory_iterator(ctx.tablet_path)) {
-            fmt::format_to(_writer->vlog_buffer, "[{}]", string(entry.path()));
+            fmt::format_to(_writer->vlog_buffer, "[{}]", std::string(entry.path()));
         }
         VLOG_DEBUG << "tablet_id:" << ctx.tablet_id << " rowset_id:" << ctx.rowset_id
                    << "_segcompacted_point:" << _writer->_segcompacted_point

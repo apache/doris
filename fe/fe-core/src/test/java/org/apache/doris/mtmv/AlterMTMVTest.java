@@ -51,7 +51,7 @@ public class AlterMTMVTest extends TestWithFeService {
 
         MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
         Table table = Env.getCurrentInternalCatalog().getDb("test").get().getTableOrMetaException("stu");
-        Set<MTMV> allMTMVs = relationManager.getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
+        Set<MTMV> allMTMVs = relationManager.getCandidateMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
         boolean hasMvA = false;
         boolean hasMvB = false;
         for (MTMV mtmv : allMTMVs) {

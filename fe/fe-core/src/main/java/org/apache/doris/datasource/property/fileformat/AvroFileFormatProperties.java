@@ -27,7 +27,7 @@ import java.util.Map;
 
 public class AvroFileFormatProperties extends FileFormatProperties {
     public AvroFileFormatProperties() {
-        super(TFileFormatType.FORMAT_AVRO);
+        super(TFileFormatType.FORMAT_AVRO, FileFormatProperties.FORMAT_AVRO);
     }
 
     @Override
@@ -36,8 +36,7 @@ public class AvroFileFormatProperties extends FileFormatProperties {
     }
 
     @Override
-    public TResultFileSinkOptions toTResultFileSinkOptions() {
-        return null;
+    public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
     }
 
     @Override

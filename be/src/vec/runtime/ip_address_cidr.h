@@ -51,6 +51,17 @@ static inline void apply_cidr_mask(const char* __restrict src, char* __restrict 
         dst_upper[i] = char(dst_lower[i] | ~mask[i]);
     }
 }
+
+static inline void apply_cidr_mask(const char* __restrict src, char* __restrict dst_lower,
+                                   UInt8 bits_to_keep) {
+    // little-endian mask
+    const auto& mask = get_cidr_mask_ipv6(bits_to_keep);
+
+    for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
+        dst_lower[i] = src[i] & mask[i];
+    }
+}
+
 } // namespace vectorized
 
 class IPAddressVariant {
@@ -97,14 +108,14 @@ struct IPAddressCIDR {
     vectorized::UInt8 _prefix;
 };
 
-bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
+inline bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
     uint32_t mask = (prefix >= 32) ? 0xffffffffU : ~(0xffffffffU >> prefix);
     return (addr & mask) == (cidr_addr & mask);
 }
 
 #if defined(__SSE2__) || defined(__aarch64__)
 
-bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
+inline bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
     uint16_t mask = (uint16_t)_mm_movemask_epi8(
             _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(addr)),
                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(cidr_addr))));
@@ -126,7 +137,7 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
 
 #else
 // ipv6 liitle-endian input
-bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
+inline bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
     if (prefix > IPV6_BINARY_LENGTH * 8U) {
         prefix = IPV6_BINARY_LENGTH * 8U;
     }
@@ -147,7 +158,7 @@ bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t pr
 }
 #endif
 
-IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
+inline IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
     size_t pos_slash = cidr_str.find('/');
 
     if (pos_slash == 0) {

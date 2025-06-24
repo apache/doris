@@ -97,21 +97,25 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
         _cur_rows = _block.rows();
         _cur_col = _block.get_by_position(idx).column;
         _cur_type = _block.get_by_position(idx).type;
+        auto column = _cur_col->convert_to_full_column_if_const();
+        auto arrow_type = _schema->field(idx)->type();
+        if (arrow_type->name() == "utf8" && column->byte_size() >= MAX_ARROW_UTF8) {
+            arrow_type = arrow::large_utf8();
+        }
         std::unique_ptr<arrow::ArrayBuilder> builder;
-        auto arrow_st = arrow::MakeBuilder(_pool, _schema->field(idx)->type(), &builder);
+        auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);
         if (!arrow_st.ok()) {
             return to_doris_status(arrow_st);
         }
         _cur_builder = builder.get();
-        auto column = _cur_col->convert_to_full_column_if_const();
         try {
-            _cur_type->get_serde()->write_column_to_arrow(*column, nullptr, _cur_builder,
-                                                          _cur_start, _cur_start + _cur_rows,
-                                                          _timezone_obj);
+            RETURN_IF_ERROR(_cur_type->get_serde()->write_column_to_arrow(
+                    *column, nullptr, _cur_builder, _cur_start, _cur_start + _cur_rows,
+                    _timezone_obj));
         } catch (std::exception& e) {
             return Status::InternalError(
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
-                    _cur_type->get_name(), e.what());
+                    _cur_type->get_name(), _block.get_by_position(idx).name, e.what());
         }
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
         if (!arrow_st.ok()) {
