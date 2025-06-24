@@ -28,6 +28,7 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stats.h"
 #include "common/stopwatch.h"
@@ -267,7 +268,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
             (func_name, ##__VA_ARGS__)                                                        \
         }                                                                                     \
     });                                                                                       \
-    std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {      \
+    DORIS_CLOUD_DEFER {                                                                       \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \
         finish_rpc(#func_name, ctrl, response);                                               \
@@ -281,6 +282,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
             stats.del_counter += txn->num_del_keys();                                         \
         }                                                                                     \
     });
+
 
 #define RPC_RATE_LIMIT(func_name)                                                            \
     if (config::enable_rate_limit && config::use_detailed_metrics && !instance_id.empty()) { \

@@ -454,17 +454,16 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
     }
 
     bool need_commit = false;
-    std::unique_ptr<int, std::function<void(int*)>> defer_commit(
-            (int*)0x01, [&ss, &txn, &code, &msg, &need_commit](int*) {
-                if (!need_commit) return;
-                TxnErrorCode err = txn->commit();
-                if (err != TxnErrorCode::TXN_OK) {
-                    code = cast_as<ErrCategory::COMMIT>(err);
-                    ss << "failed to commit job kv, err=" << err;
-                    msg = ss.str();
-                    return;
-                }
-            });
+    DORIS_CLOUD_DEFER {
+        if (!need_commit) return;
+        TxnErrorCode err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit job kv, err=" << err;
+            msg = ss.str();
+            return;
+        }
+    };
 
     if (!request->job().compaction().empty()) {
         start_compaction_job(code, msg, ss, txn, request, response, instance_id, need_commit);
@@ -930,11 +929,10 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     std::unique_ptr<RangeGetIterator> it;
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [&rs_start, &rs_end, &num_rowsets, &instance_id](int*) {
-                INSTANCE_LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                                   << hex(rs_start) << "," << hex(rs_end) << "]";
-            });
+    DORIS_CLOUD_DEFER {
+        INSTANCE_LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
+                           << hex(rs_start) << "," << hex(rs_end) << "]";
+    };
 
     auto rs_start1 = rs_start;
     do {
@@ -1270,6 +1268,22 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     new_tablet_meta.SerializeToString(&new_tablet_val);
     txn->put(new_tablet_key, new_tablet_val);
 
+    // process mow table, check lock
+    if (new_tablet_meta.enable_unique_key_merge_on_write()) {
+        bool success = check_and_remove_delete_bitmap_update_lock(
+                code, msg, ss, txn, instance_id, new_table_id, new_tablet_id,
+                SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, schema_change.delete_bitmap_lock_initiator(),
+                use_version);
+        if (!success) {
+            return;
+        }
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        txn->remove(pending_key);
+        LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
+                  << " tablet_id=" << new_tablet_id << ", job_id=" << schema_change.id();
+    }
+
     //==========================================================================
     //                move rowsets [2-alter_version] to recycle
     //==========================================================================
@@ -1397,22 +1411,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty txn_ids or output_versions";
         return;
-    }
-
-    // process mow table, check lock
-    if (new_tablet_meta.enable_unique_key_merge_on_write()) {
-        bool success = check_and_remove_delete_bitmap_update_lock(
-                code, msg, ss, txn, instance_id, new_table_id, new_tablet_id,
-                SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, schema_change.delete_bitmap_lock_initiator(),
-                use_version);
-        if (!success) {
-            return;
-        }
-
-        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
-        txn->remove(pending_key);
-        LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
-                  << " tablet_id=" << new_tablet_id << "job_id=" << schema_change.id();
     }
 
     for (size_t i = 0; i < schema_change.txn_ids().size(); ++i) {
@@ -1543,9 +1541,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                << " job=" << proto_to_json(recorded_job);
     FinishTabletJobRequest_Action action = request->action();
 
-    std::unique_ptr<int, std::function<void(int*)>> defer_commit((int*)0x01, [&ss, &txn, &code,
-                                                                              &msg, &need_commit,
-                                                                              &action](int*) {
+    DORIS_CLOUD_DEFER {
         if (!need_commit) return;
         TxnErrorCode err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -1563,7 +1559,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
             msg = ss.str();
             return;
         }
-    });
+    };
     std::string use_version =
             delete_bitmap_lock_white_list_->get_delete_bitmap_lock_version(instance_id);
     LOG(INFO) << "finish_tablet_job instance_id=" << instance_id << " use_version=" << use_version;

@@ -718,7 +718,7 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
         auto key = meta_schema_key(
                 {instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
         ValueBuf val_buf;
-        err = cloud::get(txn, key, &val_buf);
+        err = cloud::blob_get(txn, key, &val_buf);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get schema, err={}", err == TxnErrorCode::TXN_KEY_NOT_FOUND
@@ -792,7 +792,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 auto key = meta_schema_key(
                         {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
                 ValueBuf val_buf;
-                err = cloud::get(txn.get(), key, &val_buf);
+                err = cloud::blob_get(txn.get(), key, &val_buf);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format("failed to get schema, err={}",
@@ -963,7 +963,7 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
         std::string schema_key = meta_schema_key({instance_id, existed_rowset_meta.index_id(),
                                                   existed_rowset_meta.schema_version()});
         ValueBuf val_buf;
-        TxnErrorCode err = cloud::get(txn, schema_key, &val_buf, true);
+        TxnErrorCode err = cloud::blob_get(txn, schema_key, &val_buf, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format(
@@ -1554,11 +1554,10 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     std::unique_ptr<RangeGetIterator> it;
 
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [key0, key1, &num_rowsets](int*) {
-                LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                          << hex(key0) << "," << hex(key1) << "]";
-            });
+    DORIS_CLOUD_DEFER_COPY(key0, key1) {
+        LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=[" << hex(key0)
+                  << "," << hex(key1) << "]";
+    };
 
     std::stringstream ss;
     do {
@@ -1676,7 +1675,7 @@ static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rows
                                        const std::string& key, MetaServiceCode& code,
                                        std::string& msg) {
     ValueBuf val_buf;
-    TxnErrorCode err = cloud::get(txn, key, &val_buf);
+    TxnErrorCode err = cloud::blob_get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
@@ -2466,7 +2465,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                       << " initiator=" << request->initiator();
         }
         // splitting large values (>90*1000) into multiple KVs
-        cloud::put(txn.get(), key, val, 0);
+        cloud::blob_put(txn.get(), key, val, 0);
         current_key_count++;
         current_value_count += val.size();
         total_key_count++;
@@ -3720,7 +3719,7 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
 
     std::string dict_key = meta_schema_pb_dictionary_key({instance_id, request->index_id()});
     ValueBuf dict_val;
-    err = cloud::get(txn.get(), dict_key, &dict_val);
+    err = cloud::blob_get(txn.get(), dict_key, &dict_val);
     LOG(INFO) << "Retrieved column pb dictionary, index_id=" << request->index_id()
               << " key=" << hex(dict_key) << " error=" << err;
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {

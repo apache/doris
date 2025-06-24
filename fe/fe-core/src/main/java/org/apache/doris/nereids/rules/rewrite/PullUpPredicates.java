@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
@@ -307,6 +308,7 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                 }
             }
             Set<Expression> pullPredicates = new LinkedHashSet<>(childPredicates);
+            boolean isScalar = aggregate.getGroupByExpressions().isEmpty();
             for (Expression childPredicate : childPredicates) {
                 if (childPredicate instanceof ComparisonPredicate) {
                     ComparisonPredicate cmp = (ComparisonPredicate) childPredicate;
@@ -316,7 +318,12 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
                             Expression genPredicates = TypeCoercionUtils.processComparisonPredicate(
                                      (ComparisonPredicate) cmp.withChildren(slot, cmp.right()));
                             genPredicates = FoldConstantRuleOnFE.evaluate(genPredicates, rewriteContext);
-                            pullPredicates.add(genPredicates);
+                            if (isScalar) {
+                                // Aggregation will return null if there are no matching rows
+                                pullPredicates.add(new Or(new IsNull(slot), genPredicates));
+                            } else {
+                                pullPredicates.add(genPredicates);
+                            }
                         }
                     }
                 }

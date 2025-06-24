@@ -17,8 +17,6 @@
 
 package org.apache.doris.ha;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -89,19 +87,7 @@ public class MasterInfo implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        host = Text.readString(in);
-        httpPort = in.readInt();
-        rpcPort = in.readInt();
-    }
-
     public static MasterInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_118) {
-            MasterInfo masterInfo = new MasterInfo();
-            masterInfo.readFields(in);
-            return masterInfo;
-        }
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, MasterInfo.class);
     }

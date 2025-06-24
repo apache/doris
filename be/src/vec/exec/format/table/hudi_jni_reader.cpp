@@ -60,7 +60,8 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
             {"required_fields", join(required_fields, ",")},
             {"instant_time", _hudi_params.instant_time},
             {"serde", _hudi_params.serde},
-            {"input_format", _hudi_params.input_format}};
+            {"input_format", _hudi_params.input_format},
+            {"time_zone", state->timezone_obj().name()}};
 
     // Use compatible hadoop client to read data
     for (const auto& kv : _scan_params.properties) {
@@ -73,18 +74,6 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HadoopHudiJniScanner",
                                                     params, required_fields);
-}
-
-Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    return _jni_connector->get_next_block(block, read_rows, eof);
-}
-
-Status HudiJniReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
 }
 
 Status HudiJniReader::init_reader(

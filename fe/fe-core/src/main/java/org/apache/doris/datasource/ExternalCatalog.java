@@ -37,8 +37,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
@@ -67,7 +65,6 @@ import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.transaction.TransactionManager;
@@ -79,7 +76,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -89,8 +85,6 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -107,9 +101,8 @@ import java.util.stream.Collectors;
 /**
  * The abstract class for all types of external catalogs.
  */
-@Data
 public abstract class ExternalCatalog
-        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, Writable, GsonPostProcessable {
+        implements CatalogIf<ExternalDatabase<? extends ExternalTable>>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(ExternalCatalog.class);
 
     public static final String ENABLE_AUTO_ANALYZE = "enable.auto.analyze";
@@ -364,7 +357,7 @@ public abstract class ExternalCatalog
     // check if all required properties are set when creating catalog
     public void checkProperties() throws DdlException {
         // check refresh parameter of catalog
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 int metadataRefreshIntervalSec = Integer.parseInt(
@@ -397,7 +390,7 @@ public abstract class ExternalCatalog
      * isDryRun: if true, it will try to create the custom access controller, but will not add it to the access manager.
      */
     public void initAccessController(boolean isDryRun) {
-        Map<String, String> properties = getCatalogProperty().getProperties();
+        Map<String, String> properties = catalogProperty.getProperties();
         // 1. get access controller class name
         String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
         if (Strings.isNullOrEmpty(className)) {
@@ -557,7 +550,7 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public void resetToUninitialized(boolean invalidCache) {
+    public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.propLock) {
@@ -774,11 +767,6 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Override
     public void onClose() {
         removeAccessController();
         if (threadPoolWithPreAuth != null) {
@@ -964,11 +952,6 @@ public abstract class ExternalCatalog
         return null;
     }
 
-    public static ExternalCatalog read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ExternalCatalog.class);
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
         if (idToDb == null) {
@@ -1007,6 +990,14 @@ public abstract class ExternalCatalog
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
         idToDb.put(db.getId(), db);
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+    }
+
+    /**
+     * Set the initialized status for testing purposes only.
+     * This method should only be used in test cases.
+     */
+    public void setInitializedForTest(boolean initialized) {
+        this.initialized = initialized;
     }
 
     @Override
@@ -1312,4 +1303,35 @@ public abstract class ExternalCatalog
     public ThreadPoolExecutor getThreadPoolExecutor() {
         return threadPoolWithPreAuth;
     }
+
+    public CatalogProperty getCatalogProperty() {
+        return catalogProperty;
+    }
+
+    public Optional<Boolean> getUseMetaCache() {
+        return useMetaCache;
+    }
+
+    public Map<Pair<String, String>, String> getTableAutoAnalyzePolicy() {
+        return tableAutoAnalyzePolicy;
+    }
+
+    public TransactionManager getTransactionManager() {
+        return transactionManager;
+    }
+
+    public ThreadPoolExecutor getThreadPoolWithPreAuth() {
+        return threadPoolWithPreAuth;
+    }
+
+    /**
+     * Check if an external view exists.
+     * @param dbName
+     * @param viewName
+     * @return
+     */
+    public boolean viewExists(String dbName, String viewName) {
+        throw new UnsupportedOperationException("View is not supported.");
+    }
+
 }
