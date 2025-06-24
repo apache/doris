@@ -123,4 +123,109 @@ public class HMSExternalTableTest {
             this.objectCreated = true;
         }
     }
+
+    @Test
+    public void testGetHiveSchemaWithVoidColumns(@Injectable Table remoteTable) {
+        List<FieldSchema> list = new ArrayList<>();
+
+        // Add a normal column
+        FieldSchema normalField = new FieldSchema();
+        normalField.setName("normal_column");
+        normalField.setComment("normal column comment");
+        normalField.setType("string");
+        list.add(normalField);
+
+        // Add a void column (should be skipped)
+        FieldSchema voidField = new FieldSchema();
+        voidField.setName("void_column");
+        voidField.setComment("void column comment");
+        voidField.setType("void");
+        list.add(voidField);
+
+        // Add another void column with different case (should be skipped)
+        FieldSchema voidFieldUpperCase = new FieldSchema();
+        voidFieldUpperCase.setName("void_column_upper");
+        voidFieldUpperCase.setComment("void column upper case comment");
+        voidFieldUpperCase.setType("VOID");
+        list.add(voidFieldUpperCase);
+
+        // Add another normal column
+        FieldSchema anotherNormalField = new FieldSchema();
+        anotherNormalField.setName("another_normal_column");
+        anotherNormalField.setComment("another normal column comment");
+        anotherNormalField.setType("int");
+        list.add(anotherNormalField);
+
+        new Expectations() {
+            {
+                remoteTable.getSd().getCols();
+                result = list;
+            }
+        };
+
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public final synchronized void makeSureInitialized() {
+            }
+        };
+
+        HMSExternalTable hmsExternalTable = new HMSExternalTable(1, "test", "test",
+                new HMSExternalCatalog());
+        hmsExternalTable.setRemoteTable(remoteTable);
+
+        List<Column> baseSchema = hmsExternalTable.getBaseSchema();
+
+        // Should only have 2 columns (void columns should be filtered out)
+        Assertions.assertEquals(2, baseSchema.size());
+
+        // Verify the remaining columns are the non-void ones
+        Assertions.assertEquals("normal_column", baseSchema.get(0).getName());
+        Assertions.assertEquals("another_normal_column", baseSchema.get(1).getName());
+
+        // Verify that void columns are not present
+        for (Column column : baseSchema) {
+            Assertions.assertNotEquals("void_column", column.getName());
+            Assertions.assertNotEquals("void_column_upper", column.getName());
+        }
+    }
+
+    @Test
+    public void testGetHiveSchemaWithOnlyVoidColumns(@Injectable Table remoteTable) {
+        List<FieldSchema> list = new ArrayList<>();
+
+        // Add only void columns
+        FieldSchema voidField1 = new FieldSchema();
+        voidField1.setName("void_column1");
+        voidField1.setComment("void column 1 comment");
+        voidField1.setType("void");
+        list.add(voidField1);
+
+        FieldSchema voidField2 = new FieldSchema();
+        voidField2.setName("void_column2");
+        voidField2.setComment("void column 2 comment");
+        voidField2.setType("VOID");
+        list.add(voidField2);
+
+        new Expectations() {
+            {
+                remoteTable.getSd().getCols();
+                result = list;
+            }
+        };
+
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public final synchronized void makeSureInitialized() {
+            }
+        };
+
+        HMSExternalTable hmsExternalTable = new HMSExternalTable(1, "test", "test",
+                new HMSExternalCatalog());
+        hmsExternalTable.setRemoteTable(remoteTable);
+
+        List<Column> baseSchema = hmsExternalTable.getBaseSchema();
+
+        // Should have 0 columns (all void columns should be filtered out)
+        Assertions.assertEquals(0, baseSchema.size());
+    }
 }
