@@ -47,7 +47,9 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
             len = scalar_type.len;
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
                    type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
-            DCHECK(scalar_type.__isset.precision);
+            if (type != TYPE_DATETIMEV2) {
+                DCHECK(scalar_type.__isset.precision);
+            }
             DCHECK(scalar_type.__isset.scale);
             precision = scalar_type.precision;
             scale = scalar_type.scale;
@@ -225,7 +227,9 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
             len = scalar_type.len();
         } else if (type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
                    type == TYPE_DECIMAL128I || type == TYPE_DECIMAL256 || type == TYPE_DATETIMEV2) {
-            DCHECK(scalar_type.has_precision());
+            if (type != TYPE_DATETIMEV2) {
+                DCHECK(scalar_type.has_precision());
+            }
             DCHECK(scalar_type.has_scale());
             precision = scalar_type.precision();
             scale = scalar_type.scale();
