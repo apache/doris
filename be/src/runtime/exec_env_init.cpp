@@ -349,6 +349,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _runtime_query_statistics_mgr->start_report_thread();
     _s_ready = true;
 
+    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
+    S3ClientFactory::instance();
     return Status::OK();
 }
 
