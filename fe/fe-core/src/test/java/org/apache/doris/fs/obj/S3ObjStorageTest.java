@@ -520,4 +520,38 @@ public class S3ObjStorageTest {
         Assertions.assertTrue(status.getErrMsg().contains("S3 error"));
         Assertions.assertTrue(result.isEmpty());
     }
+
+    @Test
+    public void testGlobListWithDirectoryBucket() throws UserException {
+        storage = new S3ObjStorage(mockProperties);
+        mockClient = Mockito.mock(S3Client.class);
+        storage = Mockito.spy(storage);
+        Mockito.doReturn(mockClient).when(storage).getClient();
+
+        String remotePath = "s3://my-bucket--usw2-az1--x-s3/data/files*.csv";
+        List<RemoteFile> result = new ArrayList<>();
+
+        ListObjectsV2Response response = ListObjectsV2Response.builder()
+                .contents(S3Object.builder().key("data/files1.csv").size(1024L).lastModified(Instant.now()).build())
+                .isTruncated(false)
+                .build();
+
+        // Use an ArgumentCaptor to capture the request passed to listObjectsV2
+        org.mockito.ArgumentCaptor<ListObjectsV2Request> captor =
+                org.mockito.ArgumentCaptor.forClass(ListObjectsV2Request.class);
+        // since storage is a spy, storage.globList will call real method.
+        // the real method calls listObjectsV2 in the same class, which is also a real method call.
+        // the real listObjectsV2 method calls getClient().listObjectsV2()
+        // getClient() is mocked to return mockClient.
+        // So we just need to mock mockClient.listObjectsV2()
+        Mockito.when(mockClient.listObjectsV2(captor.capture())).thenReturn(response);
+
+        Status status = storage.globList(remotePath, result, false);
+
+        Assertions.assertEquals(Status.OK, status);
+        Assertions.assertEquals(1, result.size());
+        // Verify that the prefix was adjusted correctly for the directory bucket.
+        // "data/files*.csv" -> longest prefix is "data/files", adjusted to "data/"
+        Assertions.assertEquals("data/", captor.getValue().prefix());
+    }
 }

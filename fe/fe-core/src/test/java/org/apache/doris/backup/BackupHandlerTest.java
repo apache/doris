@@ -19,7 +19,6 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.LabelName;
@@ -42,6 +41,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
@@ -277,7 +277,7 @@ public class BackupHandlerTest {
         handler.handleFinishedSnapshotUploadTask(uploadTask, request);
 
         // cancel backup
-        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, false));
+        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, false));
 
         // process restore
         List<TableRef> tblRefs2 = Lists.newArrayList();
@@ -318,7 +318,7 @@ public class BackupHandlerTest {
         handler.handleDirMoveTask(dirMoveTask, request);
 
         // cancel restore
-        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
+        handler.cancel(new CancelBackupCommand(CatalogMocker.TEST_DB_NAME, true));
 
         // drop repo
         handler.dropRepository(new DropRepositoryStmt("repo"));

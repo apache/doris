@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -30,42 +29,30 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 /**
  * Slot has not been bound.
  */
 public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
 
-    private Optional<Location> slotLocation;
     private final List<String> nameParts;
 
     public UnboundSlot(String... nameParts) {
-        this(null, nameParts);
-    }
-
-    public UnboundSlot(@Nullable Location location, String... nameParts) {
-        this(location, ImmutableList.copyOf(nameParts), Optional.empty());
+        this(ImmutableList.copyOf(nameParts), Optional.empty());
     }
 
     public UnboundSlot(List<String> nameParts) {
-        this(null, nameParts, Optional.empty());
+        this(Utils.fastToImmutableList(nameParts), Optional.empty());
     }
 
-    public UnboundSlot(@Nullable Location location, List<String> nameParts) {
-        this(location, ImmutableList.copyOf(nameParts), Optional.empty());
-    }
-
-    public UnboundSlot(
-            @Nullable Location location, List<String> nameParts, Optional<Pair<Integer, Integer>> indexInSqlString) {
+    public UnboundSlot(List<String> nameParts, Optional<Pair<Integer, Integer>> indexInSqlString) {
         super(indexInSqlString);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts can not be null"));
-        this.slotLocation = Optional.ofNullable(location);
     }
 
     @Override
     public Slot withIndexInSql(Pair<Integer, Integer> index) {
-        return new UnboundSlot(slotLocation.orElse(null), nameParts, Optional.ofNullable(index));
+        return new UnboundSlot(nameParts, Optional.ofNullable(index));
     }
 
     public List<String> getNameParts() {
@@ -104,7 +91,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     public static UnboundSlot quoted(String name) {
-        return new UnboundSlot(null, Lists.newArrayList(name), Optional.empty());
+        return new UnboundSlot(Lists.newArrayList(name), Optional.empty());
     }
 
     @Override
@@ -127,10 +114,6 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     @Override
     public int computeHashCode() {
         return nameParts.hashCode();
-    }
-
-    public Optional<Location> getLocation() {
-        return slotLocation;
     }
 
     @Override

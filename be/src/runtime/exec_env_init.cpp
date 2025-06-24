@@ -71,6 +71,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/load_stream_mgr.h"
@@ -368,11 +369,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
 
+    _index_policy_mgr = new IndexPolicyMgr();
+
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
+    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
+    S3ClientFactory::instance();
     return Status::OK();
 }
 
@@ -830,6 +835,8 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);
+
+    SAFE_DELETE(_index_policy_mgr);
 
     _s_tracking_memory = false;
 

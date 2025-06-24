@@ -537,14 +537,6 @@ public abstract class DataType {
         return this instanceof TimeV2Type;
     }
 
-    public boolean isTimeV2Type() {
-        return this instanceof TimeV2Type;
-    }
-
-    public boolean isTimeLikeType() {
-        return isTimeType() || isTimeV2Type();
-    }
-
     public boolean isNullType() {
         return this instanceof NullType;
     }

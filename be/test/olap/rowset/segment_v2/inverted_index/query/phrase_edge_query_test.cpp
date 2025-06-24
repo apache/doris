@@ -224,8 +224,8 @@ TEST_F(PhraseEdgeQueryTest, test_single_term_edge_query) {
     PhraseEdgeQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app"); // Should match words containing "app"
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0); // Should match words containing "app"
 
     query.add(query_info);
 
@@ -280,12 +280,12 @@ TEST_F(PhraseEdgeQueryTest, test_multi_term_edge_query) {
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // First term: suffix match (ends_with), Last term: prefix match (starts_with), Middle: exact
-    query_info.terms.emplace_back(
-            "ple"); // suffix match - should match "apple", "simple", "people", "triple"
-    query_info.terms.emplace_back(
-            "ban"); // middle exact match - should match "banana", "band", "bandage", "bandits"
-    query_info.terms.emplace_back(
-            "che"); // prefix match - should match "cherry", "checker", "achieved", "chest"
+    query_info.term_infos.emplace_back(
+            "ple", 0); // suffix match - should match "apple", "simple", "people", "triple"
+    query_info.term_infos.emplace_back(
+            "ban", 1); // middle exact match - should match "banana", "band", "bandage", "bandits"
+    query_info.term_infos.emplace_back(
+            "che", 2); // prefix match - should match "cherry", "checker", "achieved", "chest"
 
     query.add(query_info);
 
@@ -331,7 +331,7 @@ TEST_F(PhraseEdgeQueryTest, test_empty_terms_exception) {
     query_info.field_name = L"1"; // c2 column unique_id in V2 format
     // terms is empty
 
-    EXPECT_THROW(query.add(query_info), CLuceneError);
+    EXPECT_THROW(query.add(query_info), Exception);
 }
 
 TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
@@ -373,9 +373,9 @@ TEST_F(PhraseEdgeQueryTest, test_max_expansions_limit) {
     PhraseEdgeQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";          // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("app");  // Should match many terms but limited to 2
-    query_info.terms.emplace_back("word"); // Some term
+    query_info.field_name = L"1";                  // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("app", 0);  // Should match many terms but limited to 2
+    query_info.term_infos.emplace_back("word", 1); // Some term
 
     query.add(query_info);
 
@@ -417,8 +417,8 @@ TEST_F(PhraseEdgeQueryTest, test_no_matches) {
     PhraseEdgeQuery query(searcher, query_options, &io_ctx);
 
     InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"1";         // c2 column unique_id in V2 format
-    query_info.terms.emplace_back("xyz"); // Should not match any term
+    query_info.field_name = L"1";                 // c2 column unique_id in V2 format
+    query_info.term_infos.emplace_back("xyz", 0); // Should not match any term
 
     query.add(query_info);
 

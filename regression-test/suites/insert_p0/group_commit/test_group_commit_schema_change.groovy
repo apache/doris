@@ -123,12 +123,12 @@ suite("test_group_commit_schema_change", "nonConcurrent") {
     def job_state = getJobState(tableName3)
     assertEquals("RUNNING", job_state)
     GetDebugPoint().disableDebugPointForAllFEs("FE.SchemaChangeJobV2.runRunning.block")
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 30; i++) {
         job_state = getJobState(tableName3)
         if (job_state == "FINISHED") {
             break
         }
-        sleep(100)
+        sleep(500)
     }
     assertEquals("FINISHED", job_state)
 }

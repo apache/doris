@@ -28,6 +28,7 @@
 
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
@@ -225,25 +226,25 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     }
 }
 
-#define RPC_PREPROCESS(func_name)                                                        \
-    StopWatch sw;                                                                        \
-    auto ctrl = static_cast<brpc::Controller*>(controller);                              \
-    begin_rpc(#func_name, ctrl, request);                                                \
-    brpc::ClosureGuard closure_guard(done);                                              \
-    [[maybe_unused]] std::stringstream ss;                                               \
-    [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                         \
-    [[maybe_unused]] std::string msg;                                                    \
-    [[maybe_unused]] std::string instance_id;                                            \
-    [[maybe_unused]] bool drop_request = false;                                          \
-    std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) { \
-        response->mutable_status()->set_code(code);                                      \
-        response->mutable_status()->set_msg(msg);                                        \
-        finish_rpc(#func_name, ctrl, response);                                          \
-        closure_guard.reset(nullptr);                                                    \
-        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {     \
-            g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                     \
-        }                                                                                \
-    });
+#define RPC_PREPROCESS(func_name)                                                    \
+    StopWatch sw;                                                                    \
+    auto ctrl = static_cast<brpc::Controller*>(controller);                          \
+    begin_rpc(#func_name, ctrl, request);                                            \
+    brpc::ClosureGuard closure_guard(done);                                          \
+    [[maybe_unused]] std::stringstream ss;                                           \
+    [[maybe_unused]] MetaServiceCode code = MetaServiceCode::OK;                     \
+    [[maybe_unused]] std::string msg;                                                \
+    [[maybe_unused]] std::string instance_id;                                        \
+    [[maybe_unused]] bool drop_request = false;                                      \
+    DORIS_CLOUD_DEFER {                                                              \
+        response->mutable_status()->set_code(code);                                  \
+        response->mutable_status()->set_msg(msg);                                    \
+        finish_rpc(#func_name, ctrl, response);                                      \
+        closure_guard.reset(nullptr);                                                \
+        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) { \
+            g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                 \
+        }                                                                            \
+    };
 
 #define RPC_RATE_LIMIT(func_name)                                                            \
     if (config::enable_rate_limit && config::use_detailed_metrics && !instance_id.empty()) { \

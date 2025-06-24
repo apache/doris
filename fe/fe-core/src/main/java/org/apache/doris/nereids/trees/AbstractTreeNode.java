@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees;
 
+import org.apache.doris.nereids.parser.Origin;
+import org.apache.doris.nereids.parser.ParserUtils;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.Utils;
@@ -32,6 +34,9 @@ import java.util.Optional;
  */
 public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         implements TreeNode<NODE_TYPE> {
+
+    protected final Optional<Origin> origin = ParserUtils.getOrigin();
+
     protected final List<NODE_TYPE> children;
 
     // this field is special, because other fields in tree node is immutable, but in some scenes, mutable
@@ -51,6 +56,11 @@ public abstract class AbstractTreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>>
         // NOTE: ImmutableList.copyOf has additional clone of the list, so here we
         //       direct generate a ImmutableList
         this.children = Utils.fastToImmutableList(children);
+    }
+
+    @Override
+    public Optional<Origin> getOrigin() {
+        return origin;
     }
 
     @Override

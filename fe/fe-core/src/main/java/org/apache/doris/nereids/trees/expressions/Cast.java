@@ -80,7 +80,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return true;
         } else if (!childDataType.isDateLikeType() && targetType.isDateLikeType()) {
             return true;
-        } else if (!childDataType.isTimeLikeType() && targetType.isTimeLikeType()) {
+        } else if (!childDataType.isTimeType() && targetType.isTimeType()) {
             return true;
         } else if (childDataType.isJsonType() || targetType.isJsonType()) {
             return true;

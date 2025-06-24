@@ -33,6 +33,7 @@
 #include <thread>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -170,12 +171,12 @@ TEST(MetaServerTest, StartAndStop) {
     // use structured binding for point alias (avoid multi lines of declaration)
     auto [meta_server_start_1, meta_server_start_2, meta_server_start_3] = sps;
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](...) {
+    DORIS_CLOUD_DEFER {
         for (auto& i : sps) {
             sp->clear_call_back(i);
         } // redundant
         sp->disable_processing();
-    });
+    };
 
     auto foo = [](auto&& args) {
         auto* ret = try_any_cast<int*>(args[0]);

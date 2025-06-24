@@ -24,6 +24,8 @@ namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 struct ScannerCounter;
 class WalReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(WalReader);
+
 public:
     WalReader(RuntimeState* state);
     ~WalReader() override = default;

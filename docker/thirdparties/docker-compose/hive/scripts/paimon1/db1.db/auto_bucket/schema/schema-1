@@ -1,0 +1,33 @@
+{
+  "version" : 2,
+  "id" : 1,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "user_id",
+    "type" : "BIGINT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "item_id",
+    "type" : "BIGINT"
+  }, {
+    "id" : 2,
+    "name" : "behavior",
+    "type" : "STRING"
+  }, {
+    "id" : 3,
+    "name" : "dt",
+    "type" : "STRING NOT NULL"
+  }, {
+    "id" : 4,
+    "name" : "hh",
+    "type" : "STRING NOT NULL"
+  } ],
+  "highestFieldId" : 4,
+  "partitionKeys" : [ "dt", "hh" ],
+  "primaryKeys" : [ "dt", "hh", "user_id" ],
+  "options" : {
+    "bucket" : "-1",
+    "owner" : "hadoop"
+  },
+  "timeMillis" : 1736832959841
+}

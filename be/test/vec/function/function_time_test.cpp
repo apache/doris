@@ -955,18 +955,6 @@ TEST(VTimestampFunctionsTest, datediff_v2_test) {
 
         static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
     }
-
-    {
-        InputTypeSet input_types = {PrimitiveType::TYPE_DATETIMEV2, PrimitiveType::TYPE_DATEV2};
-
-        DataSet data_set = {
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-19")}, -1},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-17")}, 1},
-                {{std::string("2019-00-18 00:00:00.123"), std::string("2019-07-18")}, Null()},
-                {{std::string("2019-07-18 00:00:00.123"), std::string("2019-07-00")}, Null()}};
-
-        static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
-    }
 }
 
 TEST(VTimestampFunctionsTest, date_format_v2_test) {

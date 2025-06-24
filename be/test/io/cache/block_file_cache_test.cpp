@@ -7913,4 +7913,81 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_normal_index) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
+TEST_F(BlockFileCacheTest, test_reset_capacity) {
+    std::string cache_path2 = caches_dir / "cache2" / "";
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    if (fs::exists(cache_path2)) {
+        fs::remove_all(cache_path2);
+    }
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.disposable_queue_size = 30;
+    settings.disposable_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_base_path, settings).ok());
+    ASSERT_TRUE(FileCacheFactory::instance()->create_file_cache(cache_path2, settings).ok());
+    EXPECT_EQ(FileCacheFactory::instance()->get_cache_instance_size(), 2);
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 180);
+
+    // valid path + valid capacity
+    auto s = FileCacheFactory::instance()->reset_capacity(cache_base_path, 80);
+    LOG(INFO) << s;
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 170);
+
+    // empty path + valid capacity
+    s = FileCacheFactory::instance()->reset_capacity("", 70);
+    LOG(INFO) << s;
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 140);
+
+    // invalid path + valid capacity
+    s = FileCacheFactory::instance()->reset_capacity("/not/exist/haha", 70);
+    LOG(INFO) << s;
+    EXPECT_EQ(FileCacheFactory::instance()->get_capacity(), 140);
+
+    // valid path + invalid capacity
+    s = FileCacheFactory::instance()->reset_capacity(cache_base_path, INT64_MAX);
+    LOG(INFO) << s;
+    EXPECT_LT(FileCacheFactory::instance()->get_capacity(), INT64_MAX);
+    EXPECT_GT(FileCacheFactory::instance()->get_capacity(), 70);
+
+    // valid path + zero capacity
+    s = FileCacheFactory::instance()->reset_capacity(cache_base_path, 0);
+    LOG(INFO) << s;
+    EXPECT_LT(FileCacheFactory::instance()->get_capacity(), INT64_MAX);
+    EXPECT_GT(FileCacheFactory::instance()->get_capacity(), 70);
+
+    // empty path + invalid capacity
+    s = FileCacheFactory::instance()->reset_capacity("", INT64_MAX);
+    LOG(INFO) << s;
+    EXPECT_LT(FileCacheFactory::instance()->get_capacity(), INT64_MAX);
+    EXPECT_GT(FileCacheFactory::instance()->get_capacity(), 70);
+
+    // empty path + zero capacity
+    s = FileCacheFactory::instance()->reset_capacity("", 0);
+    LOG(INFO) << s;
+    EXPECT_LT(FileCacheFactory::instance()->get_capacity(), INT64_MAX);
+    EXPECT_GT(FileCacheFactory::instance()->get_capacity(), 70);
+
+    FileCacheFactory::instance()->clear_file_caches(true);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    if (fs::exists(cache_path2)) {
+        fs::remove_all(cache_path2);
+    }
+    FileCacheFactory::instance()->_caches.clear();
+    FileCacheFactory::instance()->_path_to_cache.clear();
+    FileCacheFactory::instance()->_capacity = 0;
+}
+
 } // namespace doris::io
