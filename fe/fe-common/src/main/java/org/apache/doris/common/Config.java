@@ -2889,6 +2889,11 @@ public class Config extends ConfigBase {
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
 
+    @ConfField(description = {
+            "存放 hadoop conf 配置文件的默认目录。",
+            "The default directory for storing hadoop conf configuration files."})
+    public static String hadoop_config_dir = EnvUtils.getDorisHome() + "/plugins/hadoop_conf/";
+
     @ConfField(mutable = true)
     public static boolean fix_tablet_partition_id_eq_0 = false;
 
