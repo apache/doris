@@ -246,6 +246,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         SessionVariable.IgnoreSplitType ignoreSplitType = SessionVariable.IgnoreSplitType
                 .valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
+        List<Split> pushDownCountSplits = new ArrayList<>();
+        long pushDownCountSum = 0;
 
         List<org.apache.paimon.table.source.Split> paimonSplits = getPaimonSplitFromAPI();
         List<DataSplit> dataSplits = new ArrayList<>();
@@ -273,8 +275,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 splitStat.setMergedRowCount(dataSplit.mergedRowCount());
                 PaimonSplit split = new PaimonSplit(dataSplit);
                 split.setRowCount(dataSplit.mergedRowCount());
-                splits.add(split);
-                ++paimonSplitNum;
+                pushDownCountSplits.add(split);
+                pushDownCountSum += dataSplit.mergedRowCount();
             } else if (!forceJniScanner && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
@@ -319,6 +321,19 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
 
             splitStats.add(splitStat);
+        }
+
+        // if applyCountPushdown is true, calcute row count for count pushdown
+        if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
+            if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
+                int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
+            } else {
+                pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));
+            }
+            setPushDownCount(pushDownCountSum);
+            assignCountToSplits(pushDownCountSplits, pushDownCountSum);
+            splits.addAll(pushDownCountSplits);
         }
 
         // We need to set the target size for all splits so that we can calculate the
@@ -432,5 +447,14 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
         return sb.toString();
+    }
+
+    private void assignCountToSplits(List<Split> splits, long totalCount) {
+        int size = splits.size();
+        long countPerSplit = totalCount / size;
+        for (int i = 0; i < size - 1; i++) {
+            ((PaimonSplit) splits.get(i)).setRowCount(countPerSplit);
+        }
+        ((PaimonSplit) splits.get(size - 1)).setRowCount(countPerSplit + totalCount % size);
     }
 }
