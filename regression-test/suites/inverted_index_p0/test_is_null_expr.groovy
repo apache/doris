@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_is_null_expr", "p0") {
+suite("test_is_null_expr", "p0, nonConcurrent") {
     // define a sql table
     def testTable = "test_is_null_expr"
 
@@ -52,6 +52,9 @@ suite("test_is_null_expr", "p0") {
           GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [filtered_rows: expectedFilteredRows])
           sql "set experimental_enable_parallel_scan = false"
           sql " set inverted_index_skip_threshold = 0 "
+          sql " set enable_common_expr_pushdown_for_inverted_index = true"
+          sql " set enable_common_expr_pushdown = true"
+          sql " set enable_parallel_scan = false"
           sql "sync"
           sql "${sqlQuery}"
       } finally {
@@ -62,4 +65,6 @@ suite("test_is_null_expr", "p0") {
     
     queryAndCheck (" select * from ${testTable} where v2 is not null; ", 0)
     queryAndCheck (" select * from ${testTable} where v2 is not null or v3 = 'c'; ", 0)
+    queryAndCheck (" select * from ${testTable} where v2 is null or v3 = 'c'; ", 2)
+    queryAndCheck (" select * from ${testTable} where v2 is not null or v3 is not null; ", 0)
 }

@@ -486,6 +486,36 @@ TEST_F(ColumnObjectTest, convert_column_if_overflow) {
     EXPECT_EQ(ret.get(), column_variant.get());
 }
 
+TEST_F(ColumnObjectTest, clone_finalized) {
+    auto test_func = [](const auto& source_column) {
+        auto src_size = source_column->size();
+        EXPECT_TRUE(src_size > 0);
+
+        // Store original data for comparison
+        auto original_subcolumns = source_column->get_subcolumns();
+
+        // Test clone_finalized
+        auto cloned = source_column->clone_finalized();
+        EXPECT_TRUE(cloned.get() != nullptr);
+        EXPECT_EQ(cloned->size(), src_size);
+
+        // Verify cloned column has same subcolumns
+        auto cloned_subcolumns = assert_cast<ColumnObject*>(cloned.get())->get_subcolumns();
+        EXPECT_EQ(cloned_subcolumns.size(), original_subcolumns.size());
+
+        // Verify data integrity
+        for (size_t i = 0; i < src_size; ++i) {
+            Field original_field, cloned_field;
+            source_column->get(i, original_field);
+            cloned->get(i, cloned_field);
+            EXPECT_EQ(original_field, cloned_field);
+        }
+    };
+    auto temp = column_variant->clone();
+    auto cloned_object = assert_cast<ColumnObject*>(temp.get());
+    test_func(std::move(cloned_object));
+}
+
 TEST_F(ColumnObjectTest, resize) {
     auto test_func = [](const auto& source_column, size_t add_count) {
         {
@@ -1082,36 +1112,6 @@ TEST_F(ColumnObjectTest, finalize) {
                 obj->get(i, finalized_field);
                 EXPECT_EQ(original_field, finalized_field);
             }
-        }
-    };
-    auto temp = column_variant->clone();
-    auto cloned_object = assert_cast<ColumnObject*>(temp.get());
-    test_func(std::move(cloned_object));
-}
-
-TEST_F(ColumnObjectTest, clone_finalized) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
-
-        // Store original data for comparison
-        auto original_subcolumns = source_column->get_subcolumns();
-
-        // Test clone_finalized
-        auto cloned = source_column->clone_finalized();
-        EXPECT_TRUE(cloned.get() != nullptr);
-        EXPECT_EQ(cloned->size(), src_size);
-
-        // Verify cloned column has same subcolumns
-        auto cloned_subcolumns = assert_cast<ColumnObject*>(cloned.get())->get_subcolumns();
-        EXPECT_EQ(cloned_subcolumns.size(), original_subcolumns.size());
-
-        // Verify data integrity
-        for (size_t i = 0; i < src_size; ++i) {
-            Field original_field, cloned_field;
-            source_column->get(i, original_field);
-            cloned->get(i, cloned_field);
-            EXPECT_EQ(original_field, cloned_field);
         }
     };
     auto temp = column_variant->clone();

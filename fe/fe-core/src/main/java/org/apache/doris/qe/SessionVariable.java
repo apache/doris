@@ -2474,7 +2474,7 @@ public class SessionVariable implements Serializable, Writable {
             checker = "checkGlobalVariantMaxSubcolumnsCount",
             fuzzy = true
     )
-    public int globalVariantMaxSubcolumnsCount = 20000;
+    public int globalVariantMaxSubcolumnsCount = 2048;
 
     @VariableMgr.VarAttr(name = ENABLE_SQL_CONVERTOR_FEATURES, needForward = true,
             checker = "checkSqlConvertorFeatures",
@@ -3899,7 +3899,7 @@ public class SessionVariable implements Serializable, Writable {
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
         if (value < 0 || value > 10000) {
             throw new UnsupportedOperationException(
-                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + "it must between 0 and 10000");
+                    "variant max subcolumns count is: " + variantMaxSubcolumnsCount + " it must between 0 and 10000");
         }
     }
 

@@ -44,6 +44,7 @@ suite("regression_test_variant_rowstore", "variant_type"){
     sql """insert into  ${table_name} select -2, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : "null", "e" : 7.111}}'  as json_str
             union  all select -1, '{"a": 1123}' as json_str union all select *, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
     sql "sync"
+    sql "set topn_opt_limit_threshold = 0"
     qt_sql "select * from ${table_name} order by k limit 10"
 
 
@@ -60,6 +61,7 @@ suite("regression_test_variant_rowstore", "variant_type"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false", "store_row_column" = "true");
     """
     sql """insert into ${table_name} select k, cast(v as string), cast(v as string) from var_rowstore"""
+    sql "set topn_opt_limit_threshold = 0"
     qt_sql "select * from ${table_name} order by k limit 10"
 
     // Parse url
