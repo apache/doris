@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
 #include "olap/page_cache.h"
 #include "runtime/exec_env.h"
 #include "util/slice.h" // for Slice

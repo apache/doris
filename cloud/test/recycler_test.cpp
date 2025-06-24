@@ -288,7 +288,8 @@ static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAcc
                                                   const std::string& resource_id, int64_t tablet_id,
                                                   int64_t start_version, int64_t end_version,
                                                   std::string rowset_id, bool segments_overlap,
-                                                  int num_segments) {
+                                                  int num_segments,
+                                                  int64_t create_time = current_time) {
     std::string key;
     std::string val;
 
@@ -301,7 +302,7 @@ static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAcc
     rowset_pb.set_num_segments(num_segments);
     rowset_pb.set_tablet_id(tablet_id);
     rowset_pb.set_resource_id(resource_id);
-    rowset_pb.set_creation_time(current_time);
+    rowset_pb.set_creation_time(create_time);
     rowset_pb.set_start_version(start_version);
     rowset_pb.set_end_version(end_version);
     rowset_pb.set_segments_overlap_pb(segments_overlap ? OVERLAPPING : NONOVERLAPPING);
@@ -329,6 +330,22 @@ static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::stri
         auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
         std::string val {"test_data"};
         txn->put(key, val);
+    }
+}
+
+static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::string rowset_id,
+                                  std::vector<int64_t> versions, int64_t segment_num = 1) {
+    for (int64_t ver : versions) {
+        for (int64_t segment_id {0}; segment_id < segment_num; segment_id++) {
+            auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, segment_id});
+            if (segment_id % 2 == 0) {
+                std::string val {"test_data"};
+                txn->put(key, val);
+            } else {
+                std::string val(1000, 'A');
+                cloud::blob_put(txn, key, val, 0, 300);
+            }
+        }
     }
 }
 
@@ -773,8 +790,9 @@ TEST(RecyclerTest, recycle_rowsets) {
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
@@ -850,8 +868,9 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     ASSERT_EQ(recycler.init(), 0);
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
         auto* limit = try_any_cast<int*>(args[0]);
         *limit = 100;
@@ -923,8 +942,9 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
     sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
@@ -2008,8 +2028,9 @@ TEST(RecyclerTest, recycle_copy_jobs) {
 
 TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("MockAccessor::delete_files", [](auto&& args) {
         auto* ret = try_any_cast_ret<int>(args);
         ret->first = -1;
@@ -2131,8 +2152,9 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
 
 TEST(RecyclerTest, recycle_stage) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -2429,8 +2451,9 @@ TEST(CheckerTest, normal_inverted_check) {
             },
             &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2478,8 +2501,9 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
             },
             &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->disable_processing(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2684,8 +2708,9 @@ TEST(CheckerTest, do_inspect) {
         {
             // empty job info
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
             sp->set_call_back("Checker:do_inspect", [](auto&& args) {
                 auto last_ctime = *try_any_cast<int64_t*>(args[0]);
                 ASSERT_EQ(last_ctime, 11111);
@@ -2706,8 +2731,9 @@ TEST(CheckerTest, do_inspect) {
             ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
             checker.do_inspect(instance);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
             sp->set_call_back("Checker:do_inspect", [](auto&& args) {
                 ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 11111);
             });
@@ -2722,8 +2748,9 @@ TEST(CheckerTest, do_inspect) {
             job_info.set_instance_id(instance_id);
             job_info.set_last_ctime_ms(12345);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
             sp->set_call_back("Checker:do_inspect", [](auto&& args) {
                 ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 12345);
             });
@@ -2746,8 +2773,9 @@ TEST(CheckerTest, do_inspect) {
             job_info.set_instance_id(instance_id);
             job_info.set_last_ctime_ms(now - expiration_ms - 10);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
 
             bool alarm = false;
             sp->set_call_back("Checker:do_inspect", [&alarm](auto&&) { alarm = true; });
@@ -2783,13 +2811,21 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
     constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
     // create some rowsets with delete bitmaps in merge-on-write tablet
     for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+        // for last tablet, create pending delete bitmap
+        bool is_last_tablet = tablet_id == 600010;
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
         int64_t rowset_start_id = 400;
+        std::vector<std::string> rowset_ids;
         for (int ver = 2; ver <= 10; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
-            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   ver, ver, rowset_id, false, 1);
+            bool is_last_version = ver == 10;
+            bool skip_create_rowset = is_last_tablet && is_last_version;
+            rowset_ids.push_back(rowset_id);
+            if (!skip_create_rowset) {
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       ver, ver, rowset_id, false, 1);
+            }
             if (ver >= 5) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
@@ -2800,8 +2836,21 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
                 std::string delete_bitmap_val(1000, 'A');
-                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
             }
+        }
+        if (is_last_tablet) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            PendingDeleteBitmapPB delete_bitmap_keys;
+            for (int j = 0; j < rowset_ids.size(); j++) {
+                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowset_ids[j], 10, 0};
+                std::string key;
+                meta_delete_bitmap_key(key_info, &key);
+                delete_bitmap_keys.add_delete_bitmap_keys(key);
+            }
+            delete_bitmap_keys.SerializeToString(&pending_val);
+            txn->put(pending_key, pending_val);
         }
     }
 
@@ -2842,8 +2891,9 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
     std::map<std::int64_t, std::set<std::tuple<std::string, int64_t, int64_t>>>
             expected_leaked_delete_bitmaps {}, real_leaked_delete_bitmaps {};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back(
             "InstanceChecker::do_delete_bitmap_inverted_check.get_abnormal_delete_bitmap",
             [&real_abnormal_delete_bitmaps](auto&& args) {
@@ -2894,7 +2944,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
                 std::string delete_bitmap_val(1000, 'A');
-                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
             }
         }
     }
@@ -3045,6 +3095,7 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {
 
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
     ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(), 0);
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
 }
 
 TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
@@ -3066,8 +3117,9 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_check_abnormal) {
     std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
     std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InstanceChecker::check_delete_bitmap_storage_optimize.get_abnormal_rowset",
                       [&real_abnormal_rowsets](auto&& args) {
                           int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
@@ -3174,8 +3226,9 @@ TEST(CheckerTest, check_compaction_key) {
     config::delete_bitmap_lock_v2_white_list = "*";
     std::string instance_id = "test_check_compaction_key";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -3231,6 +3284,169 @@ TEST(CheckerTest, check_compaction_key) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
     remove_delete_bitmap_lock(meta_service.get(), table_id);
     ASSERT_EQ(checker.do_mow_compaction_key_check(), -1);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+
+    for (int tablet_id = 900011; tablet_id <= 900015; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 7}, {8, 8}, {9, 9}};
+        std::vector<std::vector<int64_t>> delete_bitmaps_vers {
+                {3, 5, 7, 9}, {4, 5, 7, 8, 9}, {7, 8, 9}, {8, 9}, {8, 9}, {}, {9}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i],
+                                  i == 2 ? 2 : 1 /*segment_num*/);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // tablet_id -> [rowset_id]
+    std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
+    std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back(
+            "InstanceChecker::check_delete_bitmap_storage_optimize_v2.get_abnormal_rowset",
+            [&](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                real_abnormal_rowsets[tablet_id].insert(rowset_id);
+            });
+    sp->enable_processing();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+    int64_t expire_time = current_time - 500;
+
+    struct Rowset {
+        int64_t start_version;
+        int64_t end_version;
+        std::vector<int64_t> delete_bitmap_versions;
+        int64_t create_time;
+        int segment_num;
+        bool is_abnormal;
+        std::string rowset_id;
+    };
+    struct Tablet {
+        std::vector<Rowset> rowsets;
+        bool skip_create_rowset = false;
+        std::unordered_set<int> skip_create_rowset_index;
+        bool create_pending_delete_bitmap;
+        int64_t pending_delete_bitmap_version;
+    };
+
+    std::vector<Tablet> tablets;
+    // current_time is skipped
+    tablets.push_back({{{2, 2, {3, 5, 7, 9}, current_time, 2, false},
+                        {3, 3, {5, 7, 8, 9, 10}, current_time, 1, false},
+                        {4, 4, {7, 11}, current_time, 3, false},
+                        {5, 7, {8, 10}, current_time, 1, false},
+                        {8, 11, {}, current_time, 2, false}}});
+    tablets.push_back({{{2, 2, {3, 5, 7, 9}, expire_time, 2, true},
+                        {3, 3, {5, 7, 8, 9, 10}, expire_time, 1, true},
+                        {4, 4, {7, 11}, expire_time, 3, false},
+                        {5, 7, {8, 10}, expire_time, 1, true},
+                        {8, 11, {12}, expire_time, 1, true}}});
+    // skip create rowset
+    tablets.push_back({{{2, 2, {5}, expire_time, 2, false},
+                        {3, 3, {4}, expire_time, 1, false} /*skip create rowset*/,
+                        {3, 5, {}, expire_time, 2, false}},
+                       true /* skip_create_rowset */,
+                       {1}});
+    // pending delete bitmap
+    Tablet tablet3 {{{{2, 2, {3, 4, 5}, expire_time, 2, false},
+                      {3, 3, {4, 5}, expire_time, 1, false},
+                      {4, 4, {5}, expire_time, 3, false}}}};
+    tablet3.create_pending_delete_bitmap = true;
+    tablet3.pending_delete_bitmap_version = 5;
+    tablets.push_back(tablet3);
+
+    for (int i = 0; i < tablets.size(); ++i) {
+        int tablet_id = 900021 + i;
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        auto& tablet = tablets[i];
+        auto& rowsets = tablet.rowsets;
+        for (int j = 0; j < rowsets.size(); j++) {
+            auto& rowset = rowsets[j];
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            rowset.rowset_id = rowset_id;
+            bool skip_create_rowset =
+                    tablet.skip_create_rowset && tablet.skip_create_rowset_index.contains(j);
+            if (!skip_create_rowset) {
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       rowset.start_version, rowset.end_version,
+                                                       rowset_id, true, 1, rowset.create_time);
+            }
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, rowset.delete_bitmap_versions,
+                                  rowset.segment_num /*segment_num*/);
+            if (rowset.is_abnormal) {
+                expected_abnormal_rowsets[tablet_id].insert(rowset_id);
+            }
+        }
+        if (tablet.create_pending_delete_bitmap) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            PendingDeleteBitmapPB delete_bitmap_keys;
+            for (int j = 0; j < rowsets.size(); j++) {
+                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowsets[j].rowset_id,
+                                               tablet.pending_delete_bitmap_version, 0};
+                std::string key;
+                meta_delete_bitmap_key(key_info, &key);
+                delete_bitmap_keys.add_delete_bitmap_keys(key);
+            }
+            delete_bitmap_keys.SerializeToString(&pending_val);
+            txn->put(pending_key, pending_val);
+        }
+    }
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 1);
+    ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {
@@ -3445,11 +3661,11 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 
 TEST(RecyclerTest, init_vault_accessor_failed_test) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3580,11 +3796,11 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
 
 TEST(RecyclerTest, recycle_tablet_without_resource_id) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3662,11 +3878,11 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
 
 TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3744,11 +3960,11 @@ TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
 
 TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3790,11 +4006,11 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
 
 TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -3924,11 +4140,11 @@ TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
 
 TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -4003,11 +4219,11 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
 
 TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -4081,11 +4297,11 @@ TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
 
 TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+    DORIS_CLOUD_DEFER {
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
-    });
+    };
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
@@ -4480,8 +4696,9 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     check_multiple_txn_info_kvs(txn_kv, 20000);
 
     auto* sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
                       [](auto&& args) {
                           auto* recycle_txn_info_keys =

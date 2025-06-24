@@ -173,7 +173,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
@@ -210,7 +210,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
                                               : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
@@ -325,7 +325,7 @@ public:
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
                                               : const_cast<AggOrthBitMapExprCalCount*>(this)
                                                         ->bitmap_expr_cal.bitmap_calculate_count());
@@ -363,7 +363,7 @@ struct OrthBitmapUnionCountData {
     void read(BufferReadable& buf) { read_binary(result, buf); }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
     }
 

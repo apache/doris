@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
@@ -835,15 +834,10 @@ public class Alter {
             } else {
                 Env.getCurrentRecycleBin().recycleTable(db.getId(), origTable, isReplay, isForce, 0);
             }
-            if (origTable.getType() == TableType.MATERIALIZED_VIEW) {
-                // Because the current dropMTMV will delete jobs related to materialized views,
-                // this method will maintain its own metadata for deleting jobs,
-                // so it cannot be called during playback
-                if (!isReplay) {
-                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) origTable);
-                }
-            }
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(origTable.getId());
+            if (origTable instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().dropJob((MTMV) origTable, isReplay);
+            }
         }
     }
 
@@ -855,8 +849,8 @@ public class Alter {
 
         String tableName = dbTableName.getTbl();
         View view = (View) db.getTableOrMetaException(tableName, TableType.VIEW);
-        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns(),
-                stmt.getComment());
+        modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(),
+                stmt.getColumns(), stmt.getComment());
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode,
@@ -867,14 +861,15 @@ public class Alter {
             try {
                 if (comment != null) {
                     view.setComment(comment);
-                } else {
+                }
+                // when do alter view modify comment, inlineViewDef and newFullSchema will be empty.
+                if (!Strings.isNullOrEmpty(inlineViewDef)) {
                     view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
                     view.setNewFullSchema(newFullSchema);
                 }
                 String viewName = view.getName();
                 db.unregisterTable(viewName);
                 db.registerTable(view);
-
                 AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(),
                         inlineViewDef, newFullSchema, sqlMode, comment);
                 Env.getCurrentEnv().getEditLog().logModifyViewDef(alterViewInfo);
@@ -920,10 +915,6 @@ public class Alter {
             view.writeUnlock();
             db.writeUnlock();
         }
-    }
-
-    public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
-        systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
     }
 
     public void processAlterSystem(AlterSystemCommand command) throws UserException {
@@ -1030,7 +1021,8 @@ public class Alter {
                 // check currentStoragePolicy resource exist.
                 Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(currentStoragePolicy);
                 partitionInfo.setStoragePolicy(partition.getId(), currentStoragePolicy);
-            } else {
+            } else if (PropertyAnalyzer.hasStoragePolicy(properties)) {
+                // only set "storage_policy" = "", means cancel storage policy
                 // if current partition is already in remote storage
                 if (partition.getRemoteDataSize() > 0) {
                     throw new AnalysisException(
@@ -1307,13 +1299,20 @@ public class Alter {
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots(),
                             isReplay);
+                    // If it is not a replay thread, it means that the current service is already a new version
+                    // and does not require compatibility
+                    if (isReplay) {
+                        mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
+                    }
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
             }
+            if (alterMTMV.isNeedRebuildJob()) {
+                Env.getCurrentEnv().getMtmvService().alterJob(mtmv, isReplay);
+            }
             // 4. log it and replay it in the follower
             if (!isReplay) {
-                Env.getCurrentEnv().getMtmvService().alterMTMV(mtmv, alterMTMV);
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterMTMV);
             }
         } catch (UserException e) {

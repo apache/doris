@@ -58,7 +58,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
 
     public ExpressionRewriteTestHelper() {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
-                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+                new UnboundRelation(null, new RelationId(1), ImmutableList.of("tbl")));
         context = new ExpressionRewriteContext(cascadesContext);
     }
 
@@ -113,7 +113,7 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
             List<String> qualifier = ImmutableList.of();
             DataType dataType = getType(name.charAt(0));
             Column column = new Column(name, dataType.toCatalogDataType());
-            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column));
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column, null, null));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;

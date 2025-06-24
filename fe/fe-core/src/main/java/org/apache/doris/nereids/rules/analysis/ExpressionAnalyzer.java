@@ -36,6 +36,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -136,7 +137,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private boolean currentInLambda;
     private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
@@ -211,17 +211,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         return expr;
     }
 
-    @Override
-    public Expression visitLambda(Lambda lambda, ExpressionRewriteContext context) {
-        boolean originInLambda = currentInLambda;
-        try {
-            currentInLambda = true;
-            return super.visitLambda(lambda, context);
-        } finally {
-            currentInLambda = originInLambda;
-        }
-    }
-
     /* ********************************************************************************************
      * bind slot
      * ******************************************************************************************** */
@@ -281,13 +270,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<? extends Expression> bounded = boundedOpt.get();
         switch (bounded.size()) {
             case 0:
-                if (!currentInLambda) {
-                    String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
-                    if (tableName.isEmpty()) {
-                        tableName = "table list";
-                    }
-                    couldNotFoundColumn(unboundSlot, tableName);
+                String tableName = StringUtils.join(unboundSlot.getQualifier(), ".");
+                if (tableName.isEmpty()) {
+                    tableName = "table list";
                 }
+                couldNotFoundColumn(unboundSlot, tableName);
                 return unboundSlot;
             case 1:
                 Expression firstBound = bounded.get(0);
@@ -336,6 +323,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 + "' in '" + tableName;
         if (currentPlan != null) {
             message += "' in " + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause";
+        }
+        Optional<Location> columnLocation = unboundSlot.getLocation();
+        if (columnLocation.isPresent()) {
+            message += "(" + columnLocation.get() + ")";
         }
         throw new AnalysisException(message);
     }

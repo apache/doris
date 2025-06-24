@@ -286,8 +286,8 @@ public class PlanUtils {
      */
     public static boolean isColumnRef(Expression expr) {
         return expr instanceof SlotReference
-                && ((SlotReference) expr).getColumn().isPresent()
-                && ((SlotReference) expr).getTable().isPresent();
+                && ((SlotReference) expr).getOriginalColumn().isPresent()
+                && ((SlotReference) expr).getOriginalTable().isPresent();
     }
 
     /**
@@ -404,7 +404,7 @@ public class PlanUtils {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
             slotRef.setLabel(slotReference.getName());
             slotRef.setCol(slotReference.getName());
-            slotRef.setDisableTableName(true);
+            slotRef.disableTableName();
             return slotRef;
         }
     }

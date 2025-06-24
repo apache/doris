@@ -59,6 +59,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
@@ -78,7 +80,6 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -92,9 +93,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdateRowsEvent;
@@ -390,11 +389,6 @@ public class EditLog {
                 case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
                     ConsistencyCheckInfo info = (ConsistencyCheckInfo) journal.getData();
                     env.getConsistencyChecker().replayFinishConsistencyCheck(info, env);
-                    break;
-                }
-                case OperationType.OP_CLEAR_ROLLUP_INFO: {
-                    ReplicaPersistInfo info = (ReplicaPersistInfo) journal.getData();
-                    env.getLoadInstance().replayClearRollupInfo(info, env);
                     break;
                 }
                 case OperationType.OP_RENAME_ROLLUP: {
@@ -779,13 +773,9 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_SYNC_JOB: {
-                    SyncJob syncJob = (SyncJob) journal.getData();
-                    env.getSyncJobManager().replayAddSyncJob(syncJob);
                     break;
                 }
                 case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
-                    SyncJob.SyncJobUpdateStateInfo info = (SyncJob.SyncJobUpdateStateInfo) journal.getData();
-                    env.getSyncJobManager().replayUpdateSyncJobState(info);
                     break;
                 }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
@@ -1147,10 +1137,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
-                    if (journal.getData() instanceof AnalysisJobInfo) {
-                        // For rollback compatible.
-                        break;
-                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1159,10 +1145,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
-                    if (journal.getData() instanceof AnalysisTaskInfo) {
-                        // For rollback compatible.
-                        break;
-                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1285,6 +1267,16 @@ public class EditLog {
                 case OperationType.OP_DICTIONARY_DEC_VERSION: {
                     DictionaryDecreaseVersionInfo info = (DictionaryDecreaseVersionInfo) journal.getData();
                     env.getDictionaryManager().replayDecreaseVersion(info);
+                    break;
+                }
+                case OperationType.OP_CREATE_INDEX_POLICY: {
+                    IndexPolicy log = (IndexPolicy) journal.getData();
+                    env.getIndexPolicyMgr().replayCreateIndexPolicy(log);
+                    break;
+                }
+                case OperationType.OP_DROP_INDEX_POLICY: {
+                    DropIndexPolicyLog log = (DropIndexPolicyLog) journal.getData();
+                    env.getIndexPolicyMgr().replayDropIndexPolicy(log);
                     break;
                 }
                 default: {
@@ -1865,14 +1857,6 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
-    public void logCreateSyncJob(SyncJob syncJob) {
-        logEdit(OperationType.OP_CREATE_SYNC_JOB, syncJob);
-    }
-
-    public void logUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
-        logEdit(OperationType.OP_UPDATE_SYNC_JOB_STATE, info);
-    }
-
     public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
         logEdit(OperationType.OP_FETCH_STREAM_LOAD_RECORD, fetchStreamLoadRecord);
     }
@@ -2080,6 +2064,14 @@ public class EditLog {
 
     public void logDropPolicy(DropPolicyLog log) {
         logEdit(OperationType.OP_DROP_POLICY, log);
+    }
+
+    public void logCreateIndexPolicy(IndexPolicy policy) {
+        logEdit(OperationType.OP_CREATE_INDEX_POLICY, policy);
+    }
+
+    public void logDropIndexPolicy(DropIndexPolicyLog policy) {
+        logEdit(OperationType.OP_DROP_INDEX_POLICY, policy);
     }
 
     public void logCatalogLog(short id, CatalogLog log) {

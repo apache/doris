@@ -780,7 +780,7 @@ public class Coordinator implements CoordInterface {
         sendPipelineCtx();
     }
 
-    protected void sendPipelineCtx() throws TException, RpcException, UserException {
+    protected void sendPipelineCtx() throws Exception {
         lock();
         try {
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
@@ -943,7 +943,7 @@ public class Coordinator implements CoordInterface {
 
     protected Map<TNetworkAddress, List<Long>>  waitPipelineRpc(List<Pair<Long, Triple<PipelineExecContexts,
             BackendServiceProxy, Future<InternalService.PExecPlanFragmentResult>>>> futures, long leftTimeMs,
-            String operation) throws RpcException, UserException {
+            String operation) throws Exception {
         if (leftTimeMs <= 0) {
             long currentTimeMillis = System.currentTimeMillis();
             long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
@@ -960,7 +960,7 @@ public class Coordinator implements CoordInterface {
                         queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
                         timeoutDeadline, currentTimeMillis);
             }
-            throw new UserException(msg);
+            throw new Exception(msg);
         }
 
         // BE -> (RPC latency from FE to BE, Execution latency on bthread, Duration of doing work, RPC latency from BE
@@ -1030,7 +1030,7 @@ public class Coordinator implements CoordInterface {
                         SimpleScheduler.addToBlacklist(triple.getLeft().beId, errMsg);
                         throw new RpcException(triple.getLeft().brpcAddr.hostname, errMsg, exception);
                     default:
-                        throw new UserException(errMsg, exception);
+                        throw new Exception(errMsg, exception);
                 }
             }
         }
@@ -1184,7 +1184,7 @@ public class Coordinator implements CoordInterface {
             } else {
                 String errMsg = copyStatus.getErrorMsg();
                 LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
-                throw new UserException(errMsg);
+                throw new Exception(errMsg);
             }
         }
 
@@ -2827,6 +2827,9 @@ public class Coordinator implements CoordInterface {
                 if (parallelExecInstanceNum > 1) {
                     //the scan instance num should not larger than the tablets num
                     expectedInstanceNum = Math.min(scanRange.size(), parallelExecInstanceNum);
+                }
+                if (params.fragment != null && params.fragment.queryCacheParam != null) {
+                    expectedInstanceNum = scanRange.size();
                 }
                 // 2. split how many scanRange one instance should scan
                 List<List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> perInstanceScanRanges

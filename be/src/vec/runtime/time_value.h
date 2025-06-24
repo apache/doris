@@ -19,11 +19,14 @@
 
 #include <cctz/time_zone.h>
 
+#include <cmath>
+#include <cstdint>
 #include <string>
 
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "util/date_func.h"
+#include "util/faststring.h"
 #include "util/string_parser.hpp"
 #include "vec/data_types/data_type_time.h"
 
@@ -88,6 +91,83 @@ public:
     // Construct time based on seconds
     static TimeType from_second(int64_t sec) {
         return static_cast<TimeType>(sec * ONE_SECOND_MICROSECONDS);
+    }
+
+    static bool timev2_to_double_from_str(const char* str, double& v, int scale = 6) {
+        // like fe/fe-core/src/main/java/org/apache/doris/analysis/TimeV2Literal.java and
+        // fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/literal/TimeV2Literal.java
+        // init function to parse str
+        std::string s(str);
+        bool neg;
+        int64_t hour, minute, second, microsecond;
+        if (s[0] == '-') {
+            neg = true;
+            s = s.substr(1);
+        } else if (s[0] == '+') {
+            neg = false;
+            s = s.substr(1);
+        }
+        if (s.find(':') == std::string::npos) {
+            std::string tail;
+            if (auto idx = s.find('.'); idx != std::string::npos) {
+                tail = s.substr(idx);
+                s = s.substr(0, idx);
+            }
+            auto len = s.length();
+            if (len == 1) {
+                s = "00:00:0" + s;
+            } else if (len == 2) {
+                s = "00:00:" + s;
+            } else if (len == 3) {
+                s = std::string("00:0") + s[0] + ":" + s.substr(1);
+            } else if (len == 4) {
+                s = "00:" + s.substr(0, 2) + ":" + s.substr(2);
+            } else {
+                s = s.substr(0, len - 4) + ":" + s.substr(len - 4, len - 2) + ":" +
+                    s.substr(len - 2);
+            }
+            if (neg) {
+                s = '-' + s;
+            }
+            s = s + tail;
+        }
+        if (!std::all_of(s.begin(), s.end(),
+                         [](char c) { return c == '.' || isdigit(c) || c == ':'; })) {
+            return false;
+        }
+        if (s.find(':') == s.rfind(':')) {
+            s += ":00";
+        }
+        auto p1 = s.find(':');
+        auto p2 = s.rfind(':');
+        hour = std::stoi(s.substr(0, p1));
+        minute = std::stoi(s.substr(p1 + 1, p2 - p1));
+
+        // if the part is 60.000 it will cause judge feed execute error
+        if (s.substr(p2 + 1).starts_with("60")) {
+            return false;
+        }
+        double sec_part = std::stod(s.substr(p2 + 1));
+        sec_part = sec_part * double(long(pow(10, scale)));
+        sec_part = round(sec_part);
+        sec_part = double((long)sec_part * (long)pow(10, 6 - scale));
+        second = int64_t(sec_part) / 1000000;
+
+        if (scale != 0) {
+            microsecond = int64_t(sec_part) % 1000000;
+            if (second == 60) {
+                minute += 1;
+                second -= 60;
+                if (minute == 60) {
+                    hour += 1;
+                    minute -= 60;
+                }
+            }
+        } else {
+            microsecond = 0;
+        }
+        v = make_time(hour, minute, second, microsecond);
+        return check_over_max_time(v);
     }
 
     // Cast from string

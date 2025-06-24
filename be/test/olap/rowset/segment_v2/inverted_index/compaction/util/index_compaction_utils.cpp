@@ -170,7 +170,7 @@ class IndexCompactionUtils {
                                 .ok());
             auto result = std::make_shared<roaring::Roaring>();
             EXPECT_TRUE(idx_reader
-                                ->invoke_bkd_query(query_param->get_value(),
+                                ->invoke_bkd_query(nullptr, query_param->get_value(),
                                                    InvertedIndexQueryType::EQUAL_QUERY,
                                                    *bkd_searcher, result)
                                 .ok());
@@ -202,7 +202,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
-            query_info.terms.emplace_back(query_data[i]);
+            query_info.term_infos.emplace_back(query_data[i], 0);
             query->add(query_info);
             auto result = std::make_shared<roaring::Roaring>();
             query->search(*result);
@@ -234,7 +234,7 @@ class IndexCompactionUtils {
             EXPECT_TRUE(query != nullptr);
             InvertedIndexQueryInfo query_info;
             query_info.field_name = column_name_ws;
-            query_info.terms.emplace_back(query_data[i]);
+            query_info.term_infos.emplace_back(query_data[i], 0);
             query->add(query_info);
             auto result = std::make_shared<roaring::Roaring>();
             query->search(*result);

@@ -21,10 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -32,11 +29,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
-public class User implements Comparable<User>, Writable, GsonPostProcessable {
+public class User implements Comparable<User>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(User.class);
     @SerializedName(value = "userIdentity")
     private UserIdentity userIdentity;
@@ -163,16 +158,6 @@ public class User implements Comparable<User>, Writable, GsonPostProcessable {
                 .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity)
             .append(", userId: ").append(origUserId);
         return sb.toString();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static User read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, User.class);
     }
 
     @Override

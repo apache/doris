@@ -62,11 +62,11 @@ class DataTypeDateV2;
 	* Server time zone is the time zone specified in 'timezone' parameter in configuration file,
 	*  or system time zone at the moment of server startup.
 	*/
-class DataTypeDateTime final : public DataTypeNumberBase<Int64> {
+class DataTypeDateTime final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIME> {
 public:
     DataTypeDateTime() = default;
 
-    const char* get_family_name() const override { return "DateTime"; }
+    const std::string get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIME; }
 
@@ -96,8 +96,8 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<Int64>::template to_string_batch_impl<DataTypeDateTime>(column,
-                                                                                   column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::template to_string_batch_impl<
+                DataTypeDateTime>(column, column_to);
     }
 
     size_t number_length() const;

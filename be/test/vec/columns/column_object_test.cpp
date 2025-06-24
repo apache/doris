@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column_object.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include "vec/columns/column_variant.h"
 #include "vec/columns/common_column_test.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
 
@@ -74,7 +74,7 @@ TEST_F(ColumnObjectTest, test_pop_back) {
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 1);
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int8)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(TINYINT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 0);
@@ -88,38 +88,38 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     subcolumn.insert(field_int8);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int8)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int8)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(TINYINT)");
 
     Field field_int16 = Field::create_field<TYPE_SMALLINT>(12345);
     subcolumn.insert(field_int16);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int8)");
-    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(Int16)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int16)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(SMALLINT)");
 
     Field field_int32 = Field::create_field<TYPE_INT>(1234567);
     subcolumn.insert(field_int32);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 3);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int8)");
-    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(Int16)");
-    EXPECT_EQ(subcolumn.data_types[2]->get_name(), "Nullable(Int32)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int32)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
+    EXPECT_EQ(subcolumn.data_types[2]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int8)");
-    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(Int16)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int16)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(SMALLINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(SMALLINT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int8)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int8)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(TINYINT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(TINYINT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 0);
@@ -129,32 +129,32 @@ TEST_F(ColumnObjectTest, test_pop_back_multiple_types) {
     subcolumn.insert(field_int32);
     EXPECT_EQ(subcolumn.size(), 1);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int32)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int32)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.insert(field_int16);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int32)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int32)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.insert(field_int8);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int32)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int32)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     subcolumn.pop_back(1);
     EXPECT_EQ(subcolumn.size(), 2);
     EXPECT_EQ(subcolumn.data_types.size(), 1);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int32)");
-    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(Int32)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
+    EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(INT)");
 
     Field field_string = Field::create_field<TYPE_STRING>("hello");
     subcolumn.insert(field_string);
     EXPECT_EQ(subcolumn.size(), 3);
     EXPECT_EQ(subcolumn.data_types.size(), 2);
-    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(Int32)");
+    EXPECT_EQ(subcolumn.data_types[0]->get_name(), "Nullable(INT)");
     EXPECT_EQ(subcolumn.data_types[1]->get_name(), "Nullable(JSONB)");
     EXPECT_EQ(subcolumn.get_least_common_type()->get_name(), "Nullable(JSONB)");
 
@@ -197,11 +197,11 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
 
         Field result1;
         dst_column->get(0, result1);
-        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 123);
+        EXPECT_EQ(result1.get<VariantMap>().at({}).get<Int64>(), 123);
 
         Field result2;
         dst_column->get(1, result2);
-        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
+        EXPECT_EQ(result2.get<VariantMap>().at({}).get<Int64>(), 456);
     }
 
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
@@ -238,9 +238,9 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         dst_column->get(1, result2);
         dst_column->get(2, result3);
 
-        EXPECT_EQ(result1.get<VariantMap>().at("").get<Int64>(), 789);
-        EXPECT_EQ(result2.get<VariantMap>().at("").get<Int64>(), 456);
-        EXPECT_EQ(result3.get<VariantMap>().at("").get<Int64>(), 123);
+        EXPECT_EQ(result1.get<VariantMap>().at({}).get<Int64>(), 789);
+        EXPECT_EQ(result2.get<VariantMap>().at({}).get<Int64>(), 456);
+        EXPECT_EQ(result3.get<VariantMap>().at({}).get<Int64>(), 123);
     }
 
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
@@ -251,13 +251,13 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& map1 = field_map.get<VariantMap&>();
-        map1["a"] = Field::create_field<TYPE_INT>(123);
+        map1[PathInData("a")] = Field::create_field<TYPE_INT>(123);
         src_column->try_insert(field_map);
 
         // Create another map with {"b": "hello"}
         field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& map2 = field_map.get<VariantMap&>();
-        map2["b"] = Field::create_field<TYPE_STRING>(String("hello"));
+        map2[PathInData("b")] = Field::create_field<TYPE_STRING>(String("hello"));
         src_column->try_insert(field_map);
 
         src_column->finalize();
@@ -286,8 +286,8 @@ TEST_F(ColumnObjectTest, test_insert_indices_from) {
         const auto& result1_map = result1.get<const VariantMap&>();
         const auto& result2_map = result2.get<const VariantMap&>();
 
-        EXPECT_EQ(result1_map.at("b").get<const String&>(), "hello");
-        EXPECT_EQ(result2_map.at("a").get<Int64>(), 123);
+        EXPECT_EQ(result1_map.at(PathInData("b")).get<const String&>(), "hello");
+        EXPECT_EQ(result2_map.at(PathInData("a")).get<Int64>(), 123);
     }
 }
 

@@ -81,6 +81,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
@@ -435,6 +436,7 @@ bvar::Adder<uint64_t> RELEASE_SNAPSHOT_count("task", "RELEASE_SNAPSHOT");
 bvar::Adder<uint64_t> MOVE_count("task", "MOVE");
 bvar::Adder<uint64_t> COMPACTION_count("task", "COMPACTION");
 bvar::Adder<uint64_t> PUSH_STORAGE_POLICY_count("task", "PUSH_STORAGE_POLICY");
+bvar::Adder<uint64_t> PUSH_INDEX_POLICY_count("task", "PUSH_INDEX_POLICY");
 bvar::Adder<uint64_t> PUSH_COOLDOWN_CONF_count("task", "PUSH_COOLDOWN_CONF");
 bvar::Adder<uint64_t> CREATE_count("task", "CREATE_TABLE");
 bvar::Adder<uint64_t> DROP_count("task", "DROP_TABLE");
@@ -466,6 +468,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
     ADD_TASK_COUNT(MOVE)
     ADD_TASK_COUNT(COMPACTION)
     ADD_TASK_COUNT(PUSH_STORAGE_POLICY)
+    ADD_TASK_COUNT(PUSH_INDEX_POLICY)
     ADD_TASK_COUNT(PUSH_COOLDOWN_CONF)
     ADD_TASK_COUNT(CREATE)
     ADD_TASK_COUNT(DROP)
@@ -509,6 +512,8 @@ bvar::Adder<uint64_t> report_disk_total("report", "disk_total");
 bvar::Adder<uint64_t> report_disk_failed("report", "disk_failed");
 bvar::Adder<uint64_t> report_tablet_total("report", "tablet_total");
 bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
+bvar::Adder<uint64_t> report_index_policy_total("report", "index_policy_total");
+bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed");
 
 } // namespace
 
@@ -1272,9 +1277,9 @@ void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req)
 
     LOG(INFO) << "get snapshot task. signature=" << req.signature;
 
-    string snapshot_path;
+    std::string snapshot_path;
     bool allow_incremental_clone = false; // not used
-    std::vector<string> snapshot_files;
+    std::vector<std::string> snapshot_files;
     Status status = engine.snapshot_mgr()->make_snapshot(snapshot_request, &snapshot_path,
                                                          &allow_incremental_clone);
     if (status.ok() && snapshot_request.__isset.list_files) {
@@ -1323,7 +1328,7 @@ void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& r
 
     LOG(INFO) << "get release snapshot task. signature=" << req.signature;
 
-    const string& snapshot_path = release_snapshot_request.snapshot_path;
+    const std::string& snapshot_path = release_snapshot_request.snapshot_path;
     Status status = engine.snapshot_mgr()->release_snapshot(snapshot_path);
     if (!status.ok()) {
         LOG_WARNING("failed to release snapshot")
@@ -1527,6 +1532,12 @@ void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest
             put_storage_policy(storage_policy.id, std::move(storage_policy1));
         }
     }
+}
+
+void push_index_policy_callback(const TAgentTaskRequest& req) {
+    const auto& request = req.push_index_policy_req;
+    doris::ExecEnv::GetInstance()->index_policy_mgr()->apply_policy_changes(
+            request.index_policys, request.dropped_index_policys);
 }
 
 void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
@@ -1884,8 +1895,9 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                     if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
                         tablet->published_count.fetch_add(1);
                         int64_t published_count = tablet->published_count.load();
+                        int32_t max_version_config = tablet->max_version_config();
                         if (tablet->exceed_version_limit(
-                                    config::max_tablet_version_num *
+                                    max_version_config *
                                     config::load_trigger_compaction_version_percent / 100) &&
                             published_count % 20 == 0) {
                             auto st = _engine.submit_compaction_task(
@@ -2175,6 +2187,22 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
         static_cast<void>(
                 JniUtil::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
         LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+    }
+}
+
+void report_index_policy_callback(const ClusterInfo* cluster_info) {
+    TReportRequest request;
+    auto& index_policy_list = request.index_policy;
+    const auto& policys = doris::ExecEnv::GetInstance()->index_policy_mgr()->get_index_policys();
+    for (const auto& policy : policys) {
+        index_policy_list.emplace_back(policy.second);
+    }
+    request.__isset.index_policy = true;
+    request.__set_backend(BackendOptions::get_local_backend());
+    bool succ = handle_report(request, cluster_info, "index_policy");
+    report_index_policy_total << 1;
+    if (!succ) [[unlikely]] {
+        report_index_policy_failed << 1;
     }
 }
 

@@ -178,9 +178,9 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
 
     typename DecimalType::NativeType value;
     if constexpr (IsMin) {
-        value = vectorized::min_decimal_value<DecimalType>(type->get_precision());
+        value = vectorized::min_decimal_value<DecimalType::PType>(type->get_precision());
     } else {
-        value = vectorized::max_decimal_value<DecimalType>(type->get_precision());
+        value = vectorized::max_decimal_value<DecimalType::PType>(type->get_precision());
     }
     pmap->emplace(type->get_precision(), value);
     return DecimalType(value);
@@ -289,9 +289,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(
         break;
     }
     case TYPE_DECIMALV2: {
-        auto* column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>*>(
-                        real_column_ptr.get()));
+        auto* column_decimal = const_cast<vectorized::ColumnDecimal128V2*>(
+                assert_cast<const vectorized::ColumnDecimal128V2*>(real_column_ptr.get()));
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < row_count; ++j) {
@@ -331,8 +330,9 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_DECIMAL32: {
 #define CHECK_VALIDATION_FOR_DECIMALV3(DecimalType)                                               \
-    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType>*>(                    \
-            assert_cast<const vectorized::ColumnDecimal<DecimalType>*>(real_column_ptr.get()));   \
+    auto column_decimal = const_cast<vectorized::ColumnDecimal<DecimalType::PType>*>(             \
+            assert_cast<const vectorized::ColumnDecimal<DecimalType::PType>*>(                    \
+                    real_column_ptr.get()));                                                      \
     const auto& max_decimal = _get_decimalv3_min_or_max<DecimalType, false>(type);                \
     const auto& min_decimal = _get_decimalv3_min_or_max<DecimalType, true>(type);                 \
     const auto* __restrict datas = column_decimal->get_data().data();                             \
@@ -445,7 +445,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     // Only two case:
     // 1. column is nullable but the desc is not nullable
     // 2. desc->type is BITMAP
-    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_OBJECT) && column_ptr) {
+    if ((!type->is_nullable() || type->get_primitive_type() == TYPE_BITMAP) && column_ptr) {
         for (int j = 0; j < row_count; ++j) {
             auto row = rows ? (*rows)[j] : j;
             if (null_map[j] && !_filter_map[row]) {
@@ -581,7 +581,7 @@ Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(vectorized::B
         dst_values.emplace_back(_auto_inc_id_allocator.next_id());
     }
     block->insert(vectorized::ColumnWithTypeAndName(std::move(dst_column),
-                                                    std::make_shared<DataTypeNumber<Int64>>(),
+                                                    std::make_shared<DataTypeInt64>(),
                                                     BeConsts::PARTIAL_UPDATE_AUTO_INC_COL));
     return Status::OK();
 }

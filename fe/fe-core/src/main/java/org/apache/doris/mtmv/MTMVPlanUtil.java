@@ -89,6 +89,7 @@ public class MTMVPlanUtil {
         ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
+        ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
         // Debug session variable should be disabled when refreshed
         ctx.getSessionVariable().skipDeletePredicate = false;
@@ -299,8 +300,8 @@ public class MTMVPlanUtil {
                     DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
             if (s.isColumnFromTable()) {
                 // check if external table
-                if ((!((SlotReference) s).getTable().isPresent()
-                        || !((SlotReference) s).getTable().get().isManagedTable())) {
+                if ((!((SlotReference) s).getOriginalTable().isPresent()
+                        || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
                     if (s.getName().equals(partitionCol) || distributionColumnNames.contains(s.getName())) {
                         // String type can not be used in partition/distributed column
                         // so we replace it to varchar

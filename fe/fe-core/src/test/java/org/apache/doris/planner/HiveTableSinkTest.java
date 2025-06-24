@@ -88,7 +88,7 @@ public class HiveTableSinkTest {
             mockDifferLocationTable(location);
 
             HMSExternalCatalog hmsExternalCatalog = new HMSExternalCatalog();
-            hmsExternalCatalog.setInitialized(true);
+            hmsExternalCatalog.setInitializedForTest(true);
             HMSExternalDatabase db = new HMSExternalDatabase(hmsExternalCatalog, 10000, "hive_db1", "hive_db1");
             HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsExternalCatalog, db);
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);

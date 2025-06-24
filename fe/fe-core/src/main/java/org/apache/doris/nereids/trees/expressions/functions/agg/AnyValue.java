@@ -51,7 +51,7 @@ public class AnyValue extends NullableAggregateFunction
      * constructor with 1 argument.
      */
     public AnyValue(boolean distinct, Expression arg) {
-        this(distinct, false, arg);
+        this(false, false, arg);
     }
 
     private AnyValue(boolean distinct, boolean alwaysNullable, Expression arg) {
