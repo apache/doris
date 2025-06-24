@@ -2009,7 +2009,9 @@ TEST(RpcKvBvarTest, CreateStage) {
     const auto* cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "stage_test_instance_id";
     [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2101,7 +2103,9 @@ TEST(RpcKvBvarTest, GetStage) {
     const auto* cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "stage_test_instance_id";
     [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2206,7 +2210,9 @@ TEST(RpcKvBvarTest, GetIam) {
     auto cloud_unique_id = "test_cloud_unique_id";
     std::string instance_id = "get_iam_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2330,7 +2336,9 @@ TEST(RpcKvBvarTest, AlterRamUser) {
     brpc::Controller cntl;
     std::string instance_id = "alter_ram_user_instance_id";
     [[maybe_unused]] auto* sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2412,7 +2420,9 @@ TEST(RpcKvBvarTest, BeginCopy) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2466,7 +2476,9 @@ TEST(RpcKvBvarTest, GetCopyJob) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2531,7 +2543,9 @@ TEST(RpcKvBvarTest, FinishCopy) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2599,7 +2613,9 @@ TEST(RpcKvBvarTest, GetCopyFiles) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
@@ -2661,7 +2677,9 @@ TEST(RpcKvBvarTest, FilterCopyFiles) {
     std::string instance_id = "copy_job_test_instance_id";
 
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    DORIS_CLOUD_DEFER { SyncPoint::get_instance()->clear_all_call_backs(); };
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
         ret->first = instance_id;
