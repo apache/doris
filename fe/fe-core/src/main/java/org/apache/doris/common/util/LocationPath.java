@@ -165,15 +165,10 @@ public class LocationPath {
             normalize = false;
         }
         if (normalize) {
+            storageProperties = findStorageProperties(type, schema, storagePropertiesMap);
 
-            storageProperties = storagePropertiesMap.get(type);
             if (storageProperties == null) {
-                if (type == StorageProperties.Type.S3
-                        && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
-                    storageProperties = storagePropertiesMap.get(StorageProperties.Type.MINIO);
-                } else {
-                    throw new UserException("No StorageProperties found for schema: " + schema);
-                }
+                throw new UserException("No storage properties found for schema: " + schema);
             }
             normalizedLocation = storageProperties.validateAndNormalizeUri(location);
             if (StringUtils.isBlank(normalizedLocation)) {
@@ -186,6 +181,56 @@ public class LocationPath {
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
 
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
+    }
+
+    /**
+     * Finds the appropriate {@link StorageProperties} configuration for a given storage type and schema.
+     *
+     * This method attempts to locate the storage properties using the following logic:
+     *
+     * 1. Direct match by type: Attempts to retrieve the properties from the map using the given {@code type}.
+     * 2. S3-Minio fallback: If the requested type is S3 and no properties are found, try to fall back to MinIO
+     * configuration,
+     *    assuming it is compatible with S3.
+     * 3. Compatibility fallback based on schema:
+     *    In older configurations, the schema name might not strictly match the actual storage type.
+     *    For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
+     *    To handle such legacy inconsistencies, we try to find any storage configuration with the name "s3"
+     *    if the schema maps to a file type of FILE_S3.
+     *
+     * @param type the storage type to search for
+     * @param schema the schema string used in the original request (e.g., "s3://bucket/file")
+     * @param storagePropertiesMap a map of available storage types to their configuration
+     * @return a matching {@link StorageProperties} if found; otherwise, {@code null}
+     */
+    private static StorageProperties findStorageProperties(StorageProperties.Type type, String schema,
+                                                           Map<StorageProperties.Type, StorageProperties>
+                                                                   storagePropertiesMap) {
+        // Step 1: Try direct match by type
+        StorageProperties props = storagePropertiesMap.get(type);
+        if (props != null) {
+            return props;
+        }
+
+        // Step 2: Fallback - if type is S3 and MinIO is configured, assume it's compatible
+        if (type == StorageProperties.Type.S3
+                && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
+            return storagePropertiesMap.get(StorageProperties.Type.MINIO);
+        }
+
+        // Step 3: Compatibility fallback based on schema
+        // In previous configurations, the schema name may not strictly match the actual storage type.
+        // For example, a COS storage might use the "s3" schema, or an S3 storage might use the "cos" schema.
+        // To handle such legacy inconsistencies, we try to find a storage configuration whose name is "s3".
+        if (TFileType.FILE_S3.equals(SchemaTypeMapper.fromSchemaToFileType(schema))) {
+            return storagePropertiesMap.values().stream()
+                    .filter(p -> "s3".equalsIgnoreCase(p.getStorageName()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        // Not found
+        return null;
     }
 
 
