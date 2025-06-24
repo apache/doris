@@ -66,12 +66,12 @@ public:
     Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 
-    Status init_fetch_table_reader(
+    Status init_reader(
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     TFileType::type get_file_type() const;
 
-    Status init_fetch_table_schema_reader();
+    Status init_schema_reader() override;
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
