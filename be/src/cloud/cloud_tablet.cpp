@@ -86,6 +86,10 @@ Status CloudTablet::capture_consistent_rowsets_unlocked(
     return _capture_consistent_rowsets_unlocked(version_path, rowsets);
 }
 
+const std::string& CloudTablet::tablet_path() const {
+    return get_rowset_with_max_version()->tablet_path();
+}
+
 Status CloudTablet::capture_rs_readers(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits,
                                        bool skip_missing_version) {
