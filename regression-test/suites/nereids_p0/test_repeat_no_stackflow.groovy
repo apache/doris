@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_calc_repeat_property") {
-    multi_sql """
+suite('test_repeat_no_stackflow') {
+    multi_sql '''
        SET disable_nereids_rules="PRUNE_EMPTY_PARTITION";
 
-       DROP TABLE IF EXISTS test_calc_repeat_property_t1 FORCE;
-       DROP TABLE IF EXISTS test_calc_repeat_property_t2 FORCE;
-       DROP TABLE IF EXISTS test_calc_repeat_property_t3 FORCE;
-       DROP TABLE IF EXISTS test_calc_repeat_property_t4 FORCE;
-       DROP TABLE IF EXISTS test_calc_repeat_property_t5 FORCE;
-       DROP TABLE IF EXISTS test_calc_repeat_property_t6 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t1 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t2 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t3 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t4 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t5 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t6 FORCE;
 
-       CREATE TABLE `test_calc_repeat_property_t1` (
+       CREATE TABLE `test_repeat_no_stackflow_t1` (
   `id` int NOT NULL,
   `agent_id` int NOT NULL,
   `site_id` int NULL ,
@@ -77,8 +77,7 @@ PROPERTIES (
 "enable_mow_light_delete" = "false"
 );
 
-
-CREATE TABLE `test_calc_repeat_property_t2` (
+CREATE TABLE `test_repeat_no_stackflow_t2` (
   `uid` varchar(255) NULL ,
   `game_sign` varchar(255) NULL ,
   `register_date` date NOT NULL ,
@@ -113,7 +112,7 @@ CREATE TABLE `test_calc_repeat_property_t2` (
   `original_imei` varchar(255) NULL ,
   `total_reg_num` varchar(255) NULL ,
   `reg_hour` varchar(10) NOT NULL ,
-  `reg_date_hour` varchar(128) NOT NULL 
+  `reg_date_hour` varchar(128) NOT NULL
 ) ENGINE=OLAP
 UNIQUE KEY(`uid`, `game_sign`, `register_date`)
 DISTRIBUTED BY HASH(`uid`) BUCKETS 10
@@ -132,8 +131,7 @@ PROPERTIES (
 "enable_mow_light_delete" = "false"
 );
 
-
-CREATE TABLE `test_calc_repeat_property_t3` (
+CREATE TABLE `test_repeat_no_stackflow_t3` (
   `id` int NOT NULL,
   `site_id` int NOT NULL DEFAULT "0" ,
   `site_name` varchar(255) NOT NULL DEFAULT "" ,
@@ -155,7 +153,7 @@ CREATE TABLE `test_calc_repeat_property_t3` (
   `anchor_account_id` int NOT NULL DEFAULT "0" ,
   `create_user` varchar(128) NULL DEFAULT "" ,
   `update_user` varchar(128) NULL DEFAULT "" ,
-  `action_track_type` int NULL DEFAULT "0" 
+  `action_track_type` int NULL DEFAULT "0"
 ) ENGINE=OLAP
 UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
@@ -174,8 +172,7 @@ PROPERTIES (
 "enable_mow_light_delete" = "false"
 );
 
-
-CREATE TABLE `test_calc_repeat_property_t4` (
+CREATE TABLE `test_repeat_no_stackflow_t4` (
   `id` varchar(255) NULL ,
   `agent_id` varchar(255) NULL ,
   `agent_name` varchar(255) NULL ,
@@ -205,7 +202,7 @@ CREATE TABLE `test_calc_repeat_property_t4` (
   `hot` varchar(10) NULL ,
   `default_media` varchar(3) NULL ,
   `agent_channel_name` varchar(32) NULL ,
-  `gr_agent_channel_remarks` text NULL 
+  `gr_agent_channel_remarks` text NULL
 ) ENGINE=OLAP
 UNIQUE KEY(`id`, `agent_id`)
 DISTRIBUTED BY HASH(`agent_id`) BUCKETS 10
@@ -224,8 +221,7 @@ PROPERTIES (
 "enable_mow_light_delete" = "false"
 );
 
-
-CREATE TABLE `test_calc_repeat_property_t5` (
+CREATE TABLE `test_repeat_no_stackflow_t5` (
   `game_id` varchar(255) NULL ,
   `plat_id` varchar(20) NULL ,
   `game_app_name` varchar(255) NULL ,
@@ -276,7 +272,7 @@ CREATE TABLE `test_calc_repeat_property_t5` (
   `package_name_id` varchar(30) NULL ,
   `server_group_id` varchar(40) NULL ,
   `client_type` varchar(10) NULL ,
-  `platform` varchar(10) NULL 
+  `platform` varchar(10) NULL
 ) ENGINE=OLAP
 UNIQUE KEY(`game_id`, `plat_id`)
 DISTRIBUTED BY HASH(`game_id`) BUCKETS 10
@@ -295,8 +291,7 @@ PROPERTIES (
 "enable_mow_light_delete" = "false"
 );
 
-
-CREATE TABLE `test_calc_repeat_property_t6` (
+CREATE TABLE `test_repeat_no_stackflow_t6` (
   `id` int NOT NULL ,
   `abbr` varchar(64) NOT NULL ,
   `name` varchar(64) NOT NULL ,
@@ -306,7 +301,7 @@ CREATE TABLE `test_calc_repeat_property_t6` (
   `update_at` datetime NULL DEFAULT CURRENT_TIMESTAMP ,
   `update_user` varchar(64) NULL ,
   `hot` tinyint NULL ,
-  `usage_status` tinyint NULL DEFAULT "1" 
+  `usage_status` tinyint NULL DEFAULT "1"
 ) ENGINE=OLAP
 UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
@@ -324,8 +319,11 @@ PROPERTIES (
 "group_commit_data_bytes" = "134217728",
 "enable_mow_light_delete" = "false"
 );
-    """
+    '''
 
+    // the logical repeat had a long set intersection chain,
+    // need convert set intersection's result SetView to Set,
+    // otherwise it will cause stackoverflow
     sql """ explain
     SELECT
     agent_dims.game_id,
@@ -350,38 +348,38 @@ PROPERTIES (
         ELSE ROUND(SUM(agent_dims.total_money) / NULLIF(SUM(user_guid_reg_real.guid), 0), 2)
     END AS reg_cost
 FROM (
-    SELECT 
-        `site_id`, 
-        `game_id`, 
-        `agent_id`, 
-        `game_sign`, 
+    SELECT
+        `site_id`,
+        `game_id`,
+        `agent_id`,
+        `game_sign`,
         tdate,
         COUNT(1),
         SUM(`money`) AS total_money
-    FROM test_calc_repeat_property_t1
+    FROM test_repeat_no_stackflow_t1
     WHERE tdate BETWEEN '2025-05-01' AND '2025-05-01'
     GROUP BY
-        `site_id`, 
-        `game_id`, 
-        `agent_id`, 
-        `game_sign`, 
+        `site_id`,
+        `game_id`,
+        `agent_id`,
+        `game_sign`,
         tdate
 ) AS agent_dims
 LEFT JOIN (
-    SELECT 
-        `site_id`, 
-        `game_id`, 
-        `agent_id`, 
-        `game_sign`, 
+    SELECT
+        `site_id`,
+        `game_id`,
+        `agent_id`,
+        `game_sign`,
         register_date,
         COUNT(DISTINCT guid) AS guid
-    FROM test_calc_repeat_property_t2
+    FROM test_repeat_no_stackflow_t2
     WHERE `register_date` BETWEEN '2025-05-01' AND '2025-05-01'
     GROUP BY
-        `site_id`, 
-        `game_id`, 
-        `agent_id`, 
-        `game_sign`, 
+        `site_id`,
+        `game_id`,
+        `agent_id`,
+        `game_sign`,
         register_date
 ) AS user_guid_reg_real
     ON agent_dims.game_id = user_guid_reg_real.game_id
@@ -389,13 +387,13 @@ LEFT JOIN (
     AND agent_dims.agent_id = user_guid_reg_real.agent_id
     AND agent_dims.site_id = user_guid_reg_real.site_id
     AND agent_dims.tdate = user_guid_reg_real.register_date
-LEFT JOIN `test_calc_repeat_property_t3` ck
+LEFT JOIN `test_repeat_no_stackflow_t3` ck
     ON agent_dims.site_id = ck.site_id
-LEFT JOIN `test_calc_repeat_property_t4` ci
+LEFT JOIN `test_repeat_no_stackflow_t4` ci
     ON agent_dims.agent_id = ci.agent_id
-LEFT JOIN `test_calc_repeat_property_t5` cj
+LEFT JOIN `test_repeat_no_stackflow_t5` cj
     ON agent_dims.game_id = cj.game_id
-LEFT JOIN `test_calc_repeat_property_t6` cl
+LEFT JOIN `test_repeat_no_stackflow_t6` cl
     ON ci.agent = cl.abbr
 WHERE
     agent_dims.game_id = '3706'
@@ -419,4 +417,13 @@ GROUP BY
         cl.abbr
     );
     """
+
+    multi_sql '''
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t1 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t2 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t3 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t4 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t5 FORCE;
+       DROP TABLE IF EXISTS test_repeat_no_stackflow_t6 FORCE;
+    '''
 }
