@@ -1291,7 +1291,7 @@ suite("test_routine_load","p0") {
                     sql "sync"
                 }catch (Exception e) {
                     log.info("create routine load failed: ${e.getMessage()}")
-                    assertEquals(e.getMessage().contains("format:test is not supported."));
+                    assertTrue(e.getMessage().contains("format:test is not supported."));
                 }
                 i++
             }
