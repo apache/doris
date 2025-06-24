@@ -2403,7 +2403,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
 #ifdef ENABLE_INJECTION_POINT
         if (config::enable_update_delete_bitmap_kv_check) {
-            if (!check_delete_bitmap_kv_exists(code, msg, txn0, key, instance_id, tablet_id,
+            if (!check_delete_bitmap_kv_exists(code, msg, txn, key, instance_id, tablet_id,
                                                request->lock_id())) {
                 return;
             }
