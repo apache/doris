@@ -128,8 +128,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
 
     std::vector<ColumnId> read_columns;
     // std::vector<SlotDescriptor*>* return_columns = _read_context->return_columns;
-    std::set<uint32_t> read_columns_set;
-    std::set<uint32_t> delete_columns_set;
+    std::set<ColumnId> read_columns_set;
+    std::set<ColumnId> delete_columns_set;
+    // all columns used fro delete condition all added to the read columns.
     read_columns.insert(read_columns.end(), _read_context->return_columns->begin(),
                         _read_context->return_columns->end());
     read_columns_set.insert(_read_context->return_columns->begin(),
@@ -141,8 +142,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
-    LOG_INFO("Tablet columns {}, read columns size: {}",
-             _read_context->tablet_schema->num_columns(), read_columns.size());
+    LOG_INFO("After add delete predicates, tablet columns count {}, read columns cid [{}]",
+             _read_context->tablet_schema->num_columns(), fmt::join(read_columns, ", "));
     _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
