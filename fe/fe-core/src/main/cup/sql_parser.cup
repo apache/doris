@@ -4113,26 +4113,6 @@ cancel_param ::=
     {:
         RESULT = new CancelExportStmt(db, parser.where);
     :}
-    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table job_id_list:list
-    {:
-        RESULT = new CancelAlterTableStmt(type, table, list);
-    :}
-    | KW_BUILD KW_INDEX KW_ON table_name:table job_id_list:list
-    {:
-        RESULT = new CancelAlterTableStmt(ShowAlterStmt.AlterType.INDEX, table, list);
-    :}
-    | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
-    {:
-        RESULT = new CancelAlterSystemStmt(hostPorts);
-    :}
-    | KW_BACKUP opt_db:db
-    {:
-        RESULT = new CancelBackupStmt(db, false);
-    :}
-    | KW_RESTORE opt_db:db
-    {:
-        RESULT = new CancelBackupStmt(db, true);
-    :}
     ;
 
 opt_detailed ::=
