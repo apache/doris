@@ -37,15 +37,20 @@ void SchemaScannerHelper::insert_string_value(int col_index, std::string str_val
     nullable_column->get_null_map_data().emplace_back(0);
 }
 
-void SchemaScannerHelper::insert_datetime_value(int col_index, const std::vector<void*>& datas,
-                                                vectorized::Block* block) {
+void SchemaScannerHelper::insert_datetime_value(int col_index, int64_t timestamp,
+                                                const std::string& ctz, vectorized::Block* block) {
     vectorized::MutableColumnPtr mutable_col_ptr;
     mutable_col_ptr = block->get_by_position(col_index).column->assume_mutable();
     auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
     vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-    auto data = datas[0];
-    assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-            reinterpret_cast<char*>(data), 0);
+
+    std::vector<void*> datas(1);
+    VecDateTimeValue src[1];
+    src[0].from_unixtime(timestamp, ctz);
+    datas[0] = src;
+    auto* data = datas[0];
+    assert_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data),
+                                                                   0);
     nullable_column->get_null_map_data().emplace_back(0);
 }
 

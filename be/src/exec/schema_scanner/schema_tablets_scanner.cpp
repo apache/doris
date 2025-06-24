@@ -198,7 +198,7 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
 
         // CREATE_TIME
         SchemaScannerHelper::insert_datetime_value(15, tablet->tablet_meta()->creation_time(),
-                                                   _timezone_obj, block);
+                                                   TimezoneUtils::default_time_zone, block);
 
         // UPDATE_TIME
         SchemaScannerHelper::insert_datetime_value(
@@ -207,7 +207,7 @@ Status SchemaTabletsScanner::_fill_block_impl(vectorized::Block* block) {
                     auto rowset = tablet->get_rowset_with_max_version();
                     return rowset == nullptr ? 0 : rowset->newest_write_timestamp();
                 }(),
-                _timezone_obj, block);
+                TimezoneUtils::default_time_zone, block);
 
         // IS_OVERLAP
         SchemaScannerHelper::insert_bool_value(
