@@ -7834,11 +7834,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String dbName = null;
         String jobName;
         List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        if (nameParts.size() == 2) {
+        if (nameParts.size() == 1) {
+            jobName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
             dbName = nameParts.get(0);
             jobName = nameParts.get(1);
-        } else if (nameParts.size() == 1) {
-            jobName = nameParts.get(0);
         } else {
             throw new ParseException("only support [<db>.]<job_name>", ctx.name);
         }
