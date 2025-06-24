@@ -1188,6 +1188,21 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     new_tablet_meta.SerializeToString(&new_tablet_val);
     txn->put(new_tablet_key, new_tablet_val);
 
+    // process mow table, check lock
+    if (new_tablet_meta.enable_unique_key_merge_on_write()) {
+        bool success = check_and_remove_delete_bitmap_update_lock(
+                code, msg, ss, txn, instance_id, new_table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID,
+                schema_change.delete_bitmap_lock_initiator());
+        if (!success) {
+            return;
+        }
+
+        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
+        txn->remove(pending_key);
+        LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
+                  << " tablet_id=" << new_tablet_id << "job_id=" << schema_change.id();
+    }
+
     //==========================================================================
     //                move rowsets [2-alter_version] to recycle
     //==========================================================================
@@ -1315,21 +1330,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty txn_ids or output_versions";
         return;
-    }
-
-    // process mow table, check lock
-    if (new_tablet_meta.enable_unique_key_merge_on_write()) {
-        bool success = check_and_remove_delete_bitmap_update_lock(
-                code, msg, ss, txn, instance_id, new_table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID,
-                schema_change.delete_bitmap_lock_initiator());
-        if (!success) {
-            return;
-        }
-
-        std::string pending_key = meta_pending_delete_bitmap_key({instance_id, new_tablet_id});
-        txn->remove(pending_key);
-        LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
-                  << " tablet_id=" << new_tablet_id << "job_id=" << schema_change.id();
     }
 
     for (size_t i = 0; i < schema_change.txn_ids().size(); ++i) {
