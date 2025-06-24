@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -94,8 +95,15 @@ public class Like extends StringRegexPredicate {
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (arity() == 3 && !child(2).isConstant()) {
-            throw new AnalysisException("like does not support non-constant escape character: " + this.toSql());
+        if (arity() == 3) {
+            if (child(2) instanceof StringLikeLiteral) {
+                String escapeChar = ((StringLikeLiteral) child(2)).getStringValue();
+                if (escapeChar.length() != 1) {
+                    throw new AnalysisException("like escape character must be a single character: " + escapeChar);
+                }
+            } else {
+                throw new AnalysisException("like escape character must be a string literal: " + this.toSql());
+            }
         }
     }
 }
