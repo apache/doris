@@ -242,7 +242,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
 
 // input func_name, count type(get, put, del), make sure the counter is exist
 // about defer_count:
-// The C++ rule ensures that defer_count is destroyed after defer_status
 // which means that these bvars will only be counted after stats has finished counting.
 // why not cancle KVStats, count directly?
 // 1. some RPC operations call functions and function reset txn it also need to be counted
@@ -261,25 +260,23 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
-    std::unique_ptr<int, std::function<void(int*)>> defer_count((int*)0x01, [&](int*) {       \
-        if (config::use_detailed_metrics && !instance_id.empty()) {                           \
-            GET_RPCKVCOUNT_MACRO(_0, ##__VA_ARGS__, RPCKVCOUNT_3, RPCKVCOUNT_2, RPCKVCOUNT_1, \
-                                 RPCKVCOUNT_0)                                                \
-            (func_name, ##__VA_ARGS__)                                                        \
-        }                                                                                     \
-    });                                                                                       \
     DORIS_CLOUD_DEFER {                                                                       \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \
         finish_rpc(#func_name, ctrl, response);                                               \
         closure_guard.reset(nullptr);                                                         \
-        if (config::use_detailed_metrics && !instance_id.empty() && !drop_request) {          \
-            g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                          \
-        }                                                                                     \
         if (txn != nullptr) {                                                                 \
             stats.get_counter += txn->num_get_keys();                                         \
             stats.put_counter += txn->num_put_keys();                                         \
             stats.del_counter += txn->num_del_keys();                                         \
+        }                                                                                     \
+        if (config::use_detailed_metrics && !instance_id.empty()) {                           \
+            if (!drop_request) {                                                              \
+                g_bvar_ms_##func_name.put(instance_id, sw.elapsed_us());                      \
+            }                                                                                 \
+            GET_RPCKVCOUNT_MACRO(_0, ##__VA_ARGS__, RPCKVCOUNT_3, RPCKVCOUNT_2, RPCKVCOUNT_1, \
+                                 RPCKVCOUNT_0)                                                \
+            (func_name, ##__VA_ARGS__)                                                        \
         }                                                                                     \
     };
 
