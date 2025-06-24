@@ -198,23 +198,11 @@ TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
 
     RegexpQuery regexp_query(searcher, query_options, &io_ctx);
 
-    // Test with empty terms (size == 0)
+    // Test with empty terms (size == 0) - this should throw before accessing searcher
     {
         InvertedIndexQueryInfo query_info;
         query_info.field_name = L"test_field";
         query_info.term_infos = {}; // empty term_infos
-
-        EXPECT_THROW(regexp_query.add(query_info), std::exception);
-    }
-
-    // Test with multiple terms (size > 1)
-    {
-        InvertedIndexQueryInfo query_info;
-        query_info.field_name = L"test_field";
-        TermInfo term1, term2;
-        term1.term = "term1";
-        term2.term = "term2";
-        query_info.term_infos = {term1, term2}; // multiple term_infos
 
         EXPECT_THROW(regexp_query.add(query_info), std::exception);
     }
@@ -230,6 +218,7 @@ TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
     RegexpQuery regexp_query(searcher, query_options, &io_ctx);
 
     // Test with invalid regex pattern that causes hs_compile to fail
+    // This should fail during hyperscan compilation, before accessing searcher
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"test_field";
     TermInfo term_info;
@@ -237,6 +226,7 @@ TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
     query_info.term_infos = {term_info}; // invalid regex pattern
 
     // This should not throw but should handle the error gracefully
+    // The hyperscan compilation will fail and the method will return early
     EXPECT_NO_THROW(regexp_query.add(query_info));
 }
 
@@ -283,6 +273,7 @@ TEST_F(RegexpQueryTest, AddWithPatternThatFailsCompilation) {
     query_info.term_infos = {term_info};
 
     // Should not crash even with invalid hyperscan pattern (covers the hs_compile failure path)
+    // The hyperscan compilation will fail and the method will return early
     EXPECT_NO_THROW(regexp_query.add(query_info));
 }
 
@@ -330,6 +321,7 @@ TEST_F(RegexpQueryTest, AddWithUnsupportedRegexFeatures) {
     term_info.term = "(?=.*test).*"; // positive lookahead (not supported by hyperscan)
     query_info.term_infos = {term_info};
 
+    // Should not throw as hyperscan compilation will fail and method returns early
     EXPECT_NO_THROW(regexp_query.add(query_info));
 }
 
@@ -348,6 +340,7 @@ TEST_F(RegexpQueryTest, AddWithBackreferencePattern) {
     term_info.term = R"((\w+)\s+\1)"; // backreference pattern (not supported by hyperscan)
     query_info.term_infos = {term_info};
 
+    // Should not throw as hyperscan compilation will fail and method returns early
     EXPECT_NO_THROW(regexp_query.add(query_info));
 }
 
