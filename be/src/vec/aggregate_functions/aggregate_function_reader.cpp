@@ -48,12 +48,12 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     register_function_both(
             "bitmap_union",
             creator_without_type::creator<AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>,
-                                          ArgReturnJudge::UnaryArgumentsResultNotNullable>);
+                                          ArgReturnJudge::UnaryArguments>);
     register_function_both(
             "hll_union",
             creator_without_type::creator<AggregateFunctionHLLUnion<AggregateFunctionHLLUnionImpl<
                                                   AggregateFunctionHLLData>>,
-                                          ArgReturnJudge::UnaryArgumentsResultNotNullable>);
+                                          ArgReturnJudge::UnaryArguments>);
     register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
 }
 
