@@ -2722,17 +2722,6 @@ load_property ::=
     :}
     ;
 
-pause_routine_load_stmt ::=
-    KW_PAUSE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new PauseRoutineLoadStmt(jobLabel);
-    :}
-    | KW_PAUSE KW_ALL KW_ROUTINE KW_LOAD
-    {:
-        RESULT = new PauseRoutineLoadStmt(null);
-    :}
-    ;
-
 show_create_load_stmt ::=
     KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
     {:
