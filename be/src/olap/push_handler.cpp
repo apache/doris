@@ -643,7 +643,6 @@ Status PushBrokerReader::_get_next_reader() {
                         const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
                         _io_ctx.get(), _runtime_state.get());
 
-        RETURN_IF_ERROR(parquet_reader->open());
         std::vector<std::string> place_holder;
         init_status = parquet_reader->init_reader(
                 _all_col_names, place_holder, _colname_to_value_range, _push_down_exprs,

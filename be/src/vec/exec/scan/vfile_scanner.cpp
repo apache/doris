@@ -129,8 +129,6 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     RETURN_IF_ERROR(VScanner::prepare(state, conjuncts));
     _get_block_timer =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerGetBlockTime", 1);
-    _open_reader_timer =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileScannerOpenReaderTime", 1);
     _cast_to_input_block_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
                                                       "FileScannerCastInputBlockTime", 1);
     _fill_missing_columns_timer = ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(),
@@ -942,10 +940,6 @@ Status VFileScanner::_get_next_reader() {
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
-            {
-                SCOPED_TIMER(_open_reader_timer);
-                RETURN_IF_ERROR(parquet_reader->open());
-            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1110,12 +1104,12 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_AVRO: {
             _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
                                                        range);
-            init_status = ((AvroJNIReader*)(_cur_reader.get()))
-                                  ->init_fetch_table_reader(_colname_to_value_range);
+            init_status =
+                    ((AvroJNIReader*)(_cur_reader.get()))->init_reader(_colname_to_value_range);
             break;
         }
         case TFileFormatType::FORMAT_WAL: {
-            _cur_reader.reset(new WalReader(_state));
+            _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
             break;
         }

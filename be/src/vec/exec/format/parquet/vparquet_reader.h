@@ -107,8 +107,6 @@ public:
     // for test
     void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
-    Status open();
-
     Status init_reader(
             const std::vector<std::string>& all_column_names,
             const std::vector<std::string>& missing_column_names,
@@ -133,6 +131,8 @@ public:
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+
+    Status init_schema_reader() override;
 
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;

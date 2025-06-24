@@ -173,7 +173,6 @@ protected:
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
-    RuntimeProfile::Counter* _open_reader_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
