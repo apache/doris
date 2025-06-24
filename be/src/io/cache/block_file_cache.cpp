@@ -87,6 +87,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _total_read_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                     "file_cache_total_read_size");
+    _total_hit_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
+                                                                    "file_cache_total_hit_size");
+    _total_small_hit_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_total_small_hit_size");
     _gc_evict_bytes_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                     "file_cache_gc_evict_bytes");
     _gc_evict_count_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -184,6 +190,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                              "file_cache_num_read_blocks");
     _num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                             "file_cache_num_hit_blocks");
+    _num_small_hit_blocks = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_num_small_hit_blocks");
     _num_removed_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                 "file_cache_num_removed_blocks");
 
@@ -747,8 +755,15 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
         DCHECK(!file_blocks.empty());
         *_num_read_blocks << file_blocks.size();
         for (auto& block : file_blocks) {
+            size_t block_size = block->range().size();
+            *_total_read_size_metrics << block_size;
             if (block->state_unsafe() == FileBlock::State::DOWNLOADED) {
                 *_num_hit_blocks << 1;
+                *_total_hit_size_metrics << block_size;
+                if (block_size < config::file_cache_each_block_size) {
+                    *_num_small_hit_blocks << 1;
+                    *_total_small_hit_size_metrics << block_size;
+                }
             }
         }
     }
@@ -2175,11 +2190,18 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
 
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
     stats["total_read_counts"] = (double)_num_read_blocks->get_value();
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["total_small_hit_counts"] = (double)_num_small_hit_blocks->get_value();
+
+    stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
+    stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
+    stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["total_small_hit_size"] = (double)_total_small_hit_size_metrics->get_value();
 
     return stats;
 }
@@ -2210,6 +2232,19 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["disposable_queue_curr_size"] = (double)_disposable_queue.get_capacity_unsafe();
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] = (double)_disposable_queue.get_elements_num_unsafe();
+
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+
+    stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
+    stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
+    stats["total_read_counts"] = (double)_num_read_blocks->get_value();
+    stats["total_small_hit_counts"] = (double)_num_small_hit_blocks->get_value();
+
+    stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
+    stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
+    stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["total_small_hit_size"] = (double)_total_small_hit_size_metrics->get_value();
 
     return stats;
 }
