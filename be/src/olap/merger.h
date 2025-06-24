@@ -43,6 +43,8 @@ class VerticalBlockReader;
 class Merger {
 public:
     struct Statistics {
+        int64_t cloud_local_read_time = 0;
+        int64_t cloud_remote_read_time = 0;
         // number of rows written to the destination rowset after merge
         int64_t output_rows = 0;
         int64_t merged_rows = 0;
