@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.types.DataType;
 
 /**
  * ScaleTimeType is a marker interface for types that have a scale, such as TimeV2Type and DateTimeV2Type.
@@ -26,6 +27,8 @@ public interface ScaleTimeType {
 
     public int getScale();
 
-    ScaleTimeType forTypeFromString(StringLikeLiteral str);
+    public ScaleTimeType forTypeFromString(StringLikeLiteral str);
+
+    public ScaleTimeType scaleTypeForType(DataType dataType);
 
 }

@@ -45,6 +45,11 @@ public class TimeV2Literal extends Literal {
         init(s);
     }
 
+    public TimeV2Literal(String s) {
+        super(TimeV2Type.forTypeFromString(s));
+        init(s);
+    }
+
     /**
      * C'tor time literal.
      */
@@ -82,13 +87,9 @@ public class TimeV2Literal extends Literal {
         }
     }
 
-    // will set this.negative
     protected static String normalize(String s) {
         // remove suffix/prefix ' '
         s = s.trim();
-        if (s.charAt(0) == '-' || s.charAt(0) == '+') {
-            s = s.substring(1);
-        }
         // just a number
         if (!s.contains(":")) {
             String tail = "";
@@ -106,6 +107,7 @@ public class TimeV2Literal extends Literal {
             } else if (len == 4) {
                 s = "00:" + s.substring(0, 2) + ":" + s.substring(2);
             } else {
+                // minute and second must be 2 digits. others put in front as hour
                 s = s.substring(0, len - 4) + ":" + s.substring(len - 4, len - 2) + ":" + s.substring(len - 2);
             }
             return s + tail;
@@ -185,15 +187,18 @@ public class TimeV2Literal extends Literal {
      * determine scale by time string. didn't check if the string is valid.
      */
     public static int determineScale(String s) {
+        // find point
         s = normalize(s);
-        int scale = 0;
-        if (s.length() > 8 && s.charAt(s.length() - 8) == '.') {
-            scale = s.length() - 9; // 00:00:00.xxxxxx
-            while (scale > 0 && s.charAt(9 + scale) == '0') {
-                scale--;
-            }
+        int pointIndex = s.indexOf('.');
+        if (pointIndex < 0) {
+            return 0; // no point, scale is 0
         }
-        return scale;
+        String microPart = s.substring(pointIndex + 1);
+        int len = microPart.length();
+        while (len > 0 && microPart.charAt(len - 1) == '0') {
+            len--; // remove trailing zeros
+        }
+        return Math.min(len, 6); // max scale is 6
     }
 
     public int getHour() {

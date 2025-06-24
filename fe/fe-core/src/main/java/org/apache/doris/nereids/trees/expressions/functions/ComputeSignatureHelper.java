@@ -387,36 +387,56 @@ public class ComputeSignatureHelper {
             List<Expression> arguments) {
         int finalTypeScale = -1;
         for (int i = 0; i < arguments.size(); i++) {
-            DataType signatureArgType;
+            DataType targetType; // type of signature_args[i]
             if (i >= signature.argumentsTypes.size()) {
                 Preconditions.checkState(signature.getVarArgType().isPresent(),
                         "argument size larger than signature");
-                signatureArgType = signature.getVarArgType().get();
+                targetType = signature.getVarArgType().get();
             } else {
-                signatureArgType = signature.getArgType(i);
+                targetType = signature.getArgType(i);
             }
-            List<DataType> nestedTypes = ImmutableList.<DataType>builder()
-                    .addAll(extractArgumentTypeBySignature(DateTimeV2Type.class, signatureArgType,
+            // if input type X's slot(targetType) is datetimev2/timev2 or complex of them, get all nested type of X.
+            List<DataType> nestedInputTypes = ImmutableList.<DataType>builder()
+                    .addAll(extractArgumentTypeBySignature(DateTimeV2Type.class, targetType,
                             arguments.get(i).getDataType()))
-                    .addAll(extractArgumentTypeBySignature(TimeV2Type.class, signatureArgType,
+                    .addAll(extractArgumentTypeBySignature(TimeV2Type.class, targetType,
                             arguments.get(i).getDataType()))
                     .build();
-            if (nestedTypes.isEmpty()) {
-                // if no DateTimeV2Type or TimeV2Type in the argument, no precision promotion
+            // there's DateTimeV2 and TimeV2 at same time, so we need get exact target type when we promote any slot.
+            List<DataType> nestedTargetTypes = ImmutableList.<DataType>builder()
+                    .addAll(extractSignatureTypes(DateTimeV2Type.class, targetType, arguments.get(i).getDataType()))
+                    .addAll(extractSignatureTypes(TimeV2Type.class, targetType, arguments.get(i).getDataType()))
+                    .build();
+            if (nestedInputTypes.isEmpty()) {
+                // if no DateTimeV2Type or TimeV2Type in the argument[i], no precision promotion
                 continue;
             }
 
-            // for Map or Struct, we have more than one nested type
-            for (DataType argType : nestedTypes) { // argType must be ScaleTimeType
-                ScaleTimeType timelikeType = (ScaleTimeType) argType;
-                Expression arg = arguments.get(i);
-                int targetScale;
-                if (arg instanceof StringLikeLiteral) { // try to get real-needed scale first
+            // for Map or Struct, we have more than one nested type.
+            // targetType may be ScaleTimeType or comlex type(Array, Struct) with ScaleTimeType nested.
+            Expression arg = arguments.get(i);
+            for (int j = 0; j < nestedInputTypes.size(); j++) {
+                // inputType could be any legal input type
+                DataType inputType = nestedInputTypes.get(j);
+                // corresponding target slot type for inputType
+                DataType nestedTargetType = nestedTargetTypes.get(j);
+                int targetScale = 0;
+
+                // for string input, try to get the most suitable scale
+                if (arg instanceof StringLikeLiteral) {
+                    ScaleTimeType timelikeType = (ScaleTimeType) nestedTargetType;
                     targetScale = timelikeType.forTypeFromString((StringLikeLiteral) arg).getScale();
                 } else {
-                    targetScale = timelikeType.getScale();
+                    // for all other input types, get the target scale when cast it to targetType
+                    ScaleTimeType targetScaleType = (ScaleTimeType) nestedTargetType;
+                    ScaleTimeType promotedType = targetScaleType.scaleTypeForType(inputType);
+                    targetScale = promotedType.getScale();
                 }
+
                 finalTypeScale = Math.max(finalTypeScale, targetScale); // init value -1 always promotes
+                System.out.println("finalTypeScale: " + finalTypeScale
+                        + ", targetScale: " + targetScale + ", inputType: " + inputType
+                        + ", nestedTargetType: " + nestedTargetType);
             }
         }
 
@@ -428,6 +448,9 @@ public class ComputeSignatureHelper {
         ImmutableList.Builder<DataType> newArgTypesBuilder = ImmutableList.builderWithExpectedSize(signature.arity);
         for (DataType signatureArgType : signature.argumentsTypes) {
             newArgTypesBuilder.add(TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType, finalTypeScale));
+            System.out.println("signatureArgType: " + signatureArgType
+                    + ", newArgType: " + TypeCoercionUtils.replaceTimesWithTargetPrecision(signatureArgType,
+                    finalTypeScale));
         }
         List<DataType> newArgTypes = newArgTypesBuilder.build();
         signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
@@ -488,33 +511,43 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    // if signatureType is a super type of targetType, then extract corresponding argumentType slot
     private static List<DataType> extractArgumentTypeBySignature(Class<? extends DataType> targetType,
             DataType signatureType, DataType argumentType) {
+        return extractBySignature(targetType, signatureType, argumentType, (sig, arg) -> arg);
+    }
+
+    private static List<DataType> extractSignatureTypes(Class<? extends DataType> targetType, DataType signatureType,
+            DataType argumentType) {
+        return extractBySignature(targetType, signatureType, argumentType, (sig, arg) -> sig);
+    }
+
+    // if signatureType is a super type of targetType, then extract corresponding argumentType slot
+    private static List<DataType> extractBySignature(Class<? extends DataType> targetType,
+            DataType signatureType, DataType argumentType, BiFunction<DataType, DataType, DataType> pick) {
         if (targetType.isAssignableFrom(signatureType.getClass())) {
-            return Lists.newArrayList(argumentType);
+            return Lists.newArrayList(pick.apply(signatureType, argumentType));
         } else if (signatureType instanceof ArrayType) {
             if (argumentType instanceof NullType) {
-                return extractArgumentTypeBySignature(targetType, ((ArrayType) signatureType).getItemType(),
-                        argumentType);
+                return extractBySignature(targetType, ((ArrayType) signatureType).getItemType(),
+                        argumentType, pick);
             } else if (argumentType instanceof ArrayType) {
-                return extractArgumentTypeBySignature(targetType, ((ArrayType) signatureType).getItemType(),
-                        ((ArrayType) argumentType).getItemType());
+                return extractBySignature(targetType, ((ArrayType) signatureType).getItemType(),
+                        ((ArrayType) argumentType).getItemType(), pick);
             } else {
                 return Lists.newArrayList();
             }
         } else if (signatureType instanceof MapType) {
             if (argumentType instanceof NullType) {
-                List<DataType> ret = extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getKeyType(),
-                        argumentType);
-                ret.addAll(extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getValueType(),
-                        argumentType));
+                List<DataType> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                        argumentType, pick);
+                ret.addAll(extractBySignature(targetType, ((MapType) signatureType).getValueType(),
+                        argumentType, pick));
                 return ret;
             } else if (argumentType instanceof MapType) {
-                List<DataType> ret = extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getKeyType(),
-                        ((MapType) argumentType).getKeyType());
-                ret.addAll(extractArgumentTypeBySignature(targetType, ((MapType) signatureType).getValueType(),
-                        ((MapType) argumentType).getValueType()));
+                List<DataType> ret = extractBySignature(targetType, ((MapType) signatureType).getKeyType(),
+                        ((MapType) argumentType).getKeyType(), pick);
+                ret.addAll(extractBySignature(targetType, ((MapType) signatureType).getValueType(),
+                        ((MapType) argumentType).getValueType(), pick));
                 return ret;
             } else {
                 return Lists.newArrayList();

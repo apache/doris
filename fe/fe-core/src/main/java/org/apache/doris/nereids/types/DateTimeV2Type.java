@@ -78,15 +78,24 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         if (dataType instanceof DateTimeV2Type) {
             return (DateTimeV2Type) dataType;
         }
-        //TODO: boolean type?
         if (dataType instanceof IntegralType || dataType instanceof BooleanType || dataType instanceof NullType
                 || dataType instanceof DateTimeType || dataType instanceof DateType || dataType instanceof DateV2Type) {
             return SYSTEM_DEFAULT;
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return DateTimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), 6));
+        }
+        if (dataType instanceof DecimalV2Type) {
+            return DateTimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
         }
         if (dataType instanceof TimeV2Type) {
             return DateTimeV2Type.of(((TimeV2Type) dataType).getScale());
         }
         return MAX;
+    }
+
+    public ScaleTimeType scaleTypeForType(DataType dataType) {
+        return forType(dataType);
     }
 
     @Override

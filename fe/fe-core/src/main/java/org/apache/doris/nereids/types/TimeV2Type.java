@@ -99,10 +99,20 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
                 || dataType instanceof DateTimeType) {
             return INSTANCE;
         }
+        if (dataType instanceof DecimalV3Type) {
+            return TimeV2Type.of(Math.min(((DecimalV3Type) dataType).getScale(), 6));
+        }
+        if (dataType instanceof DecimalV2Type) {
+            return TimeV2Type.of(Math.min(((DecimalV2Type) dataType).getScale(), 6));
+        }
         if (dataType instanceof DateTimeV2Type) {
             return TimeV2Type.of(((DateTimeV2Type) dataType).getScale());
         }
         return MAX;
+    }
+
+    public ScaleTimeType scaleTypeForType(DataType dataType) {
+        return forType(dataType);
     }
 
     @Override
@@ -113,5 +123,10 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
     @Override
     public int getScale() {
         return scale;
+    }
+
+    @Override
+    public String toSql() {
+        return super.toSql() + "(" + scale + ")";
     }
 }
