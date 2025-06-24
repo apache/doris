@@ -959,12 +959,4 @@ public class HashJoinNode extends JoinNodeBase {
             return slotRef;
         }
     }
-
-    @Override
-    public boolean isNullAwareLeftAntiJoin() {
-        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
-            return true;
-        }
-        return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
-    }
 }

@@ -388,7 +388,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
-        auto curr_interval = uint32_t(max_interval * ratio);
+        curr_interval = uint32_t(max_interval * ratio);
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
@@ -403,6 +403,8 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                          << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
+        LOG(INFO) << "trash thread check usage=" << usage << " ratio=" << ratio
+                  << " curr_interval=" << curr_interval;
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval)));
 }
 
@@ -663,6 +665,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
 
     int64_t interval = config::generate_compaction_tasks_interval_ms;
     do {
+        int64_t cur_time = UnixMillis();
         if (!config::disable_auto_compaction &&
             (!config::enable_compaction_pause_on_high_memory ||
              !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
@@ -716,6 +719,17 @@ void StorageEngine::_compaction_tasks_producer_callback() {
         } else {
             interval = 5000; // 5s to check disable_auto_compaction
         }
+
+        // wait some seconds for ut test
+        {
+            std ::vector<std ::any> args {};
+            args.emplace_back(1);
+            doris ::SyncPoint ::get_instance()->process(
+                    "StorageEngine::_compaction_tasks_producer_callback", std ::move(args));
+        }
+        int64_t end_time = UnixMillis();
+        DorisMetrics::instance()->compaction_producer_callback_a_round_time->set_value(end_time -
+                                                                                       cur_time);
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
@@ -1688,8 +1702,9 @@ void StorageEngine::_process_async_publish() {
                 continue;
             }
             if (version != max_version + 1) {
+                int32_t max_version_config = tablet->max_version_config();
                 // Keep only the most recent versions
-                while (tablet_iter->second.size() > config::max_tablet_version_num) {
+                while (tablet_iter->second.size() > max_version_config) {
                     need_removed_tasks.emplace_back(tablet, version);
                     task_iter = tablet_iter->second.erase(task_iter);
                     version = task_iter->first;

@@ -616,6 +616,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SYNC_MV_COST_BASED_REWRITE
             = "enable_sync_mv_cost_based_rewrite";
 
+    public static final String MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS
+            = "materialized_view_rewrite_duration_threshold_ms";
+
     public static final String MATERIALIZED_VIEW_RELATION_MAPPING_MAX_COUNT
             = "materialized_view_relation_mapping_max_count";
 
@@ -712,7 +715,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SQL_CONVERTOR_FEATURES = "enable_sql_convertor_features";
 
+    public static final String ENABLE_SCHEMA_SCAN_FROM_MASTER_FE = "enable_schema_scan_from_master_fe";
+
+    public static final String SHOW_COLUMN_COMMENT_IN_DESCRIBE = "show_column_comment_in_describe";
+
     public static final String SQL_CONVERTOR_CONFIG = "sql_convertor_config";
+
+    public static final String PREFER_UDF_OVER_BUILTIN = "prefer_udf_over_builtin";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -2105,6 +2114,12 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether enable cost based rewrite for sync mv"})
     public boolean enableSyncMvCostBasedRewrite = true;
 
+    @VariableMgr.VarAttr(name = MATERIALIZED_VIEW_REWRITE_DURATION_THRESHOLD_MS, needForward = true,
+            description = {"物化视图透明改写允许的最长耗时，超过此时长不再进行透明改写",
+                    "The maximum duration allowed for transparent rewriting of materialized views; "
+                            + "if this duration is exceeded, transparent rewriting will no longer be performed."})
+    public long materializedViewRewriteDurationThresholdMs = 1000L;
+
     @VariableMgr.VarAttr(name = CREATE_TABLE_PARTITION_MAX_NUM, needForward = true,
             description = {"建表时创建分区的最大数量",
                     "The maximum number of partitions created during table creation"})
@@ -2431,12 +2446,36 @@ public class SessionVariable implements Serializable, Writable {
             })
     public String enableSqlConvertorFeatures = "";
 
+    // The default value is true,
+    // which throughs reducing rpc call from follower node to meta service to improve query performance
+    // for getting version is memory operation in master node,
+    // but it will slightly increase the pressure on the FE master.
+    @VariableMgr.VarAttr(name = ENABLE_SCHEMA_SCAN_FROM_MASTER_FE, description = {
+            "在follower节点查询时, 是否允许从master节点扫描information_schema.tables的结果",
+            "Whether to allow scanning information_schema.tables from the master node"
+    })
+    public boolean enableSchemaScanFromMasterFe = true;
+
+    @VariableMgr.VarAttr(name = SHOW_COLUMN_COMMENT_IN_DESCRIBE, needForward = true,
+            description = {
+                    "是否在 DESCRIBE TABLE 语句中显示列注释",
+                    "whether to show column comments in DESCRIBE TABLE statement"
+            })
+    public boolean showColumnCommentInDescribe = false;
+
     @VariableMgr.VarAttr(name = SQL_CONVERTOR_CONFIG, needForward = true,
             description = {
                     "SQL 转换器的相关配置，使用 Json 格式。以 {} 为根元素。",
                     "SQL convertor config, use Json format. The root element is {}"
             })
     public String sqlConvertorConfig = "{}";
+
+    @VariableMgr.VarAttr(name = PREFER_UDF_OVER_BUILTIN, needForward = true,
+            description = {
+                    "是否优先查找 UDF 而不是内置函数",
+                    "Whether to prefer UDF over builtin functions"
+            })
+    public boolean preferUdfOverBuiltin = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;

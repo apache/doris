@@ -37,6 +37,7 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_column_object_pool.h"
 #include "olap/types.h"
@@ -49,6 +50,8 @@
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -460,6 +463,22 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     }
 }
 
+bool TabletColumn::has_char_type() const {
+    switch (_type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR: {
+        return true;
+    }
+    case FieldType::OLAP_FIELD_TYPE_ARRAY:
+    case FieldType::OLAP_FIELD_TYPE_MAP:
+    case FieldType::OLAP_FIELD_TYPE_STRUCT: {
+        return std::any_of(_sub_columns.begin(), _sub_columns.end(),
+                           [&](const auto& sub) -> bool { return sub->has_char_type(); });
+    }
+    default:
+        return false;
+    }
+}
+
 TabletColumn::TabletColumn() : _aggregation(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {}
 
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
@@ -852,9 +871,7 @@ void TabletIndex::to_schema_pb(TabletIndexPB* index) const {
 
 TabletSchema::TabletSchema() = default;
 
-TabletSchema::~TabletSchema() {
-    clear_column_cache_handlers();
-}
+TabletSchema::~TabletSchema() = default;
 
 int64_t TabletSchema::get_metadata_size() const {
     return sizeof(TabletSchema) + _vl_field_mem_size;
@@ -949,14 +966,6 @@ void TabletSchema::clear_columns() {
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    clear_column_cache_handlers();
-}
-
-void TabletSchema::clear_column_cache_handlers() {
-    for (auto* cache_handle : _column_cache_handlers) {
-        TabletColumnObjectPool::instance()->release(cache_handle);
-    }
-    _column_cache_handlers.clear();
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
@@ -971,7 +980,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     _cluster_key_idxes.clear();
-    clear_column_cache_handlers();
     for (const auto& i : schema.cluster_key_idxes()) {
         _cluster_key_idxes.push_back(i);
     }
@@ -981,7 +989,10 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
             auto pair = TabletColumnObjectPool::instance()->insert(
                     deterministic_string_serialize(column_pb));
             column = pair.second;
-            _column_cache_handlers.push_back(pair.first);
+            // Release the handle quickly, because we use shared ptr to manage column.
+            // It often core during tablet schema copy to another schema because handle's
+            // reference count should be managed mannually.
+            TabletColumnObjectPool::instance()->release(pair.first);
         } else {
             column = std::make_shared<TabletColumn>();
             column->init_from_pb(column_pb);
@@ -1070,8 +1081,6 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _num_null_columns = 0;
     _num_key_columns = 0;
     _cols.clear();
-    // notice : do not ref columns
-    _column_cache_handlers.clear();
 }
 
 void TabletSchema::update_index_info_from(const TabletSchema& tablet_schema) {
@@ -1134,7 +1143,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sequence_col_idx = -1;
     _version_col_idx = -1;
     _cluster_key_idxes.clear();
-    clear_column_cache_handlers();
     for (const auto& i : ori_tablet_schema._cluster_key_idxes) {
         _cluster_key_idxes.push_back(i);
     }

@@ -101,24 +101,23 @@ public:
             }
         }
 
-        if constexpr (with_other_conjuncts ||
-                      (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
-            if constexpr (!with_other_conjuncts) {
-                constexpr bool is_null_aware_join =
-                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
-                constexpr bool is_left_half_join = JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
-                                                   JoinOpType == TJoinOp::LEFT_ANTI_JOIN;
+        if constexpr (with_other_conjuncts) {
+            return _find_batch_conjunct<JoinOpType, need_judge_null, false>(
+                    keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
+        } else if constexpr (is_mark_join) {
+            constexpr bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                                JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
+            constexpr bool is_left_half_join =
+                    JoinOpType == TJoinOp::LEFT_SEMI_JOIN || JoinOpType == TJoinOp::LEFT_ANTI_JOIN;
 
-                /// For null aware join or left half(semi/anti) join without other conjuncts and without
-                /// mark join conjunct.
-                /// If one row on probe side has one match in build side, we should stop searching the
-                /// hash table for this row.
-                if (is_null_aware_join || (is_left_half_join && !has_mark_join_conjunct)) {
-                    return _find_batch_conjunct<JoinOpType, need_judge_null, true>(
-                            keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs,
-                            build_idxs);
-                }
+            /// For null aware join or left half(semi/anti) join without other conjuncts and without
+            /// mark join conjunct.
+            /// If one row on probe side has one match in build side, we should stop searching the
+            /// hash table for this row.
+            if (is_null_aware_join || (is_left_half_join && !has_mark_join_conjunct)) {
+                return _find_batch_conjunct<JoinOpType, need_judge_null, true>(
+                        keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs,
+                        build_idxs);
             }
 
             return _find_batch_conjunct<JoinOpType, need_judge_null, false>(
@@ -339,14 +338,7 @@ private:
 
         auto do_the_probe = [&]() {
             while (build_idx && matched_cnt < batch_size) {
-                if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                              JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
-                    if (!visited[build_idx] && keys[probe_idx] == build_keys[build_idx]) {
-                        probe_idxs[matched_cnt] = probe_idx;
-                        build_idxs[matched_cnt] = build_idx;
-                        matched_cnt++;
-                    }
-                } else if constexpr (need_judge_null) {
+                if constexpr (need_judge_null) {
                     if (build_idx == bucket_size) {
                         build_idxs[matched_cnt] = build_idx;
                         probe_idxs[matched_cnt] = probe_idx;

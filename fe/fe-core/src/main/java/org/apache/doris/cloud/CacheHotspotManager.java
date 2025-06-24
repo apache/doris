@@ -124,12 +124,16 @@ public class CacheHotspotManager extends MasterDaemon {
             jobDaemon.start();
             startJobDaemon = true;
         }
+
         if (!tableCreated) {
             try {
                 CacheHotspotManagerUtils.execCreateCacheTable();
                 tableCreated = true;
+                this.intervalMs = Config.fetch_cluster_cache_hotspot_interval_ms;
             } catch (Exception e) {
-                LOG.warn("Create cache hot spot table failed", e);
+                // sleep 60s wait for syncing storage vault info from ms and retry
+                this.intervalMs = 60000;
+                LOG.warn("Create cache hot spot table failed, sleep 60s and retry", e);
                 return;
             }
         }

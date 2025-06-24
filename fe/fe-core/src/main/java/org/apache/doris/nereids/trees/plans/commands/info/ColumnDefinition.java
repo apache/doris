@@ -232,6 +232,7 @@ public class ColumnDefinition {
             KeysType keysType) {
         try {
             FeNameFormat.checkColumnName(name);
+            FeNameFormat.checkColumnCommentLength(comment);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }

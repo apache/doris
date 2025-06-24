@@ -861,6 +861,8 @@ void Tablet::delete_expired_stale_rowset() {
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
+    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset",
+                    { _engine.start_delete_unused_rowset(); });
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
@@ -1737,7 +1739,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
                 config::enable_sleep_between_delete_cumu_compaction) {
                 tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             }
-            if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>() &&
+                !res.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}",
                                              res.to_string());

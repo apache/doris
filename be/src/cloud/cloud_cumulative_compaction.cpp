@@ -51,7 +51,6 @@ Status CloudCumulativeCompaction::prepare_compact() {
     Defer defer_set_st([&] {
         if (!st.ok()) {
             cloud_tablet()->set_last_cumu_compaction_status(st.to_string());
-            cloud_tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
         }
     });
     if (_tablet->tablet_state() != TABLET_RUNNING &&
@@ -226,7 +225,9 @@ Status CloudCumulativeCompaction::execute_compact() {
             .tag("num_rowsets", cloud_tablet()->fetch_add_approximate_num_rowsets(0))
             .tag("cumu_num_rowsets", cloud_tablet()->fetch_add_approximate_cumu_num_rowsets(0))
             .tag("local_read_time_us", _stats.cloud_local_read_time)
-            .tag("remote_read_time_us", _stats.cloud_remote_read_time);
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     _state = CompactionState::SUCCESS;
 
@@ -448,6 +449,10 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                     { static_cast<CloudTablet*>(_tablet.get())->delete_expired_stale_rowsets(); });
         }
     }
+    DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset", {
+        LOG(INFO) << "delete_expired_stale_rowsets for tablet=" << _tablet->tablet_id();
+        _engine.tablet_mgr().vacuum_stale_rowsets(CountDownLatch(1));
+    });
     return Status::OK();
 }
 
