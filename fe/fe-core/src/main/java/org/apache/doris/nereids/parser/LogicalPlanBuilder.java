@@ -1653,10 +1653,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
-        UnboundRelation curTable = new UnboundRelation(
-                Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
         ImmutableList<Slot> slots = ctx.constraint().slots.identifierSeq().ident.stream()
-                .map(ident -> new UnboundSlot(Location.fromAst(ident), ident.getText()))
+                .map(ident -> new UnboundSlot(ident.getText()))
                 .collect(ImmutableList.toImmutableList());
         Constraint constraint;
         if (ctx.constraint().UNIQUE() != null) {
@@ -1665,11 +1664,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             constraint = Constraint.newPrimaryKeyConstraint(curTable, slots);
         } else if (ctx.constraint().FOREIGN() != null) {
             ImmutableList<Slot> referencedSlots = ctx.constraint().referencedSlots.identifierSeq().ident.stream()
-                    .map(ident -> new UnboundSlot(Location.fromAst(ident), ident.getText()))
+                    .map(ident -> new UnboundSlot(ident.getText()))
                     .collect(ImmutableList.toImmutableList());
             List<String> nameParts = visitMultipartIdentifier(ctx.constraint().referenceTable);
             LogicalPlan referenceTable = new UnboundRelation(
-                    Location.fromAst(ctx.constraint().referenceTable),
                     StatementScopeIdGenerator.newRelationId(),
                     nameParts
             );
@@ -1683,8 +1681,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropConstraint(DropConstraintContext ctx) {
         List<String> parts = visitMultipartIdentifier(ctx.table);
-        UnboundRelation curTable = new UnboundRelation(
-                Location.fromAst(ctx.table), StatementScopeIdGenerator.newRelationId(), parts);
+        UnboundRelation curTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), parts);
         return new DropConstraintCommand(ctx.constraintName.getText().toLowerCase(), curTable);
     }
 
@@ -1692,7 +1689,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitUpdate(UpdateContext ctx) {
         LogicalPlan query = LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(
-                        Location.fromAst(ctx.tableName),
                         StatementScopeIdGenerator.newRelationId(),
                         visitMultipartIdentifier(ctx.tableName)
                 )
@@ -1724,7 +1720,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LogicalPlan query = withTableAlias(LogicalPlanBuilderAssistant.withCheckPolicy(
                 new UnboundRelation(
-                        Location.fromAst(ctx.tableName),
                         StatementScopeIdGenerator.newRelationId(), tableName,
                         partitionSpec.second, partitionSpec.first)), ctx.tableAlias()
         );
@@ -1980,7 +1975,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 .collect(ImmutableList.toImmutableList());
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
-                ImmutableList.of(new UnboundSlot(Location.fromAst(ctx.columnNames.get(0)), generateName, columnName)),
+                ImmutableList.of(new UnboundSlot(generateName, columnName)),
                 ImmutableList.of(expandColumnNames), plan);
     }
 
@@ -2384,7 +2379,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         UnboundRelation relation = new UnboundRelation(
-                Location.fromAst(ctx.multipartIdentifier()), StatementScopeIdGenerator.newRelationId(),
+                StatementScopeIdGenerator.newRelationId(),
                 nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
                 Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
 
@@ -3122,7 +3117,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 UnboundSlot unboundAttribute = (UnboundSlot) e;
                 List<String> nameParts = Lists.newArrayList(unboundAttribute.getNameParts());
                 nameParts.add(ctx.fieldName.getText());
-                UnboundSlot slot = new UnboundSlot(Location.fromAst(ctx.fieldName), nameParts, Optional.empty());
+                UnboundSlot slot = new UnboundSlot(nameParts, Optional.empty());
                 return slot;
             } else {
                 // todo: base is an expression, may be not a table name.
@@ -3148,7 +3143,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitColumnReference(ColumnReferenceContext ctx) {
         // todo: handle quoted and unquoted
-        return new UnboundSlot(Location.fromAst(ctx), Lists.newArrayList(ctx.getText()), Optional.empty());
+        return new UnboundSlot(Lists.newArrayList(ctx.getText()), Optional.empty());
     }
 
     /**
@@ -3343,7 +3338,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public EqualTo visitUpdateAssignment(UpdateAssignmentContext ctx) {
         return new EqualTo(new UnboundSlot(
-                Location.fromAst(ctx.multipartIdentifier()),
                 visitMultipartIdentifier(ctx.multipartIdentifier()), Optional.empty()),
                 getExpression(ctx.expression()));
     }
@@ -3518,7 +3512,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     IdentifierContext identifier = partition.identifier();
                     if (identifier != null) {
                         return new UnboundSlot(
-                                Location.fromAst(identifier),
                                 Lists.newArrayList(identifier.getText()),
                                 Optional.empty()
                         );
