@@ -6920,25 +6920,6 @@ truncate_stmt ::=
     :}
     ;
 
-transaction_stmt ::=
-    KW_BEGIN
-    {:
-        RESULT = new TransactionBeginStmt();
-    :}
-    | KW_BEGIN KW_WITH KW_LABEL transaction_label:label
-    {:
-        RESULT = new TransactionBeginStmt(label);
-    :}
-    | KW_COMMIT opt_work opt_chain opt_release
-    {:
-        RESULT = new TransactionCommitStmt();
-    :}
-    | KW_ROLLBACK opt_work opt_chain opt_release
-    {:
-        RESULT = new TransactionRollbackStmt();
-    :}
-    ;
-
 transaction_label ::=
     /* empty */
     {:
