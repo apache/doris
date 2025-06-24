@@ -1923,16 +1923,6 @@ create_stmt ::=
         RESULT = new CreateTableAsSelectStmt(new CreateTableStmt(ifNotExists, isExternal, name, null, engineName, keys, partition,
         distribution, tblProperties, extProperties, tableComment, index), columns, query_def);
     :}
-    /* User */
-    | KW_CREATE KW_USER
-      opt_if_not_exists:ifNotExists
-      grant_user:user
-      opt_user_role:userRole
-      opt_password_option:passwdOptions
-      opt_comment:comment
-    {:
-        RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
-    :}
     | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
