@@ -2406,7 +2406,7 @@ TEST_F(ColumnObjectTest, subcolumn_operations_coverage) {
             if (sub->data.is_root) {
                 continue;
             }
-            sub->kind = SubcolumnsTree<ColumnObject::Subcolumn>::Node::NESTED;
+            sub->kind = SubcolumnsTree<ColumnObject::Subcolumn, false>::Node::NESTED;
             EXPECT_FALSE(v->try_insert_default_from_nested(sub));
         }
     }

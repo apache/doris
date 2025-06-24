@@ -341,7 +341,6 @@ public:
     static void assert_arrow_format(MutableColumns& load_cols, DataTypes types) {
         // make a block to write to arrow
         auto block = std::make_shared<Block>();
-<<<<<<< HEAD
         build_block(block, load_cols, types);
         auto record_batch = serialize_arrow(block);
         auto assert_block = std::make_shared<Block>(block->clone_empty());
@@ -351,8 +350,6 @@ public:
 
     static void build_block(const std::shared_ptr<Block>& block, MutableColumns& load_cols,
                             DataTypes types) {
-=======
->>>>>>> 954311c1aa ([feature](semi-structure) support variant and index with many features)
         // maybe these load_cols has different size, so we keep it same
         size_t max_row_size = load_cols[0]->size();
         for (size_t i = 1; i < load_cols.size(); ++i) {
@@ -361,19 +358,11 @@ public:
             }
         }
         // keep same rows
-<<<<<<< HEAD
         for (auto& load_col : load_cols) {
             if (load_col->size() < max_row_size) {
                 load_col->insert_many_defaults(max_row_size - load_col->size());
             } else if (load_col->size() > max_row_size) {
                 load_col->resize(max_row_size);
-=======
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            if (load_cols[i]->size() < max_row_size) {
-                load_cols[i]->insert_many_defaults(max_row_size - load_cols[i]->size());
-            } else if (load_cols[i]->size() > max_row_size) {
-                load_cols[i]->resize(max_row_size);
->>>>>>> 954311c1aa ([feature](semi-structure) support variant and index with many features)
             }
         }
         for (size_t i = 0; i < load_cols.size(); ++i) {
@@ -456,11 +445,7 @@ public:
                 EXPECT_EQ(cell, assert_cell) << "column: " << col->get_name() << " row: " << j;
             }
         }
-<<<<<<< HEAD
         EXPECT_EQ(frist_block->dump_data(), second_block->dump_data());
-=======
-        std::cout << "assert block: " << assert_block.dump_structure() << std::endl;
->>>>>>> 954311c1aa ([feature](semi-structure) support variant and index with many features)
     }
 
     // assert rapidjson format

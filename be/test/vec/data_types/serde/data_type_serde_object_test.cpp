@@ -139,7 +139,7 @@ TEST_F(DataTypeObjectSerDeTest, SerdeArrowTest) {
     serdes.push_back(obj_serde);
     DataTypes types {std::make_shared<DataTypeObject>()};
     // read_column_from_arrow not implemented
-    EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(cols, serdes, types));
+    EXPECT_ANY_THROW(CommonDataTypeSerdeTest::assert_arrow_format(cols, types));
 }
 
 TEST_F(DataTypeObjectSerDeTest, OrcOperations) {

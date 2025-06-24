@@ -4827,7 +4827,7 @@ public class SessionVariable implements Serializable, Writable {
         return enableProfile() && getProfileLevel() > 1;
     }
 
-w   public boolean getEnableExternalTableBatchMode() {
+    public boolean getEnableExternalTableBatchMode() {
         return enableExternalTableBatchMode;
     }
 

@@ -977,15 +977,7 @@ void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {
     _cols[pos] = std::make_shared<TabletColumn>(std::move(new_col));
 }
 
-void TabletSchema::clear_index_cache_handlers() {
-    for (auto* handle : _index_cache_handlers) {
-        TabletColumnObjectPool::instance()->release(handle);
-    }
-    _index_cache_handlers.clear();
-}
-
 void TabletSchema::clear_index() {
-    clear_index_cache_handlers();
     _indexes.clear();
     _index_by_unique_id_with_pattern.clear();
     _col_id_suffix_to_index.clear();
