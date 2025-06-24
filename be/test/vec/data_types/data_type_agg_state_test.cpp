@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
 
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
@@ -140,9 +141,10 @@ void insert_data_agg_state(MutableColumns* agg_state_cols, DataTypePtr datatype_
     } else {
         assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->set_item_size(8);
         column_fixed->resize(rows_value);
-        ASSERT_TRUE(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
-                            ->get_serialized_type()
-                            ->is_fixed_length_object());
+        ASSERT_EQ(assert_cast<const DataTypeAggState*>(datatype_agg_state.get())
+                          ->get_serialized_type()
+                          ->get_primitive_type(),
+                  TYPE_FIXED_LENGTH_OBJECT);
         auto& data = assert_cast<ColumnFixedLengthObject*>((*agg_state_cols)[0].get())->get_data();
         for (size_t i = 0; i != rows_value; ++i) {
             data[i] = i;

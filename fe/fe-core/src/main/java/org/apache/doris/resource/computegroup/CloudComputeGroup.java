@@ -20,10 +20,7 @@ package org.apache.doris.resource.computegroup;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.system.Backend;
 
-import com.google.common.collect.Sets;
-
 import java.util.List;
-import java.util.Set;
 
 public class CloudComputeGroup extends ComputeGroup {
 
@@ -34,11 +31,6 @@ public class CloudComputeGroup extends ComputeGroup {
     @Override
     public List<Backend> getBackendList() {
         return ((CloudSystemInfoService) (super.systemInfoService)).getBackendsByClusterName(name);
-    }
-
-    @Override
-    public Set<String> getNames() {
-        return Sets.newHashSet(id);
     }
 
 }

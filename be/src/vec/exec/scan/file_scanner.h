@@ -197,7 +197,6 @@ protected:
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
-    RuntimeProfile::Counter* _open_reader_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
@@ -250,7 +249,7 @@ private:
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
     Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader);
     Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader);
-    Status _create_row_id_column_iterator(const int slot_id);
+    Status _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {
         // for compatibility, if format_type is not set in range, use the format type of params

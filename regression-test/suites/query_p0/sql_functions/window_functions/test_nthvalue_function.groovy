@@ -74,6 +74,45 @@ suite("test_nthvalue_function") {
     qt_select_6 "select k3, k2, k1, nth_value(k1,3) over (partition by k6 order by k2 rows between 10 preceding and 5 preceding) as res from test_nthvalue_function order by k6, k2, k1,res;"
 
 
+     sql "DROP TABLE IF EXISTS baseall"
+     sql """
+         CREATE TABLE `baseall` (
+            `k1` tinyint NULL,
+            `k2` smallint NULL,
+            `k3` int NULL,
+            `k4` bigint NULL,
+            `k5` decimal(9,3) NULL,
+            `k6` char(5) NULL,
+            `k10` date NULL,
+            `k11` datetime NULL,
+            `k7` varchar(20) NULL,
+            `k8` double MAX NULL,
+            `k9` float SUM NULL
+            ) ENGINE=OLAP
+            AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+         """
+
+     streamLoad {
+         table "baseall"
+         db dbName
+         file "../../nth_value_table.txt"
+     }
+    sql "sync"
+
+    qt_select_7 "select k1,k6,nth_value(k1,2) over(partition by k6 order by k1 rows between unbounded preceding and 3 following) from baseall order by k6,k1;"
+    qt_select_8 "select k1,k6,nth_value(k1,2) over(partition by k6 order by k1 rows between 1 preceding and 3 following) from baseall order by k6,k1;"
+    qt_select_9 "select k1,k6,nth_value(k1,3) over(partition by k6 order by k1 rows between 1 preceding and 3 following) from baseall order by k6,k1;"
+    qt_select_10 "select k1,k6,nth_value(k1,8) over(partition by k6 order by k1 rows between 1 preceding and 10 following) from baseall order by k6,k1;"
+    qt_select_11 "select k1,k6,nth_value(k1,6) over(partition by k6 order by k1 range between unbounded preceding and current row) from baseall order by k6,k1; "
+    qt_select_12 "select k1,k6,nth_value(k1,2) over(partition by k6 order by k1 range between unbounded preceding and current row) from baseall order by k6,k1;"
+    qt_select_13 "SELECT k1, k6, nth_value(k1, 3) OVER(PARTITION BY k6 ORDER BY k1 ROWS BETWEEN 2 PRECEDING AND 2 FOLLOWING)  FROM baseall order by k6,k1; "
+    qt_select_14 " SELECT k1,k6, nth_value(k1, 1) OVER(PARTITION BY k6 ORDER BY k1 RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  FROM baseall order by k6,k1; "
+    qt_select_15 "SELECT      k1,      k6,      nth_value(k1, 5) OVER(PARTITION BY k6 ORDER BY k1 ROWS BETWEEN 5 PRECEDING AND 1 FOLLOWING)  FROM baseall order by k6,k1; "
+    qt_select_16 "SELECT      k1,      k6,      nth_value(k1, 4) OVER(PARTITION BY k6 ORDER BY k1 ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)  FROM baseall order by k6,k1; "
 }
 
 

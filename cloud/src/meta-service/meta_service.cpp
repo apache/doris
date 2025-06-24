@@ -38,6 +38,7 @@
 #include <ios>
 #include <limits>
 #include <memory>
+#include <ostream>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -704,7 +705,7 @@ void internal_get_tablet(MetaServiceCode& code, std::string& msg, const std::str
         auto key = meta_schema_key(
                 {instance_id, tablet_meta->index_id(), tablet_meta->schema_version()});
         ValueBuf val_buf;
-        err = cloud::get(txn, key, &val_buf);
+        err = cloud::blob_get(txn, key, &val_buf);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get schema, err={}", err == TxnErrorCode::TXN_KEY_NOT_FOUND
@@ -778,7 +779,7 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
                 auto key = meta_schema_key(
                         {instance_id, tablet_meta.index_id(), tablet_meta.schema_version()});
                 ValueBuf val_buf;
-                err = cloud::get(txn.get(), key, &val_buf);
+                err = cloud::blob_get(txn.get(), key, &val_buf);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
                     msg = fmt::format("failed to get schema, err={}",
@@ -950,7 +951,7 @@ static void set_schema_in_existed_rowset(MetaServiceCode& code, std::string& msg
         std::string schema_key = meta_schema_key({instance_id, existed_rowset_meta.index_id(),
                                                   existed_rowset_meta.schema_version()});
         ValueBuf val_buf;
-        TxnErrorCode err = cloud::get(txn, schema_key, &val_buf, true);
+        TxnErrorCode err = cloud::blob_get(txn, schema_key, &val_buf, true);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format(
@@ -988,6 +989,60 @@ static void fill_schema_from_dict(MetaServiceCode& code, std::string& msg,
     }
     // Update the original rowset meta with the complete schema from metas.
     existed_rowset_meta->CopyFrom(metas.Get(0));
+}
+
+bool check_job_existed(Transaction* txn, MetaServiceCode& code, std::string& msg,
+                       const std::string& instance_id, int64_t tablet_id,
+                       const std::string& rowset_id, const std::string& job_id) {
+    TabletIndexPB tablet_idx;
+    get_tablet_idx(code, msg, txn, instance_id, tablet_id, tablet_idx);
+    if (code != MetaServiceCode::OK) {
+        return false;
+    }
+
+    std::string job_key = job_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                          tablet_idx.partition_id(), tablet_id});
+    std::string job_val;
+    auto err = txn->get(job_key, &job_val);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::stringstream ss;
+        ss << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? "job not found," : "internal error,")
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id
+           << " rowset_id=" << rowset_id << " err=" << err;
+        msg = ss.str();
+        code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::STALE_PREPARE_ROWSET
+                                                      : cast_as<ErrCategory::READ>(err);
+        return false;
+    }
+
+    TabletJobInfoPB job_pb;
+    job_pb.ParseFromString(job_val);
+    bool match = false;
+    if (!job_pb.compaction().empty()) {
+        for (auto c : job_pb.compaction()) {
+            if (c.id() == job_id) {
+                match = true;
+            }
+        }
+    }
+
+    if (job_pb.has_schema_change()) {
+        if (job_pb.schema_change().id() == job_id) {
+            match = true;
+        }
+    }
+
+    if (!match) {
+        std::stringstream ss;
+        ss << " stale perpare rowset request,"
+           << " instance_id=" << instance_id << " tablet_id=" << tablet_id << " job id=" << job_id
+           << " rowset_id=" << rowset_id;
+        msg = ss.str();
+        code = MetaServiceCode::STALE_PREPARE_ROWSET;
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -1097,6 +1152,15 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
         return;
+    }
+
+    // Check if the compaction/sc tablet job has finished
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                               request->tablet_job_id())) {
+            return;
+        }
     }
 
     // Check if the prepare rowset request is invalid.
@@ -1234,6 +1298,15 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         code = cast_as<ErrCategory::CREATE>(err);
         msg = "failed to create txn";
         return;
+    }
+
+    // Check if the compaction/sc tablet job has finished
+    if (config::enable_tablet_job_check && request->has_tablet_job_id() &&
+        !request->tablet_job_id().empty()) {
+        if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
+                               request->tablet_job_id())) {
+            return;
+        }
     }
 
     // Check if the commit rowset request is invalid.
@@ -1470,11 +1543,10 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
     std::unique_ptr<RangeGetIterator> it;
 
     int num_rowsets = 0;
-    std::unique_ptr<int, std::function<void(int*)>> defer_log_range(
-            (int*)0x01, [key0, key1, &num_rowsets](int*) {
-                LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=["
-                          << hex(key0) << "," << hex(key1) << "]";
-            });
+    DORIS_CLOUD_DEFER_COPY(key0, key1) {
+        LOG(INFO) << "get rowset meta, num_rowsets=" << num_rowsets << " range=[" << hex(key0)
+                  << "," << hex(key1) << "]";
+    };
 
     std::stringstream ss;
     do {
@@ -1592,7 +1664,7 @@ static bool try_fetch_and_parse_schema(Transaction* txn, RowsetMetaCloudPB& rows
                                        const std::string& key, MetaServiceCode& code,
                                        std::string& msg) {
     ValueBuf val_buf;
-    TxnErrorCode err = cloud::get(txn, key, &val_buf);
+    TxnErrorCode err = cloud::blob_get(txn, key, &val_buf);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         msg = fmt::format("failed to get schema, schema_version={}, rowset_version=[{}-{}]: {}",
@@ -2369,7 +2441,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                       << " initiator=" << request->initiator();
         }
         // splitting large values (>90*1000) into multiple KVs
-        cloud::put(txn.get(), key, val, 0);
+        cloud::blob_put(txn.get(), key, val, 0);
         current_key_count++;
         current_value_count += val.size();
         total_key_count++;
@@ -3573,7 +3645,7 @@ void MetaServiceImpl::get_schema_dict(::google::protobuf::RpcController* control
 
     std::string dict_key = meta_schema_pb_dictionary_key({instance_id, request->index_id()});
     ValueBuf dict_val;
-    err = cloud::get(txn.get(), dict_key, &dict_val);
+    err = cloud::blob_get(txn.get(), dict_key, &dict_val);
     LOG(INFO) << "Retrieved column pb dictionary, index_id=" << request->index_id()
               << " key=" << hex(dict_key) << " error=" << err;
     if (err != TxnErrorCode::TXN_KEY_NOT_FOUND && err != TxnErrorCode::TXN_OK) {

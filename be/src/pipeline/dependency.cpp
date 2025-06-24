@@ -478,6 +478,7 @@ Status MaterializationSharedState::merge_multi_response(vectorized::Block* block
     for (int i = 0; i < block_order_results.size(); ++i) {
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             vectorized::Block partial_block;
+            DCHECK(rpc_struct.callback->response_->blocks_size() > i);
             RETURN_IF_ERROR(
                     partial_block.deserialize(rpc_struct.callback->response_->blocks(i).block()));
 
