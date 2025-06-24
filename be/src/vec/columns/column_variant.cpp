@@ -43,13 +43,10 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/json_functions.h"
-#include "olap/olap_common.h"
+#include "runtime/jsonb_value.h"
 #include "runtime/primitive_type.h"
-#include "util/defer_op.h"
-#include "util/jsonb_parser_simd.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
@@ -861,11 +858,7 @@ void ColumnVariant::try_insert(const Field& field) {
     }
     const auto& object = field.get<const VariantMap&>();
     size_t old_size = size();
-    for (const auto& [key_str, value] : object) {
-        PathInData key;
-        if (!key_str.empty()) {
-            key = PathInData(key_str);
-        }
+    for (const auto& [key, value] : object) {
         if (!has_subcolumn(key)) {
             bool succ = add_sub_column(key, old_size);
             if (!succ) {
@@ -958,7 +951,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
         entry->data.get(n, field);
         // Notice: we treat null as empty field, since we do not distinguish null and empty for Variant type.
         if (field.get_type() != PrimitiveType::TYPE_NULL) {
-            object.try_emplace(entry->path.get_path(), field);
+            object.try_emplace(entry->path, field);
         }
     }
     if (object.empty()) {
@@ -1064,7 +1057,7 @@ ColumnPtr ColumnVariant::replicate(const Offsets& offsets) const {
             [&](const auto& subcolumn) { return subcolumn.replicate(offsets); });
 }
 
-ColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnVariant::permute(const Permutation& perm, size_t limit) const {
     if (num_rows == 0 || subcolumns.empty()) {
         if (limit == 0) {
             limit = num_rows;
@@ -1606,7 +1599,7 @@ void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& arg_subcolumn
                                        nested_object_nullable->get_null_map_column_ptr()),
                 offset);
         auto nullable_subnested_column = ColumnNullable::create(
-                subnested_column, nested_column_nullable->get_null_map_column_ptr());
+                std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
         Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);

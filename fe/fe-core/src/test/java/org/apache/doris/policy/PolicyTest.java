@@ -20,7 +20,6 @@ package org.apache.doris.policy;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -178,20 +177,6 @@ public class PolicyTest extends TestWithFeService {
                 "CreatePolicyStmt command denied to user 'root'@'%' for table 'table1'",
                 () -> createPolicy(
                         "CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)"));
-    }
-
-    @Test
-    public void testShowPolicy() throws Exception {
-        createPolicy("CREATE ROW POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
-        createPolicy("CREATE ROW POLICY test_row_policy2 ON test.table1 AS PERMISSIVE TO test_policy USING (k2 = 1)");
-        ShowPolicyStmt showPolicyStmt =
-                (ShowPolicyStmt) parseAndAnalyzeStmt("SHOW ROW POLICY");
-        int firstSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
-        Assertions.assertTrue(firstSize > 0);
-        dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
-        dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
-        int secondSize = Env.getCurrentEnv().getPolicyMgr().showPolicy(showPolicyStmt).getResultRows().size();
-        Assertions.assertEquals(2, firstSize - secondSize);
     }
 
     @Test

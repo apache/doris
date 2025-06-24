@@ -19,18 +19,11 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.NotImplementedException;
-
-import java.io.DataInput;
-import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 
 public abstract class PrivEntry implements Comparable<PrivEntry> {
     @Deprecated
@@ -106,53 +99,6 @@ public abstract class PrivEntry implements Comparable<PrivEntry> {
         }
         this.isDomain = isDomain;
         this.privSet = privSet;
-        if (isDomain) {
-            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
-        } else {
-            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
-        }
-    }
-
-    @Deprecated
-    public static PrivEntry read(DataInput in) throws IOException {
-        String className = Text.readString(in);
-        PrivEntry privEntry = null;
-        try {
-            Class<? extends PrivEntry> derivedClass = (Class<? extends PrivEntry>) Class.forName(className);
-            privEntry = derivedClass.newInstance();
-            Class[] paramTypes = {DataInput.class};
-            Method readMethod = derivedClass.getMethod("readFields", paramTypes);
-            Object[] params = {in};
-            readMethod.invoke(privEntry, params);
-
-            return privEntry;
-        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | NoSuchMethodException
-                | SecurityException | IllegalArgumentException | InvocationTargetException e) {
-            throw new IOException("failed read PrivEntry", e);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        origHost = Text.readString(in);
-        try {
-            hostPattern = PatternMatcher.createMysqlPattern(origHost, CaseSensibility.HOST.getCaseSensibility());
-        } catch (PatternMatcherException e) {
-            throw new IOException(e);
-        }
-        isAnyHost = origHost.equals(ANY_HOST);
-
-        origUser = Text.readString(in);
-        try {
-            userPattern = PatternMatcher.createMysqlPattern(origUser, CaseSensibility.USER.getCaseSensibility());
-        } catch (PatternMatcherException e) {
-            throw new IOException(e);
-        }
-        isAnyUser = origUser.equals(ANY_USER);
-        privSet = PrivBitSet.read(in);
-        isSetByDomainResolver = in.readBoolean();
-        isDomain = in.readBoolean();
-
         if (isDomain) {
             userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
         } else {

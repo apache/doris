@@ -802,6 +802,15 @@ public class VariableMgr {
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
                 VarContext ctx = entry.getValue();
+                VarAttr varAttr = ctx.getField().getAnnotation(VarAttr.class);
+                // not show removed variables
+                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
+                    continue;
+                }
                 List<String> row = Lists.newArrayList();
                 String varName = entry.getKey();
                 String curValue = getValue(sessionVar, ctx.getField());

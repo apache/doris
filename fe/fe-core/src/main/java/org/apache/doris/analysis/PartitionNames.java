@@ -18,18 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.List;
 
 /*
@@ -41,7 +35,7 @@ import java.util.List;
  *      PARTITIONS (p1, p2)
  *      TEMPORARY PARTITIONS (p1, p2)
  */
-public class PartitionNames implements ParseNode, Writable {
+public class PartitionNames implements ParseNode {
 
     @SerializedName(value = "partitionNames")
     private final List<String> partitionNames;
@@ -144,16 +138,5 @@ public class PartitionNames implements ParseNode, Writable {
     @Override
     public String toString() {
         return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static PartitionNames read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, PartitionNames.class);
     }
 }

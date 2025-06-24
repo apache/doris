@@ -216,7 +216,7 @@ public:
 
     size_t filter(const IColumn::Filter& filter) override;
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     Container& get_data() { return data; }
 
@@ -330,7 +330,8 @@ size_t ColumnComplexType<T>::filter(const IColumn::Filter& filter) {
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnComplexType<T>::permute(const IColumn::Permutation& perm,
+                                               size_t limit) const {
     size_t size = data.size();
 
     limit = limit ? std::min(size, limit) : size;
