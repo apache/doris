@@ -17,12 +17,8 @@
 
 package org.apache.doris.common.property;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TPropertyVal;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -75,16 +71,6 @@ public class PropertiesSet<T extends PropertySchema.SchemaGroup> {
         }
     }
 
-    public static <TSchemaGroup extends PropertySchema.SchemaGroup> void verifyKey(
-            TSchemaGroup schemaGroup, List<String> rawProperties)
-            throws IllegalArgumentException {
-        rawProperties.forEach(entry -> {
-            if (!schemaGroup.getSchemas().containsKey(entry.toLowerCase())) {
-                throw new IllegalArgumentException("Invalid property " + entry);
-            }
-        });
-    }
-
     @SuppressWarnings("unchecked")
     public Map<String, TPropertyVal> writeToThrift() {
         Map<String, TPropertyVal> ret = new HashMap<>(properties.size());
@@ -94,15 +80,6 @@ public class PropertiesSet<T extends PropertySchema.SchemaGroup> {
             ret.put(key, out);
         });
         return ret;
-    }
-
-    @SuppressWarnings("unchecked")
-    public void writeToData(DataOutput out) throws IOException {
-        out.writeInt(properties.size());
-        for (Map.Entry<String, Object> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            schemaGroup.getSchemas().get(entry.getKey()).write(entry.getValue(), out);
-        }
     }
 
     private interface ReadLambda<TParsed, TRaw> {
@@ -154,22 +131,6 @@ public class PropertiesSet<T extends PropertySchema.SchemaGroup> {
             throws IllegalArgumentException {
 
         return read(schemaGroup, rawProperties, PropertySchema::read);
-    }
-
-    @SuppressWarnings("unchecked")
-    public static <TSchemaGroup extends PropertySchema.SchemaGroup> PropertiesSet<TSchemaGroup> readFromData(
-            TSchemaGroup schemaGroup, DataInput input)
-            throws IllegalArgumentException, IOException {
-        int size = input.readInt();
-        Map<String, Object> properties = new HashMap<>(size);
-
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(input).toLowerCase();
-            Object val = schemaGroup.getSchemas().get(key).read(input);
-            properties.put(key, val);
-        }
-
-        return new PropertiesSet(schemaGroup, properties);
     }
 
     @Override

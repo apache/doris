@@ -949,6 +949,10 @@ public class ConnectContext {
     }
 
     public void setTraceId(String traceId) {
+        // When traceId is set, we need to remove the old traceId from connectScheduler.
+        if (connectScheduler != null) {
+            connectScheduler.removeOldTraceId(this.traceId);
+        }
         this.traceId = traceId;
     }
 
@@ -1225,6 +1229,7 @@ public class ConnectContext {
             row.add("" + (nowMs - startTime) / 1000);
             row.add(state.toString());
             row.add(DebugUtil.printId(queryId));
+            row.add(Strings.nullToEmpty(traceId));
             if (state.getStateType() == QueryState.MysqlStateType.ERR) {
                 row.add(state.getErrorMessage());
             } else if (executor != null) {
@@ -1246,7 +1251,6 @@ public class ConnectContext {
             return row;
         }
     }
-
 
     public void startAcceptQuery(ConnectProcessor connectProcessor) {
         mysqlChannel.startAcceptQuery(this, connectProcessor);

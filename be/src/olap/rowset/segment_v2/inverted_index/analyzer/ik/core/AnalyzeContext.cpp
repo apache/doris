@@ -68,7 +68,7 @@ size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
         int32_t readCount = 0;
         if (buffer_offset_ == 0) {
             readCount = max(0, reader->readCopy(segment_buff_.data(), 0, BUFF_SIZE));
-            CharacterUtil::decodeStringToRunes(segment_buff_.c_str(), readCount, typed_runes_,
+            CharacterUtil::decodeStringToRunes(segment_buff_.data(), readCount, typed_runes_,
                                                config_->isEnableLowercase());
         } else {
             size_t offset = available_ - typed_runes_[cursor_].getNextBytePosition();
@@ -82,7 +82,7 @@ size_t AnalyzeContext::fillBuffer(lucene::util::Reader* reader) {
             } else {
                 readCount = std::max(0, reader->readCopy(segment_buff_.data(), 0, BUFF_SIZE));
             }
-            CharacterUtil::decodeStringToRunes(segment_buff_.c_str(), readCount, typed_runes_,
+            CharacterUtil::decodeStringToRunes(segment_buff_.data(), readCount, typed_runes_,
                                                config_->isEnableLowercase());
         }
         // Ensure readCount is set to 0 in case of
@@ -172,7 +172,6 @@ bool AnalyzeContext::moveCursor() {
 
 void AnalyzeContext::initCursor() {
     cursor_ = 0;
-    typed_runes_[cursor_].regularize(config_->isEnableLowercase());
 }
 
 bool AnalyzeContext::isBufferConsumed() const {
@@ -199,6 +198,9 @@ void AnalyzeContext::lockBuffer(SegmenterType type) {
     case SegmenterType::LETTER_SEGMENTER:
         buffer_locker_ |= LETTER_SEGMENTER_FLAG;
         break;
+    case SegmenterType::SURROGATE_PAIR_SEGMENTER:
+        buffer_locker_ |= SURROGATE_PAIR_SEGMENTER_FLAG;
+        break;
     }
 }
 
@@ -212,6 +214,9 @@ void AnalyzeContext::unlockBuffer(SegmenterType type) {
         break;
     case SegmenterType::LETTER_SEGMENTER:
         buffer_locker_ &= ~LETTER_SEGMENTER_FLAG;
+        break;
+    case SegmenterType::SURROGATE_PAIR_SEGMENTER:
+        buffer_locker_ &= ~SURROGATE_PAIR_SEGMENTER_FLAG;
         break;
     }
 }

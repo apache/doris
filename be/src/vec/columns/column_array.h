@@ -96,12 +96,12 @@ public:
       */
     using Base = COWHelper<IColumn, ColumnArray>;
 
-    static Ptr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
+    static MutablePtr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
         return ColumnArray::create(nested_column->assume_mutable(),
                                    offsets_column->assume_mutable());
     }
 
-    static Ptr create(const ColumnPtr& nested_column) {
+    static MutablePtr create(const ColumnPtr& nested_column) {
         return ColumnArray::create(nested_column->assume_mutable());
     }
 
@@ -153,7 +153,7 @@ public:
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void reserve(size_t n) override;
     size_t byte_size() const override;

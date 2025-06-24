@@ -56,9 +56,9 @@ struct TTabletSchema {
 // V1 for Segment-V1
 // V2 for Segment-V2
 enum TStorageFormat {
-    DEFAULT,
-    V1,
-    V2
+    DEFAULT = 0,
+    V1 = 1,
+    V2 = 2
 }
 
 enum TTabletType {
@@ -74,7 +74,8 @@ enum TObjStorageType {
     COS = 4,
     OBS = 5,
     OSS = 6,
-    GCP = 7
+    GCP = 7,
+    TOS = 8
 }
 
 enum TCredProviderType {
@@ -149,9 +150,9 @@ enum TCompressionType {
 // This enum is used to distinguish between different organizational methods
 // of inverted index data, affecting how the index is stored and accessed.
 enum TInvertedIndexStorageFormat {
-    DEFAULT, // Default format, unspecified storage method.
-    V1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    DEFAULT = 0, // Default format, unspecified storage method.
+    V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
 struct TBinlogConfig {
@@ -428,7 +429,7 @@ struct TMoveDirReq {
 }
 
 enum TAgentServiceVersion {
-    V1
+    V1 = 0
 }
 
 struct TPublishVersionRequest {
@@ -478,9 +479,9 @@ struct TRecoverTabletReq {
 }
 
 enum TTabletMetaType {
-    PARTITIONID,
-    INMEMORY,
-    BINLOG_CONFIG
+    PARTITIONID = 0,
+    INMEMORY = 1,
+    BINLOG_CONFIG = 2
 }
 
 struct TTabletMetaInfo {

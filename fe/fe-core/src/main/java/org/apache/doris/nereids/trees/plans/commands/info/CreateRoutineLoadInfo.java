@@ -412,6 +412,15 @@ public class CreateRoutineLoadInfo {
     }
 
     /**
+     * getRoutineLoadDesc
+     *
+     * @return routineLoadDesc
+     */
+    public RoutineLoadDesc getRoutineLoadDesc() {
+        return routineLoadDesc;
+    }
+
+    /**
      * make legacy create routine load statement after validate by nereids
      * @return legacy create routine load statement
      */

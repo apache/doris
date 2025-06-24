@@ -72,7 +72,7 @@ public class CreateIcebergTableTest {
         if (icebergCatalog.getUseMetaCache().get()) {
             icebergCatalog.makeSureInitialized();
         } else {
-            icebergCatalog.setInitialized(true);
+            icebergCatalog.setInitializedForTest(true);
         }
 
         // create db
@@ -82,7 +82,7 @@ public class CreateIcebergTableTest {
         if (icebergCatalog.getUseMetaCache().get()) {
             icebergCatalog.makeSureInitialized();
         } else {
-            icebergCatalog.setInitialized(true);
+            icebergCatalog.setInitializedForTest(true);
         }
         IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName, dbName);
         icebergCatalog.addDatabaseForTest(db);

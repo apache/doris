@@ -359,9 +359,13 @@ Status OrcReader::init_reader(
     return Status::OK();
 }
 
+// init file reader for parsing schema
+Status OrcReader::init_schema_reader() {
+    return _create_file_reader();
+}
+
 Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<DataTypePtr>* col_types) {
-    RETURN_IF_ERROR(_create_file_reader());
     const auto& root_type = _is_acid ? _remove_acid(_reader->getType()) : _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
         col_names->emplace_back(get_field_name_lower_case(&root_type, i));
@@ -374,7 +378,6 @@ Status OrcReader::get_schema_col_name_attribute(std::vector<std::string>* col_na
                                                 std::vector<int32_t>* col_attributes,
                                                 const std::string& attribute,
                                                 bool* exist_attribute) {
-    RETURN_IF_ERROR(_create_file_reader());
     *exist_attribute = true;
     const auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
@@ -2246,7 +2249,7 @@ Status OrcReader::filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t s
     }
     std::vector<orc::ColumnVectorBatch*> batch_vec;
     _fill_batch_vec(batch_vec, &data, 0);
-    std::vector<string> col_names;
+    std::vector<std::string> col_names;
     col_names.insert(col_names.end(), _lazy_read_ctx.predicate_columns.first.begin(),
                      _lazy_read_ctx.predicate_columns.first.end());
     if (_is_acid) {
@@ -2339,7 +2342,7 @@ Status OrcReader::fill_dict_filter_column_names(
     _dict_filter_conjuncts.clear();
     _non_dict_filter_conjuncts.clear();
 
-    const std::list<string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
+    const std::list<std::string>& predicate_col_names = _lazy_read_ctx.predicate_columns.first;
     const std::vector<int>& predicate_col_slot_ids = _lazy_read_ctx.predicate_columns.second;
     int i = 0;
     for (const auto& predicate_col_name : predicate_col_names) {

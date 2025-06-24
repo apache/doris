@@ -23,14 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -113,42 +106,5 @@ public class InsertArrayStmtTest {
         connectContext.setQueryId(new TUniqueId(3, 0));
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "can not cast from origin type",
                 () -> parseAndAnalyze("insert into test.table1 values (1, [[1, 2], [3, 4]]);"));
-    }
-
-    @Test
-    public void testTransactionalInsert() throws Exception {
-        ExceptionChecker.expectThrowsNoException(
-                () -> createTable("CREATE TABLE test.`txn_insert_tbl` (\n"
-                        + "  `k1` int(11) NULL,\n"
-                        + "  `k2` double NULL,\n"
-                        + "  `k3` varchar(100) NULL,\n"
-                        + "  `k4` array<int(11)> NULL,\n"
-                        + "  `k5` array<boolean> NULL\n"
-                        + ") ENGINE=OLAP\n"
-                        + "DUPLICATE KEY(`k1`)\n"
-                        + "COMMENT 'OLAP'\n"
-                        + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
-                        + "PROPERTIES (\n"
-                        + "\"replication_allocation\" = \"tag.location.default: 1\",\n"
-                        + "\"in_memory\" = \"false\",\n"
-                        + "\"storage_format\" = \"V2\",\n"
-                        + "\"disable_auto_compaction\" = \"false\"\n"
-                        + ");"));
-
-        OriginStatement originStatement = new OriginStatement("begin", 0);
-        StatementBase begin = new LogicalPlanAdapter(new UnsupportedCommand(),
-                new StatementContext(connectContext, originStatement));
-        begin.setOrigStmt(originStatement);
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, begin);
-        stmtExecutor.execute();
-
-        originStatement = new OriginStatement("insert into test.txn_insert_tbl values(2, 3.3, \"xyz\", [1], [1, 0]);", 0);
-        StatementBase insert = new LogicalPlanAdapter(new UnsupportedCommand(),
-                new StatementContext(connectContext, originStatement));
-        insert.setOrigStmt(originStatement);
-        stmtExecutor = new StmtExecutor(connectContext, insert);
-        stmtExecutor.execute();
-        QueryState state = connectContext.getState();
-        Assert.assertEquals(state.getErrorMessage(), MysqlStateType.OK, state.getStateType());
     }
 }

@@ -17,9 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -41,6 +39,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -108,10 +107,9 @@ public class CheckRowPolicyTest extends TestWithFeService {
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
         tablePattern.analyze();
-        GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
-        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
-        grantStmt.analyze(analyzer);
-        Env.getCurrentEnv().getAuth().grant(grantStmt);
+        GrantTablePrivilegeCommand grantTablePrivilegeCommand = new GrantTablePrivilegeCommand(privileges, tablePattern, Optional.of(user), Optional.empty());
+        grantTablePrivilegeCommand.validate();
+        Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(grantTablePrivilegeCommand);
 
         new MockUp<AccessControllerManager>() {
             @Mock

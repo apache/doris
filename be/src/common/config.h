@@ -797,10 +797,6 @@ DECLARE_Int32(high_priority_flush_thread_num_per_store);
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_Int32(max_flush_thread_num_per_cpu);
 
-// workload group flush pool params
-DECLARE_mInt32(wg_flush_thread_num_per_store);
-DECLARE_mInt32(wg_flush_thread_num_per_cpu);
-
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
 DECLARE_mInt32(tablet_meta_checkpoint_min_interval_secs);
@@ -876,6 +872,13 @@ DECLARE_mInt32(zone_map_row_num_threshold);
 //    Debug = 5,
 //    Trace = 6
 DECLARE_Int32(aws_log_level);
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+DECLARE_Int32(azure_log_level);
 
 // the buffer size when read data from remote storage like s3
 DECLARE_mInt32(remote_storage_read_buffer_mb);
