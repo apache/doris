@@ -45,14 +45,14 @@ PhysicalResultSink
 -- !explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey]
+----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey] RF1[n_nationkey->n_nationkey]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
-------------PhysicalOlapScan[nation] RFV2: RF0
+------------PhysicalOlapScan[nation] RFV2: RF0 RF1
 
 -- !except_data_empty_data --
 1
@@ -112,14 +112,14 @@ PhysicalResultSink
 -- !null_explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey]
+----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey] RF1[n_nationkey->n_nationkey]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
-------------PhysicalOlapScan[nation] RFV2: RF0
+------------PhysicalOlapScan[nation] RFV2: RF0 RF1
 
 -- !null_except_data_empty_data --
 1
