@@ -43,7 +43,7 @@ public class AlterRoutineLoadCommandTest {
         Env.getCurrentInternalCatalog().unprotectCreateDb(dataBase);
         new Expectations() {
             {
-                Env.getCurrentEnv().getRoutineLoadManager().getJob("db1", null);
+                Env.getCurrentEnv().getRoutineLoadManager().getJob("db1", "label1");
                 minTimes = 0;
                 result = new KafkaRoutineLoadJob();
             }
@@ -57,7 +57,7 @@ public class AlterRoutineLoadCommandTest {
         dataSourceProperties.put("property.group.id", "mygroup");
         dataSourceProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), "1,2,3");
         dataSourceProperties.put(KafkaConfiguration.KAFKA_OFFSETS.getName(), "10000, 20000, 30000");
-        LabelNameInfo labelNameInfo = new LabelNameInfo("db1", null);
+        LabelNameInfo labelNameInfo = new LabelNameInfo("db1", "label1");
 
         AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(labelNameInfo, jobProperties, dataSourceProperties);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
