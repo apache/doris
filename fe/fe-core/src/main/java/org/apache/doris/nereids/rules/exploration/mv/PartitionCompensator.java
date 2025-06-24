@@ -84,8 +84,10 @@ public class PartitionCompensator {
         }
         MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
         BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTableInfo();
-        if (relatedPartitionTable == null || queryUsedBaseTablePartitionNameSet.isEmpty()) {
+        if (relatedPartitionTable == null || queryUsedBaseTablePartitionNameSet.isEmpty()
+                || !relatedPartitionTable.isInternalTable()) {
             // if mv is not partitioned or query not query any partition, doesn't compensate
+            // in 2.1, external table should not compensate union all
             return Pair.of(ImmutableMap.of(), ImmutableMap.of());
         }
         Collection<Partition> mvValidPartitions = cascadesContext.getStatementContext()
