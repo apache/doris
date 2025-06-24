@@ -2,7 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
-## 20250416
+## 20250318
+
+- Modified: hadoop-libs 3.3.6.5 -> 3.3.6.6
+
+## 20250225
 
 - Mofified: patch re2 to set `ignore_replace_escape` option
 
