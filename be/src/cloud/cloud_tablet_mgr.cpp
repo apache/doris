@@ -32,9 +32,9 @@
 namespace doris {
 uint64_t g_tablet_report_inactive_duration_ms = 0;
 bvar::Adder<uint64_t> g_base_compaction_not_frozen_tablet_num(
-        "g_base_compaction_not_frozen_tablet_num");
+        "base_compaction_not_frozen_tablet_num");
 bvar::Adder<uint64_t> g_cumu_compaction_not_frozen_tablet_num(
-        "g_cumu_compaction_not_frozen_tablet_num");
+        "cumu_compaction_not_frozen_tablet_num");
 namespace {
 
 // port from
