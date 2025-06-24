@@ -326,6 +326,9 @@ public:
         nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
                                             arguments_raw.data(), &arena);
         nested_func->insert_result_into(get_nested_place(place), to);
+        // for distinct agg function, the real calculate is add_batch_single_place at last step of insert_result_into function.
+        // but with distinct agg and over() window function together, the result will be inserted into many times with different rows
+        // so we need to clear the data, thus not to affect the next insert_result_into
         this->data(place).clear();
     }
 
