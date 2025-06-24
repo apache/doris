@@ -922,7 +922,6 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.trees.plans.commands.load.MysqlDataDescription;
 import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
-import org.apache.doris.nereids.trees.plans.commands.load.PauseDataSyncJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ShowCreateRoutineLoadCommand;
@@ -7642,127 +7641,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             TableNameInfo tableNameInfo = new TableNameInfo(visitMultipartIdentifier(ctx.table));
             return new CleanQueryStatsCommand(tableNameInfo);
         }
-    }
-
-    @Override
-    public LogicalPlan visitStopDataSyncJob(DorisParser.StopDataSyncJobContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        int size = nameParts.size();
-        String jobName = nameParts.get(size - 1);
-        String dbName;
-        if (size == 1) {
-            dbName = null;
-        } else if (size == 2) {
-            dbName = nameParts.get(0);
-        } else {
-            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
-        }
-        SyncJobName syncJobName = new SyncJobName(jobName, dbName);
-        return new StopDataSyncJobCommand(syncJobName);
-    }
-
-    @Override
-    public LogicalPlan visitResumeDataSyncJob(DorisParser.ResumeDataSyncJobContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        int size = nameParts.size();
-        String jobName = nameParts.get(size - 1);
-        String dbName;
-        if (size == 1) {
-            dbName = null;
-        } else if (size == 2) {
-            dbName = nameParts.get(0);
-        } else {
-            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
-        }
-        SyncJobName syncJobName = new SyncJobName(jobName, dbName);
-        return new ResumeDataSyncJobCommand(syncJobName);
-    }
-
-    @Override
-    public LogicalPlan visitPauseDataSyncJob(DorisParser.PauseDataSyncJobContext ctx) {
-        List<String> nameParts = visitMultipartIdentifier(ctx.name);
-        int size = nameParts.size();
-        String jobName = nameParts.get(size - 1);
-        String dbName;
-        if (size == 1) {
-            dbName = null;
-        } else if (size == 2) {
-            dbName = nameParts.get(0);
-        } else {
-            throw new ParseException("only support [<db>.]<job_name>", ctx.name);
-        }
-        SyncJobName syncJobName = new SyncJobName(jobName, dbName);
-        return new PauseDataSyncJobCommand(syncJobName);
-    }
-
-    @Override
-    public List<ChannelDescription> visitChannelDescriptions(DorisParser.ChannelDescriptionsContext ctx) {
-        List<ChannelDescription> channelDescriptions = new ArrayList<>();
-        for (DorisParser.ChannelDescriptionContext channelDescriptionContext : ctx.channelDescription()) {
-            List<String> soureParts = visitMultipartIdentifier(channelDescriptionContext.source);
-            if (soureParts.size() != 2) {
-                throw new ParseException("only support mysql_db.src_tbl", channelDescriptionContext.source);
-            }
-            TableNameInfo srcTableInfo = new TableNameInfo(soureParts);
-
-            List<String> targetParts = visitMultipartIdentifier(channelDescriptionContext.destination);
-            if (targetParts.isEmpty()) {
-                throw new ParseException("contains at least one target table", channelDescriptionContext.destination);
-            }
-            TableNameInfo targetTableInfo = new TableNameInfo(targetParts);
-
-            PartitionNamesInfo partitionNamesInfo = null;
-            if (channelDescriptionContext.partitionSpec() != null) {
-                Pair<Boolean, List<String>> partitionSpec =
-                        visitPartitionSpec(channelDescriptionContext.partitionSpec());
-                partitionNamesInfo = new PartitionNamesInfo(partitionSpec.first, partitionSpec.second);
-            }
-
-            List<String> columns;
-            if (channelDescriptionContext.columnList != null) {
-                columns = visitIdentifierList(channelDescriptionContext.columnList);
-            } else {
-                columns = ImmutableList.of();
-            }
-
-            ChannelDescription channelDescription = new ChannelDescription(
-                    srcTableInfo.getDb(),
-                    srcTableInfo.getTbl(),
-                    targetTableInfo.getTbl(),
-                    partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null,
-                    columns
-            );
-            channelDescriptions.add(channelDescription);
-        }
-        return channelDescriptions;
-    }
-
-    @Override
-    public LogicalPlan visitCreateDataSyncJob(DorisParser.CreateDataSyncJobContext ctx) {
-        List<ChannelDescription> channelDescriptions = visitChannelDescriptions(ctx.channelDescriptions());
-        List<String> labelParts = visitMultipartIdentifier(ctx.label);
-        int size = labelParts.size();
-        String jobName = labelParts.get(size - 1);
-        String dbName;
-        if (size == 1) {
-            dbName = null;
-        } else if (size == 2) {
-            dbName = labelParts.get(0);
-        } else {
-            throw new ParseException("only support [<db>.]<job_name>", ctx.label);
-        }
-
-        Map<String, String> propertieItem = visitPropertyItemList(ctx.propertyItemList());
-        BinlogDesc binlogDesc = new BinlogDesc(propertieItem);
-        Map<String, String> properties = visitPropertyClause(ctx.properties);
-        CreateDataSyncJobCommand createDataSyncJobCommand = new CreateDataSyncJobCommand(
-                dbName,
-                jobName,
-                channelDescriptions,
-                binlogDesc,
-                properties
-        );
-        return createDataSyncJobCommand;
     }
 
     @Override
