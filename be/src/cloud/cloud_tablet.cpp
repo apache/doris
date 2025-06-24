@@ -509,6 +509,7 @@ void CloudTablet::add_unused_rowsets(const std::vector<RowsetSharedPtr>& rowsets
 
 void CloudTablet::remove_unused_rowsets() {
     int64_t removed_rowsets_num = 0;
+    int64_t removed_delete_bitmap_num = 0;
     OlapStopWatch watch;
     std::lock_guard<std::mutex> lock(_gc_mutex);
     // 1. remove unused rowsets's cache data and delete bitmap
@@ -551,7 +552,9 @@ void CloudTablet::remove_unused_rowsets() {
     }
 
     LOG(INFO) << "tablet_id=" << tablet_id() << ", unused_rowset size=" << _unused_rowsets.size()
+              << ", unused_delete_bitmap size=" << _unused_delete_bitmap.size()
               << ", removed_rowsets_num=" << removed_rowsets_num
+              << ", removed_delete_bitmap_num=" << removed_delete_bitmap_num
               << ", cost(us)=" << watch.get_elapse_time_us();
 }
 

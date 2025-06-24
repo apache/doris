@@ -820,6 +820,8 @@ void Tablet::delete_expired_stale_rowset() {
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
                     to_delete_iter->second->timestamped_versions();
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             std::vector<RowsetId> remove_rowset_ids;
             for (auto& timestampedVersion : to_delete_version) {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
@@ -845,6 +847,10 @@ void Tablet::delete_expired_stale_rowset() {
                                  << timestampedVersion->version().second
                                  << "] not find in stale rs version map";
                 }
+                if (start_version < 0) {
+                    start_version = timestampedVersion->version().first;
+                }
+                end_version = timestampedVersion->version().second;
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
             Version version(start_version, end_version);
