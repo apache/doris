@@ -75,10 +75,10 @@ public class CreateOrReplaceBranchInfo {
         } else if (replace) {
             sb.append("REPLACE BRANCH ");
         }
-        sb.append(branchName);
         if (ifNotExists) {
             sb.append(" IF NOT EXISTS");
         }
+        sb.append(branchName);
         if (branchOptions != null) {
             sb.append(branchOptions.toSql());
         }

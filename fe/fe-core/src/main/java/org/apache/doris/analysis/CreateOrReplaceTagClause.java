@@ -25,7 +25,7 @@ public class CreateOrReplaceTagClause extends AlterTableClause {
     private final CreateOrReplaceTagInfo tagInfo;
 
     public CreateOrReplaceTagClause(CreateOrReplaceTagInfo tagInfo) {
-        super(AlterOpType.ALTER_BRANCH);
+        super(AlterOpType.ALTER_TAG);
         this.tagInfo = tagInfo;
     }
 
@@ -46,7 +46,7 @@ public class CreateOrReplaceTagClause extends AlterTableClause {
 
     @Override
     public String toSql() {
-        return "";
+        return tagInfo.toSql();
     }
 
     public CreateOrReplaceTagInfo getTagInfo() {

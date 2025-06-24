@@ -37,7 +37,7 @@ public class CreateOrReplaceTagOp extends AlterTableOp {
                                 boolean replace,
                                 boolean ifNotExists,
                                 TagOptions tagOptions) {
-        super(AlterOpType.ALTER_BRANCH);
+        super(AlterOpType.ALTER_TAG);
         this.tagInfo = new CreateOrReplaceTagInfo(tagName, create, replace, ifNotExists, tagOptions);
     }
 
