@@ -43,6 +43,7 @@
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/encryption_util.h"
 #include "util/faststring.h"
 #include "util/runtime_profile.h"
 
@@ -99,16 +100,50 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     footer.SerializeToString(&footer_buf);
     put_fixed32_le(&footer_buf, static_cast<uint32_t>(footer_buf.size()));
 
-    std::vector<Slice> page = body;
-    page.emplace_back(footer_buf);
-
-    // checksum
+    faststring page_buf;
+    for (const auto& s : body) {
+        page_buf.append(s.data, s.size);
+    }
+    page_buf.append(footer_buf);
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = crc32c::Value(page);
+    uint32_t checksum =
+            crc32c::Value(reinterpret_cast<const char*>(page_buf.data()), page_buf.length());
     encode_fixed32_le(checksum_buf, checksum);
-    page.emplace_back(checksum_buf, sizeof(uint32_t));
+    page_buf.append(checksum_buf, sizeof(uint32_t));
+
+    std::vector<Slice> page;
+    auto buf = page_buf.build();
+    page.emplace_back(buf.slice());
 
     uint64_t offset = writer->bytes_appended();
+
+    switch (config::encryption_mode) {
+    case 0: {
+        break;
+    }
+    case 1: {
+        CHECK_EQ(page.size(), 1);
+        for (auto& s : page) {
+            EncryptionUtil::encrypt(EncryptionMode::AES_256_CTR,
+                                    reinterpret_cast<unsigned char*>(s.data), s.size,
+                                    reinterpret_cast<unsigned const char*>("DORIS_ENCRYPTION_KEY"),
+                                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"),
+                                    true, reinterpret_cast<unsigned char*>(s.mutable_data()));
+        }
+        break;
+    }
+    case 2: {
+        for (auto& s : page) {
+            EncryptionUtil::encrypt(EncryptionMode::SM4_128_CTR,
+                                    reinterpret_cast<unsigned char*>(s.data), s.size,
+                                    reinterpret_cast<unsigned const char*>("DORIS_ENCRYPTION_KEY"),
+                                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"),
+                                    true, reinterpret_cast<unsigned char*>(s.mutable_data()));
+        }
+        break;
+    }
+    }
+
     RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
 
     result->offset = offset;
@@ -168,6 +203,29 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
                                                   &opts.io_ctx));
         DCHECK_EQ(bytes_read, page_size);
         opts.stats->compressed_bytes_read += page_size;
+        switch (config::encryption_mode) {
+        case 0: {
+            break;
+        }
+        case 1: {
+            EncryptionUtil::decrypt(
+                    EncryptionMode::AES_256_CTR,
+                    reinterpret_cast<const unsigned char*>(page_slice.data), page_slice.size,
+                    reinterpret_cast<const unsigned char*>("DORIS_ENCRYPTION_KEY"),
+                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"), true,
+                    reinterpret_cast<unsigned char*>(page_slice.mutable_data()));
+            break;
+        }
+        case 2: {
+            EncryptionUtil::decrypt(
+                    EncryptionMode::SM4_128_CTR,
+                    reinterpret_cast<const unsigned char*>(page_slice.data), page_slice.size,
+                    reinterpret_cast<const unsigned char*>("DORIS_ENCRYPTION_KEY"),
+                    strlen("DORIS_ENCRYPTION_KEY"), "DORIS_IV", strlen("DORIS_IV"), true,
+                    reinterpret_cast<unsigned char*>(page_slice.mutable_data()));
+            break;
+        }
+        }
     }
 
     if (opts.verify_checksum) {
