@@ -137,7 +137,7 @@ function start_doris_fe() {
         if [[ -n "${fe_version}" ]] && [[ "${fe_version}" != "NULL" ]]; then
             echo "INFO: doris fe started, fe version: ${fe_version}" && return 0
         else
-            echo "${i}/60, Wait for Frontend ready, sleep 5 seconds ..." && sleep 2
+            echo "${i}/60, Wait for Frontend ready, sleep 5 seconds ..." && sleep 5
         fi
     done
     if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 5 mins wait..." && return 1; fi
@@ -305,7 +305,7 @@ function restart_doris() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: ${be_ready_count} Backends ready, version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for Backends ready, sleep 5 seconds ...' && sleep 2
+            echo 'Wait for Backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
     if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 5 mins wait..." && return 1; fi
