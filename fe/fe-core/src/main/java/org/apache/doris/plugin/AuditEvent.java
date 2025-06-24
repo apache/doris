@@ -98,6 +98,10 @@ public class AuditEvent {
     public long shuffleSendRows = -1;
     @AuditField(value = "ShuffleSendBytes", colName = "shuffle_send_bytes")
     public long shuffleSendBytes = -1;
+    @AuditField(value = "ScanBytesFromLocalStorage", colName = "scan_bytes_from_local_storage")
+    public long scanBytesFromLocalStorage = -1;
+    @AuditField(value = "ScanBytesFromRemoteStorage", colName = "scan_bytes_from_remote_storage")
+    public long scanBytesFromRemoteStorage = -1;
 
     @AuditField(value = "FuzzyVariables")
     public String fuzzyVariables = "";
