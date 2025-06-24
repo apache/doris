@@ -2574,7 +2574,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         return;
     }
 
-    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1")) {
+    if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key)) {
         return;
     };
 }
