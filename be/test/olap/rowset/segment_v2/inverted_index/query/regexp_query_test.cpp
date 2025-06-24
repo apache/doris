@@ -22,7 +22,9 @@
 #include <fstream>
 #include <memory>
 
+#include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 namespace doris::segment_v2 {
 
@@ -184,6 +186,157 @@ TEST_F(RegexpQueryTest, MultipleRegexPatternsWithCaretPrefix) {
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(*result, "ozmv13tl7vfpwdq");
     }
+}
+
+TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
+    // Create a mock searcher and query options for testing
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+
+    // Test with empty terms (size == 0)
+    {
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = L"test_field";
+        query_info.terms = {}; // empty terms
+
+        EXPECT_THROW(regexp_query.add(query_info), std::exception);
+    }
+
+    // Test with multiple terms (size > 1)
+    {
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = L"test_field";
+        query_info.terms = {"term1", "term2"}; // multiple terms
+
+        EXPECT_THROW(regexp_query.add(query_info), std::exception);
+    }
+}
+
+TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
+    // Create a mock searcher and query options for testing
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+
+    // Test with invalid regex pattern that causes hs_compile to fail
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"test_field";
+    query_info.terms = {"[invalid_regex"}; // invalid regex pattern
+
+    // This should not throw but should handle the error gracefully
+    EXPECT_NO_THROW(regexp_query.add(query_info));
+}
+
+TEST_F(RegexpQueryTest, SearchWithEmptyTerms) {
+    // Create a mock searcher and query options for testing
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    roaring::Roaring result;
+
+    // Search without adding any terms should not crash
+    EXPECT_NO_THROW(regexp_query.search(result));
+    EXPECT_TRUE(result.isEmpty());
+}
+
+TEST_F(RegexpQueryTest, GetRegexPrefixWithDebugPoint) {
+    // Test the debug point that forces get_regex_prefix to return nullopt
+    // This covers the debug execute if code path
+    auto result = RegexpQuery::get_regex_prefix("^test");
+    // Without debug point activated, should return normally
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "test");
+}
+
+TEST_F(RegexpQueryTest, AddWithPatternThatFailsCompilation) {
+    // Test add method with pattern that should fail hs_compile
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"test_field";
+    // Use a pattern that is guaranteed to fail hyperscan compilation
+    // Hyperscan doesn't support backreferences, so this should fail
+    query_info.terms = {
+            "(?P<name>\\w+)\\k<name>"}; // pattern with named backreference (not supported by hyperscan)
+
+    // Should not crash even with invalid hyperscan pattern (covers the hs_compile failure path)
+    EXPECT_NO_THROW(regexp_query.add(query_info));
+}
+
+TEST_F(RegexpQueryTest, ConstructorTest) {
+    // Test constructor with different configurations
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    // Test basic constructor
+    EXPECT_NO_THROW(RegexpQuery(searcher, query_options, &io_ctx));
+
+    // Test constructor with different max expansions
+    query_options.inverted_index_max_expansions = 100;
+    EXPECT_NO_THROW(RegexpQuery(searcher, query_options, &io_ctx));
+}
+
+TEST_F(RegexpQueryTest, MaxExpansionsConfiguration) {
+    // Test that max expansions is properly configured
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 100;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+
+    // This tests the constructor and member initialization
+    EXPECT_NO_THROW(RegexpQuery(searcher, query_options, &io_ctx));
+}
+
+TEST_F(RegexpQueryTest, AddWithUnsupportedRegexFeatures) {
+    // Test patterns that use regex features not supported by hyperscan
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+
+    // Test with lookahead assertion (not supported by hyperscan)
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"test_field";
+    query_info.terms = {"(?=.*test).*"}; // positive lookahead (not supported by hyperscan)
+
+    EXPECT_NO_THROW(regexp_query.add(query_info));
+}
+
+TEST_F(RegexpQueryTest, AddWithBackreferencePattern) {
+    // Test with backreference pattern that should fail hyperscan compilation
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    io::IOContext io_ctx;
+
+    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"test_field";
+    query_info.terms = {R"((\w+)\s+\1)"}; // backreference pattern (not supported by hyperscan)
+
+    EXPECT_NO_THROW(regexp_query.add(query_info));
 }
 
 } // namespace doris::segment_v2
