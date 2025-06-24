@@ -3537,7 +3537,7 @@ public class Config extends ConfigBase {
             "In the cloud mode, the automatic start and stop ignores the DB name of the internal job. "
             + "For example: auto_start_ignore_db_names=__internal_schema, information_schema"
             })
-    public static String[] auto_start_ignore_db_names = {"__internal_schema, information_schema"};
+    public static String[] auto_start_ignore_db_names = {"__internal_schema", "information_schema"};
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
