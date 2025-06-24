@@ -392,14 +392,45 @@ Status CsvReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name
     return Status::OK();
 }
 
+// init decompressor, file reader and line reader for parsing schema
+Status CsvReader::init_schema_reader() {
+    _start_offset = _range.start_offset;
+    if (_start_offset != 0) {
+        return Status::InvalidArgument(
+                "start offset of TFileRangeDesc must be zero in get parsered schema");
+    }
+    if (_params.file_type == TFileType::FILE_BROKER) {
+        return Status::InternalError<false>(
+                "Getting parsered schema from csv file do not support stream load and broker "
+                "load.");
+    }
+
+    // csv file without names line and types line.
+    _read_line = 1;
+    _is_parse_name = false;
+
+    if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
+        !_params.file_attributes.header_type.empty()) {
+        std::string header_type = to_lower(_params.file_attributes.header_type);
+        if (header_type == BeConsts::CSV_WITH_NAMES) {
+            _is_parse_name = true;
+        } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+            _read_line = 2;
+            _is_parse_name = true;
+        }
+    }
+
+    RETURN_IF_ERROR(_init_options());
+    RETURN_IF_ERROR(_create_file_reader(true));
+    RETURN_IF_ERROR(_create_decompressor());
+    RETURN_IF_ERROR(_create_line_reader());
+    return Status::OK();
+}
+
 Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
                                     std::vector<DataTypePtr>* col_types) {
-    size_t read_line = 0;
-    bool is_parse_name = false;
-    RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));
-
-    if (read_line == 1) {
-        if (!is_parse_name) { //parse csv file without names and types
+    if (_read_line == 1) {
+        if (!_is_parse_name) { //parse csv file without names and types
             size_t col_nums = 0;
             RETURN_IF_ERROR(_parse_col_nums(&col_nums));
             for (size_t i = 0; i < col_nums; ++i) {
@@ -703,40 +734,6 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
     _fields_splitter->split_line(line, &_split_values);
-}
-
-Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
-    _start_offset = _range.start_offset;
-    if (_start_offset != 0) {
-        return Status::InvalidArgument(
-                "start offset of TFileRangeDesc must be zero in get parsered schema");
-    }
-    if (_params.file_type == TFileType::FILE_BROKER) {
-        return Status::InternalError<false>(
-                "Getting parsered schema from csv file do not support stream load and broker "
-                "load.");
-    }
-
-    // csv file without names line and types line.
-    *read_line = 1;
-    *is_parse_name = false;
-
-    if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
-        !_params.file_attributes.header_type.empty()) {
-        std::string header_type = to_lower(_params.file_attributes.header_type);
-        if (header_type == BeConsts::CSV_WITH_NAMES) {
-            *is_parse_name = true;
-        } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
-            *read_line = 2;
-            *is_parse_name = true;
-        }
-    }
-
-    RETURN_IF_ERROR(_init_options());
-    RETURN_IF_ERROR(_create_file_reader(true));
-    RETURN_IF_ERROR(_create_decompressor());
-    RETURN_IF_ERROR(_create_line_reader());
-    return Status::OK();
 }
 
 Status CsvReader::_parse_col_nums(size_t* col_nums) {

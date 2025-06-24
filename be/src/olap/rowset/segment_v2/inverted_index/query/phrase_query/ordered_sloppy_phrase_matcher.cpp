@@ -55,10 +55,16 @@ bool OrderedSloppyPhraseMatcher::stretch_to_order(PostingsAndPosition* prev_post
     _match_width = 0;
     for (size_t i = 1; i < _postings.size(); i++) {
         PostingsAndPosition& posting = _postings[i];
-        if (!advance_position(posting, prev_posting->_pos + 1)) {
+        int32_t prev_pos = prev_posting->_pos - prev_posting->_offset;
+        int32_t target_pos = prev_pos + posting._offset;
+        if (!advance_position(posting, target_pos)) {
             return false;
         }
-        _match_width += (posting._pos - (prev_posting->_pos + 1));
+        int32_t curr_start = posting._pos - posting._offset;
+        _match_width += (curr_start - prev_pos);
+        if (_match_width > _allowed_slop) {
+            return false;
+        }
         prev_posting = &posting;
     }
     return true;
@@ -68,10 +74,9 @@ bool OrderedSloppyPhraseMatcher::advance_position(PostingsAndPosition& posting, 
     while (posting._pos < target) {
         if (posting._upTo == posting._freq) {
             return false;
-        } else {
-            posting._pos = visit_node(posting._postings, NextPosition {});
-            posting._upTo += 1;
         }
+        posting._pos = visit_node(posting._postings, NextPosition {});
+        posting._upTo += 1;
     }
     return true;
 }

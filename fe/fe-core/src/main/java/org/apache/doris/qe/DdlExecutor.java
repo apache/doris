@@ -17,18 +17,8 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
-import org.apache.doris.analysis.AdminCheckTabletsStmt;
-import org.apache.doris.analysis.AdminCleanTrashStmt;
-import org.apache.doris.analysis.AdminCompactTableStmt;
-import org.apache.doris.analysis.AdminRebalanceDiskStmt;
-import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetPartitionVersionStmt;
-import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AdminSetReplicaVersionStmt;
-import org.apache.doris.analysis.AdminSetTableStatusStmt;
 import org.apache.doris.analysis.AlterCatalogCommentStmt;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
@@ -43,27 +33,22 @@ import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoleStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.AlterWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.BackupStmt;
-import org.apache.doris.analysis.CancelAlterSystemStmt;
-import org.apache.doris.analysis.CancelAlterTableStmt;
-import org.apache.doris.analysis.CancelBackupStmt;
-import org.apache.doris.analysis.CancelCloudWarmUpStmt;
 import org.apache.doris.analysis.CancelExportStmt;
 import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
-import org.apache.doris.analysis.CleanQueryStatsStmt;
 import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
+import org.apache.doris.analysis.CreateIndexPolicyStmt;
 import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
@@ -84,10 +69,9 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
+import org.apache.doris.analysis.DropIndexPolicyStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
-import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropStageStmt;
@@ -96,7 +80,6 @@ import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadSchedPolicyStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -105,10 +88,8 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
-import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
-import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -127,7 +108,6 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.persist.CleanQueryStatsInfo;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -171,8 +151,6 @@ public class DdlExecutor {
             env.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
             env.alterView((AlterViewStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelAlterTableStmt) {
-            env.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
@@ -185,12 +163,6 @@ public class DdlExecutor {
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
-            env.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
-            env.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof StopRoutineLoadStmt) {
-            env.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
@@ -233,12 +205,6 @@ public class DdlExecutor {
             env.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
             env.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterSystemStmt) {
-            AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
-            env.alterSystem(stmt);
-        } else if (ddlStmt instanceof CancelAlterSystemStmt) {
-            CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
-            env.cancelAlterSystem(stmt);
         } else if (ddlStmt instanceof AlterDatabaseQuotaStmt) {
             env.alterDatabaseQuota((AlterDatabaseQuotaStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabaseRename) {
@@ -255,8 +221,6 @@ public class DdlExecutor {
             env.backup((BackupStmt) ddlStmt);
         } else if (ddlStmt instanceof RestoreStmt) {
             env.restore((RestoreStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelBackupStmt) {
-            env.cancelBackup((CancelBackupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateRepositoryStmt) {
             env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
@@ -265,34 +229,18 @@ public class DdlExecutor {
             return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
             env.truncateTable((TruncateTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminRepairTableStmt) {
-            env.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
-            env.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCompactTableStmt) {
-            env.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             env.setConfig((AdminSetConfigStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetTableStatusStmt) {
-            env.setTableStatus((AdminSetTableStatusStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
             env.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
             env.installPlugin((InstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof UninstallPluginStmt) {
             env.uninstallPlugin((UninstallPluginStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCheckTabletsStmt) {
-            env.checkTablets((AdminCheckTabletsStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
-            env.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminSetReplicaVersionStmt) {
-            env.setReplicaVersion((AdminSetReplicaVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetPartitionVersionStmt) {
             env.setPartitionVersion((AdminSetPartitionVersionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateResourceStmt) {
             env.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropResourceStmt) {
-            env.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().dropWorkloadGroup((DropWorkloadGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateWorkloadSchedPolicyStmt) {
@@ -301,12 +249,6 @@ public class DdlExecutor {
             env.getWorkloadSchedPolicyMgr().alterWorkloadSchedPolicy((AlterWorkloadSchedPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropWorkloadSchedPolicyStmt) {
             env.getWorkloadSchedPolicyMgr().dropWorkloadSchedPolicy((DropWorkloadSchedPolicyStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCleanTrashStmt) {
-            env.cleanTrash((AdminCleanTrashStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {
-            env.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
-        } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
-            env.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             env.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
@@ -325,10 +267,12 @@ public class DdlExecutor {
             env.getColocateTableIndex().alterColocateGroup((AlterColocateGroupStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterWorkloadGroupStmt) {
             env.getWorkloadGroupMgr().alterWorkloadGroup((AlterWorkloadGroupStmt) ddlStmt);
-        } else if (ddlStmt instanceof DropPolicyStmt) {
-            env.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterPolicyStmt) {
             env.getPolicyMgr().alterPolicy((AlterPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateIndexPolicyStmt) {
+            env.getIndexPolicyMgr().createIndexPolicy((CreateIndexPolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropIndexPolicyStmt) {
+            env.getIndexPolicyMgr().dropIndexPolicy((DropIndexPolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateCatalogStmt) {
             env.getCatalogMgr().createCatalog((CreateCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof DropCatalogStmt) {
@@ -347,33 +291,8 @@ public class DdlExecutor {
             env.getRefreshManager().handleRefreshCatalog((RefreshCatalogStmt) ddlStmt);
         } else if (ddlStmt instanceof RefreshLdapStmt) {
             env.getAuth().refreshLdap((RefreshLdapStmt) ddlStmt);
-        } else if (ddlStmt instanceof CancelCloudWarmUpStmt) {
-            if (Config.isCloudMode()) {
-                CancelCloudWarmUpStmt stmt = (CancelCloudWarmUpStmt) ddlStmt;
-                ((CloudEnv) env).cancelCloudWarmUp(stmt);
-            }
         } else if (ddlStmt instanceof CleanProfileStmt) {
             ProfileManager.getInstance().cleanProfile();
-        } else if (ddlStmt instanceof CleanQueryStatsStmt) {
-            CleanQueryStatsStmt stmt = (CleanQueryStatsStmt) ddlStmt;
-            CleanQueryStatsInfo cleanQueryStatsInfo = null;
-            switch (stmt.getScope()) {
-                case ALL:
-                    cleanQueryStatsInfo = new CleanQueryStatsInfo(
-                            CleanQueryStatsStmt.Scope.ALL, env.getCurrentCatalog().getName(), null, null);
-                    break;
-                case DB:
-                    cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.DB,
-                            env.getCurrentCatalog().getName(), stmt.getDbName(), null);
-                    break;
-                case TABLE:
-                    cleanQueryStatsInfo = new CleanQueryStatsInfo(CleanQueryStatsStmt.Scope.TABLE,
-                            env.getCurrentCatalog().getName(), stmt.getDbName(), stmt.getTableName().getTbl());
-                    break;
-                default:
-                    throw new DdlException("Unknown scope: " + stmt.getScope());
-            }
-            env.cleanQueryStats(cleanQueryStatsInfo);
         } else if (ddlStmt instanceof AlterRepositoryStmt) {
             AlterRepositoryStmt alterRepositoryStmt = (AlterRepositoryStmt) ddlStmt;
             env.getBackupHandler().alterRepository(alterRepositoryStmt.getName(), alterRepositoryStmt.getProperties(),
@@ -494,20 +413,10 @@ public class DdlExecutor {
 
         if (ddlStmt instanceof BackupStmt
                 || ddlStmt instanceof RestoreStmt
-                || ddlStmt instanceof CancelBackupStmt
                 || ddlStmt instanceof CreateRepositoryStmt
                 || ddlStmt instanceof DropRepositoryStmt
-                || ddlStmt instanceof AdminRepairTableStmt
-                || ddlStmt instanceof AdminCancelRepairTableStmt
-                || ddlStmt instanceof AdminCompactTableStmt
-                || ddlStmt instanceof AdminCheckTabletsStmt
-                || ddlStmt instanceof AdminSetReplicaStatusStmt
-                || ddlStmt instanceof AdminCleanTrashStmt
-                || ddlStmt instanceof AdminRebalanceDiskStmt
-                || ddlStmt instanceof AdminCancelRebalanceDiskStmt
                 || ddlStmt instanceof AlterResourceStmt
-                || ddlStmt instanceof AlterPolicyStmt
-                || ddlStmt instanceof CancelAlterSystemStmt) {
+                || ddlStmt instanceof AlterPolicyStmt) {
             LOG.info("stmt={}, not supported in cloud mode", ddlStmt.toString());
             throw new DdlException("Unsupported operation");
         }

@@ -25,7 +25,8 @@
 #include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
-#include "util/jsonb_parser_simd.h"
+#include "runtime/jsonb_value.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
@@ -123,11 +124,11 @@ void DataTypeVariantSerDe::read_one_cell_from_jsonb(IColumn& column, const Jsonb
     auto& variant = assert_cast<ColumnVariant&>(column);
     Field field;
     if (arg->isBinary()) {
-        const auto* blob = static_cast<const JsonbBlobVal*>(arg);
+        const auto* blob = arg->unpack<JsonbBinaryVal>();
         field = Field::create_field<TYPE_JSONB>(JsonbField(blob->getBlob(), blob->getBlobLen()));
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
-        const auto* str = static_cast<const JsonbStringVal*>(arg);
+        const auto* str = arg->unpack<JsonbStringVal>();
         field = Field::create_field<TYPE_STRING>(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");

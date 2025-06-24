@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <string>
 
+#include "util/jsonb_writer.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
@@ -70,7 +71,7 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
 }
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto* str_value = static_cast<const JsonbBinaryVal*>(arg);
+    const auto* str_value = arg->unpack<JsonbBinaryVal>();
     column.deserialize_and_insert_from_arena(str_value->getBlob());
 }
 

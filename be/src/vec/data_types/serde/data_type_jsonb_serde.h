@@ -22,7 +22,6 @@
 #include <stdint.h>
 
 #include "data_type_string_serde.h"
-#include "util/jsonb_utils.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/types.h"

@@ -296,7 +296,7 @@ public:
         start();
     }
 
-    ~RecyclerMetricsContext() { finish_report(); }
+    ~RecyclerMetricsContext() = default;
 
     int64_t total_need_recycle_data_size = 0;
     int64_t total_need_recycle_num = 0;
@@ -304,8 +304,8 @@ public:
     std::atomic_long total_recycled_data_size {0};
     std::atomic_long total_recycled_num {0};
 
-    std::string operation_type;
-    std::string instance_id {-1};
+    std::string operation_type {};
+    std::string instance_id {};
 
     double start_time = 0;
 

@@ -305,7 +305,7 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
             value.iters.push_back(std::move(it));
         } while (more);
     } else {
-        err = cloud::get(txn.get(), key, &value, true);
+        err = cloud::blob_get(txn.get(), key, &value, true);
     }
 
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -371,7 +371,7 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
     // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple KV
     ValueBuf value;
-    err = cloud::get(txn.get(), key, &value, true);
+    err = cloud::blob_get(txn.get(), key, &value, true);
 
     bool kv_found = true;
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -413,7 +413,7 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     // and the number of final keys may be less than the initial number of keys
     if (kv_found) value.remove(txn.get());
 
-    // TODO(gavin): use cloud::put() to deal with split-multi-kv and special keys
+    // TODO(gavin): use cloud::blob_put() to deal with split-multi-kv and special keys
     // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
     // MetaSchemaPBDictionaryKey, MetaSchemaKey, MetaDeleteBitmapKey are splited in to multiple KV
     txn->put(key, serialized_value_to_save);

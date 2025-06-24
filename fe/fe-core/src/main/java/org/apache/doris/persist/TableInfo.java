@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -141,25 +139,7 @@ public class TableInfo implements Writable {
     }
 
     public static TableInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_134) {
-            TableInfo tableInfo = new TableInfo();
-            tableInfo.readFields(in);
-            return tableInfo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), TableInfo.class);
-        }
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        indexId = in.readLong();
-        partitionId = in.readLong();
-
-        newTableName = Text.readString(in);
-        newRollupName = Text.readString(in);
-        newPartitionName = Text.readString(in);
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableInfo.class);
     }
 
     public String toJson() {

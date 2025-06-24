@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.parser.Location;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -190,6 +192,7 @@ public class StatementContext implements Closeable {
     // if query is: select * from t2 join t5
     // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -320,6 +323,10 @@ public class StatementContext implements Closeable {
         return mtmvRelatedTables;
     }
 
+    public Set<MTMV> getCandidateMTMVs() {
+        return candidateMTMVs;
+    }
+
     public Map<List<String>, TableIf> getTables() {
         return tables;
     }
@@ -334,7 +341,7 @@ public class StatementContext implements Closeable {
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom) {
+    public TableIf getAndCacheTable(List<String> tableQualifier, TableFrom tableFrom, Optional<Location> location) {
         Map<List<String>, TableIf> tables;
         switch (tableFrom) {
             case QUERY:
@@ -349,7 +356,7 @@ public class StatementContext implements Closeable {
             default:
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
-        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv()));
+        return tables.computeIfAbsent(tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), location));
     }
 
     public void setConnectContext(ConnectContext connectContext) {
