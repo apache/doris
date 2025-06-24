@@ -22,8 +22,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -31,7 +29,6 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -145,9 +142,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     // This map is used to save job property.
     @SerializedName("jp")
     private Map<String, Object> jobProperties = Maps.newHashMap();
-
-    // only for persistence param. see readFields() for usage
-    private boolean isJobTypeRead = false;
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
@@ -345,10 +339,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
         jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, false);
         jobProperties.put(LoadStmt.PRIORITY, LoadTask.Priority.NORMAL);
-    }
-
-    public void isJobTypeRead(boolean jobTypeRead) {
-        isJobTypeRead = jobTypeRead;
     }
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException,
@@ -827,29 +817,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     }
 
     public static LoadJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), LoadJob.class);
-        }
-
-        LoadJob job = null;
-        EtlJobType type = EtlJobType.valueOf(Text.readString(in));
-        if (type == EtlJobType.BROKER) {
-            job = EnvFactory.getInstance().createBrokerLoadJob();
-        } else if (type == EtlJobType.SPARK) {
-            job = new SparkLoadJob();
-        } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
-            job = new InsertLoadJob();
-        } else if (type == EtlJobType.COPY) {
-            job = new CopyJob();
-        } else if (type == EtlJobType.INGESTION) {
-            job = new IngestionLoadJob();
-        } else {
-            throw new IOException("Unknown load type: " + type.name());
-        }
-
-        job.isJobTypeRead(true);
-        job.readFields(in);
-        return job;
+        return GsonUtils.GSON.fromJson(Text.readString(in), LoadJob.class);
     }
 
     @Override
@@ -1015,61 +983,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    protected void readFields(DataInput in) throws IOException {
-
-        if (!isJobTypeRead) {
-            jobType = EtlJobType.valueOf(Text.readString(in));
-            isJobTypeRead = true;
-        }
-
-        id = in.readLong();
-        dbId = in.readLong();
-        label = Text.readString(in);
-        state = JobState.valueOf(Text.readString(in));
-
-        createTimestamp = in.readLong();
-        loadStartTimestamp = in.readLong();
-        finishTimestamp = in.readLong();
-        if (in.readBoolean()) {
-            failMsg = new FailMsg();
-            failMsg.readFields(in);
-        }
-        progress = in.readInt();
-        loadingStatus.readFields(in);
-        transactionId = in.readLong();
-        if (in.readBoolean()) {
-            authorizationInfo = new AuthorizationInfo();
-            authorizationInfo.readFields(in);
-        }
-
-        int size = in.readInt();
-        Map<String, String> tmpProperties = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            tmpProperties.put(key, val);
-        }
-        // init jobProperties
-        try {
-            setJobProperties(tmpProperties);
-        } catch (Exception e) {
-            // should not happen
-            throw new IOException("failed to replay job property", e);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
-            if (in.readBoolean()) {
-                userInfo = UserIdentity.read(in);
-                // must set is as analyzed, because when write the user info to meta image, it will be checked.
-                userInfo.setIsAnalyzed();
-            } else {
-                userInfo = UserIdentity.UNKNOWN;
-            }
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
     }
 
     @Override

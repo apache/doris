@@ -36,6 +36,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
@@ -322,6 +323,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 + "' in '" + tableName;
         if (currentPlan != null) {
             message += "' in " + currentPlan.getType().toString().substring("LOGICAL_".length()) + " clause";
+        }
+        Optional<Origin> origin = unboundSlot.getOrigin();
+        if (origin.isPresent()) {
+            message += "(" + origin.get() + ")";
         }
         throw new AnalysisException(message);
     }

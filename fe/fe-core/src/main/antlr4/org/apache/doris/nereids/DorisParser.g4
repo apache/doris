@@ -77,7 +77,6 @@ unsupportedStatement
     | unsupportedAlterStatement
     | unsupportedAdminStatement
     | unsupportedLoadStatement
-    | unsupportedShowStatement
     | unsupportedOtherStatement
     ;
 
@@ -235,6 +234,12 @@ supportedCreateStatement
     | CREATE STAGE (IF NOT EXISTS)? name=identifier properties=propertyClause?      #createStage
     | CREATE STORAGE VAULT (IF NOT EXISTS)?
         name=identifierOrText properties=propertyClause?                            #createStorageVault
+    | CREATE INVERTED INDEX ANALYZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexAnalyzer
+    | CREATE INVERTED INDEX TOKENIZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexTokenizer
+    | CREATE INVERTED INDEX TOKEN_FILTER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexTokenFilter
     ;
 
 dictionaryColumnDefs:
@@ -309,6 +314,9 @@ supportedDropStatement
     | DROP DICTIONARY (IF EXISTS)? name=multipartIdentifier                     #dropDictionary
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
+    | DROP INVERTED INDEX ANALYZER (IF EXISTS)? name=identifier                 #dropIndexAnalyzer
+    | DROP INVERTED INDEX TOKENIZER (IF EXISTS)? name=identifier                #dropIndexTokenizer
+    | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     ;
 
 supportedShowStatement
@@ -438,6 +446,9 @@ supportedLoadStatement
     | STOP ROUTINE LOAD FOR label=multipartIdentifier                               #stopRoutineLoad
     | SHOW ALL? ROUTINE LOAD ((FOR label=multipartIdentifier) | (LIKE STRING_LITERAL)?)         #showRoutineLoad
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
+    | SHOW INVERTED INDEX ANALYZER                                                  #showIndexAnalyzer
+    | SHOW INVERTED INDEX TOKENIZER                                                 #showIndexTokenizer
+    | SHOW INVERTED INDEX TOKEN_FILTER                                              #showIndexTokenFilter
     ;
 
 supportedKillStatement
@@ -473,11 +484,6 @@ unsupportedOtherStatement
 lockTable
     : name=multipartIdentifier (AS alias=identifierOrText)?
         (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
-    ;
-
-unsupportedShowStatement
-    : SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
-    | SHOW CACHE HOTSPOT tablePath=STRING_LITERAL                                   #showCacheHotSpot
     ;
 
 createRoutineLoad
@@ -1207,7 +1213,7 @@ groupingElement
     : ROLLUP LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | CUBE LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
     | GROUPING SETS LEFT_PAREN groupingSet (COMMA groupingSet)* RIGHT_PAREN
-    | expression (COMMA expression)*
+    | expression (COMMA expression)* (WITH ROLLUP)?
     ;
 
 groupingSet

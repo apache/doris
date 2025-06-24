@@ -49,7 +49,8 @@ public class QueryState {
     private int warningRows = 0;
     // make it public for easy to use
     public int serverStatus = 0;
-    public boolean isNereids = false;
+    private boolean isNereids = false;
+    private boolean isInternal = false;
     private ShowResultSet rs = null;
 
     public QueryState() {
@@ -150,6 +151,15 @@ public class QueryState {
 
     public boolean isNereids() {
         return isNereids;
+    }
+
+    public boolean isInternal() {
+
+        return isInternal;
+    }
+
+    public void setInternal(boolean internal) {
+        isInternal = internal;
     }
 
     public void setResultSet(ShowResultSet rs) {

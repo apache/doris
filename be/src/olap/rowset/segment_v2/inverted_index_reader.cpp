@@ -35,6 +35,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "inverted_index_query_type.h"
@@ -291,6 +292,9 @@ Status InvertedIndexReader::match_index_search(
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
                                                                       e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("Exception occured: {}",
+                                                                      e.what());
     }
     return Status::OK();
 }
@@ -321,16 +325,15 @@ Status FullTextIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatist
 
         // terms
         if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
-            query_info.terms.emplace_back(search_str);
+            query_info.term_infos.emplace_back(search_str, 0);
         } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-            PhraseQuery::parser_info(search_str, column_name, query_type, _index_meta.properties(),
-                                     query_info, queryOptions.enable_phrase_query_sequential_opt);
+            PhraseQuery::parser_info(search_str, _index_meta.properties(), query_info);
         } else {
-            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    search_str, column_name, query_type, _index_meta.properties());
+            query_info.term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    search_str, _index_meta.properties());
         }
 
-        if (query_info.terms.empty()) {
+        if (query_info.term_infos.empty()) {
             auto msg = fmt::format(
                     "token parser result is empty for query, "
                     "please check your query: '{}' and index parser: '{}'",
@@ -347,7 +350,7 @@ Status FullTextIndexReader::query(const io::IOContext* io_ctx, OlapReaderStatist
         query_info.field_name = StringUtil::string_to_wstring(column_name);
 
         // cache_key
-        std::string str_tokens = join(query_info.terms, " ");
+        std::string str_tokens = query_info.generate_tokens_key();
         if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
             str_tokens += " " + std::to_string(query_info.slop);
             str_tokens += " " + std::to_string(query_info.ordered);
@@ -423,34 +426,33 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
     std::string search_str(search_query->data, act_len);
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
+    try {
+        auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
+        // try to get query bitmap result from cache and return immediately on cache hit
+        InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
+                                                     search_str};
+        auto* cache = InvertedIndexQueryCache::instance();
+        InvertedIndexQueryCacheHandle cache_handler;
+        auto cache_status =
+                handle_query_cache(runtime_state, cache, cache_key, &cache_handler, stats, bit_map);
+        if (cache_status.ok()) {
+            return Status::OK();
+        }
 
-    auto index_file_key = _inverted_index_file_reader->get_index_file_cache_key(&_index_meta);
-    // try to get query bitmap result from cache and return immediately on cache hit
-    InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
-                                                 search_str};
-    auto* cache = InvertedIndexQueryCache::instance();
-    InvertedIndexQueryCacheHandle cache_handler;
-    auto cache_status =
-            handle_query_cache(runtime_state, cache, cache_key, &cache_handler, stats, bit_map);
-    if (cache_status.ok()) {
-        return Status::OK();
-    }
+        std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
 
-    std::wstring column_name_ws = StringUtil::string_to_wstring(column_name);
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = column_name_ws;
+        query_info.term_infos.emplace_back(search_str, 0);
 
-    InvertedIndexQueryInfo query_info;
-    query_info.field_name = column_name_ws;
-    query_info.terms.emplace_back(search_str);
-
-    auto result = std::make_shared<roaring::Roaring>();
-    FulltextIndexSearcherPtr* searcher_ptr = nullptr;
-    InvertedIndexCacheHandle inverted_index_cache_handle;
-    RETURN_IF_ERROR(
-            handle_searcher_cache(runtime_state, &inverted_index_cache_handle, io_ctx, stats));
-    auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-    searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
-    if (searcher_ptr != nullptr) {
-        try {
+        auto result = std::make_shared<roaring::Roaring>();
+        FulltextIndexSearcherPtr* searcher_ptr = nullptr;
+        InvertedIndexCacheHandle inverted_index_cache_handle;
+        RETURN_IF_ERROR(
+                handle_searcher_cache(runtime_state, &inverted_index_cache_handle, io_ctx, stats));
+        auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
+        searcher_ptr = std::get_if<FulltextIndexSearcherPtr>(&searcher_variant);
+        if (searcher_ptr != nullptr) {
             switch (query_type) {
             case InvertedIndexQueryType::MATCH_ANY_QUERY:
             case InvertedIndexQueryType::MATCH_ALL_QUERY:
@@ -502,27 +504,28 @@ Status StringTypeInvertedIndexReader::query(const io::IOContext* io_ctx,
                 return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                         "invalid query type when query untokenized inverted index");
             }
-        } catch (const CLuceneError& e) {
-            if (is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                        "range query term exceeds limits, try to downgrade from inverted index, "
-                        "column "
-                        "name:{}, search_str:{}",
-                        column_name, search_str);
-            } else {
-                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                        "CLuceneError occured, error msg: {}, column name: {}, search_str: {}",
-                        e.what(), column_name, search_str);
-            }
         }
-
         // add to cache
         result->runOptimize();
         cache->insert(cache_key, result, &cache_handler);
 
         bit_map = result;
+        return Status::OK();
+    } catch (const CLuceneError& e) {
+        if (is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                    "range query term exceeds limits, try to downgrade from inverted index, "
+                    "column "
+                    "name:{}, search_str:{}",
+                    column_name, search_str);
+        } else {
+            LOG(ERROR) << "CLuceneError occurred, error msg: " << e.what()
+                       << ", column name: " << column_name << ", search_str: " << search_str;
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError occurred, error msg: {}, column name: {}, search_str: {}",
+                    e.what(), column_name, search_str);
+        }
     }
-    return Status::OK();
 }
 
 InvertedIndexReaderType StringTypeInvertedIndexReader::type() {

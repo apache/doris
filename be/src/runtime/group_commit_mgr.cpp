@@ -35,6 +35,8 @@
 
 namespace doris {
 
+bvar::Adder<uint64_t> group_commit_block_by_memory_counter("group_commit_block_by_memory_counter");
+
 std::string LoadBlockQueue::_get_load_ids() {
     std::stringstream ss;
     ss << "[";
@@ -82,6 +84,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
         if (!runtime_state->is_cancelled() && status.ok() &&
             _all_block_queues_bytes->load(std::memory_order_relaxed) >=
                     config::group_commit_queue_mem_limit) {
+            group_commit_block_by_memory_counter << 1;
             DCHECK(_load_ids_to_write_dep.find(load_id) != _load_ids_to_write_dep.end());
             _load_ids_to_write_dep[load_id]->block();
             VLOG_DEBUG << "block add_block for load_id=" << load_id

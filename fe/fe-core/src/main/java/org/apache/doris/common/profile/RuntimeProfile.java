@@ -37,7 +37,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -153,10 +152,6 @@ public class RuntimeProfile {
         this.infoStringsLock = new ReentrantReadWriteLock();
         this.childLock = new ReentrantReadWriteLock();
         this.counterLock = new ReentrantReadWriteLock();
-    }
-
-    public static RuntimeProfile read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), RuntimeProfile.class);
     }
 
     public void setIsCancel(Boolean isCancel) {

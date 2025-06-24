@@ -411,8 +411,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
 
-    public static final String INTERNAL_SESSION = "internal_session";
-
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
@@ -1725,9 +1723,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ELIMINATE_SORT_NODE)
     public boolean enableEliminateSortNode = true;
-
-    @VariableMgr.VarAttr(name = INTERNAL_SESSION)
-    public boolean internalSession = false;
 
     @VariableMgr.VarAttr(name = PARTITION_PRUNING_EXPAND_THRESHOLD, fuzzy = true)
     public int partitionPruningExpandThreshold = 10;
