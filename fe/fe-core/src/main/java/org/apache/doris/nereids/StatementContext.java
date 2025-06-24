@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -191,6 +192,7 @@ public class StatementContext implements Closeable {
     // if query is: select * from t2 join t5
     // mtmvRelatedTables is mv1, mv2, mv3, t1, t2, t3, t4, t5
     private final Map<List<String>, TableIf> mtmvRelatedTables = Maps.newHashMap();
+    private final Set<MTMV> candidateMTMVs = Sets.newHashSet();
     // insert into target tables
     private final Map<List<String>, TableIf> insertTargetTables = Maps.newHashMap();
     // save view's def and sql mode to avoid them change before lock
@@ -319,6 +321,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getMtmvRelatedTables() {
         return mtmvRelatedTables;
+    }
+
+    public Set<MTMV> getCandidateMTMVs() {
+        return candidateMTMVs;
     }
 
     public Map<List<String>, TableIf> getTables() {
