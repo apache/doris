@@ -59,11 +59,7 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     std::vector<std::string> terms;
     try {
-<<<<<<< HEAD
         collect_matching_terms(query_info.field_name, terms, database, scratch, prefix);
-=======
-        collect_matching_terms(field_name, terms, database, scratch, prefix);
->>>>>>> 84ce6ea7e0 ([feature](semi-structure) support variant and index with many features)
     }
     _CLFINALLY({
         hs_free_scratch(scratch);

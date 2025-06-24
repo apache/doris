@@ -126,8 +126,6 @@ public:
                                        const StorageReadOptions& read_options,
                                        std::unique_ptr<InvertedIndexIterator>* iter);
 
-    static Status new_default_iterator(const TabletColumn& tablet_column,
-                                       std::unique_ptr<ColumnIterator>* iter);
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
         return _sk_index_decoder.get();

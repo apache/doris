@@ -155,7 +155,7 @@ Status HierarchicalDataIterator::add_stream(const SubcolumnColumnReaders::Node* 
     }
     CHECK(node);
     ColumnIterator* it;
-    RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+    RETURN_IF_ERROR(node->data.reader->new_iterator(&it, nullptr));
     std::unique_ptr<ColumnIterator> it_ptr;
     it_ptr.reset(it);
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
