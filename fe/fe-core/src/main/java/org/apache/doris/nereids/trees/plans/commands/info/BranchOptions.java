@@ -76,12 +76,12 @@ public class BranchOptions {
             sb.append(" RETAIN ").append(retain.get() / 1000 / 60).append(" MINUTES");
         }
         if (numSnapshots.isPresent() || retention.isPresent()) {
-            sb.append(" WITH SNAPSHOT RETENTION ");
+            sb.append(" WITH SNAPSHOT RETENTION");
             if (numSnapshots.isPresent()) {
-                sb.append(numSnapshots.get()).append(" SNAPSHOTS");
+                sb.append(" ").append(numSnapshots.get()).append(" SNAPSHOTS");
             }
             if (retention.isPresent()) {
-                sb.append(retention.get() / 1000 / 60).append(" MINUTES");
+                sb.append(" ").append(retention.get() / 1000 / 60).append(" MINUTES");
             }
         }
         return sb.toString();

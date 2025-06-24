@@ -69,16 +69,16 @@ public class CreateOrReplaceBranchInfo {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (create && replace) {
-            sb.append("CREATE OR REPLACE BRANCH ");
+            sb.append("CREATE OR REPLACE BRANCH");
         } else if (create) {
-            sb.append("CREATE BRANCH ");
+            sb.append("CREATE BRANCH");
         } else if (replace) {
-            sb.append("REPLACE BRANCH ");
+            sb.append("REPLACE BRANCH");
         }
         if (ifNotExists) {
             sb.append(" IF NOT EXISTS");
         }
-        sb.append(branchName);
+        sb.append(" ").append(branchName);
         if (branchOptions != null) {
             sb.append(branchOptions.toSql());
         }

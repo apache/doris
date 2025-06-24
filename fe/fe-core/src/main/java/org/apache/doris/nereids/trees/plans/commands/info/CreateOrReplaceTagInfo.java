@@ -69,16 +69,16 @@ public class CreateOrReplaceTagInfo {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         if (create && replace) {
-            sb.append("CREATE OR REPLACE TAG ");
+            sb.append("CREATE OR REPLACE TAG");
         } else if (create) {
-            sb.append("CREATE TAG ");
+            sb.append("CREATE TAG");
         } else if (replace) {
-            sb.append("REPLACE TAG ");
+            sb.append("REPLACE TAG");
         }
-        sb.append(tagName);
         if (ifNotExists) {
             sb.append(" IF NOT EXISTS");
         }
+        sb.append(" ").append(tagName);
         if (tagOptions != null) {
             sb.append(tagOptions.toSql());
         }
