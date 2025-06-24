@@ -361,11 +361,11 @@ void MetaServiceImpl::batch_get_version(::google::protobuf::RpcController* contr
             code = cast_as<ErrCategory::CREATE>(err);
             break;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
             }
-        });
+        };
         for (size_t i = response->versions_size(); i < num_acquired; i += BATCH_SIZE) {
             size_t limit = (i + BATCH_SIZE < num_acquired) ? i + BATCH_SIZE : num_acquired;
             version_keys.clear();
@@ -463,12 +463,12 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
         msg = "failed to init txn";
         return;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
         }
-    });
+    };
 
     std::string rs_key, rs_val;
     if (has_first_rowset) {
@@ -1731,11 +1731,11 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
             LOG(WARNING) << msg;
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
             }
-        });
+        };
         TabletIndexPB idx;
         // Get tablet id index from kv
         get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, idx);
@@ -1907,13 +1907,13 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
             msg = fmt::format("failed to create txn, tablet_id={}", idx.tablet_id());
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
             }
             // the txn is not a local variable, if not reset will count last res twice
             txn.reset(nullptr);
-        });
+        };
         if (!(/* idx.has_db_id() && */ idx.has_table_id() && idx.has_index_id() &&
               idx.has_partition_id() && i.has_tablet_id())) {
             get_tablet_idx(code, msg, txn.get(), instance_id, idx.tablet_id(), idx);
@@ -2585,11 +2585,11 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             msg = "failed to init txn";
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
             }
-        });
+        };
         MetaDeleteBitmapInfo start_key_info {instance_id, tablet_id, rowset_ids[i],
                                              begin_versions[i], 0};
         MetaDeleteBitmapInfo end_key_info {instance_id, tablet_id, rowset_ids[i], end_versions[i],
@@ -2708,11 +2708,11 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             msg = "failed to init txn";
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
             }
-        });
+        };
         TabletIndexPB idx(request->idx());
         TabletStatsPB tablet_stat;
         internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, tablet_stat,
@@ -2799,13 +2799,13 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
         msg = "failed to init txn";
         return false;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
         }
-    });
+    };
     auto table_id = request->table_id();
     std::stringstream ss;
     if (!config::enable_batch_get_mow_tablet_stats_and_meta) {
@@ -2998,13 +2998,13 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
             msg = "failed to init txn";
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
                 stats.put_counter += txn->num_put_keys();
                 stats.del_counter += txn->num_del_keys();
             }
-        });
+        };
         std::string lock_val;
         DeleteBitmapUpdateLockPB lock_info;
         err = txn->get(lock_key, &lock_val);
@@ -3238,13 +3238,13 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         msg = "failed to init txn";
         return;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
         }
-    });
+    };
     auto table_id = request->table_id();
     std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
     std::string lock_val;
@@ -3331,13 +3331,13 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
         msg = "failed to init txn";
         return;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
         }
-    });
+    };
     if (request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID) {
         std::string tablet_compaction_key =
                 mow_tablet_compaction_key({instance_id, request->table_id(), request->initiator()});
@@ -3418,13 +3418,13 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         msg = "failed to init txn";
         return;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
         }
-    });
+    };
     std::string lock_key =
             meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
     std::string lock_val;

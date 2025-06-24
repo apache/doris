@@ -781,11 +781,11 @@ void scan_tmp_rowset(
         LOG(WARNING) << msg;
         return;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (stats && txn) {
             stats->get_counter += txn->num_get_keys();
         }
-    });
+    };
 
     // Get db id with txn id
     std::string index_val;
@@ -1021,13 +1021,13 @@ void commit_txn_immediately(
             LOG(WARNING) << msg;
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
                 stats.put_counter += txn->num_put_keys();
                 stats.del_counter += txn->num_del_keys();
             }
-        });
+        };
 
         // Get txn info with db_id and txn_id
         std::string info_val; // Will be reused when saving updated txn
@@ -1607,13 +1607,13 @@ void commit_txn_eventually(
             LOG(WARNING) << msg;
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (txn != nullptr) {
                 stats.get_counter += txn->num_get_keys();
                 stats.put_counter += txn->num_put_keys();
                 stats.del_counter += txn->num_del_keys();
             }
-        });
+        };
 
         // tablet_id -> {table/index/partition}_id
         std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
@@ -1978,13 +1978,13 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         LOG(WARNING) << msg;
         return;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
         }
-    });
+    };
 
     // Get db id with txn id
     std::string index_val;
@@ -3656,13 +3656,13 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
                      << " label_key=" << hex(label_key);
         return err;
     }
-    std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+    DORIS_CLOUD_DEFER {
         if (txn != nullptr) {
             stats.get_counter += txn->num_get_keys();
             stats.put_counter += txn->num_put_keys();
             stats.del_counter += txn->num_del_keys();
         }
-    });
+    };
 
     err = txn->get(label_key, &label_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -3818,11 +3818,11 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                           << " end=" << hex(end_label_key);
                 return;
             }
-            std::unique_ptr<int, std::function<void(int*)>> defer_stats((int*)0x01, [&](int*) {
+            DORIS_CLOUD_DEFER {
                 if (txn != nullptr) {
                     stats.get_counter += txn->num_get_keys();
                 }
-            });
+            };
 
             err = txn->get(begin_label_key, end_label_key, &it, snapshot, limit);
             if (err != TxnErrorCode::TXN_OK) {

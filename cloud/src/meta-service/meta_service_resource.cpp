@@ -3879,12 +3879,12 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
             LOG(WARNING) << "failed to create txn err=" << err;
             return;
         }
-        std::unique_ptr<int, std::function<void(int*)>> defer_count((int*)0x01, [&](int*) {
+        DORIS_CLOUD_DEFER {
             if (config::use_detailed_metrics && txn != nullptr) {
                 g_bvar_rpc_kv_get_cluster_status_get_counter.put({instance_id},
                                                                  txn->num_get_keys());
             }
-        });
+        };
         err = txn->get(key, &val);
         LOG(INFO) << "get instance_key=" << hex(key);
 
