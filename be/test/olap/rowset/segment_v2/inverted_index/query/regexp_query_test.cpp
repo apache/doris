@@ -25,6 +25,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 
 namespace doris::segment_v2 {
 
@@ -201,7 +202,7 @@ TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
     {
         InvertedIndexQueryInfo query_info;
         query_info.field_name = L"test_field";
-        query_info.terms = {}; // empty terms
+        query_info.term_infos = {}; // empty term_infos
 
         EXPECT_THROW(regexp_query.add(query_info), std::exception);
     }
@@ -210,7 +211,10 @@ TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
     {
         InvertedIndexQueryInfo query_info;
         query_info.field_name = L"test_field";
-        query_info.terms = {"term1", "term2"}; // multiple terms
+        TermInfo term1, term2;
+        term1.term = "term1";
+        term2.term = "term2";
+        query_info.term_infos = {term1, term2}; // multiple term_infos
 
         EXPECT_THROW(regexp_query.add(query_info), std::exception);
     }
@@ -228,7 +232,9 @@ TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
     // Test with invalid regex pattern that causes hs_compile to fail
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"test_field";
-    query_info.terms = {"[invalid_regex"}; // invalid regex pattern
+    TermInfo term_info;
+    term_info.term = "[invalid_regex";
+    query_info.term_infos = {term_info}; // invalid regex pattern
 
     // This should not throw but should handle the error gracefully
     EXPECT_NO_THROW(regexp_query.add(query_info));
@@ -271,8 +277,10 @@ TEST_F(RegexpQueryTest, AddWithPatternThatFailsCompilation) {
     query_info.field_name = L"test_field";
     // Use a pattern that is guaranteed to fail hyperscan compilation
     // Hyperscan doesn't support backreferences, so this should fail
-    query_info.terms = {
-            "(?P<name>\\w+)\\k<name>"}; // pattern with named backreference (not supported by hyperscan)
+    TermInfo term_info;
+    term_info.term =
+            "(?P<name>\\w+)\\k<name>"; // pattern with named backreference (not supported by hyperscan)
+    query_info.term_infos = {term_info};
 
     // Should not crash even with invalid hyperscan pattern (covers the hs_compile failure path)
     EXPECT_NO_THROW(regexp_query.add(query_info));
@@ -318,7 +326,9 @@ TEST_F(RegexpQueryTest, AddWithUnsupportedRegexFeatures) {
     // Test with lookahead assertion (not supported by hyperscan)
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"test_field";
-    query_info.terms = {"(?=.*test).*"}; // positive lookahead (not supported by hyperscan)
+    TermInfo term_info;
+    term_info.term = "(?=.*test).*"; // positive lookahead (not supported by hyperscan)
+    query_info.term_infos = {term_info};
 
     EXPECT_NO_THROW(regexp_query.add(query_info));
 }
@@ -334,7 +344,9 @@ TEST_F(RegexpQueryTest, AddWithBackreferencePattern) {
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"test_field";
-    query_info.terms = {R"((\w+)\s+\1)"}; // backreference pattern (not supported by hyperscan)
+    TermInfo term_info;
+    term_info.term = R"((\w+)\s+\1)"; // backreference pattern (not supported by hyperscan)
+    query_info.term_infos = {term_info};
 
     EXPECT_NO_THROW(regexp_query.add(query_info));
 }
