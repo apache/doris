@@ -1037,7 +1037,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (Cloud.ClusterStatus.valueOf(clusterStatus) != Cloud.ClusterStatus.NORMAL) {
             // ATTN: prevent `Automatic Analyzer` daemon threads from pulling up clusters
             // FeConstants.INTERNAL_DB_NAME ? see StatisticsUtil.buildConnectContext
-            List<String> ignoreDbNameList = Arrays.asList(Config.auto_start_ignore_db_names);
+            List<String> ignoreDbNameList = Arrays.asList(Config.auto_start_ignore_resume_db_names);
             if (ConnectContext.get() != null && ignoreDbNameList.contains(ConnectContext.get().getDatabase())) {
                 LOG.warn("auto start daemon thread db {}, not resume cluster {}-{}",
                         ConnectContext.get().getDatabase(), clusterName, clusterStatus);
