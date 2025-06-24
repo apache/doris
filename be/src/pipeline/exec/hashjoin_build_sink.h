@@ -20,6 +20,7 @@
 #include "join_build_sink_operator.h"
 #include "operator.h"
 #include "runtime_filter/runtime_filter_producer_helper.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris::pipeline {
 #include "common/compile_check_begin.h"
@@ -188,8 +189,8 @@ struct ProcessHashTableBuild {
               _state(state) {}
 
     template <int JoinOpType, bool short_circuit_for_null, bool with_other_conjuncts>
-    Status run(HashTableContext& hash_table_ctx, vectorized::ConstNullMapPtr null_map,
-               bool* has_null_key) {
+    Status run(HashTableContext& hash_table_ctx, const vectorized::NullMap* null_map,
+                bool* has_null_key) {
         if (null_map) {
             // first row is mocked and is null
             // TODO: Need to test the for loop. break may better

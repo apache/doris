@@ -123,8 +123,7 @@ Status RuntimeFilterWrapper::insert(const vectorized::ColumnPtr& column, size_t 
             const auto& col =
                     assert_cast<const vectorized::ColumnBitmap&>(nullable->get_nested_column());
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    nullable->get_null_map_data();
             for (size_t i = start; i < column->size(); i++) {
                 if (!nullmap[i]) {
                     bitmaps.push_back(&(col.get_data()[i]));

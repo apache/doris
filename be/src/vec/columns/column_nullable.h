@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <type_traits>
@@ -30,10 +31,13 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
+#include "vec/columns/columns_common.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
+#include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
@@ -46,49 +50,277 @@ namespace doris::vectorized {
 class Arena;
 class ColumnSorter;
 
-using NullMap = ColumnUInt8::Container;
-using ConstNullMapPtr = const NullMap*;
+class NullMap : public PaddedPODArray<UInt8> {
+    using Base = PaddedPODArray<UInt8>;
+
+public:
+    // can't init without initial value!
+    NullMap() = delete;
+    NullMap(size_t n) = delete;
+    NullMap(size_t n, const UInt8& x) : Base(n, x) {}
+
+    NullMap(const_iterator from_begin, const_iterator from_end) : Base(from_begin, from_end) {}
+    NullMap(std::initializer_list<UInt8> il) : Base(std::begin(il), std::end(il)) {}
+    NullMap(const NullMap& other) { this->assign(other.begin(), other.end()); }
+    NullMap(NullMap&& other) { Base::swap(other); }
+
+    NullMap& operator=(NullMap&& other) {
+        Base::swap(other);
+        return *this;
+    }
+
+    NullMap& operator=(const NullMap& other) {
+        if (this != &other) {
+            this->assign(other.begin(), other.end());
+        }
+        return *this;
+    }
+
+    /// add functions same with ColumnVector:
+    void insert_range_from(const NullMap& src, size_t start, size_t length) {
+        if (src.size() < start + length) {
+            throw doris::Exception(doris::Status::InternalError("insert_range_from out of range"));
+        }
+        auto* it = begin() + start;
+        auto* end_it = it + length;
+        insert(it, end_it);
+    }
+
+    void insert_indices_from(const NullMap& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) {
+        auto origin_size = size();
+        auto new_size = indices_end - indices_begin;
+        resize(origin_size + new_size);
+
+        auto copy = [](const value_type* __restrict src, value_type* __restrict dest,
+                       const uint32_t* __restrict begin, const uint32_t* __restrict end) {
+            for (const auto* it = begin; it != end; ++it) {
+                *dest = src[*it];
+                ++dest;
+            }
+        };
+        copy(reinterpret_cast<const value_type*>(data()), data() + origin_size, indices_begin,
+             indices_end);
+    }
+
+    void insert_many_from(const NullMap& src, size_t position, size_t length) {
+        auto old_size = size();
+        resize(old_size + length);
+        std::fill(data() + old_size, data() + old_size + length, src[position]);
+    }
+
+    void insert_many_vals(value_type val, size_t n) {
+        resize_fill(size() + n, val);
+    }
+
+    void erase(size_t start, size_t length) {
+        auto* it = begin() + start;
+        auto* end_it = it + length;
+        Base::erase(it, end_it);
+    }
+
+    void pop_back(size_t n) { this->c_end -= byte_size(n); }
+
+    using Base::byte_size;
+    size_t byte_size() const { return this->c_end - this->c_start; }
+
+    bool has_enough_capacity(const NullMap& src) const { return capacity() - size() > src.size(); }
+
+    void append_data_by_selector(NullMap& res, const IColumn::Selector& selector, size_t begin,
+                                 size_t end) const {
+        size_t num_rows = size();
+
+        if (num_rows < selector.size()) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "Size of selector: {} is larger than size of column: {}",
+                                   selector.size(), num_rows);
+        }
+        DCHECK_GE(end, begin);
+        DCHECK_LE(end, selector.size());
+        // here wants insert some value from this column, and the nums is (end - begin)
+        // and many be this column num_rows is 4096, but only need insert num is (1 - 0) = 1
+        // so can't call res->reserve(num_rows), it's will be too mush waste memory
+        res.reserve(res.size() + (end - begin));
+
+        for (size_t i = begin; i < end; ++i) {
+            res.push_back(this[selector[i]]);
+        }
+    }
+
+    NullMap filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
+        size_t size = this->size();
+        column_match_filter_size(size, filt.size());
+
+        NullMap res(0, false);
+        res.reserve(result_size_hint > 0 ? result_size_hint : size);
+
+        const UInt8* filt_pos = filt.data();
+        const UInt8* filt_end = filt_pos + size;
+        const value_type* data_pos = data();
+
+        /** A slightly more optimized version.
+            * Based on the assumption that often pieces of consecutive values
+            *  completely pass or do not pass the filter.
+            * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
+            */
+        static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
+        const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
+
+        while (filt_pos < filt_end_sse) {
+            auto mask = simd::bytes_mask_to_bits_mask(filt_pos);
+            if (0 == mask) {
+                //pass
+            } else if (simd::bits_mask_all() == mask) {
+                res.insert(data_pos, data_pos + SIMD_BYTES);
+            } else {
+                simd::iterate_through_bits_mask(
+                        [&](const size_t idx) { res.push_back_without_reserve(data_pos[idx]); },
+                        mask);
+            }
+
+            filt_pos += SIMD_BYTES;
+            data_pos += SIMD_BYTES;
+        }
+
+        while (filt_pos < filt_end) {
+            if (*filt_pos) {
+                res.push_back_without_reserve(*data_pos);
+            }
+
+            ++filt_pos;
+            ++data_pos;
+        }
+
+        return res;
+    }
+
+    size_t filter(const IColumn::Filter& filter) {
+        size_t size = this->size();
+        column_match_filter_size(size, filter.size());
+
+        const UInt8* filter_pos = filter.data();
+        const UInt8* filter_end = filter_pos + size;
+        value_type* data_pos = data();
+        value_type* result_data = data_pos;
+
+        /** A slightly more optimized version.
+            * Based on the assumption that often pieces of consecutive values
+            *  completely pass or do not pass the filter.
+            * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
+            */
+        static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
+        const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
+
+        while (filter_pos < filter_end_sse) {
+            auto mask = simd::bytes_mask_to_bits_mask(filter_pos);
+            if (0 == mask) {
+                //pass
+            } else if (simd::bits_mask_all() == mask) {
+                memmove(result_data, data_pos, sizeof(value_type) * SIMD_BYTES);
+                result_data += SIMD_BYTES;
+            } else {
+                simd::iterate_through_bits_mask(
+                        [&](const size_t idx) {
+                            *result_data = data_pos[idx];
+                            ++result_data;
+                        },
+                        mask);
+            }
+
+            filter_pos += SIMD_BYTES;
+            data_pos += SIMD_BYTES;
+        }
+
+        while (filter_pos < filter_end) {
+            if (*filter_pos) {
+                *result_data = *data_pos;
+                ++result_data;
+            }
+
+            ++filter_pos;
+            ++data_pos;
+        }
+
+        const auto new_size = result_data - data();
+        resize(new_size);
+
+        return new_size;
+    }
+
+    NullMap permute(const IColumn::Permutation& perm, size_t limit) const {
+        size_t size = this->size();
+
+        if (limit == 0) {
+            limit = size;
+        } else {
+            limit = std::min(size, limit);
+        }
+
+        if (perm.size() < limit) {
+            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                   "Size of permutation ({}) is less than required ({})",
+                                   perm.size(), limit);
+        }
+
+        auto res = NullMap(limit, 0);
+        for (size_t i = 0; i < limit; ++i) {
+            res[i] = data()[perm[i]];
+        }
+
+        return res;
+    }
+
+    NullMap replicate(const IColumn::Offsets& offsets) const {
+        size_t size = this->size();
+        column_match_offsets_size(size, offsets.size());
+
+        NullMap res(0, false);
+        if (0 == size) {
+            return res;
+        }
+
+        res.reserve(offsets.back());
+
+        // vectorized this code to speed up
+        auto counts_uptr = std::unique_ptr<IColumn::Offset[]>(new IColumn::Offset[size]);
+        IColumn::Offset* counts = counts_uptr.get();
+        for (ssize_t i = 0; i < size; ++i) {
+            counts[i] = offsets[i] - offsets[i - 1];
+        }
+
+        for (size_t i = 0; i < size; ++i) {
+            res.resize_fill(res.size() + counts[i], data()[i]);
+        }
+
+        return res;
+    }
+
+private:
+    /// allow to use all public methods of PODArray, except:
+    template <typename... TAllocatorParams>
+    void resize(size_t n, TAllocatorParams&&... allocator_params) {
+        Base::resize(n, std::forward<TAllocatorParams>(allocator_params)...);
+    }
+    /// we can use resize_fill instead of it as public interface.
+};
 
 /// use this to avoid directly access null_map forgetting modify _need_update_has_null. see more in inner comments
 class NullMapProvider {
 public:
-    NullMapProvider() = default;
-    NullMapProvider(MutableColumnPtr&& null_map) : _null_map(std::move(null_map)) {}
-    void reset_null_map(MutableColumnPtr&& null_map) { _null_map = std::move(null_map); }
+    NullMapProvider() = delete;
+    NullMapProvider(NullMap&& null_map) : _null_map(std::move(null_map)) {}
+    NullMapProvider(const NullMap& null_map) : _null_map(null_map) {}
+    void reset_null_map(NullMap&& null_map) { _null_map = std::move(null_map); }
 
-    // return the column that represents the byte map. if want use null_map, just call this.
-    const ColumnPtr& get_null_map_column_ptr() const { return _null_map; }
-    // for functions getting nullmap, we assume it will modify it. so set `_need_update_has_null` to true. if you know it wouldn't,
-    // call with arg false. but for the ops which will set _has_null themselves, call `update_has_null()`
-    MutableColumnPtr get_null_map_column_ptr(bool may_change = true) {
-        if (may_change) {
-            _need_update_has_null = true;
-        }
-        return _null_map->assume_mutable();
-    }
-    ColumnUInt8::WrappedPtr& get_null_map(bool may_change = true) {
+    NullMap& get_null_map_data(bool may_change = true) {
         if (may_change) {
             _need_update_has_null = true;
         }
         return _null_map;
     }
+    const NullMap& get_null_map_data() const { return _null_map; }
 
-    ColumnUInt8& get_null_map_column(bool may_change = true) {
-        if (may_change) {
-            _need_update_has_null = true;
-        }
-        return assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
-    }
-    const ColumnUInt8& get_null_map_column() const {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(*_null_map);
-    }
-
-    NullMap& get_null_map_data(bool may_change = true) {
-        return get_null_map_column(may_change).get_data();
-    }
-    const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
-
-    void clear_null_map() { assert_cast<ColumnUInt8*>(_null_map.get())->clear(); }
+    void clear_null_map() { _null_map.clear(); }
 
     void update_has_null(bool new_value) {
         _has_null = new_value;
@@ -109,7 +341,7 @@ protected:
     bool _has_null = true;
 
 private:
-    IColumn::WrappedPtr _null_map;
+    NullMap _null_map;
 };
 
 /// Class that specifies nullable columns. A nullable column represents
@@ -125,7 +357,7 @@ class ColumnNullable final : public COWHelper<IColumn, ColumnNullable>, public N
 private:
     friend class COWHelper<IColumn, ColumnNullable>;
 
-    ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnPtr&& null_map_);
+    ColumnNullable(MutableColumnPtr&& nested_column_, NullMap&& null_map_);
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
@@ -133,9 +365,8 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnNullable>;
-    static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
-        return ColumnNullable::create(nested_column_->assume_mutable(),
-                                      null_map_->assume_mutable());
+    static MutablePtr create(const ColumnPtr& nested_column_, const NullMap& null_map_) {
+        return Base::create(nested_column_->assume_mutable(), null_map_);
     }
 
     template <typename... Args, typename = std::enable_if_t<IsMutableColumns<Args...>::value>>
@@ -149,14 +380,8 @@ public:
 
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
-    size_t size() const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(get_null_map_column())
-                .size();
-    }
-    PURE bool is_null_at(size_t n) const override {
-        return assert_cast<const ColumnUInt8&, TypeCheckOnRelease::DISABLE>(get_null_map_column())
-                       .get_data()[n] != 0;
-    }
+    size_t size() const override { return get_null_map_data().size(); }
+    PURE bool is_null_at(size_t n) const override { return get_null_map_data()[n] != 0; }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -308,10 +533,7 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        callback(nested_column);
-        callback(get_null_map());
-    }
+    void for_each_subcolumn(ColumnCallback callback) override { callback(nested_column); }
 
     bool structure_equals(const IColumn& rhs) const override {
         if (const auto* rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
@@ -325,8 +547,7 @@ public:
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {
-        return IColumn::is_exclusive() && nested_column->is_exclusive() &&
-               get_null_map_column().is_exclusive();
+        return IColumn::is_exclusive() && nested_column->is_exclusive();
     }
 
     bool only_null() const override { return size() == 1 && is_null_at(0); }
@@ -353,9 +574,8 @@ public:
     /// between both byte maps. This method is used to determine the null byte
     /// map of the result column of a function taking one or more nullable
     /// columns.
-    void apply_null_map(const ColumnNullable& other);
-    void apply_null_map(const ColumnUInt8& map);
-    void apply_negated_null_map(const ColumnUInt8& map);
+    void apply_null_map(const NullMap& other);
+    void apply_negated_null_map(const NullMap& map);
 
     /// Check that size of null map equals to size of nested column.
     void check_consistency() const;
@@ -373,8 +593,8 @@ public:
         DCHECK(size() > self_row);
         const auto& nullable_rhs =
                 assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(rhs);
-        get_null_map_column().replace_column_data(nullable_rhs.get_null_map_column(), row,
-                                                  self_row);
+        get_null_map_data()[self_row] =
+                nullable_rhs.get_null_map_data()[row]; // copy null map value
 
         if (!nullable_rhs.is_null_at(row)) {
             nested_column->replace_column_data(*nullable_rhs.nested_column, row, self_row);
@@ -439,17 +659,19 @@ public:
 
     void erase(size_t start, size_t length) override {
         get_nested_column().erase(start, length);
-        get_null_map_column().erase(start, length);
+        get_null_map_data().erase(start, length);
     }
 
 private:
     void _update_has_null();
 
     template <bool negative>
-    void apply_null_map_impl(const ColumnUInt8& map);
+    void apply_null_map_impl(const NullMap& map);
 
     // push not null value wouldn't change the nullity. no need to update _has_null
-    void _push_false_to_nullmap(size_t num) { get_null_map_column(false).insert_many_vals(0, num); }
+    void _push_false_to_nullmap(size_t num) {
+        get_null_map_data(false).insert_many_vals(false, num);
+    }
 
     WrappedPtr nested_column;
 };

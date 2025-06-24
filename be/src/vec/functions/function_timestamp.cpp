@@ -107,7 +107,7 @@ struct StrToDate {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         const auto& col0 = block.get_by_position(arguments[0]).column;
         bool col_const[2] = {is_column_const(*col0)};
@@ -258,7 +258,7 @@ struct MakeDateImpl {
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         DCHECK_EQ(arguments.size(), 2);
 
         const auto& col0 = block.get_by_position(arguments[0]).column;
@@ -462,7 +462,7 @@ struct DateTrunc {
                           uint32_t result, size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 2);
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         const auto& datetime_column = block.get_by_position(arguments[DateArgIsFirst ? 0 : 1])
                                               .column->convert_to_full_column_if_const();
         ColumnPtr res = ColumnType::create(input_rows_count);
@@ -504,7 +504,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
         auto data_col = assert_cast<const ColumnInt32*>(argument_column.get());
@@ -881,7 +881,7 @@ struct LastDayImpl {
         ColumnPtr res_column;
         ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column);
         if (is_nullable) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+            auto null_map = NullMap(input_rows_count, false);
             auto data_col = assert_cast<const ColumnType*>(argument_column.get());
             res_column = ResultColumnType::create(input_rows_count);
             execute_straight(
@@ -985,7 +985,7 @@ struct MondayImpl {
         ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column);
         ColumnPtr res_column;
         if (is_nullable) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+            auto null_map = NullMap(input_rows_count, false);
             auto data_col = assert_cast<const ColumnType*>(argument_column.get());
             res_column = ResultColumnType::create(input_rows_count);
             execute_straight(
@@ -1174,7 +1174,7 @@ struct FromIso8601DateV2 {
                           uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
 
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
         auto& result_data = res->get_data();

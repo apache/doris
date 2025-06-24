@@ -46,6 +46,7 @@
 #include "util/once.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
@@ -167,7 +168,7 @@ public:
     // Return true if segment zone map is absent or `cond' could be satisfied, false otherwise.
     bool match_condition(const AndBlockColumnPredicate* col_predicates) const;
 
-    Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const;
+    Status next_batch_of_zone_map(const size_t* n, vectorized::MutableColumnPtr& dst) const;
 
     // get row ranges with zone map
     // - cond_column is user's query predicate
@@ -315,6 +316,10 @@ public:
         return Status::NotSupported("next_batch not implement");
     }
 
+    virtual Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) {
+        return Status::NotSupported("next_batch not implement");
+    }
+
     virtual Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) {
         return Status::NotSupported("next_batch_of_zone_map not implement");
     }
@@ -362,6 +367,7 @@ public:
     Status seek_to_page_start();
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
@@ -441,6 +447,8 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
+
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
@@ -470,6 +478,7 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
@@ -498,6 +507,7 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
@@ -524,6 +534,7 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
@@ -638,6 +649,7 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;
@@ -678,6 +690,7 @@ public:
     }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return next_batch(n, dst);
@@ -733,6 +746,7 @@ public:
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, vectorized::NullMap& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override;

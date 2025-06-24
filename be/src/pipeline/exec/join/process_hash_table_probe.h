@@ -38,7 +38,6 @@ using MutableColumnPtr = vectorized::IColumn::MutablePtr;
 using MutableColumns = std::vector<vectorized::MutableColumnPtr>;
 
 using NullMap = vectorized::ColumnUInt8::Container;
-using ConstNullMapPtr = const NullMap*;
 
 template <int JoinOpType>
 struct ProcessHashTableProbe {

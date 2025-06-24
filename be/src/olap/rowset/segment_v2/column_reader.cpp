@@ -17,10 +17,10 @@
 
 #include "olap/rowset/segment_v2/column_reader.h"
 
-#include <assert.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
+#include <cassert>
 #include <memory>
 #include <ostream>
 #include <set>
@@ -30,10 +30,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/file_system.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
-#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/iterators.h"
@@ -298,17 +296,18 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         const auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
-            _ordinal_index.reset(
-                    new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
+            _ordinal_index = std::make_unique<OrdinalIndexReader>(_file_reader, _num_rows,
+                                                                  index_meta.ordinal_index());
             break;
         case ZONE_MAP_INDEX:
             _segment_zone_map =
                     std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
-            _zone_map_index.reset(new ZoneMapIndexReader(
-                    _file_reader, index_meta.zone_map_index().page_zone_maps()));
+            _zone_map_index = std::make_unique<ZoneMapIndexReader>(
+                    _file_reader, index_meta.zone_map_index().page_zone_maps());
             break;
         case BITMAP_INDEX:
-            _bitmap_index.reset(new BitmapIndexReader(_file_reader, index_meta.bitmap_index()));
+            _bitmap_index =
+                    std::make_unique<BitmapIndexReader>(_file_reader, index_meta.bitmap_index());
             break;
         case BLOOM_FILTER_INDEX:
             _bloom_filter_index.reset(
@@ -367,7 +366,9 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.encoding_info = _encoding_info;
 
     // index page should not pre decode
-    if (iter_opts.type == INDEX_PAGE) opts.pre_decode = false;
+    if (iter_opts.type == INDEX_PAGE) {
+        opts.pre_decode = false;
+    }
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
@@ -382,7 +383,8 @@ Status ColumnReader::get_row_ranges_by_zone_map(
     return Status::OK();
 }
 
-Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+Status ColumnReader::next_batch_of_zone_map(const size_t* n,
+                                            vectorized::MutableColumnPtr& dst) const {
     if (_segment_zone_map == nullptr) {
         return Status::InternalError("segment zonemap not exist");
     }
@@ -399,7 +401,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_default();
     } else {
         if (is_string) {
-            auto sv = (StringRef*)max_value->cell_ptr();
+            auto* sv = (StringRef*)max_value->cell_ptr();
             dst->insert_data(sv->data, sv->size);
         } else {
             dst->insert_many_fix_len_data(static_cast<const char*>(max_value->cell_ptr()), 1);
@@ -411,7 +413,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
         assert_cast<vectorized::ColumnNullable&>(*dst).insert_many_defaults(size);
     } else {
         if (is_string) {
-            auto sv = (StringRef*)min_value->cell_ptr();
+            auto* sv = (StringRef*)min_value->cell_ptr();
             dst->insert_data_repeatedly(sv->data, sv->size, size);
         } else {
             // TODO: the work may cause performance problem, opt latter
@@ -450,7 +452,7 @@ bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& p
 
     auto pruned = false;
     for (auto it = predicates.begin(); it != predicates.end();) {
-        auto predicate = *it;
+        auto* predicate = *it;
         if (predicate->column_id() == column_id &&
             predicate->is_always_true({min_value.get(), max_value.get()})) {
             pruned = true;
@@ -530,7 +532,7 @@ Status ColumnReader::_get_filtered_pages(
                                           col_predicates)) {
                 bool should_read = true;
                 if (delete_predicates != nullptr) {
-                    for (auto del_pred : *delete_predicates) {
+                    for (const auto* del_pred : *delete_predicates) {
                         // TODO: Both `min_value` and `max_value` should be 0 or neither should be 0.
                         //  So nullable only need to judge once.
                         if (min_value != nullptr && max_value != nullptr &&
@@ -588,7 +590,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
             iter.next();
         }
     }
-    for (auto& pid : page_ids) {
+    for (const auto& pid : page_ids) {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
         if (col_predicates->evaluate_and(bf.get())) {
@@ -889,18 +891,15 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 
     if (dst->is_nullable()) {
         size_t num_read = *n;
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map = static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_data();
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
         // so may dst from changed meta which is nullable but old data is not nullable,
         // if so, we should set null_map to all null by default
         if (_null_iterator) {
             bool null_signs_has_null = false;
-            RETURN_IF_ERROR(
-                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+            RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -960,18 +959,15 @@ Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumn
 
     if (dst->is_nullable()) {
         size_t num_read = *n;
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map = static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_data();
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
         // so may dst from changed meta which is nullable but old data is not nullable,
         // if so, we should set null_map to all null by default
         if (_null_iterator) {
             bool null_signs_has_null = false;
-            RETURN_IF_ERROR(
-                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+            RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1123,8 +1119,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
     }
 
     if (dst->is_nullable()) {
-        auto null_map_ptr =
-                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        auto null_map = static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_data();
         size_t num_read = *n;
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
@@ -1132,10 +1127,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnP
         // if so, we should set null_map to all null by default
         if (_null_iterator) {
             bool null_signs_has_null = false;
-            RETURN_IF_ERROR(
-                    _null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+            RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map, &null_signs_has_null));
         } else {
-            auto& null_map = assert_cast<vectorized::ColumnUInt8&>(*null_map_ptr);
             null_map.insert_many_vals(0, num_read);
         }
         DCHECK(num_read == *n);
@@ -1406,7 +1399,8 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     // note that concurrent iterators for the same column won't repeatedly read dictionary page
     // because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
-        auto dict_page_decoder = reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
+        auto* dict_page_decoder =
+                reinterpret_cast<BinaryDictPageDecoder*>(_page.data_decoder.get());
         if (dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 RETURN_IF_ERROR(_read_dict_data());
@@ -1435,7 +1429,7 @@ Status FileColumnIterator::_read_dict_data() {
 
     auto* pd_decoder =
             (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)_dict_decoder.get();
-    _dict_word_info.reset(new StringRef[pd_decoder->_num_elems]);
+    _dict_word_info = std::make_unique<StringRef[]>(pd_decoder->_num_elems);
     RETURN_IF_ERROR(pd_decoder->get_dict_word_info(_dict_word_info.get()));
     return Status::OK();
 }
@@ -1579,7 +1573,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
 
         assert(type_size ==
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
-        decimal12_t* d = (decimal12_t*)mem_value;
+        auto* d = (decimal12_t*)mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
         dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
@@ -1646,10 +1640,9 @@ Status VariantRootColumnIterator::_process_root_column(
 
     // fill nullmap
     if (root_column->is_nullable() && dst->is_nullable()) {
-        vectorized::ColumnUInt8& dst_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-        vectorized::ColumnUInt8& src_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+        auto& dst_null_map = assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_data();
+        auto& src_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_data();
         dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
     }
 

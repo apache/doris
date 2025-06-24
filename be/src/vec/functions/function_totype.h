@@ -314,7 +314,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         DCHECK_EQ(arguments.size(), 2);
 
         ColumnPtr argument_columns[2];
@@ -391,7 +391,7 @@ public:
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
         ColumnPtr argument_columns[2];
         bool col_const[2];
         for (int i = 0; i < 2; ++i) {
@@ -461,7 +461,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto null_map = NullMap(input_rows_count, false);
 
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
@@ -504,7 +504,7 @@ public:
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
         if constexpr (is_allow_null) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
+            auto null_map = NullMap(input_rows_count, false);
             auto& null_map_data = null_map->get_data();
             if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
                 auto col_res = Impl::ColumnType::create();

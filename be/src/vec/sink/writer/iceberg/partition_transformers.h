@@ -19,6 +19,7 @@
 
 #include "runtime/types.h"
 #include "util/bit_util.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/functions/function_string.h"
 #include "vec/utils/stringop_substring.h"
@@ -150,11 +151,11 @@ public:
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr string_column_ptr;
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             string_column_ptr = nullable_column->get_nested_column_ptr();
             is_nullable = true;
         } else {
@@ -181,7 +182,7 @@ public:
                                          temp_block.rows());
         if (is_nullable) {
             auto res_column = ColumnNullable::create(
-                    temp_block.get_by_position(result_column_id).column, null_map_column_ptr);
+                    temp_block.get_by_position(result_column_id).column, null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -212,13 +213,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt32*>(column_ptr.get())->get_data();
@@ -239,7 +240,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -269,13 +270,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
@@ -296,7 +297,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -325,11 +326,11 @@ public:
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
             is_nullable = true;
         } else {
@@ -357,7 +358,7 @@ public:
         }
 
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -388,13 +389,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt32*>(column_ptr.get())->get_data();
@@ -418,7 +419,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -449,13 +450,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnInt64*>(column_ptr.get())->get_data();
@@ -479,7 +480,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -512,13 +513,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDecimal<PT>*>(column_ptr.get())->get_data();
@@ -545,7 +546,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -588,13 +589,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -623,7 +624,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -654,13 +655,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -693,7 +694,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -732,13 +733,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto* str_col = assert_cast<const ColumnString*>(column_ptr.get());
@@ -764,7 +765,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -794,13 +795,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -826,7 +827,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -863,13 +864,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -895,7 +896,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -932,13 +933,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -964,7 +965,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -1001,13 +1002,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -1033,7 +1034,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -1070,13 +1071,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateV2*>(column_ptr.get())->get_data();
@@ -1102,7 +1103,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -1144,13 +1145,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -1176,7 +1177,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -1217,13 +1218,13 @@ public:
         CHECK(column_ptr);
 
         //2) get the input data from block
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
                     reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
             is_nullable = true;
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         }
         const auto& in_data = assert_cast<const ColumnDateTimeV2*>(column_ptr.get())->get_data();
@@ -1249,7 +1250,7 @@ public:
 
         //4) create the partition column and return
         if (is_nullable) {
-            auto res_column = ColumnNullable::create(std::move(col_res), null_map_column_ptr);
+            auto res_column = ColumnNullable::create(std::move(col_res), null_map);
             return {std::move(res_column), make_nullable(get_result_type()),
                     column_with_type_and_name.name};
         } else {
@@ -1282,10 +1283,10 @@ public:
         const ColumnWithTypeAndName& column_with_type_and_name = block.get_by_position(column_pos);
 
         ColumnPtr column_ptr;
-        ColumnPtr null_map_column_ptr;
+        NullMap null_map(0, false);
         if (auto* nullable_column =
                     check_and_get_column<ColumnNullable>(column_with_type_and_name.column.get())) {
-            null_map_column_ptr = nullable_column->get_null_map_column_ptr();
+            null_map = nullable_column->get_null_map_data();
             column_ptr = nullable_column->get_nested_column_ptr();
         } else {
             column_ptr = column_with_type_and_name.column;
