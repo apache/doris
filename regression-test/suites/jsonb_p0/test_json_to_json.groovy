@@ -18,6 +18,13 @@
 
 suite("test_jsonb_to_json") {
 
+    sql """ 
+        set DEBUG_SKIP_FOLD_CONSTANT = true;
+    """
+    // Because there are currently display issues with JSON parsing on the frontend. 
+    // For example, the number 123456789.123456789 will be displayed as 1.2345678912345679E8. 
+    // Therefore, frontend calculations are disabled here.
+
     qt_sql """
         select to_json(123) ,  to_json(123.4);
     """

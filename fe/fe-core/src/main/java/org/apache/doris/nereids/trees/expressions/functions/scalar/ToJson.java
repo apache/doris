@@ -49,16 +49,16 @@ public class ToJson extends ScalarFunction
         implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(TinyIntType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(SmallIntType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(IntegerType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(BigIntType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(LargeIntType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(BooleanType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(FloatType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(DoubleType.INSTANCE),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(DecimalV3Type.WILDCARD),
-            FunctionSignature.ret(JsonType.INSTANCE).varArgs(StringType.INSTANCE));
+            FunctionSignature.ret(JsonType.INSTANCE).args(TinyIntType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(LargeIntType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(BooleanType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(FloatType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(DoubleType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(JsonType.INSTANCE).args(StringType.INSTANCE));
 
     /**
      * constructor with 1 or more arguments.
