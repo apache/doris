@@ -415,6 +415,10 @@ public class OperationType {
 
     public static final short OP_ALTER_ROLE = 475;
 
+    // index policy 490 ~ 499
+    public static final short OP_CREATE_INDEX_POLICY = 490;
+    public static final short OP_DROP_INDEX_POLICY = 491;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

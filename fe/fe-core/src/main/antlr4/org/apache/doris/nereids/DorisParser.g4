@@ -180,6 +180,12 @@ supportedCreateStatement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | CREATE INVERTED INDEX ANALYZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexAnalyzer
+    | CREATE INVERTED INDEX TOKENIZER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexTokenizer
+    | CREATE INVERTED INDEX TOKEN_FILTER (IF NOT EXISTS)?
+        name=identifier properties=propertyClause?                                  #createIndexTokenFilter
     ;
 
 supportedAlterStatement
@@ -194,12 +200,18 @@ supportedAlterStatement
 supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
     | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
+    | DROP INVERTED INDEX ANALYZER (IF EXISTS)? name=identifier                 #dropIndexAnalyzer
+    | DROP INVERTED INDEX TOKENIZER (IF EXISTS)? name=identifier                #dropIndexTokenizer
+    | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     ;
 
 supportedShowStatement
     : SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW INVERTED INDEX ANALYZER                                                  #showIndexAnalyzer
+    | SHOW INVERTED INDEX TOKENIZER                                                 #showIndexTokenizer
+    | SHOW INVERTED INDEX TOKEN_FILTER                                              #showIndexTokenFilter
     ;
 
 supportedKillStatement
