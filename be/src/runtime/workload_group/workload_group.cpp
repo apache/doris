@@ -47,7 +47,6 @@ namespace doris {
 
 const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
-const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 const static int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
 const static int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
 
@@ -331,7 +330,12 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
     workload_group_info->cpu_share = cpu_share;
 
     // 5 cpu hard limit
-    int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
+    // cgroup v1 and v2 has different default cpu quota value,
+    // v1's default value is -1,
+    // v2's default value is 'max 100000',
+    // it's hard to unify them, so set -1 here means it's an invalid value,
+    // it could be replaced to default value when write value to cpu file, refer modify_cg_cpu_hard_limit_no_lock.
+    int cpu_hard_limit = -1;
     if (tworkload_group_info.__isset.cpu_hard_limit && tworkload_group_info.cpu_hard_limit > 0) {
         cpu_hard_limit = tworkload_group_info.cpu_hard_limit;
     }
