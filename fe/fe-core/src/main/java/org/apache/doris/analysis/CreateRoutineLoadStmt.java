@@ -218,44 +218,6 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(format);
     }
 
-    /*
-     * make stmt by nereids
-     */
-    public CreateRoutineLoadStmt(LabelName labelName, String dbName, String name, String tableName,
-            List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
-            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
-            int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
-            long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
-            String workloadGroupName, boolean loadToSingleTablet, boolean strictMode,
-            boolean isPartialUpdate, AbstractDataSourceProperties dataSourceProperties,
-            FileFormatProperties fileFormatProperties) {
-        this.labelName = labelName;
-        this.dbName = dbName;
-        this.name = name;
-        this.tableName = tableName;
-        this.loadPropertyList = loadPropertyList;
-        this.setOrigStmt(origStmt);
-        this.setUserInfo(userIdentity);
-        this.jobProperties = jobProperties;
-        this.typeName = typeName;
-        this.routineLoadDesc = routineLoadDesc;
-        this.desiredConcurrentNum = desireTaskConcurrentNum;
-        this.maxErrorNum = maxErrorNum;
-        this.maxFilterRatio = maxFilterRatio;
-        this.maxBatchIntervalS = maxBatchIntervalS;
-        this.maxBatchRows = maxBatchRows;
-        this.maxBatchSizeBytes = maxBatchSizeBytes;
-        this.execMemLimit = execMemLimit;
-        this.sendBatchParallelism = sendBatchParallelism;
-        this.timezone = timezone;
-        this.workloadGroupName = workloadGroupName;
-        this.loadToSingleTablet = loadToSingleTablet;
-        this.strictMode = strictMode;
-        this.isPartialUpdate = isPartialUpdate;
-        this.dataSourceProperties = dataSourceProperties;
-        this.fileFormatProperties = fileFormatProperties;
-    }
-
     public String getName() {
         return name;
     }

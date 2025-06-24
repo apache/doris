@@ -442,9 +442,6 @@ public abstract class RoutineLoadJob
             if (routineLoadDesc.hasSequenceCol()) {
                 sequenceCol = routineLoadDesc.getSequenceColName();
             }
-            if (stmt.getWorkloadGroupId() > 0) {
-                jobProperties.put(WORKLOAD_GROUP, String.valueOf(stmt.getWorkloadGroupId()));
-            }
         }
     }
 
@@ -1746,15 +1743,15 @@ public abstract class RoutineLoadJob
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
-        appendProperties(sb, PROPS_FORMAT, getFormat(), false);
+        appendProperties(sb, FileFormatProperties.PROP_FORMAT, getFormat(), false);
         if (isPartialUpdate) {
             appendProperties(sb, CreateRoutineLoadStmt.PARTIAL_COLUMNS, isPartialUpdate, false);
         }
-        appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
-        appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
-        appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
-        appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
-        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
+        appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
         appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
@@ -1828,7 +1825,7 @@ public abstract class RoutineLoadJob
         jobProperties.put("precedingFilter", precedingFilter == null ? STAR_STRING : precedingFilter.toSql());
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         if (getFormat().equalsIgnoreCase("json")) {
-            jobProperties.put(PROPS_FORMAT, "json");
+            jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
             jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
                     columnSeparator == null ? "\t" : columnSeparator.toString());
