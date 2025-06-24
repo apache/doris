@@ -34,11 +34,11 @@ RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& s
           _query(searcher, query_options, io_ctx) {}
 
 void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
-    if (query_info.terms.size() != 1) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "RegexpQuery::add: terms size != 1");
+    if (query_info.term_infos.empty()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "term_infos cannot be empty");
     }
 
-    const std::string& pattern = query_info.terms[0];
+    const std::string& pattern = query_info.term_infos[0].get_single_term();
     auto prefix = get_regex_prefix(pattern);
 
     hs_database_t* database = nullptr;
@@ -73,7 +73,7 @@ void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
 
     InvertedIndexQueryInfo new_query_info;
     new_query_info.field_name = query_info.field_name;
-    new_query_info.terms.swap(terms);
+    new_query_info.term_infos.emplace_back(std::move(terms), query_info.term_infos[0].position);
     _query.add(new_query_info);
 }
 

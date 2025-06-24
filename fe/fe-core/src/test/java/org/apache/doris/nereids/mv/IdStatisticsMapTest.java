@@ -59,6 +59,12 @@ public class IdStatisticsMapTest extends SqlTestBase {
                 return true;
             }
         };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv100 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
