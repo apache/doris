@@ -519,7 +519,7 @@ public class OlapTableSink extends DataSink {
             if (whereClause != null) {
                 Expr expr = syncMvWhereClauses.getOrDefault(pair.getKey(), null);
                 if (expr == null) {
-                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSql()));
+                    throw new AnalysisException(String.format("%s is not analyzed", whereClause.toSqlWithoutTbl()));
                 }
                 indexSchema.setWhereClause(expr.treeToThrift());
             }

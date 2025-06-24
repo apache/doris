@@ -2291,6 +2291,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_hive_views = true;
 
+    @ConfField(mutable = true)
+    public static boolean enable_query_iceberg_views = true;
+
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
      */
@@ -3147,7 +3150,7 @@ public class Config extends ConfigBase {
      * If you want to access a group of meta services, separated the endpoints by comma,
      * like "host-1:port,host-2:port".
      */
-    @ConfField
+    @ConfField(mutable = true, callback = CommaSeparatedIntersectConfHandler.class)
     public static String meta_service_endpoint = "";
 
     @ConfField(mutable = true)
@@ -3168,8 +3171,6 @@ public class Config extends ConfigBase {
 
     // A connection will expire after a random time during [base, 2*base), so that the FE
     // has a chance to connect to a new RS. Set zero to disable it.
-    //
-    // It only works if the meta_service_endpoint is not point to a group of meta services.
     @ConfField(mutable = true)
     public static int meta_service_connection_age_base_minutes = 5;
 

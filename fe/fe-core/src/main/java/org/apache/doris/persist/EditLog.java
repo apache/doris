@@ -59,6 +59,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
@@ -91,9 +93,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisJobInfo;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.NewPartitionLoadedEvent;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.statistics.UpdateRowsEvent;
@@ -1137,10 +1137,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_JOB: {
-                    if (journal.getData() instanceof AnalysisJobInfo) {
-                        // For rollback compatible.
-                        break;
-                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1149,10 +1145,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_ANALYSIS_TASK: {
-                    if (journal.getData() instanceof AnalysisTaskInfo) {
-                        // For rollback compatible.
-                        break;
-                    }
                     AnalysisInfo info = (AnalysisInfo) journal.getData();
                     if (AnalysisManager.needAbandon(info)) {
                         break;
@@ -1275,6 +1267,16 @@ public class EditLog {
                 case OperationType.OP_DICTIONARY_DEC_VERSION: {
                     DictionaryDecreaseVersionInfo info = (DictionaryDecreaseVersionInfo) journal.getData();
                     env.getDictionaryManager().replayDecreaseVersion(info);
+                    break;
+                }
+                case OperationType.OP_CREATE_INDEX_POLICY: {
+                    IndexPolicy log = (IndexPolicy) journal.getData();
+                    env.getIndexPolicyMgr().replayCreateIndexPolicy(log);
+                    break;
+                }
+                case OperationType.OP_DROP_INDEX_POLICY: {
+                    DropIndexPolicyLog log = (DropIndexPolicyLog) journal.getData();
+                    env.getIndexPolicyMgr().replayDropIndexPolicy(log);
                     break;
                 }
                 default: {
@@ -2062,6 +2064,14 @@ public class EditLog {
 
     public void logDropPolicy(DropPolicyLog log) {
         logEdit(OperationType.OP_DROP_POLICY, log);
+    }
+
+    public void logCreateIndexPolicy(IndexPolicy policy) {
+        logEdit(OperationType.OP_CREATE_INDEX_POLICY, policy);
+    }
+
+    public void logDropIndexPolicy(DropIndexPolicyLog policy) {
+        logEdit(OperationType.OP_DROP_INDEX_POLICY, policy);
     }
 
     public void logCatalogLog(short id, CatalogLog log) {

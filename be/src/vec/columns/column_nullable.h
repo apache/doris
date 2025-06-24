@@ -133,7 +133,7 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnNullable>;
-    static Ptr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
+    static MutablePtr create(const ColumnPtr& nested_column_, const ColumnPtr& null_map_) {
         return ColumnNullable::create(nested_column_->assume_mutable(),
                                       null_map_->assume_mutable());
     }
@@ -276,7 +276,7 @@ public:
     size_t filter(const Filter& filter) override;
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
 

@@ -173,7 +173,8 @@ public:
                                "filter not supported in ColumnDictionary");
     }
 
-    [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    [[noreturn]] MutableColumnPtr permute(const IColumn::Permutation& perm,
+                                          size_t limit) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "permute not supported in ColumnDictionary");
     }

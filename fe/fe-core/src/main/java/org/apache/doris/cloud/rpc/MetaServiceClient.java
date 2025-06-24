@@ -48,7 +48,6 @@ public class MetaServiceClient {
     private final MetaServiceGrpc.MetaServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long expiredAt;
-    private final boolean isMetaServiceEndpointList;
     private Random random = new Random();
 
     static {
@@ -64,10 +63,8 @@ public class MetaServiceClient {
     public MetaServiceClient(String address) {
         this.address = address;
 
-        isMetaServiceEndpointList = address.contains(",");
-
         String target = address;
-        if (isMetaServiceEndpointList) {
+        if (address.contains(",")) {
             target = MetaServiceListResolverProvider.MS_LIST_SCHEME_PREFIX + address;
         }
 
@@ -87,8 +84,7 @@ public class MetaServiceClient {
 
     private long connectionAgeExpiredAt() {
         long connectionAgeBase = Config.meta_service_connection_age_base_minutes;
-        // Disable connection age if the endpoint is a list.
-        if (!isMetaServiceEndpointList && connectionAgeBase > 1) {
+        if (connectionAgeBase > 0) {
             long base = TimeUnit.MINUTES.toMillis(connectionAgeBase);
             long now = System.currentTimeMillis();
             long rand = random.nextLong() % base;
