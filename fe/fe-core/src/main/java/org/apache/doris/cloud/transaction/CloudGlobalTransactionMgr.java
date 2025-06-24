@@ -626,7 +626,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
+        executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment);
+    }
 
+    private void executeCommitTxnRequest(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
         if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.executeCommitTxnRequest.block")) {
             LOG.info("debug point: block at CloudGlobalTransactionMgr.executeCommitTxnRequest.block");
             while (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.executeCommitTxnRequest.block")) {
@@ -644,7 +648,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         TxnStateChangeCallback cb = null;
         long callbackId = 0L;
         try {
-            txnState = commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
+            txnState = commitTxn(commitTxnRequest, transactionId, is2PC);
             txnOperated = true;
             if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
                 throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
@@ -671,8 +675,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC, long dbId,
-            List<Table> tableList) throws UserException {
+    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC)
+            throws UserException {
         CommitTxnResponse commitTxnResponse = null;
         TransactionState txnState = null;
         int retryTime = 0;
@@ -1242,9 +1246,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         TransactionState txnState = null;
         boolean txnOperated = false;
         try {
-            txnState = commitTxn(commitTxnRequest, transactionId, false, db.getId(),
-                    subTransactionStates.stream().map(SubTransactionState::getTable)
-                        .collect(Collectors.toList()));
+            txnState = commitTxn(commitTxnRequest, transactionId, false);
             txnOperated = true;
         } finally {
             if (txnState != null) {
@@ -1275,19 +1277,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    @Override
-    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+    private void beforeCommitTransaction(List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
-        // There is no publish in cloud mode
-        commitAndPublishTransaction(
-                db, tableList, transactionId, tabletCommitInfos, timeoutMillis, txnCommitAttachment);
-    }
-
-    @Override
-    public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
-                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-                                               TxnCommitAttachment txnCommitAttachment) throws UserException {
         for (int i = 0; i < tableList.size(); i++) {
             long tableId = tableList.get(i).getId();
             LOG.info("start commit txn=" + transactionId + ",table=" + tableId);
@@ -1343,12 +1334,32 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         + ", transactionId=" + transactionId + ", cost=" + costTimeMs + " ms");
             }
         }
+    }
 
+    private void afterCommitTransaction(List<Table> tableList, Long transactionId) {
+        List<Table> tablesToUnlock = getTablesNeedCommitLock(tableList);
+        decreaseWaitingLockCount(tablesToUnlock);
+        MetaLockUtils.commitUnlockTables(tablesToUnlock);
+    }
+
+    @Override
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        // There is no publish in cloud mode
+        commitAndPublishTransaction(
+                db, tableList, transactionId, tabletCommitInfos, timeoutMillis, txnCommitAttachment);
+    }
+
+    @Override
+    public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+                                               TxnCommitAttachment txnCommitAttachment) throws UserException {
+        beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
             commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
         } finally {
-            decreaseWaitingLockCount(tablesToLock);
-            MetaLockUtils.commitUnlockTables(tablesToLock);
+            afterCommitTransaction(tableList, transactionId);
         }
         return true;
     }
