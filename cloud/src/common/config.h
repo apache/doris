@@ -335,4 +335,6 @@ CONF_mString(ca_cert_file_paths,
              "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
              "/etc/ssl/ca-bundle.pem");
 
+CONF_mBool(enable_record_mow_lock_idle_time, "false");
+CONF_mInt64(mow_lock_idle_time_record_threshold, "120"); // in seconds
 } // namespace doris::cloud::config

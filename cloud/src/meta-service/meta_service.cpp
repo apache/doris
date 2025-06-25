@@ -65,6 +65,7 @@
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
+#include "txn_kv_error.h"
 
 using namespace std::chrono;
 
@@ -2934,6 +2935,47 @@ bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::
     return true;
 }
 
+void update_mow_lock_last_release_time(const std::string& instance_id, int64_t table_id,
+                                       std::unique_ptr<Transaction>& txn, std::string_view prefix) {
+    // update mow lock last release time
+    std::string lock_last_release_key = stats_mow_lock_last_release_key({instance_id, table_id});
+    int64_t now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    txn->atomic_max(lock_last_release_key, static_cast<uint64_t>(now));
+    LOG_INFO("[verbose] {} maybe update_mow_lock_last_release_time", prefix)
+            .tag("instance_id", instance_id)
+            .tag("table_id", table_id)
+            .tag("current_time_ms", now)
+            .tag("lock_last_release_key", hex(lock_last_release_key));
+}
+
+static void record_mow_lock_idle_time(const std::string& instance_id, int64_t table_id,
+                                      std::shared_ptr<TxnKv>& txn_kv, std::string_view prefix) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) return;
+    std::string lock_last_release_key = stats_mow_lock_last_release_key({instance_id, table_id});
+    std::string val;
+    err = txn->get(lock_last_release_key, &val);
+    if (err != TxnErrorCode::TXN_OK) return; // just ignore the error
+    DCHECK(val.size() == sizeof(uint64_t));
+    uint64_t last_release_time;
+    std::memcpy(&last_release_time, val.data(), sizeof(uint64_t));
+    uint64_t current_time =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    uint64_t idle_time = current_time - last_release_time;
+    using namespace std::chrono_literals;
+    auto threshold = seconds {config::mow_lock_idle_time_record_threshold};
+    if (idle_time < duration_cast<milliseconds>(threshold).count()) {
+        LOG_INFO("[verbose] {} record_mow_lock_idle_time", prefix)
+                .tag("instance_id", instance_id)
+                .tag("table_id", table_id)
+                .tag("current_time_ms", current_time)
+                .tag("last_release_time_ms", last_release_time)
+                .tag("idle_time_ms", idle_time);
+        g_bvar_ms_mow_delete_bitmap_update_lock_idle_time << idle_time;
+    }
+}
+
 void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         google::protobuf::RpcController* controller,
         const GetDeleteBitmapUpdateLockRequest* request,
@@ -2965,11 +3007,14 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
             code = MetaServiceCode::KV_TXN_GET_ERR;
             return;
         }
+        bool is_first_get_lock {false};
+
         using namespace std::chrono;
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         int64_t expiration = now + request->expiration();
         bool lock_key_not_found = false;
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            is_first_get_lock = true;
             lock_key_not_found = true;
             std::string current_lock_msg = "lock key not found";
             lock_info.set_lock_id(request->lock_id());
@@ -3012,6 +3057,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                               << " expiration=" << lock_info.expiration() << " now=" << now
                               << " initiator_size=" << lock_info.initiators_size();
                     lock_info.clear_initiators();
+                    is_first_get_lock = true;
                 } else if (lock_info.lock_id() != request->lock_id()) {
                     ss << "already be locked by lock_id=" << lock_info.lock_id()
                        << " expiration=" << lock_info.expiration() << " now=" << now
@@ -3123,6 +3169,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                         return;
                     }
                     // all compaction is expired
+                    is_first_get_lock = true;
                     lock_info.set_lock_id(request->lock_id());
                     lock_info.set_expiration(expiration);
                     lock_info.clear_initiators();
@@ -3142,6 +3189,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
         TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock:commit:conflict", &first_retry,
                                  &err);
         if (err == TxnErrorCode::TXN_OK) {
+            if (is_first_get_lock && config::enable_record_mow_lock_idle_time) {
+                record_mow_lock_idle_time(instance_id, request->table_id(), txn_kv_,
+                                          (request->lock_id() > 0) ? "load" : "compaction");
+            }
             break;
         } else if (err == TxnErrorCode::TXN_CONFLICT && lock_key_not_found &&
                    request->lock_id() == COMPACTION_DELETE_BITMAP_LOCK_ID &&
@@ -3198,6 +3249,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         code = MetaServiceCode::KV_TXN_GET_ERR;
         return;
     }
+    bool is_first_get_lock {err == TxnErrorCode::TXN_KEY_NOT_FOUND};
+
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     if (err == TxnErrorCode::TXN_OK) {
@@ -3210,6 +3263,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
             LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                       << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
             lock_info.clear_initiators();
+            is_first_get_lock = true;
         } else if (lock_info.lock_id() != request->lock_id()) {
             ss << "already be locked. request lock_id=" << request->lock_id()
                << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
@@ -3249,6 +3303,11 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
         ss << "failed to get_delete_bitmap_update_lock, err=" << err;
         msg = ss.str();
         return;
+    }
+
+    if (is_first_get_lock && config::enable_record_mow_lock_idle_time) {
+        record_mow_lock_idle_time(instance_id, request->table_id(), txn_kv_,
+                                  (request->lock_id() > 0) ? "load" : "compaction");
     }
 
     if (!get_mow_tablet_stats_and_meta(code, msg, request, response, instance_id, lock_key, "v1")) {
@@ -3323,6 +3382,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v2(
             txn->put(lock_key, lock_val);
         }
     }
+    if (config::enable_record_mow_lock_idle_time) {
+        update_mow_lock_last_release_time(instance_id, request->table_id(), txn, "compaction");
+    }
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_CONFLICT) {
@@ -3379,6 +3441,9 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock_v1(
         LOG(INFO) << "remove delete bitmap lock, table_id=" << request->table_id()
                   << " lock_id=" << request->lock_id() << " key=" << hex(lock_key);
         txn->remove(lock_key);
+        if (config::enable_record_mow_lock_idle_time) {
+            update_mow_lock_last_release_time(instance_id, request->table_id(), txn, "compaction");
+        }
     } else {
         lock_info.SerializeToString(&lock_val);
         if (lock_val.empty()) {

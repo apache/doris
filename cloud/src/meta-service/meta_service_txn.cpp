@@ -970,7 +970,9 @@ void process_mow_when_commit_txn(
         txn->remove(lock_keys[i]);
         LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
                   << " table_id=" << table_id << " txn_id=" << txn_id;
-
+        if (config::enable_record_mow_lock_idle_time) {
+            update_mow_lock_last_release_time(instance_id, table_id, txn, "load");
+        }
         for (auto tablet_id : table_id_tablet_ids[table_id]) {
             std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
             txn->remove(pending_key);

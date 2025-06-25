@@ -281,4 +281,7 @@ bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t
                        int64_t partition_id);
 
 std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta);
+
+void update_mow_lock_last_release_time(const std::string& instance_id, int64_t table_id,
+                                       std::unique_ptr<Transaction>& txn, std::string_view prefix);
 } // namespace doris::cloud
