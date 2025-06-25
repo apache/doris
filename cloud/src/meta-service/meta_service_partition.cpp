@@ -631,9 +631,8 @@ void check_create_table(std::string instance_id, std::shared_ptr<TxnKv> txn_kv,
         return;
     }
     DORIS_CLOUD_DEFER {
-        if (txn != nullptr) {
-            stats.get_counter += txn->num_get_keys();
-        }
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
     };
     auto& [keys, hint, key_func] = get_check_info(request);
     if (keys.empty()) {

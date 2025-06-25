@@ -28,11 +28,8 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
-#include <random>
-#include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -45,7 +42,6 @@
 #include "meta-service/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
-#include "resource-manager/resource_manager.h"
 
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";

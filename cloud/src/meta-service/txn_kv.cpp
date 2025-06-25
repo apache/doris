@@ -399,6 +399,7 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     const uint8_t* ret;
     int len;
     err = fdb_future_get_value(fut, &found, &ret, &len);
+    num_get_keys_++;
 
     if (err) {
         LOG(WARNING) << __PRETTY_FUNCTION__
@@ -408,7 +409,6 @@ TxnErrorCode Transaction::get(std::string_view key, std::string* val, bool snaps
     }
 
     if (!found) return TxnErrorCode::TXN_KEY_NOT_FOUND;
-    num_get_keys_++;
     *val = std::string((char*)ret, len);
     return TxnErrorCode::TXN_OK;
 }

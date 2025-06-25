@@ -271,6 +271,8 @@ TxnErrorCode Transaction::get(std::string_view begin, std::string_view end,
                               int limit) {
     TEST_SYNC_POINT_CALLBACK("memkv::Transaction::get", &limit);
     std::lock_guard<std::mutex> l(lock_);
+    num_get_keys_++;
+    kv_->get_count_++;
     std::string begin_k(begin.data(), begin.size());
     std::string end_k(end.data(), end.size());
     // TODO: figure out what happen if range_get has part of unreadable_keys
@@ -301,8 +303,6 @@ TxnErrorCode Transaction::inner_get(const std::string& key, std::string* val, bo
             return TxnErrorCode::TXN_KEY_NOT_FOUND;
         }
     }
-    num_get_keys_++;
-    kv_->get_count_++;
     return TxnErrorCode::TXN_OK;
 }
 

@@ -150,6 +150,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
         msg = ss.str();
         return;
     }
+    // get count before txn reset, if not we will lose these count
     stats.get_counter += txn->num_get_keys();
     stats.put_counter += txn->num_put_keys();
     //2. Get txn id from version stamp
@@ -782,9 +783,7 @@ void scan_tmp_rowset(
         return;
     }
     DORIS_CLOUD_DEFER {
-        if (stats && txn) {
-            stats->get_counter += txn->num_get_keys();
-        }
+        if (stats && txn) stats->get_counter += txn->num_get_keys();
     };
 
     // Get db id with txn id
@@ -1022,11 +1021,10 @@ void commit_txn_immediately(
             return;
         }
         DORIS_CLOUD_DEFER {
-            if (txn != nullptr) {
-                stats.get_counter += txn->num_get_keys();
-                stats.put_counter += txn->num_put_keys();
-                stats.del_counter += txn->num_del_keys();
-            }
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
         };
 
         // Get txn info with db_id and txn_id
@@ -1608,11 +1606,10 @@ void commit_txn_eventually(
             return;
         }
         DORIS_CLOUD_DEFER {
-            if (txn != nullptr) {
-                stats.get_counter += txn->num_get_keys();
-                stats.put_counter += txn->num_put_keys();
-                stats.del_counter += txn->num_del_keys();
-            }
+            if (txn == nullptr) return;
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
         };
 
         // tablet_id -> {table/index/partition}_id
@@ -1979,11 +1976,10 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         return;
     }
     DORIS_CLOUD_DEFER {
-        if (txn != nullptr) {
-            stats.get_counter += txn->num_get_keys();
-            stats.put_counter += txn->num_put_keys();
-            stats.del_counter += txn->num_del_keys();
-        }
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
     };
 
     // Get db id with txn id
@@ -3657,11 +3653,10 @@ TxnErrorCode internal_clean_label(std::shared_ptr<TxnKv> txn_kv, const std::stri
         return err;
     }
     DORIS_CLOUD_DEFER {
-        if (txn != nullptr) {
-            stats.get_counter += txn->num_get_keys();
-            stats.put_counter += txn->num_put_keys();
-            stats.del_counter += txn->num_del_keys();
-        }
+        if (txn == nullptr) return;
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
     };
 
     err = txn->get(label_key, &label_val);
@@ -3819,9 +3814,8 @@ void MetaServiceImpl::clean_txn_label(::google::protobuf::RpcController* control
                 return;
             }
             DORIS_CLOUD_DEFER {
-                if (txn != nullptr) {
-                    stats.get_counter += txn->num_get_keys();
-                }
+                if (txn == nullptr) return;
+                stats.get_counter += txn->num_get_keys();
             };
 
             err = txn->get(begin_label_key, end_label_key, &it, snapshot, limit);
