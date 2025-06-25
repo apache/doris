@@ -818,3 +818,49 @@ TEST(TxnKvTest, FullRangeGetIterator) {
                   << "ms" << std::endl;
     }
 }
+
+TEST(TxnKvTest, DocumentPutRowsetMeta) {
+    config::enable_split_rowset_meta_pb = true;
+    config::split_rowset_meta_pb_size = 0; // Always split the rowset meta pb.
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    doris::RowsetMetaCloudPB meta;
+    meta.set_rowset_id(123);
+    meta.set_rowset_id_v2("document_put_rowset_meta");
+    meta.set_start_version(10000);
+    meta.set_end_version(10005);
+    meta.set_num_rows(100);
+    meta.set_num_segments(1);
+    doris::KeyBoundsPB* key_bounds = meta.mutable_segments_key_bounds()->Add();
+    key_bounds->set_min_key("min_key");
+    key_bounds->set_max_key("max_key");
+
+    std::string rowset_meta_key =
+            meta_rowset_key({meta.rowset_id_v2(), meta.end_version(), meta.num_segments()});
+    {
+        // create a txn , and put rowset meta
+        doris::RowsetMetaCloudPB meta_copy(meta);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(document_put(txn.get(), rowset_meta_key, std::move(meta_copy)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // create a txn , and get rowset meta
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::RowsetMetaCloudPB saved_meta;
+        ASSERT_EQ(document_get(txn.get(), rowset_meta_key, &saved_meta), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(saved_meta.rowset_id_v2(), meta.rowset_id_v2());
+        ASSERT_EQ(saved_meta.end_version(), meta.end_version());
+        ASSERT_EQ(saved_meta.start_version(), meta.start_version());
+        ASSERT_EQ(saved_meta.num_rows(), meta.num_rows());
+        ASSERT_EQ(saved_meta.num_segments(), meta.num_segments());
+        ASSERT_EQ(saved_meta.segments_key_bounds_size(), 1);
+        ASSERT_EQ(saved_meta.segments_key_bounds(0).min_key(), "min_key");
+        ASSERT_EQ(saved_meta.segments_key_bounds(0).max_key(), "max_key");
+    }
+
+    ASSERT_GE(txn_kv->total_kvs(), 2);
+}

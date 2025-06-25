@@ -21,9 +21,11 @@
 #include <bthread/butex.h>
 #include <butil/iobuf.h>
 #include <google/protobuf/util/json_util.h>
+#include <google/protobuf/util/field_mask_util.h>
 
 // FIXME: we should not rely other modules that may rely on this common module
 #include "common/logging.h"
+#include "common/config.h"
 #include "meta-service/keys.h"
 #include "meta-service/codec.h"
 #include "meta-service/txn_kv.h"
@@ -364,6 +366,112 @@ void blob_put(Transaction* txn, std::string_view key, std::string_view value, ui
         encode_int64(suffix_base + i, &k);
         txn->put(k, split_vec[i]);
     }
+}
+
+bool document_put_generic_message(Transaction* txn, std::string_view key,
+                                  google::protobuf::Message&& pb) {
+    std::string value;
+    if (!pb.SerializeToString(&value)) {
+        return false;
+    }
+    txn->put(key, value);
+    return true;
+}
+
+bool document_put_rowset_meta(Transaction* txn, std::string_view key, RowsetMetaCloudPB&& pb) {
+    using google::protobuf::RepeatedPtrField;
+
+    if (!config::enable_split_rowset_meta_pb) {
+        return document_put_generic_message(txn, key, std::move(pb));
+    }
+
+    if (pb.GetCachedSize() < config::split_rowset_meta_pb_size) {
+        // If the size is small enough, we can just put it directly
+        return document_put_generic_message(txn, key, std::move(pb));
+    }
+
+    RepeatedPtrField<KeyBoundsPB> segments_key_bounds;
+    pb.mutable_segments_key_bounds()->Swap(&segments_key_bounds);
+
+    std::string value;
+    if (!pb.SerializeToString(&value)) {
+        return false;
+    }
+    txn->put(key, value);
+
+    size_t num_key_bounds = segments_key_bounds.size();
+    for (size_t i = 0; i < num_key_bounds; ++i) {
+        const KeyBoundsPB& key_bounds = segments_key_bounds.Get(i);
+        value.clear();
+        if (!key_bounds.SerializeToString(&value)) {
+            return false;
+        };
+
+        std::string key_bound_key(key);
+        encode_bytes("key_bounds", &key_bound_key);
+        encode_int64(static_cast<int64_t>(i), &key_bound_key); // Version 1 for key bounds
+        txn->put(key_bound_key, value);
+    }
+
+    return true;
+}
+
+TxnErrorCode document_get_generic_message(Transaction* txn, std::string_view key,
+                                          google::protobuf::Message* pb, bool snapshot) {
+    std::string value;
+    TxnErrorCode err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    if (!pb->ParseFromString(value)) {
+        return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+    }
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode document_get_rowset_meta(Transaction* txn, std::string_view key, RowsetMetaCloudPB* pb,
+                                      bool snapshot) {
+    using google::protobuf::RepeatedPtrField;
+
+    std::string_view begin = key;
+    std::string end(key);
+    end.push_back('\xff');
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(begin, end, &it, snapshot);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+
+    if (!it->has_next()) {
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+
+    auto [k, v] = it->next();
+    if (k != key) {
+        pb->Clear();
+        return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+    }
+
+    if (!pb->ParseFromArray(v.data(), v.size())) {
+        return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+    }
+
+    std::string key_bound_prefix(key);
+    encode_bytes("key_bounds", &key_bound_prefix);
+    while (it->has_next()) {
+        auto [k, v] = it->next();
+        if (!k.starts_with(key_bound_prefix)) {
+            pb->Clear();
+            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+        KeyBoundsPB* key_bounds = pb->mutable_segments_key_bounds()->Add();
+        if (!key_bounds->ParseFromArray(v.data(), v.size())) {
+            pb->Clear();
+            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+    }
+    return TxnErrorCode::TXN_OK;
 }
 
 } // namespace doris::cloud

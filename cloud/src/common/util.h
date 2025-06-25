@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "meta-service/txn_kv_error.h"
@@ -140,5 +143,56 @@ void blob_put(Transaction* txn, std::string_view key, const google::protobuf::Me
  */
 void blob_put(Transaction* txn, std::string_view key, std::string_view value, uint8_t ver,
               size_t split_size = 90 * 1000);
+
+/**
+ * Put a KV, the value is a protobuf message.
+ * @param txn fdb txn handler
+ * @param key encode key
+ * @param pb value to save
+ * @return true if put successfully, false if serialization failed
+ */
+template <typename Message>
+    requires std::is_base_of_v<google::protobuf::Message, Message> &&
+             std::is_same_v<std::remove_cv_t<Message>, Message>
+inline bool document_put(Transaction* txn, std::string_view key, Message&& pb) {
+    bool document_put_generic_message(Transaction * txn, std::string_view key,
+                                      google::protobuf::Message && pb);
+    return document_put_generic_message(txn, key, std::move(pb));
+}
+
+// The specialization for RowsetMetaCloudPB.
+template <>
+inline bool document_put<RowsetMetaCloudPB>(Transaction* txn, std::string_view key,
+                                            RowsetMetaCloudPB&& pb) {
+    bool document_put_rowset_meta(Transaction * txn, std::string_view key, RowsetMetaCloudPB && pb);
+    return document_put_rowset_meta(txn, key, std::move(pb));
+}
+
+/**
+ * Get a KV, the value is a protobuf message.
+ * @param txn fdb txn handler
+ * @param key encode key
+ * @param pb return value, must be a protobuf message
+ * @param snapshot if true, `key` will not be included in txn conflict detection this time
+ * @return TXN_OK for success get a key, TXN_KEY_NOT_FOUND for key not found, otherwise for error.
+ */
+template <typename Message>
+    requires std::is_base_of_v<google::protobuf::Message, Message> &&
+             std::is_same_v<std::remove_cv_t<Message>, Message>
+inline TxnErrorCode document_get(Transaction* txn, std::string_view key, Message* pb,
+                                 bool snapshot = false) {
+    TxnErrorCode document_get_generic_message(Transaction * txn, std::string_view key, Message * pb,
+                                              bool snapshot);
+    return document_get_generic_message(txn, key, pb, snapshot);
+}
+
+// The specialization for RowsetMetaCloudPB.
+template <>
+inline TxnErrorCode document_get<RowsetMetaCloudPB>(Transaction* txn, std::string_view key,
+                                                    RowsetMetaCloudPB* pb, bool snapshot) {
+    TxnErrorCode document_get_rowset_meta(Transaction * txn, std::string_view key,
+                                          RowsetMetaCloudPB * pb, bool snapshot);
+    return document_get_rowset_meta(txn, key, pb, snapshot);
+}
 
 } // namespace doris::cloud
