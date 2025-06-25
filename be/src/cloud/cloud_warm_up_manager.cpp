@@ -456,7 +456,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta) {
                   << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         return;
     }
-    int64_t now_ts = std::chrono::duration_cast<std::chrono::seconds>(
+    int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
                              .count();
     g_file_cache_warm_up_rowset_last_call_unix_ts.set_value(now_ts);
