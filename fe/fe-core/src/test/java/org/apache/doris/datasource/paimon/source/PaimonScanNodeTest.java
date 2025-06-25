@@ -145,7 +145,7 @@ public class PaimonScanNodeTest {
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1,5", result.get("incremental-between"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(2, result.size());
+        Assert.assertEquals(3, result.size());
 
         // 3. startSnapshotId + endSnapshotId + incrementalBetweenScanMode
         params.clear();
@@ -156,14 +156,16 @@ public class PaimonScanNodeTest {
         Assert.assertEquals("2,8", result.get("incremental-between"));
         Assert.assertEquals("diff", result.get("incremental-between-scan-mode"));
         Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-        Assert.assertEquals(3, result.size());
+        Assert.assertEquals(4, result.size());
 
         // 4. Only startTimestamp
         params.clear();
         params.put("startTimestamp", "1000");
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1000," + Long.MAX_VALUE, result.get("incremental-between-timestamp"));
-        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+        Assert.assertTrue(result.containsKey("scan.snapshot-id") && result.get("scan.snapshot-id") == null);
+        Assert.assertEquals(3, result.size());
 
         // 5. Both startTimestamp and endTimestamp
         params.clear();
@@ -171,7 +173,9 @@ public class PaimonScanNodeTest {
         params.put("endTimestamp", "2000");
         result = PaimonScanNode.validateIncrementalReadParams(params);
         Assert.assertEquals("1000,2000", result.get("incremental-between-timestamp"));
-        Assert.assertEquals(1, result.size());
+        Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+        Assert.assertTrue(result.containsKey("scan.snapshot-id") && result.get("scan.snapshot-id") == null);
+        Assert.assertEquals(3, result.size());
 
         // Test invalid parameter combinations
 
@@ -362,7 +366,8 @@ public class PaimonScanNodeTest {
             Assert.assertEquals("1,5", result.get("incremental-between"));
             Assert.assertEquals(mode, result.get("incremental-between-scan-mode"));
             Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
-            Assert.assertEquals(3, result.size());
+            Assert.assertTrue(result.containsKey("scan.mode") && result.get("scan.mode") == null);
+            Assert.assertEquals(4, result.size());
         }
 
         // 18. Test no parameters at all
