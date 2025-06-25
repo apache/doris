@@ -57,6 +57,11 @@ public:
     TxnErrorCode get_kv(const std::string& begin, const std::string& end, int64_t version,
                         int limit, bool* more, std::map<std::string, std::string>* kv_list);
 
+    size_t total_kvs() const {
+        std::lock_guard<std::mutex> l(lock_);
+        return mem_kv_.size();
+    }
+
 private:
     using OpTuple = std::tuple<memkv::ModifyOpType, std::string, std::string>;
     TxnErrorCode update(const std::set<std::string>& read_set, const std::vector<OpTuple>& op_list,
@@ -90,7 +95,7 @@ private:
 
     std::map<std::string, std::list<Version>> mem_kv_;
     std::unordered_map<std::string, std::list<LogItem>> log_kv_;
-    std::mutex lock_;
+    mutable std::mutex lock_;
     int64_t committed_version_ = 0;
     int64_t read_version_ = 0;
 };
