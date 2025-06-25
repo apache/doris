@@ -639,6 +639,149 @@ public:
     }
 };
 
+template <typename A>
+struct SignBitImpl {
+    static constexpr PrimitiveType ResultType = TYPE_BOOLEAN;
+
+    static inline bool apply(A a) { return std::signbit(static_cast<Float64>(a)); }
+};
+
+struct NameSignBit {
+    static constexpr auto name = "signbit";
+};
+
+using FunctionSignBit = FunctionUnaryArithmetic<SignBitImpl, NameSignBit>;
+
+template <typename A>
+struct EvenImpl {
+    static constexpr PrimitiveType ResultType = TYPE_DOUBLE;
+
+    static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
+        double value;
+        double b = static_cast<Float64>(a);
+        if (b >= 0) {
+            value = std::ceil(b);
+        } else {
+            value = std::ceil(-b);
+            value = -value;
+        }
+        if (std::floor(value / 2) * 2 != value) {
+            value += (b >= 0) ? 1 : -1;
+        }
+        return static_cast<Float64>(value);
+    }
+};
+
+struct NameEven {
+    static constexpr auto name = "even";
+};
+
+using FunctionEven = FunctionUnaryArithmetic<EvenImpl, NameEven>;
+
+template <typename A, typename B>
+struct ResultOfGcd {
+    static constexpr PrimitiveType Type = NumberTraits::Construct < std::is_signed_v<A> ||
+                                          std::is_signed_v<B>,
+                                   false, NumberTraits::max(sizeof(A), sizeof(B)) > ::Type;
+};
+
+template <PrimitiveType AType, PrimitiveType BType>
+struct GcdImpl {
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
+    static constexpr bool is_integral = is_int(AType) && is_int(BType);
+    static constexpr PrimitiveType ResultType = ResultOfGcd<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
+    static const constexpr bool allow_decimal = false;
+
+    template <PrimitiveType Result = ResultType>
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+
+        if constexpr (is_integral) {
+            for (size_t i = 0; i < size; i++) {
+                c[i] = static_cast<typename PrimitiveTypeTraits<Result>::ColumnItemType>(
+                        std::gcd(a[i], b));
+            }
+        } else {
+            memset(null_map.data(), is_integral, size);
+        }
+    }
+
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::ColumnItemType apply(A a, B b,
+                                                                             UInt8& is_null) {
+        if constexpr (is_integral) {
+            return static_cast<typename PrimitiveTypeTraits<Result>::ColumnItemType>(
+                    std::gcd(a, b));
+        } else {
+            is_null = true;
+            return typename PrimitiveTypeTraits<Result>::ColumnItemType();
+        }
+    }
+};
+
+struct GcdName {
+    static constexpr auto name = "gcd";
+};
+
+using FunctionGcd = FunctionBinaryArithmetic<GcdImpl, GcdName, true>;
+
+template <typename A, typename B>
+struct ResultOfLcm {
+    static constexpr PrimitiveType Type = NumberTraits::Construct < std::is_signed_v<A> ||
+                                          std::is_signed_v<B>,
+                                   false,
+                                   NumberTraits::next_size(NumberTraits::max(sizeof(A),
+                                                                             sizeof(B))) > ::Type;
+};
+
+template <PrimitiveType AType, PrimitiveType BType>
+struct LcmImpl {
+    using A = typename PrimitiveTypeTraits<AType>::ColumnItemType;
+    using B = typename PrimitiveTypeTraits<BType>::ColumnItemType;
+    static constexpr bool is_integral = is_int(AType) && is_int(BType);
+    static constexpr PrimitiveType ResultType = ResultOfLcm<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<AType, BType>;
+    static const constexpr bool allow_decimal = false;
+
+    template <PrimitiveType Result = ResultType>
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename PrimitiveTypeTraits<Result>::ColumnType::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+
+        if constexpr (is_integral) {
+            for (size_t i = 0; i < size; i++) {
+                c[i] = static_cast<typename PrimitiveTypeTraits<Result>::ColumnItemType>(
+                        std::lcm(a[i], b));
+            }
+        } else {
+            memset(null_map.data(), is_integral, size);
+        }
+    }
+
+    template <PrimitiveType Result = ResultType>
+    static inline typename PrimitiveTypeTraits<Result>::ColumnItemType apply(A a, B b,
+                                                                             UInt8& is_null) {
+        if constexpr (is_integral) {
+            return static_cast<typename PrimitiveTypeTraits<Result>::ColumnItemType>(
+                    std::lcm(a, b));
+        } else {
+            is_null = true;
+            return typename PrimitiveTypeTraits<Result>::ColumnItemType();
+        }
+    }
+};
+
+struct LcmName {
+    static constexpr auto name = "lcm";
+};
+
+using FunctionLcm = FunctionBinaryArithmetic<LcmImpl, LcmName, true>;
+
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
@@ -683,5 +826,9 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
     factory.register_function<FunctionNormalCdf>();
+    factory.register_function<FunctionSignBit>();
+    factory.register_function<FunctionEven>();
+    factory.register_function<FunctionGcd>();
+    factory.register_function<FunctionLcm>();
 }
 } // namespace doris::vectorized

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 
+import org.apache.commons.math3.util.ArithmeticUtils;
 import org.apache.commons.math3.util.FastMath;
 
 import java.math.BigDecimal;
@@ -313,9 +314,9 @@ public class NumericArithmetic {
 
     /**
      * Method to check boundary with options for inclusive or exclusive boundaries
-      */
+     */
     public static Boolean inputOutOfBound(Literal input, double lowerBound, double upperBound,
-                                        boolean isLowerInclusive, boolean isUpperInclusive) {
+            boolean isLowerInclusive, boolean isUpperInclusive) {
         if (input instanceof DoubleLiteral) {
             double inputValue = ((DoubleLiteral) input).getValue();
             boolean lowerCheck = isLowerInclusive ? (inputValue >= lowerBound) : (inputValue > lowerBound);
@@ -687,6 +688,93 @@ public class NumericArithmetic {
     }
 
     /**
+     * signbit
+     */
+    @ExecFunction(name = "signbit")
+    public static Expression signbit(DoubleLiteral first) {
+        if (first.getValue() < 0) {
+            return BooleanLiteral.of(true);
+        } else {
+            return BooleanLiteral.of(false);
+        }
+    }
+
+    /**
+     * even
+     */
+    @ExecFunction(name = "even")
+    public static Expression even(DoubleLiteral first) {
+        double value;
+        double a = first.getValue();
+        if (a >= 0) {
+            value = Math.ceil(a);
+        } else {
+            value = Math.ceil(-a);
+            value = -value;
+        }
+        if (Math.floor(value / 2) * 2 != value) {
+            value += (a >= 0) ? 1 : -1;
+        }
+        return checkOutputBoundary(new DoubleLiteral(value));
+    }
+
+    /**
+     * gcd
+     */
+    @ExecFunction(name = "gcd")
+    public static Expression gcd(TinyIntLiteral first, TinyIntLiteral second) {
+        return new TinyIntLiteral((byte) ArithmeticUtils.gcd(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * gcd
+     */
+    @ExecFunction(name = "gcd")
+    public static Expression gcd(SmallIntLiteral first, SmallIntLiteral second) {
+        return new SmallIntLiteral((short) ArithmeticUtils.gcd(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * gcd
+     */
+    @ExecFunction(name = "gcd")
+    public static Expression gcd(IntegerLiteral first, IntegerLiteral second) {
+        return new IntegerLiteral(ArithmeticUtils.gcd(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * gcd
+     */
+    @ExecFunction(name = "gcd")
+    public static Expression gcd(BigIntLiteral first, BigIntLiteral second) {
+        return new BigIntLiteral(ArithmeticUtils.gcd(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * lcm
+     */
+    @ExecFunction(name = "lcm")
+    public static Expression lcm(TinyIntLiteral first, TinyIntLiteral second) {
+        return new SmallIntLiteral((short) ArithmeticUtils.lcm(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * lcm
+     */
+    @ExecFunction(name = "lcm")
+    public static Expression lcm(SmallIntLiteral first, SmallIntLiteral second) {
+        return new IntegerLiteral(ArithmeticUtils.lcm(first.getValue(), second.getValue()));
+    }
+
+    /**
+     * lcm
+     */
+    @ExecFunction(name = "lcm")
+    public static Expression lcm(IntegerLiteral first, IntegerLiteral second) {
+        return new BigIntLiteral(ArithmeticUtils.lcm(first.getValue(), second.getValue()));
+    }
+
+    /**
      * bit_count
      */
     @ExecFunction(name = "bit_count")
@@ -735,7 +823,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "bit_length")
     public static Expression bitLength(VarcharLiteral first) {
-        byte[] byteArray = first.getValue().getBytes(StandardCharsets.UTF_8);  // Convert to bytes in UTF-8
+        byte[] byteArray = first.getValue().getBytes(StandardCharsets.UTF_8); // Convert to bytes in UTF-8
         int byteLength = byteArray.length;
         return new IntegerLiteral(byteLength * Byte.SIZE);
     }
@@ -745,7 +833,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "bit_length")
     public static Expression bitLength(StringLiteral first) {
-        byte[] byteArray = first.getValue().getBytes(StandardCharsets.UTF_8);  // Convert to bytes in UTF-8
+        byte[] byteArray = first.getValue().getBytes(StandardCharsets.UTF_8); // Convert to bytes in UTF-8
         int byteLength = byteArray.length;
         return new IntegerLiteral(byteLength * Byte.SIZE);
     }
