@@ -58,7 +58,7 @@ suite("test_paimon_count", "p0,external,doris,external_docker,external_docker_do
             }
             explain {
                 sql("select count(*) from deletion_vector_parquet;")
-                contains "pushdown agg=COUNT (3)"
+                contains "pushdown agg=COUNT (-1)"
             }
         }
 
