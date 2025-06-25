@@ -64,7 +64,10 @@ suite("test_add_build_index_with_format_v2", "inverted_index_format_v2"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_build_index_on_partition_finish timeout")
     }
 
-    sql "set enable_light_add_index = false"
+    if (isCloudMode()) {
+        sql "set enable_light_add_index = false"
+    }
+
     sql "DROP TABLE IF EXISTS ${tableName}"
     
     sql """
