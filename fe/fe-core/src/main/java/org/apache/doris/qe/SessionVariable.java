@@ -2664,12 +2664,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableESParallelScroll;
     }
 
-    @VariableMgr.VarAttr(name = ENABLE_LIGHT_ADD_INDEX, fuzzy = true,
-    description = {
+    @VariableMgr.VarAttr(name = ENABLE_LIGHT_ADD_INDEX, fuzzy = true, description = {
             "是否启用ngram index的轻量级变更模式，开启时只变更元数据，关闭时进行数据转换重写",
             "Whether to enable lightweight index change mode for ngram index, "
-            + "when enabled only metadata is changed, "
-            + "when disabled data conversion rewrite is performed"
+                    + "when enabled only metadata is changed, when disabled data conversion rewrite is performed"
     })
     public boolean enableLightAddIndex = true;
 
