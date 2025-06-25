@@ -560,8 +560,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
         case orc::TypeKind::VARCHAR: {
             if (primitive_type == TYPE_STRING || primitive_type == TYPE_CHAR ||
                 primitive_type == TYPE_VARCHAR) {
-                StringRef* string_value = (StringRef*)value;
-                return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
+                return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
             }
             return std::make_tuple(false, orc::Literal(false));
         }
@@ -679,7 +678,6 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
     M(INT)                          \
     M(BIGINT)                       \
     M(LARGEINT)                     \
-    M(CHAR)                         \
     M(DATE)                         \
     M(DATETIME)                     \
     M(DATEV2)                       \
